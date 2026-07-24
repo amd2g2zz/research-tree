@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# skill runtime outputs — these are produced in a project workspace when the
+# skill runs, not part of the skill source itself
+research_drift/
+research/
+report.md
+
+# OS
+.DS_Store
+Thumbs.db
