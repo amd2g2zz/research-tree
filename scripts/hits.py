@@ -4,7 +4,8 @@ The agent invokes the anysearch + ddg SUB-SKILLS to gather raw hits, then pipes
 the combined list through this module to: normalise the many field names the two
 engines use, dedupe the same page seen via different engines (keeping the more
 credible witness and recording the others in `also_seen_from`), and score
-per-host credibility. The cleaned list is fed to `engine search-result`.
+per-host credibility. The cleaned list is a gatherer shortlist; it becomes
+evidence only after the page is locally saved and accepted by `engine evidence`.
 
 This is deliberately a leaf utility: it never reaches out to the network and
 never calls the sub-skills (the agent does that). It only does mechanical work
@@ -14,9 +15,18 @@ on whatever hits it is handed.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import sys
 from urllib.parse import urlparse
+
+# Windows: force UTF-8 stdout so output from anysearch containing non-GBK
+# characters (copyright marks, daggers, em-dashes) doesn't crash json.dumps.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except (AttributeError, io.UnsupportedOperation):
+        pass
 
 # Per-host credibility heuristics (substring matched against the host).
 # Tunable; the agent may override `credibility` on any individual hit.
@@ -47,7 +57,7 @@ def _host_of(url: str) -> str:
 
 
 def _ref(url: str, title: str) -> str:
-    return "e_" + hashlib.sha1((url or title).encode()).hexdigest()[:10]
+    return "e_" + hashlib.sha256((url or title).encode()).hexdigest()[:10]
 
 
 def normalize_hit(raw: dict) -> dict:

@@ -1,105 +1,156 @@
-# Algorithm: recursive descent + emergent DAG + PageRank
+# Algorithm: intent-constrained recursive research
 
-This reference explains *why* the skill is shaped the way it is. For the exact
-commands see `SKILL.md`; for data shapes see `contracts.md`.
+This document explains the control model behind the scripts. For command shapes
+see `SKILL.md`; for persisted objects see `contracts.md`.
 
-## The problem
+## Intent comes first
 
-Ordinary deep research fails two ways on a complex, vaguely-scoped question:
+The user provides an intent, which may contain arbitrary entities, exclusions,
+time conditions, audience requirements, and long-tail semantic constraints.
+Keep the raw wording as a versioned `IntentProgram`; compile it into clauses
+without reducing it to a fixed taxonomy. An unresolved hard clause pauses only
+the affected work and asks the smallest discriminating question.
 
-1. **It can't see cross-cutting problems.** Tree exploration is isolated per
-   branch, so a sub-problem that several branches actually depend on never
-   surfaces as the shared, central thing it is.
-2. **It expands but loses relevance.** "Find more about X" drifts; breadth grows
-   while precision collapses, because there is no priority signal.
+Before recursive research starts, one Intent Analyst produces an explicit
+requirements contract. This is a separate preflight, not the first descent
+step: it decides what the user actually asked to receive, what supplied
+material must be analysed, whether a design must be proposed, which external
+questions need research, and what acceptance criteria determine completion.
+For example, a request to write an experiment plan from user material requires
+material analysis and a feasible plan with controls/measurements; it is not
+satisfied by collecting a topical literature summary.
 
-This skill attacks both by growing a **DAG** (intersections become explicit) and
-using **PageRank** (an objective priority signal) — and both *emerge from the
-graph*, never pre-judged.
+The contract has three states:
 
-## Recursive descent — the resolver
+```text
+pending -> ready                 : research frames may be created
+pending -> needs_clarification   : no frame, query, provider call, or research worker
+needs_clarification -> pending   : user answers recorded; analyst revises the contract
+```
 
-A research question is parsed like a grammar. `parse(Q)`:
+Only a `ready` contract can create `research_frames` or accept `bootstrap`.
+`needs_clarification` is reserved for an ambiguity, contradiction, missing
+material, time interpretation, audience, success criterion, or similar detail
+that would materially change the result. The analyst asks the smallest
+decision-discriminating question, rather than guessing. A later clause-level
+clarification may block only an existing Frame, but it cannot bypass this
+preflight gate.
 
-- **terminal** (an atomic, searchable fact) → search → extract → answer.
-- **nonterminal** (compound) → decompose into sub-questions → `parse` each →
-  synthesise the children's answers into one answer.
-- **backtrack** on failure: if synthesis confidence < threshold (or children
-  contradict), re-decompose or add queries, within a per-node budget. This is
-  exactly a parser retrying the next production when one fails to match.
+The original wording is also the first search anchor. It prevents a broad topic
+from silently drifting to a more common but different entity.
 
-Traversal is depth-first, bounded by `max_depth` and `max_retries`. Recursive
-descent is the **resolution mechanism** — it answers "how do I resolve *this*
-node?" It does not decide *which* node to resolve next; PageRank does.
+## The recursive unit
 
-## Why a DAG, not a tree — memoisation surfaces cross-cuts
+Research advances through this derivation chain:
 
-If the same sub-question is reached from two different parents, a tree
-duplicates it (and never realises they're the same). A **DAG links to the
-existing node instead** (`engine grow --cross`). A node with multiple parents =
-a sub-problem that several branches depend on = a **cross-cutting problem** —
-precisely the high-value, hard-to-find one. The DAG is the data structure that
-makes intersections first-class. Edges are cycle-safe: `engine` rejects any edge
-that would create a cycle (a question can't depend on itself).
+```text
+Frame -> EvidenceVersion -> CognitionVersion -> InformationGap -> ChildFrame
+```
 
-## PageRank — emergent importance, the scheduler
+A saved page becomes evidence only after an agent accepts it. A cognition cites
+one or more evidence spans. A child frame can only be created from a cognition-
+backed information gap that names its discriminator and minimum evidence.
+Sources and keywords therefore cannot expand the graph directly.
 
-Edges are `parent → child` with a weight = how strongly the parent depends on
-the child (set by the agent at growth time, 0–1). Weighted PageRank then gives
-each node an importance = the weighted sum of the importances pointing at it.
+Derivation edges are acyclic and versioned. Semantic links such as `supports`,
+`contradicts`, `refines`, and `similar_to` live in the separate relation graph
+and may cycle.
 
-- **High in-degree from important parents ⇒ high PageRank ⇒ central /
-  cross-cutting.** This is *computed*, not judged — which dissolves the
-  relevance paradox: we never need to know upfront what matters; the grown graph
-  tells us, and it updates every round as the structure grows.
-- **Centroids:** communities are detected (Louvain) on the undirected projection
-  of the DAG; each community's highest-PageRank node is its **centroid** — the
-  representative "real question" of that cluster. Communities map roughly to
-  report chapters; centroids are their anchors.
-- **Proximity:** lexical Jaccard overlap with the (vague) root phrase is a *loose*
-  relevance anchor, never a hard filter. Pruning uses the **double-low rule**:
-  drop a node only if PageRank is low **and** root-proximity is low. Single-low
-  nodes are kept (they may be an emerging cross-cut nobody has linked yet).
+## Scheduling, merging, and convergence
 
-## The emergence argument — why relevance is not pre-specified
+The scheduler prioritises expected decision impact, uncertainty reduction,
+evidence availability, novelty, and cost. It reserves a bounded budget for
+counter-evidence and exploration. Provider choice is a transport decision based
+on availability, quota, rate limits, and cost; it is never a topic classifier.
 
-The whole value of research is discovering what you didn't know to ask. So
-requiring the agent to pre-write a "relevance contract" for each sub-question
-would be circular — if it already knew what mattered, it wouldn't need to
-research. Instead:
+Frames merge only when their focus, information gap, discriminator, applicable
+clauses, temporal scope, expected update, and evidence requirement are
+equivalent. A potentially useful frame that cannot run within budget is
+`deferred_budget`, not pruned. Terminal frames reopen when an Extractor
+explicitly links relevant new evidence with `contradicts_cognition_ids` or
+`updates_cognition_ids`; wording similarity alone never reopens a frame. Only
+affected deferred frontiers are reactivated.
 
-1. **Grow structure from evidence** (seed → broad search → extract sub-topics →
-   link, including cross-links to existing nodes).
-2. **Recompute PageRank** → centroids reveal the real questions.
-3. **Reframe** — rewrite the research frame from the centroids ("the vague
-   question actually resolves into these N central questions, M cross-cutting").
-   The root question is *sharpened by what was found*, and shown to the user
-   mid-research (progressive disclosure starts early).
+Execution converges when no active frame remains. Argument convergence also
+requires every material claim to be supported, contradicted, or explicitly
+bounded as insufficient evidence. Budget exhaustion or inaccessible critical
+material is reported as partial research, not as successful convergence.
 
-## Phase machine + convergence
+## Collection barrier and worker timing
 
-`seed` (only the root) → `grow` (broaden: decompose centroids, search their
-neighbourhoods, fire lateral intersection queries) → `resolve` (deepen: resolve
-all centroids and high-PageRank terminals) → `converged`.
+The first live stage after requirements preflight is coordinator work. Saved
+source aggregation is a distinct barrier between collection and review:
 
-Convergence is mechanical: the PageRank L1 delta between consecutive **real
-growth rounds** (not no-op recomputes) stays below `pr_epsilon` for
-`pr_stable_rounds` rounds **and** every centroid is synthesised. Then analysis
-begins.
+```text
+intent ready -> open -> acquiring -> aggregating -> reviewing -> extracting -> expanded
+                         coordinator    aggregator    reviewers
+```
 
-## Lateral intersection queries
+`open -> acquiring` records the intent-constrained query plan. While
+`acquiring`, the coordinator must run every enabled provider for every stored
+query. It archives each successful provider's original response, records every
+provider/query terminal result, deduplicates and balances valid leads across
+providers, and materializes the bounded source collection. The raw response
+archive, discovery record, saved pages, and source manifest are durable
+preconditions for `aggregating`. A captured record keeps the provider(s) that
+discovered the lead separate from the transport that captured its page body; a
+multi-provider discovery union may legitimately share one controlled capture
+transport.
 
-Every `lateral_every` steps, if ≥ 2 centroids exist, the engine emits a
-`lateral` action naming the top centroid pair. The agent forms **one** query
-combining both vocabularies and searches — this actively probes the
-intersection of two central sub-problems and tends to create new cross-links
-(the richest source of cross-cutting findings).
+Only `aggregating` creates a Source Aggregator task. It must bind the source
+manifest hash, group sources by substantive topic/claim plus context, retain a
+primary assessment for every captured page, and preserve cross-cutting pages,
+near-duplicates, and contradictions instead of deleting them. It supplies
+rationale and rubric components for each source's quality and each topic's
+confidence; the service calculates scores and writes the hash-bound aggregation
+artifact. Only a verified artifact changes the Frame to `reviewing`.
 
-## Division of labour (why this split)
+Only `reviewing` creates research workers: a Source Triager and a Source
+Adversary read the same saved collection and aggregation artifact and submit
+reviewer-scoped evidence commands. Each must complete, even with an empty
+proposal list, before the Frame can enter `extracting`. Low-quality or
+non-representative pages require an explicit selection override; adversarial
+counterexamples remain visible as contradictions. Reviewers cannot run a fresh
+search or source capture. This prevents scheduler fan-out from racing or
+bypassing collection provenance or aggregation quality controls.
 
-Deterministic control flow — graph maths, ordering, budgets, convergence, drift
-— is exactly what LLMs are unreliable at, so it lives in `engine.py` (mechanical
-script). Genuine judgment — *what* the sub-questions are, *what* queries to ask,
-*what* the answer is — is what LLMs are good at, so the agent fills those three
-slots. Search is delegated to the anysearch + ddg **sub-skills**, which the agent
-invokes directly. **The agent never decides priority; PageRank does.**
+Extraction consumes the accepted evidence's assessments. The service caps a
+cognition's requested confidence by the strongest assessed support from its
+source quality, topic confidence, and assessment confidence. This is
+deliberately not count-based: more near-duplicate pages do not manufacture a
+stronger claim. Low scores become uncertainty, limitations, or a reason for a
+new information gap.
+
+## Enforced descent
+
+Frontier ranking is not merely presentation. If `frontier_decision` returns
+`descend` because a clear leader has recursive capacity, a terminal `finish`
+is rejected. The controller must descend through the selected gap, or a depth,
+per-frame call, or global-frame budget must make the decision returnable. A
+score tie remains intentionally non-decisive: a selector may return only with
+the documented comparative rationale already required by the state model.
+
+## Time and frozen hand-off
+
+`reference_time` anchors relative language. Evidence carries publication,
+update, event, and retrieval times; cognitions carry assertion time and a
+context signature. The engine audits required temporal fields and requested
+ranges before freezing.
+
+Freezing verifies the source aggregation artifacts and registered material
+hashes as well as accepted evidence pages. It copies evidence pages, registered
+materials, and aggregation artifacts into the snapshot, then builds a corpus
+from the copied textual content. The manifest binds the frozen state and every
+corpus/material/aggregation artifact by SHA-256. Writers, editor, and Q&A
+verify the snapshot before use and may read only it.
+
+Each research chapter receives its frozen source/topic assessments and any
+required low-score disclosure. The chapter planner also creates a distinct
+intent-deliverable chapter for a required material-analysis or design outcome;
+that task receives only the declared material/research chunks plus its design
+requirements, acceptance criteria, and assumptions. Writers must distinguish
+evidence, material observations, assumptions, and proposed choices. The editor
+rechecks citations, assessment-driven limitations, and the actual fulfilment of
+design/material requirements; failures become repair tasks, not polished but
+unsupported prose. A question that needs material outside the snapshot starts a
+new intent version or research run.

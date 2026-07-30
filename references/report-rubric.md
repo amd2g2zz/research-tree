@@ -1,61 +1,122 @@
-# Report rubric — progressive disclosure quality bar
+# Report rubric
 
-The report is layered so a reader can stop at any depth and get a coherent
-answer. Each layer has a hard quality bar; do not publish until its checklist
-passes. Cross-cutting / centroid findings come first — they are what other tools
-miss and the main reason this skill exists.
+Reports are produced only from a frozen snapshot. Write for the user's stated
+audience and preserve its material conditions, especially time boundaries.
 
-Confidence badges: **high** ≥ 0.8 · **medium** 0.6–0.8 · **low** < 0.6.
+## Required content
 
-## L0 — TL;DR
-- 3–5 sentences that **answer the root question directly** (not describe what was
-  researched).
-- One overall confidence badge, derived from the centroids' confidences (min or
-  weighted mean; lower if centroids contradict).
-- Passes the "busy executive" test: readable in 20 seconds.
+- Begin with a direct, bounded answer to the current intent version.
+- Fulfil every required ready-contract deliverable. A material-analysis or
+  design/experiment-plan deliverable must be a substantive chapter, not a
+  generic research-summary substitute.
+- Use only the research inputs bound to that deliverable's
+  `research_frame_refs` / Frame `contract_ref`; unrelated frozen research is
+  not an acceptable substitute for its required evidence.
+- State the snapshot identifier and the effective "as of" time whenever the
+  conclusion depends on time.
+- Each material claim uses a readable evidence label such as `[E1]`. The
+  report's evidence ledger maps that label to a frozen source title/date,
+  `source_path`, and cognition locator. Keep the machine-readable `chunk_id`
+  in an HTML comment or technical trace appendix rather than rendering
+  `[citation: c_...]` in reader-facing prose.
+- For a material/design chapter, distinguish user-material observations, cited
+  external research, stated assumptions, and proposed design choices. Address
+  the contracted design requirements and acceptance criteria explicitly.
+- Do not describe a registered PDF, DOCX, or other non-text-extractable file as
+  analyzed material unless its explicit extracted text is itself a registered,
+  frozen, and cited input.
+- Distinguish source facts, inferences, contradictions, and insufficient
+  evidence. Do not hide conflicts to make a cleaner narrative.
+- For changing claims, describe the relevant sequence and context rather than
+  treating distinct conditions as a timeless contradiction.
+- Include material unresolved gaps, access limitations, and deferred frames.
+- Match claim strength to the chapter's source-quality and topic-confidence
+  assessment. Include every required low-quality, low-confidence, or
+  unassessed-evidence disclosure that applies to cited support.
 
-## L1 — Key findings
-- ≤ 7 headline claims, each one line + a confidence badge + ≥1 evidence ref.
-- **Cross-cutting findings first** (multi-parent centroid nodes), clearly tagged
-  `◆ cross-cutting`. These are the headline.
-- No claim without a ref; no ref-free speculation.
+## Decision-aware reports
 
-## L2 — Deep dive
-- One section per cluster (community), titled by its **centroid question**.
-- Each section: what was asked → what the evidence says → the answer + confidence
-  → inline contradictions/gaps.
-- Cite evidence refs inline `[e_3b1f…]`; do not paraphrase away the source.
-- Sections ordered by centroid PageRank (most central first).
+When the frozen intent contract contains `decision_questions`, the report must
+answer those questions before presenting a protocol or implementation checklist.
+For every question, show the current conclusion, supporting/refuting cognition
+ids through the readable evidence ledger, the inference, the action now, and
+the conditions or user inputs that would change the conclusion. A conditional,
+gap, user-input, or insufficient assessment cannot be rewritten as approval.
 
-## L3 — Evidence & provenance
-- A source table: ref · url · host · credibility · also_seen_from · local page
-  path (if extracted).
-- Contradictions enumerated: `{claim A [refs]} vs {claim B [refs]}`.
-- Pointers into `research_drift/` (drift_log line ranges, dag.json node ids) so
-  the trajectory is auditable.
+Every source accepted by the extractor has an auditable disposition. The report
+may use it as a claim, context, follow-up, or explicit exclusion, but it may not
+silently drop it. Every consequential parameter must carry a provenance basis
+(`user_constraint`, `direct_evidence`, `transfer_method`, `assumption`, or
+`need_user_input`) and the report must disclose that basis where the parameter is
+used. The editor draft binds the frozen synthesis hash, question ids, and
+parameter ids; a separate senior-user reviewer must approve the evidence-to-
+inference-to-action chains before the editor's final compilation.
 
-## L4 — Appendix
-- Full DAG outline: paste `engine export --format md`.
-- Query log: the `formulate`/`search_result` records from `drift_log.jsonl`.
-- Methodology: state "recursive descent + emergent DAG + weighted PageRank", the
-  config knobs used (`max_depth`, `grow_step_budget`, …), phase timeline.
-- Limitations & gaps: unresolved/`failed`/`pruned` nodes, why, and what a follow-up
-  pass should target.
+## Experiment-plan presentation
 
-## Pre-publish checklist
-- [ ] Every claim in L0/L1/L2 has ≥1 evidence ref.
-- [ ] Cross-cutting findings are tagged and lead L1.
-- [ ] Confidence badges present and calibrated (not everything "high").
-- [ ] Contradictions are shown, not hidden.
-- [ ] No tool-name narration in the prose ("then I ran Ghidra/anysearch…") — the
-      report reads as analysis, not a process log.
-- [ ] L4 DAG + query log present for auditability.
-- [ ] Root question actually answered in L0 (re-read it against `root_phrase`).
+When any required deliverable is an experiment plan or material-backed design,
+the compiled report is a decision document, not a short summary of writer
+chapters. It must include the following sections (localized headings are fine):
 
-## Anti-patterns
-- **Narrative-only chains:** a sequence of assertions with no evidence ref at
-  each step. Break them: every step cites a ref, or it's flagged as inference.
-- **Breadth-as-rigor:** dumping many low-relevance sources. Relevance (root
-  proximity + PageRank rank) outranks count; prune hard.
-- **Hidden uncertainty:** silently dropping low-confidence nodes. Surface them in
-  L4 gaps instead.
+- snapshot, `as of` time, evidence window, decision status, and decision owner
+  or audience;
+- decision summary; scoped inputs and assumptions; and an evidence-judgment
+  ledger that identifies full-text, metadata-only, transferable, and direct
+  support separately;
+- treatment/control, execution unit, pairing or randomization, fixed
+  invariants, and a run matrix;
+- a metrics and adjudication table with numerator, denominator, decision time,
+  missing/invalid-run handling, and owner/review rule; plus a failure taxonomy
+  and replay acceptance condition;
+- estimand, uncertainty method and resampling unit, pre-specified adoption and
+  guardrail rules, and the outcome when a primary metric conflicts with a
+  guardrail or the run stops early;
+- execution schedule and budget, risk/stop/non-adoption register, limitations,
+  and a readable source-and-traceability ledger.
+
+Numerical adoption gates are proposed design choices unless supported by a
+separate result. Label them as such. Preserve operational detail already
+present in a submitted experiment chapter; editing may remove repetition but
+must not collapse a protocol into a prose paragraph.
+
+## Quality checks
+
+- No live-search result, live workspace page, or uncited claim appears in the
+  report.
+- For an experiment-plan profile, the report includes all required presentation
+  sections, snapshot/time metadata, a readable `[E1]`-style evidence ledger,
+  and no visible `[citation: c_...]` prose. Compilation rejects a generic
+  summary that fails this structural gate.
+- Clauses marked hard in the intent are satisfied or explicitly reported as
+  unresolved with their effect on the conclusion.
+- Confidence reflects cited evidence quality, directness, temporal fit, and
+  unresolved alternatives; it is not a count of sources or near-duplicates.
+- Every claim uses only the chunks allowed by its frozen chapter contract. A
+  chapter may not cite a frozen-but-not-authorized source merely because it is
+  visible in the aggregation audit trail.
+- For an `intent_deliverable` chapter, include every task-supplied delivery
+  marker in the relevant prose, for example
+  `<!-- research-tree:check design-1 -->`. The marker records deliberate
+  coverage; it does not replace the prose or the editor's semantic review.
+- Each required material or bound research input with citable chunks must be
+  represented by at least one permitted frozen chunk citation. When a required
+  input has no citable chunk, retain its checklist marker and state the
+  limitation rather than inventing a citation.
+- The editor verifies the chapter evidence-assessment hash, required
+  disclosures, and delivery contract before compilation. Missing limitations,
+  unsupported confidence, or unmet material/design acceptance criteria produce
+  a repair task rather than a silently weakened or invented report section.
+- A missing delivery marker or required-input citation rejects chapter
+  submission and blocks report compilation. Separately, a required research
+  deliverable without a bound terminal Frame containing cited cognition blocks
+  freeze, so writing cannot paper over a missing research stage.
+- The report uses the default Markdown output. PDF conversion occurs only after
+  an explicit user request.
+
+## Frozen Q&A
+
+Question answering starts only after a validated frozen snapshot exists. It
+must use the snapshot's allowed chunks and cite `chunk_id` plus `source_path`.
+It returns `partial` or `unknown` when the snapshot is insufficient; it must
+not initiate new research, reinterpret the live DAG, or silently use live
+materials.

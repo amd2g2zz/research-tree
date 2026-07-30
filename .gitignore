@@ -11,6 +11,27 @@ research_drift/
 research/
 report.md
 
+# Runtime outputs
+research-runs/
+
+# Local hook configs
+hooks/
+
 # OS
 .DS_Store
 Thumbs.db
+Desktop.ini
+
+# Windows / Visual Studio
+.vs/
+*.exe
+*.dll
+*.pdb
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Python compiled extensions
+*.pyd
