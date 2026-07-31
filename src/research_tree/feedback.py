@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+import shutil
+import tempfile
 from typing import Any, Mapping, Sequence
 
 from .domain import (
@@ -92,6 +95,80 @@ class FeedbackRoundService:
         self._intake = InputIntakeService(store)
 
     def start_successor(
+        self,
+        *,
+        prior_round_id: str,
+        successor_round_id: str,
+        feedback_input_id: str,
+        feedback_text: str,
+        feedback_origin_locator: str,
+        change_dimensions: Sequence[str],
+        change_reason: str,
+        safe_checkpoint: str,
+        candidates: Sequence[CandidateContext],
+        intent_id: str,
+        intent_input_ids: Sequence[str],
+        intent_analysis: Mapping[str, Any],
+        context_bundle_id: str | None,
+        context_member_input_ids: Sequence[str],
+        brief_id: str,
+        selected_input_ids: Sequence[str],
+        input_roles: Mapping[str, str],
+        material_conflicts: Sequence[Mapping[str, Any]],
+        working_interpretation: str,
+        technical_outcome: str,
+        strategy_id: str,
+        strategy_summary: str,
+        strategy_focus: Sequence[str],
+        overall_rejection: bool = False,
+        assumptions: Sequence[str] = (),
+        delivery_targets: Mapping[str, bool] | None = None,
+    ) -> FeedbackRoundArtifacts:
+        """Preflight a successor in isolation before changing the live store.
+
+        Compiler validation happens against a filesystem copy containing the
+        exact predecessor lineage. This keeps rejected feedback requests free
+        of rounds, artifacts, and supersession overlays while retaining the
+        existing compiler and storage validation paths.
+        """
+
+        request = {
+            "prior_round_id": prior_round_id,
+            "successor_round_id": successor_round_id,
+            "feedback_input_id": feedback_input_id,
+            "feedback_text": feedback_text,
+            "feedback_origin_locator": feedback_origin_locator,
+            "change_dimensions": change_dimensions,
+            "change_reason": change_reason,
+            "safe_checkpoint": safe_checkpoint,
+            "candidates": candidates,
+            "intent_id": intent_id,
+            "intent_input_ids": intent_input_ids,
+            "intent_analysis": intent_analysis,
+            "context_bundle_id": context_bundle_id,
+            "context_member_input_ids": context_member_input_ids,
+            "brief_id": brief_id,
+            "selected_input_ids": selected_input_ids,
+            "input_roles": input_roles,
+            "material_conflicts": material_conflicts,
+            "working_interpretation": working_interpretation,
+            "technical_outcome": technical_outcome,
+            "strategy_id": strategy_id,
+            "strategy_summary": strategy_summary,
+            "strategy_focus": strategy_focus,
+            "overall_rejection": overall_rejection,
+            "assumptions": assumptions,
+            "delivery_targets": delivery_targets,
+        }
+        with tempfile.TemporaryDirectory(prefix="feedback-preflight-") as temporary:
+            staged_root = Path(temporary) / "run-store"
+            shutil.copytree(self._store.root, staged_root)
+            staged_service = FeedbackRoundService(RunStore(staged_root))
+            staged_service._persist_successor(**request)
+
+        return self._persist_successor(**request)
+
+    def _persist_successor(
         self,
         *,
         prior_round_id: str,
