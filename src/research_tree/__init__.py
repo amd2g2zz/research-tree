@@ -36,6 +36,16 @@ from .decision_map import (
     BlueprintTargetError,
     InvalidBlueprintTargetError,
 )
+from .delivery import (
+    DeliveryArtifacts,
+    DeliveryCompiler,
+    DeliveryError,
+    HUMAN_BRIEF_KIND,
+    InvalidDeliveryError,
+    TECHNICAL_RESEARCH_PACKAGE_KIND,
+    validate_human_brief_payload,
+    validate_technical_package_payload,
+)
 from .intent import (
     IntentError,
     IntentModelCompiler,
@@ -69,6 +79,9 @@ __all__ = [
     "BlueprintTargetCompiler",
     "BlueprintTargetError",
     "DataIntegrityError",
+    "DeliveryArtifacts",
+    "DeliveryCompiler",
+    "DeliveryError",
     "DecisionLedgerCompiler",
     "DecisionLedgerError",
     "FindingPackCompiler",
@@ -79,6 +92,7 @@ __all__ = [
     "IntakeError",
     "InvalidIdentifierError",
     "InvalidContextBundleError",
+    "InvalidDeliveryError",
     "InvalidDecisionLedgerError",
     "InvalidFindingPackError",
     "InvalidBlueprintTargetError",
@@ -98,6 +112,8 @@ __all__ = [
     "RepositorySafetyPolicy",
     "RunStore",
     "RuntimeStoreError",
+    "HUMAN_BRIEF_KIND",
+    "TECHNICAL_RESEARCH_PACKAGE_KIND",
     "QuestionPolicy",
     "QuestionRecommendation",
     "PortfolioError",
@@ -108,4 +124,6 @@ __all__ = [
     "WorkItemStatusService",
     "WORK_PORTFOLIO_KIND",
     "validate_portfolio_payload",
+    "validate_human_brief_payload",
+    "validate_technical_package_payload",
 ]
