@@ -428,3 +428,224 @@ def test_replan_retains_prior_provenance_and_records_priority_change_event(tmp_p
         ],
     }
     assert payload["ready_portfolio"][0] == "work-sandbox"
+
+
+def test_replan_requires_the_latest_prior_portfolio_reference(tmp_path: Path) -> None:
+    modules, store, round_record, target, works = context(tmp_path)
+    first = schedule(modules, store, round_record, target, works)
+
+    with pytest.raises(modules["InvalidPortfolioError"]):
+        schedule(modules, store, round_record, target, works)
+
+    portfolios = [
+        artifact
+        for artifact in store.load_round(round_record.id).artifacts
+        if artifact.kind == "work-portfolio"
+    ]
+    assert portfolios == [first]
+
+
+def test_duplicate_canonical_never_depends_on_a_cancelled_duplicate(tmp_path: Path) -> None:
+    modules, store, round_record, target, works = context(tmp_path)
+    duplicate = modules["WorkItemCompiler"](store).compile(
+        round_id=round_record.id,
+        work_item_id="work-boundary-copy",
+        blueprint_target=target,
+        decision_slot_id="slot-boundary",
+        kind="repository_analysis",
+        scope="Inspect the current boundary.",
+        exclusions="Do not close the decision.",
+        decision_change_reason="A boundary fact can change the architecture choice.",
+        depends_on=["work-boundary"],
+        methods=["repository_inspection"],
+        budget={"tool_calls": 8, "time": "bounded"},
+        completion_rule="Return a bounded Finding Pack.",
+    )
+    inputs = scoring_inputs() | {
+        "work-boundary": {
+            "expected_information_gain": 0,
+            "cost": 100,
+            "duplicate_risk": 0,
+        },
+        "work-boundary-copy": {
+            "expected_information_gain": 100,
+            "cost": 0,
+            "duplicate_risk": 0,
+        }
+    }
+
+    portfolio = modules["AdaptivePortfolioScheduler"](store).schedule(
+        round_id=round_record.id,
+        portfolio_id="research-portfolio",
+        blueprint_target=target,
+        work_items=(*works, duplicate),
+        scoring_inputs=inputs,
+        tool_call_budget=16,
+        max_parallelism=2,
+    )
+
+    decisions = {item["work_item_id"]: item for item in portfolio.payload["scheduling_decisions"]}
+    assert decisions["work-boundary"]["action"] == "dispatch"
+    assert decisions["work-boundary-copy"]["action"] == "cancelled"
+    assert decisions["work-boundary-copy"]["reason"].startswith(
+        "Duplicate of work-boundary"
+    )
+
+
+def test_running_work_reserves_budget_before_new_dispatch(tmp_path: Path) -> None:
+    modules, store, round_record, target, works = context(tmp_path)
+    from research_tree.domain import thaw_json
+
+    boundary, sandbox, logging = works
+    running_payload = thaw_json(boundary.payload)
+    running_payload["status"] = "running"
+    running_payload["status_reason"] = "A worker already owns this bounded investigation."
+    running_boundary = store.append_artifact(
+        round_record.id,
+        boundary.id,
+        boundary.kind,
+        running_payload,
+        parent_refs=boundary.parent_refs,
+    )
+
+    portfolio = modules["AdaptivePortfolioScheduler"](store).schedule(
+        round_id=round_record.id,
+        portfolio_id="research-portfolio",
+        blueprint_target=target,
+        work_items=(running_boundary, sandbox, logging),
+        scoring_inputs=scoring_inputs(),
+        tool_call_budget=8,
+        max_parallelism=2,
+    )
+
+    decisions = {item["work_item_id"]: item for item in portfolio.payload["scheduling_decisions"]}
+    assert decisions["work-boundary"]["action"] == "running"
+    assert decisions["work-sandbox"]["action"] == "deferred"
+    assert portfolio.payload["dispatch_batches"] == ()
+    assert portfolio.payload["budget"] == {
+        "tool_call_limit": 8,
+        "scheduled_tool_calls": 8,
+        "remaining_tool_calls": 0,
+    }
+
+
+def test_running_work_reserves_parallelism_before_new_dispatch(tmp_path: Path) -> None:
+    modules, store, round_record, target, works = context(tmp_path)
+    from research_tree.domain import thaw_json
+
+    boundary, sandbox, logging = works
+    running_payload = thaw_json(boundary.payload)
+    running_payload["status"] = "running"
+    running_payload["status_reason"] = "A worker already owns this bounded investigation."
+    running_boundary = store.append_artifact(
+        round_record.id,
+        boundary.id,
+        boundary.kind,
+        running_payload,
+        parent_refs=boundary.parent_refs,
+    )
+
+    portfolio = modules["AdaptivePortfolioScheduler"](store).schedule(
+        round_id=round_record.id,
+        portfolio_id="research-portfolio",
+        blueprint_target=target,
+        work_items=(running_boundary, sandbox, logging),
+        scoring_inputs=scoring_inputs(),
+        tool_call_budget=16,
+        max_parallelism=1,
+    )
+
+    decisions = {item["work_item_id"]: item for item in portfolio.payload["scheduling_decisions"]}
+    assert decisions["work-boundary"]["action"] == "running"
+    assert decisions["work-sandbox"]["action"] == "deferred"
+    assert portfolio.payload["dispatch_batches"] == ()
+    assert portfolio.payload["budget"] == {
+        "tool_call_limit": 16,
+        "scheduled_tool_calls": 8,
+        "remaining_tool_calls": 8,
+    }
+
+
+def test_terminal_dependency_defers_downstream_work_instead_of_waiting_forever(
+    tmp_path: Path,
+) -> None:
+    modules, store, round_record, target, works = context(tmp_path)
+    from research_tree.domain import thaw_json
+
+    boundary, sandbox, logging = works
+    cancelled_payload = thaw_json(boundary.payload)
+    cancelled_payload["status"] = "cancelled"
+    cancelled_payload["status_reason"] = "The boundary question was superseded."
+    cancelled_boundary = store.append_artifact(
+        round_record.id,
+        boundary.id,
+        boundary.kind,
+        cancelled_payload,
+        parent_refs=boundary.parent_refs,
+    )
+
+    portfolio = modules["AdaptivePortfolioScheduler"](store).schedule(
+        round_id=round_record.id,
+        portfolio_id="research-portfolio",
+        blueprint_target=target,
+        work_items=(cancelled_boundary, sandbox, logging),
+        scoring_inputs=scoring_inputs(),
+        tool_call_budget=16,
+        max_parallelism=2,
+    )
+
+    decisions = {item["work_item_id"]: item for item in portfolio.payload["scheduling_decisions"]}
+    assert decisions["work-logging"]["action"] == "deferred"
+    assert decisions["work-logging"]["reason"].startswith(
+        "Blocked by terminal dependencies: work-boundary"
+    )
+
+
+def test_later_evidence_driven_replan_requires_affected_work_and_evidence(
+    tmp_path: Path,
+) -> None:
+    modules, store, round_record, target, works = context(tmp_path)
+    first = schedule(modules, store, round_record, target, works)
+
+    with pytest.raises(modules["InvalidPortfolioError"]):
+        modules["AdaptivePortfolioScheduler"](store).schedule(
+            round_id=round_record.id,
+            portfolio_id="research-portfolio",
+            blueprint_target=target,
+            work_items=works,
+            scoring_inputs=scoring_inputs(),
+            tool_call_budget=16,
+            max_parallelism=2,
+            prior_portfolio=first,
+            event={
+                "kind": "repository_fact_disproved",
+                "reason": "The previous repository assumption was disproved.",
+                "affected_work_item_ids": [],
+                "evidence_refs": [],
+            },
+        )
+
+    with pytest.raises(modules["InvalidPortfolioError"]):
+        modules["AdaptivePortfolioScheduler"](store).schedule(
+            round_id=round_record.id,
+            portfolio_id="research-portfolio",
+            blueprint_target=target,
+            work_items=works,
+            scoring_inputs=scoring_inputs(),
+            tool_call_budget=16,
+            max_parallelism=2,
+            prior_portfolio=first,
+            event={
+                "kind": "repository_fact_disproved",
+                "reason": "The previous repository assumption was disproved.",
+                "affected_work_item_ids": ["work-sandbox"],
+                "evidence_refs": [],
+            },
+        )
+
+    portfolios = [
+        artifact
+        for artifact in store.load_round(round_record.id).artifacts
+        if artifact.kind == "work-portfolio"
+    ]
+    assert portfolios == [first]

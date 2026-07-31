@@ -250,12 +250,17 @@ def _resolve_prior_portfolio(
     portfolio_id: str,
     value: ArtifactRevision | None,
 ) -> ArtifactRevision | None:
+    latest = _latest_artifact(artifacts, portfolio_id, WORK_PORTFOLIO_KIND)
     if value is None:
+        if latest is not None:
+            raise InvalidPortfolioError(
+                "a later portfolio revision must provide the latest prior_portfolio"
+            )
         return None
     prior = _resolve_exact(artifacts, value, WORK_PORTFOLIO_KIND, "prior_portfolio")
     if prior.round_id != round_id or prior.id != portfolio_id:
         raise InvalidPortfolioError("prior_portfolio must use the same round and portfolio id")
-    if _latest_artifact(artifacts, portfolio_id, WORK_PORTFOLIO_KIND) != prior:
+    if latest != prior:
         raise InvalidPortfolioError("prior_portfolio must be the latest portfolio revision")
     return prior
 
@@ -294,6 +299,10 @@ def _normalize_event(
     affected = _identifier_sequence(
         value["affected_work_item_ids"], "event.affected_work_item_ids", allow_empty=True
     )
+    if prior is not None and not affected:
+        raise InvalidPortfolioError(
+            "a later replan event must identify affected Work Items"
+        )
     unknown = set(affected) - {work.id for work in works}
     if unknown:
         raise InvalidPortfolioError(
@@ -315,6 +324,10 @@ def _normalize_event(
             seen.add((artifact_id, revision))
             evidence.append(artifact)
             refs.append(ArtifactRef(round_id, artifact_id, revision).to_dict())
+    if prior is not None and not evidence:
+        raise InvalidPortfolioError(
+            "a later replan event must include at least one supporting artifact reference"
+        )
     return (
         {
             "kind": kind,
@@ -390,12 +403,23 @@ def _portfolio_payload(
     event: Mapping[str, Any],
 ) -> dict[str, Any]:
     by_id = {work.id: work for work in works}
-    duplicates = _duplicate_work(by_id, scores)
+    duplicates = _duplicate_work(by_id, scores, dag)
+    duplicate_cancellations = {
+        work_id
+        for work_id in duplicates
+        if _work_status(by_id[work_id]) not in {"complete", "running", "cancelled", "deferred"}
+    }
+    running = [work_id for work_id in sorted(by_id) if _work_status(by_id[work_id]) == "running"]
+    running_tool_calls = sum(_work_tool_calls(by_id[work_id]) for work_id in running)
+    if running_tool_calls > tool_call_budget:
+        raise InvalidPortfolioError("running Work Items exceed the portfolio tool-call budget")
+    if len(running) > max_parallelism:
+        raise InvalidPortfolioError("running Work Items exceed the portfolio max_parallelism")
     decisions: dict[str, dict[str, Any]] = {}
     ready: list[str] = []
     for work_id in sorted(by_id):
         work = by_id[work_id]
-        status = _nonempty_string(work.payload.get("status"), f"Work Item {work_id}.status")
+        status = _work_status(work)
         base = {"work_item_id": work_id, "score": scores[work_id]["score"]}
         if status == "complete":
             decisions[work_id] = {**base, "action": "complete", "reason": "Work Item is already complete."}
@@ -407,7 +431,7 @@ def _portfolio_payload(
                 "action": "cancelled" if status == "cancelled" else "deferred",
                 "reason": f"Work Item is already {status}.",
             }
-        elif work_id in duplicates:
+        elif work_id in duplicate_cancellations:
             decisions[work_id] = {
                 **base,
                 "score_components": dict(scores[work_id]["components"]),
@@ -415,6 +439,23 @@ def _portfolio_payload(
                 "reason": f"Duplicate of {duplicates[work_id]} for the same bounded Decision Slot work.",
             }
         else:
+            terminal = sorted(
+                dependency
+                for dependency in dag[work_id]
+                if dependency in duplicate_cancellations
+                or _work_status(by_id[dependency]) in {"cancelled", "deferred"}
+            )
+            if terminal:
+                decisions[work_id] = {
+                    **base,
+                    "action": "deferred",
+                    "reason": (
+                        "Blocked by terminal dependencies: "
+                        + ", ".join(terminal)
+                        + ". A replacement Work Item or revised Blueprint Target is required."
+                    ),
+                }
+                continue
             incomplete = sorted(
                 dependency
                 for dependency in dag[work_id]
@@ -432,7 +473,8 @@ def _portfolio_payload(
     ready.sort(key=lambda work_id: (-scores[work_id]["score"], work_id))
 
     dispatched: list[str] = []
-    remaining = tool_call_budget
+    remaining = tool_call_budget - running_tool_calls
+    available_parallelism = max_parallelism - len(running)
     for work_id in ready:
         work_cost = _work_tool_calls(by_id[work_id])
         base = {
@@ -440,7 +482,7 @@ def _portfolio_payload(
             "score": scores[work_id]["score"],
             "score_components": dict(scores[work_id]["components"]),
         }
-        if len(dispatched) >= max_parallelism:
+        if len(dispatched) >= available_parallelism:
             decisions[work_id] = {
                 **base,
                 "action": "deferred",
@@ -497,7 +539,9 @@ def _portfolio_payload(
 
 
 def _duplicate_work(
-    works: Mapping[str, ArtifactRevision], scores: Mapping[str, Mapping[str, Any]]
+    works: Mapping[str, ArtifactRevision],
+    scores: Mapping[str, Mapping[str, Any]],
+    dag: Mapping[str, Sequence[str]],
 ) -> dict[str, str]:
     groups: dict[tuple[str, str, str], list[str]] = {}
     for work_id, work in works.items():
@@ -510,9 +554,40 @@ def _duplicate_work(
     duplicates: dict[str, str] = {}
     for group in groups.values():
         if len(group) > 1:
-            canonical = min(group, key=lambda work_id: (-scores[work_id]["score"], work_id))
+            canonical = min(
+                group,
+                key=lambda work_id: _duplicate_canonical_rank(
+                    work_id, group, works, scores, dag
+                ),
+            )
             duplicates.update({work_id: canonical for work_id in group if work_id != canonical})
     return duplicates
+
+
+def _duplicate_canonical_rank(
+    work_id: str,
+    group: Sequence[str],
+    works: Mapping[str, ArtifactRevision],
+    scores: Mapping[str, Mapping[str, Any]],
+    dag: Mapping[str, Sequence[str]],
+) -> tuple[int, int, int, str]:
+    status = _work_status(works[work_id])
+    status_rank = {
+        "complete": 0,
+        "running": 1,
+        "ready": 2,
+        "planned": 2,
+        "deferred": 4,
+        "cancelled": 4,
+    }.get(status, 3)
+    depends_on_peer = any(
+        peer != work_id and _depends_on(work_id, peer, dag) for peer in group
+    )
+    return (status_rank, int(depends_on_peer), -scores[work_id]["score"], work_id)
+
+
+def _work_status(work: ArtifactRevision) -> str:
+    return _nonempty_string(work.payload.get("status"), f"Work Item {work.id}.status")
 
 
 def _ensure_independent(candidate: str, dispatched: Sequence[str], dag: Mapping[str, Sequence[str]]) -> None:
