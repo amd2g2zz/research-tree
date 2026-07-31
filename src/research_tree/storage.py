@@ -115,6 +115,7 @@ class RunStore:
         round_dir = self._round_dir(record.id)
         artifacts = self._load_artifacts(round_dir, record.id)
         events = self._load_events(round_dir, record.id)
+        self._validate_loaded_lineage(artifacts, events)
         return RoundSnapshot(
             record=record,
             artifacts=tuple(sorted(artifacts, key=lambda artifact: (artifact.id, artifact.revision))),
@@ -194,6 +195,25 @@ class RunStore:
                 raise DataIntegrityError("lineage event does not match its storage path")
             events.append(event)
         return events
+
+    def _validate_loaded_lineage(
+        self, artifacts: Iterable[ArtifactRevision], events: Iterable[LineageEvent]
+    ) -> None:
+        for artifact in artifacts:
+            for reference in artifact.parent_refs:
+                self._require_stored_reference(reference)
+        for event in events:
+            if event.kind == "artifact-appended" and event.artifact_ref is not None:
+                self._require_stored_reference(event.artifact_ref)
+
+    def _require_stored_reference(self, reference: ArtifactRef) -> None:
+        try:
+            self._load_artifact(reference)
+        except (ArtifactNotFoundError, RoundNotFoundError) as error:
+            raise DataIntegrityError(
+                "stored lineage reference does not resolve: "
+                f"{reference.round_id}/{reference.artifact_id}@{reference.revision}"
+            ) from error
 
     @staticmethod
     def _next_revision(artifact_dir: Path) -> int:

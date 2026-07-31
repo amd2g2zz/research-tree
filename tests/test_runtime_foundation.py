@@ -191,6 +191,72 @@ def test_tampered_artifact_content_is_rejected_on_reload(tmp_path: Path) -> None
         api["RunStore"](root).load_round(round_record.id)
 
 
+@pytest.mark.parametrize(
+    ("parent_round", "child_round"),
+    [
+        ("round-lineage", "round-lineage"),
+        ("round-parent", "round-child"),
+    ],
+)
+def test_load_rejects_artifact_with_deleted_parent_revision(
+    tmp_path: Path, parent_round: str, child_round: str
+) -> None:
+    api = runtime_api()
+    root = tmp_path / "store"
+    store = api["RunStore"](root)
+    parent = store.create_round(parent_round)
+    parent_artifact = store.append_artifact(
+        parent.id, "artifact-parent", "working-brief", {"state": "present"}
+    )
+    child = parent if child_round == parent_round else store.create_round(
+        child_round, parent_round_id=parent.id
+    )
+    store.append_artifact(
+        child.id,
+        "artifact-child",
+        "technical-package",
+        {"state": "depends-on-parent"},
+        parent_refs=(api["ArtifactRef"](parent.id, parent_artifact.id, parent_artifact.revision),),
+    )
+
+    parent_path = (
+        root
+        / "rounds"
+        / parent.id
+        / "artifacts"
+        / parent_artifact.id
+        / f"{parent_artifact.revision:06d}.json"
+    )
+    parent_path.unlink()
+
+    with pytest.raises(api["DataIntegrityError"], match="stored lineage reference does not resolve"):
+        api["RunStore"](root).load_round(child.id)
+
+
+def test_load_rejects_artifact_appended_event_with_missing_artifact(
+    tmp_path: Path
+) -> None:
+    api = runtime_api()
+    root = tmp_path / "store"
+    store = api["RunStore"](root)
+    round_record = store.create_round("round-event-integrity")
+    artifact = store.append_artifact(
+        round_record.id, "artifact-package", "technical-package", {"state": "present"}
+    )
+    event_root = root / "rounds" / round_record.id / "events"
+    event_path = next(
+        path
+        for path in event_root.glob("*.json")
+        if json.loads(path.read_text(encoding="utf-8"))["kind"] == "artifact-appended"
+    )
+    event = json.loads(event_path.read_text(encoding="utf-8"))
+    event["artifact_ref"]["revision"] = artifact.revision + 1
+    event_path.write_text(json.dumps(event), encoding="utf-8")
+
+    with pytest.raises(api["DataIntegrityError"], match="stored lineage reference does not resolve"):
+        api["RunStore"](root).load_round(round_record.id)
+
+
 def test_store_requires_an_explicit_root_and_ignores_ambient_workspace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
