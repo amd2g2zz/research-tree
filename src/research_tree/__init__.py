@@ -38,6 +38,13 @@ from .intent import (
     WorkingBriefCompiler,
 )
 from .storage import RunStore
+from .work_items import (
+    InvalidWorkItemError,
+    WorkItemCompiler,
+    WorkItemError,
+    WorkItemPlanner,
+    WorkItemStatusService,
+)
 
 __all__ = [
     "ArtifactNotFoundError",
@@ -57,6 +64,7 @@ __all__ = [
     "InvalidInputError",
     "InvalidPayloadError",
     "InvalidWorkingBriefError",
+    "InvalidWorkItemError",
     "LineageEvent",
     "RoundAlreadyExistsError",
     "RoundNotFoundError",
@@ -70,4 +78,8 @@ __all__ = [
     "QuestionPolicy",
     "QuestionRecommendation",
     "WorkingBriefCompiler",
+    "WorkItemCompiler",
+    "WorkItemError",
+    "WorkItemPlanner",
+    "WorkItemStatusService",
 ]
