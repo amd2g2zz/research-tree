@@ -23,6 +23,15 @@ from .intake import (
     RepositoryInspector,
     RepositorySafetyPolicy,
 )
+from .intent import (
+    IntentError,
+    IntentModelCompiler,
+    InvalidIntentModelError,
+    InvalidWorkingBriefError,
+    QuestionPolicy,
+    QuestionRecommendation,
+    WorkingBriefCompiler,
+)
 from .storage import RunStore
 
 __all__ = [
@@ -31,11 +40,15 @@ __all__ = [
     "ArtifactRevision",
     "DataIntegrityError",
     "InputIntakeService",
+    "IntentError",
+    "IntentModelCompiler",
     "IntakeError",
     "InvalidIdentifierError",
     "InvalidContextBundleError",
+    "InvalidIntentModelError",
     "InvalidInputError",
     "InvalidPayloadError",
+    "InvalidWorkingBriefError",
     "LineageEvent",
     "RoundAlreadyExistsError",
     "RoundNotFoundError",
@@ -46,4 +59,7 @@ __all__ = [
     "RepositorySafetyPolicy",
     "RunStore",
     "RuntimeStoreError",
+    "QuestionPolicy",
+    "QuestionRecommendation",
+    "WorkingBriefCompiler",
 ]
