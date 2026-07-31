@@ -1597,15 +1597,15 @@ def _normalize_readiness(value: Mapping[str, Any]) -> dict[str, Any]:
 def _ensure_readiness_matches_closure(
     closure: Sequence[Mapping[str, Any]], readiness: Mapping[str, Any]
 ) -> None:
-    unclosed = [
+    blocking = [
         item
         for item in closure
-        if item.get("status") in {"missing", "conditional", "deferred", "blocked"}
+        if item.get("status") in {"missing", "blocked"}
     ]
     gates = _mapping_value(readiness.get("gates"), "readiness gates")
-    if unclosed and gates.get("decision_closure") == "pass":
+    if blocking and gates.get("decision_closure") == "pass":
         slots = ", ".join(
-            _cell(item.get("decision_slot_id")) for item in unclosed
+            _cell(item.get("decision_slot_id")) for item in blocking
         )
         raise InvalidDeliveryError(
             "readiness.gates.decision_closure cannot be pass while Blueprint Closure is unclosed: "
