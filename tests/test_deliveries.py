@@ -433,7 +433,9 @@ def test_human_brief_makes_unclosed_decisions_and_readiness_follow_up_standalone
     assert "work-observability" in human.payload["markdown"]
 
 
-def test_passing_decision_closure_gate_cannot_contradict_unclosed_slots(tmp_path: Path) -> None:
+def test_passing_decision_closure_gate_cannot_contradict_missing_or_blocked_slots(
+    tmp_path: Path,
+) -> None:
     modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
     inconsistent = readiness()
     inconsistent["gates"]["decision_closure"] = "pass"
