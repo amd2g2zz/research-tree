@@ -13,7 +13,13 @@ from .storage import RunStore
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="research-tree")
+    parser = argparse.ArgumentParser(
+        prog="research-tree",
+        description=(
+            "Round-management only: create or reconstruct persisted RunStore rounds. "
+            "Use the research_tree Python API for composed workflows."
+        ),
+    )
     commands = parser.add_subparsers(dest="command", required=True)
 
     create_round = commands.add_parser("create-round", help="create an isolated research round")

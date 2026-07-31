@@ -23,10 +23,46 @@ non-goals, and viable alternative readings. A Working Brief is the
 strategy-ready snapshot of that model, not the intent-understanding process
 itself.
 
-> Product status: the previous Python research-DAG runtime has been retired.
-> This repository now contains the target product contract, operating skill,
-> and artifact templates; the new runtime is intentionally not implied to exist
-> until it is implemented against those contracts.
+> Product status: this repository ships an implemented, composable Python
+> runtime for persisted research-round artifacts and their workflow services.
+> It is not a standalone autonomous-research CLI: source acquisition, research
+> decisions, and production sandbox adapters remain explicit caller-owned work.
+
+## First Runtime Path
+
+The runtime uses an explicit run-store root. It never infers a workspace or
+persists state somewhere else, so retain the same path to recover a round after
+a process restart.
+
+```powershell
+git clone https://github.com/amd2g2zz/research-tree.git
+cd research-tree
+uv sync
+
+$store = Join-Path $PWD ".research-tree-demo"
+uv run python -m research_tree --help
+uv run python -m research_tree create-round --store $store --round-id round-first
+uv run python -m research_tree show-round --store $store --round-id round-first
+```
+
+The final `show-round` command is the recovery/readback path: run it again with
+the same `--store` and `--round-id` to reconstruct the persisted round. Creating
+that id again is rejected rather than overwriting the existing state.
+
+## Runtime Boundaries
+
+The `research-tree` CLI is round-management only. It supports `create-round`
+and `show-round`; it does not ingest material, choose a strategy, collect
+sources, or compile a complete technical handoff.
+
+Use the public `research_tree` Python API for the composed workflow. It exports
+`RunStore`, `InputIntakeService`, `IntentModelCompiler`,
+`WorkingBriefCompiler`, `BlueprintTargetCompiler`, `DecisionLedgerCompiler`,
+`DeliveryCompiler`, `ReadinessVerifier`, `FeedbackRoundService`, and explicit
+OpenSpec/evaluation adapters. The public export surface is in
+[`research_tree.__init__`](src/research_tree/__init__.py); the end-to-end test
+shows the composed delivery, readiness, evaluation, and opt-in export route in
+[`test_e2e_blueprint.py`](tests/test_e2e_blueprint.py).
 
 ## What It Produces
 
