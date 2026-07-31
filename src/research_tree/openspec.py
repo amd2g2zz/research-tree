@@ -20,6 +20,11 @@ from .domain import (
     thaw_json,
     validate_identifier,
 )
+from .readiness import (
+    READINESS_RECORD_KIND,
+    readiness_for_delivery,
+    validate_readiness_record_payload,
+)
 from .storage import RunStore
 
 
@@ -85,6 +90,16 @@ class OpenSpecExporter:
             _validate_traceability_against_parents(document, package, round_id)
             _validate_export_document_semantics(document)
             normal_blockers = _normal_export_blockers(document)
+            if normal_blockers and not draft:
+                raise InvalidOpenSpecExportError(
+                    "OpenSpec export requires an implementation-ready package: "
+                    + "; ".join(normal_blockers)
+                )
+            if not draft:
+                verified_readiness = _resolve_verified_readiness(
+                    snapshot.artifacts, package, round_id
+                )
+                normal_blockers += _verified_readiness_blockers(verified_readiness)
             draft_blockers = _draft_blockers(document, normal_blockers)
             if normal_blockers and not draft:
                 raise InvalidOpenSpecExportError(
@@ -274,6 +289,58 @@ def _normal_export_blockers(document: Mapping[str, Any]) -> tuple[str, ...]:
         if state not in states:
             blockers.append(f"{gate}: {state}")
     return tuple(blockers)
+
+
+def _resolve_verified_readiness(
+    artifacts: Sequence[ArtifactRevision],
+    package: ArtifactRevision,
+    round_id: str,
+) -> ArtifactRevision:
+    expected_ref = ArtifactRef(round_id, package.id, package.revision)
+    matches: list[ArtifactRevision] = []
+    for artifact in artifacts:
+        if artifact.kind != READINESS_RECORD_KIND:
+            continue
+        try:
+            validate_readiness_record_payload(artifact.payload)
+            package_ref = _artifact_ref(
+                artifact.payload["technical_package_ref"],
+                "readiness technical_package_ref",
+            )
+        except (OpenSpecExportError, RuntimeStoreError, TypeError, ValueError) as error:
+            raise InvalidOpenSpecExportError(
+                f"readiness record {artifact.id}@{artifact.revision} is invalid: {error}"
+            ) from error
+        if package_ref != expected_ref:
+            continue
+        if expected_ref not in artifact.parent_refs:
+            raise InvalidOpenSpecExportError(
+                "readiness record does not retain the exact technical package parent"
+            )
+        matches.append(artifact)
+    if not matches:
+        raise InvalidOpenSpecExportError(
+            "normal OpenSpec export requires a persisted readiness record for the exact technical package revision"
+        )
+    return matches[-1]
+
+
+def _verified_readiness_blockers(record: ArtifactRevision) -> tuple[str, ...]:
+    projection = _mapping(readiness_for_delivery(record), "readiness delivery projection")
+    gates = _mapping(projection["gates"], "readiness delivery gates")
+    accepted = {
+        "intent_alignment": {"pass"},
+        "decision_closure": {"pass"},
+        "traceability": {"pass"},
+        "repository_fit": {"pass", "not_applicable"},
+        "implementation_readiness": {"pass"},
+        "operational_quality": {"pass", "deferred"},
+    }
+    return tuple(
+        f"verified readiness {gate}: {_text(gates[gate])}"
+        for gate, states in accepted.items()
+        if _text(gates[gate]) not in states
+    )
 
 
 def _draft_blockers(

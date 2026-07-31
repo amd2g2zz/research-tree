@@ -9,7 +9,7 @@ import pytest
 from test_deliveries import compile_deliveries, context, decision_kwargs, readiness
 
 
-def complete_package(tmp_path: Path):
+def complete_package(tmp_path: Path, *, verify_readiness: bool = True):
     modules, store, round_record, _model, brief, target, finding, _decision = context(tmp_path)
     from research_tree import DecisionLedgerCompiler, FindingPackCompiler
 
@@ -108,7 +108,89 @@ def complete_package(tmp_path: Path):
         [isolation, observability],
         readiness_input=ready,
     )
+    if verify_readiness:
+        from research_tree import ReadinessVerifier
+
+        ReadinessVerifier(store).verify(
+            round_id=round_record.id,
+            readiness_id="readiness-package",
+            technical_package=deliveries.technical_package,
+            repository_roots={"input-repository": tmp_path / "repository"},
+            risk_tier="default",
+        )
     return modules, store, round_record, deliveries.technical_package
+
+
+def test_normal_export_requires_readiness_for_the_exact_package_revision(tmp_path: Path) -> None:
+    _modules, store, round_record, technical_package = complete_package(
+        tmp_path, verify_readiness=False
+    )
+    from research_tree import InvalidOpenSpecExportError, OpenSpecExporter
+
+    output = tmp_path / "unverified-output"
+    with pytest.raises(InvalidOpenSpecExportError, match="readiness"):
+        OpenSpecExporter(store).export(
+            round_id=round_record.id,
+            technical_package=technical_package,
+            openspec_root=output,
+            change_name="unverified-package",
+        )
+    assert not output.exists()
+
+
+def test_normal_export_rejects_readiness_for_an_older_package_revision(tmp_path: Path) -> None:
+    _modules, store, round_record, technical_package = complete_package(tmp_path)
+    from research_tree import InvalidOpenSpecExportError, OpenSpecExporter
+    from research_tree.domain import thaw_json
+
+    newer_package = store.append_artifact(
+        round_record.id,
+        technical_package.id,
+        technical_package.kind,
+        thaw_json(technical_package.payload),
+        parent_refs=technical_package.parent_refs,
+    )
+
+    output = tmp_path / "stale-readiness-output"
+    with pytest.raises(InvalidOpenSpecExportError, match="exact technical package revision"):
+        OpenSpecExporter(store).export(
+            round_id=round_record.id,
+            technical_package=newer_package,
+            openspec_root=output,
+            change_name="stale-readiness-package",
+        )
+    assert not output.exists()
+
+
+def test_normal_export_rejects_a_failing_exact_readiness_record(tmp_path: Path) -> None:
+    _modules, store, round_record, technical_package = complete_package(tmp_path)
+    from research_tree import InvalidOpenSpecExportError, OpenSpecExporter
+    from research_tree.domain import thaw_json
+
+    readiness = next(
+        artifact
+        for artifact in store.load_round(round_record.id).artifacts
+        if artifact.id == "readiness-package"
+    )
+    payload = thaw_json(readiness.payload)
+    payload["delivery_readiness"]["gates"]["implementation_readiness"] = "fail"
+    store.append_artifact(
+        round_record.id,
+        readiness.id,
+        readiness.kind,
+        payload,
+        parent_refs=readiness.parent_refs,
+    )
+
+    output = tmp_path / "failing-readiness-output"
+    with pytest.raises(InvalidOpenSpecExportError, match="verified readiness"):
+        OpenSpecExporter(store).export(
+            round_id=round_record.id,
+            technical_package=technical_package,
+            openspec_root=output,
+            change_name="failing-readiness-package",
+        )
+    assert not output.exists()
 
 
 def test_explicit_export_emits_traceable_repository_delta(tmp_path: Path) -> None:
@@ -282,6 +364,15 @@ def test_exporter_preserves_generic_repository_baseline_facts(tmp_path: Path) ->
         "technical-research-package",
         payload,
         parent_refs=technical_package.parent_refs,
+    )
+    from research_tree import ReadinessVerifier
+
+    ReadinessVerifier(store).verify(
+        round_id=round_record.id,
+        readiness_id="readiness-generic-facts",
+        technical_package=generic_facts_package,
+        repository_roots={"input-repository": tmp_path / "repository"},
+        risk_tier="default",
     )
 
     export = OpenSpecExporter(store).export(
