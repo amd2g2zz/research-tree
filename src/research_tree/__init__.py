@@ -23,6 +23,11 @@ from .intake import (
     RepositoryInspector,
     RepositorySafetyPolicy,
 )
+from .decision_map import (
+    BlueprintTargetCompiler,
+    BlueprintTargetError,
+    InvalidBlueprintTargetError,
+)
 from .intent import (
     IntentError,
     IntentModelCompiler,
@@ -38,6 +43,8 @@ __all__ = [
     "ArtifactNotFoundError",
     "ArtifactRef",
     "ArtifactRevision",
+    "BlueprintTargetCompiler",
+    "BlueprintTargetError",
     "DataIntegrityError",
     "InputIntakeService",
     "IntentError",
@@ -45,6 +52,7 @@ __all__ = [
     "IntakeError",
     "InvalidIdentifierError",
     "InvalidContextBundleError",
+    "InvalidBlueprintTargetError",
     "InvalidIntentModelError",
     "InvalidInputError",
     "InvalidPayloadError",
