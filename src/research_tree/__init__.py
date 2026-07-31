@@ -63,6 +63,12 @@ from .intent import (
     QuestionRecommendation,
     WorkingBriefCompiler,
 )
+from .openspec import (
+    InvalidOpenSpecExportError,
+    OpenSpecExport,
+    OpenSpecExporter,
+    OpenSpecExportError,
+)
 from .scheduler import (
     AdaptivePortfolioScheduler,
     InvalidPortfolioError,
@@ -106,6 +112,7 @@ __all__ = [
     "InvalidBlueprintTargetError",
     "InvalidIntentModelError",
     "InvalidInputError",
+    "InvalidOpenSpecExportError",
     "InvalidPayloadError",
     "InvalidReadinessError",
     "InvalidPortfolioError",
@@ -128,6 +135,9 @@ __all__ = [
     "TECHNICAL_RESEARCH_PACKAGE_KIND",
     "QuestionPolicy",
     "QuestionRecommendation",
+    "OpenSpecExport",
+    "OpenSpecExporter",
+    "OpenSpecExportError",
     "PortfolioError",
     "WorkingBriefCompiler",
     "WorkItemCompiler",
