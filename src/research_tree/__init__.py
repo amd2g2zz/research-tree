@@ -14,6 +14,15 @@ from .domain import (
     RoundSnapshot,
     RuntimeStoreError,
 )
+from .intake import (
+    InputIntakeService,
+    IntakeError,
+    InvalidContextBundleError,
+    InvalidInputError,
+    RepositoryIntakeError,
+    RepositoryInspector,
+    RepositorySafetyPolicy,
+)
 from .storage import RunStore
 
 __all__ = [
@@ -21,13 +30,20 @@ __all__ = [
     "ArtifactRef",
     "ArtifactRevision",
     "DataIntegrityError",
+    "InputIntakeService",
+    "IntakeError",
     "InvalidIdentifierError",
+    "InvalidContextBundleError",
+    "InvalidInputError",
     "InvalidPayloadError",
     "LineageEvent",
     "RoundAlreadyExistsError",
     "RoundNotFoundError",
     "RoundRecord",
     "RoundSnapshot",
+    "RepositoryIntakeError",
+    "RepositoryInspector",
+    "RepositorySafetyPolicy",
     "RunStore",
     "RuntimeStoreError",
 ]

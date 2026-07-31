@@ -18,6 +18,9 @@ test = [
   "pytest>=8,<10",
 ]
 
+[tool.uv]
+default-groups = ["test"]
+
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]

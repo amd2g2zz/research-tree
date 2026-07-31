@@ -55,6 +55,35 @@ A Context Bundle can be one sentence, many documents, or a repository plus
 other materials. Membership describes delivery context, not authority or
 agreement. The agent does not flatten conflicting entries into a single source.
 
+## Repository Baseline
+
+```jsonc
+{
+  "repository_root": "canonical local path or checked-out root",
+  "read_scope": ["."],
+  "revision": {
+    "branch": "main or null",
+    "commit": "commit or null",
+    "dirty": false,
+    "sha256": "safe-scan fingerprint or null",
+    "observed_at": "2026-07-31T00:00:00Z"
+  },
+  "anchors": [{"path": "src/example.py", "symbol": "main or null"}],
+  "facts": [{
+    "category": "path|source|symbol|entry_point|behavior|interface|dependency|test|deployment|change_surface",
+    "anchor": {"path": "src/example.py", "symbol": "optional"},
+    "observation": "bounded, observed repository fact"
+  }],
+  "unreadable": [{"path": ".env", "reason": "secret"}]
+}
+```
+
+A repository baseline is attached to its repository Input Ledger entry. Its
+anchors must be repository-relative and resolvable against the recorded root
+and revision. `unreadable` records boundary decisions without retaining file
+content. The baseline is a read-only observation, not an architecture or intent
+interpretation.
+
 ## Intent Model
 
 ```jsonc
