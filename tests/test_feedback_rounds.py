@@ -12,6 +12,8 @@ def api():
         CandidateContext,
         FeedbackRoundService,
         InvalidFeedbackError,
+        InvalidIntentModelError,
+        InvalidWorkingBriefError,
         RoundNotFoundError,
         WorkingBriefCompiler,
     )
@@ -20,6 +22,8 @@ def api():
         "CandidateContext": CandidateContext,
         "FeedbackRoundService": FeedbackRoundService,
         "InvalidFeedbackError": InvalidFeedbackError,
+        "InvalidIntentModelError": InvalidIntentModelError,
+        "InvalidWorkingBriefError": InvalidWorkingBriefError,
         "RoundNotFoundError": RoundNotFoundError,
         "WorkingBriefCompiler": WorkingBriefCompiler,
     }
@@ -335,3 +339,71 @@ def test_missing_candidate_disposition_rejects_before_creating_successor_round(t
 
     with pytest.raises(api_modules["RoundNotFoundError"]):
         store.load_round("round-successor")
+
+
+@pytest.mark.parametrize(
+    ("overrides", "error_name"),
+    (
+        ({"intent_analysis": {"signals": []}}, "InvalidIntentModelError"),
+        (
+            {
+                "input_roles": {
+                    "input-feedback": "primary",
+                    "input-brief": "context",
+                }
+            },
+            "InvalidWorkingBriefError",
+        ),
+        (
+            {
+                "material_conflicts": (
+                    {"input_ids": ["input-brief"], "status": "open", "note": "Malformed."},
+                )
+            },
+            "InvalidWorkingBriefError",
+        ),
+        (
+            {
+                "delivery_targets": {
+                    "technical_research_package": "yes",
+                    "human_brief": True,
+                    "openspec": False,
+                }
+            },
+            "InvalidWorkingBriefError",
+        ),
+    ),
+    ids=("intent-analysis", "input-roles", "material-conflicts", "late-brief-validation"),
+)
+def test_rejected_successor_compilation_is_atomic_and_retryable(
+    tmp_path: Path,
+    overrides: dict[str, object],
+    error_name: str,
+) -> None:
+    api_modules = api()
+    modules, store, prior_round, *_ = predecessor(tmp_path)
+    candidate_context = candidates(
+        api_modules,
+        store,
+        prior_round,
+        dispositions={
+            "decision-hosting": "overturn",
+            "finding-isolation": "downgrade",
+            "input-brief": "reuse",
+            "input-cloud": "ignore",
+            "input-context": "ignore",
+            "input-local": "revalidate",
+        },
+    )
+
+    before = store.load_round(prior_round.id)
+    with pytest.raises(api_modules[error_name]):
+        start_successor(api_modules, store, prior_round, candidate_context, **overrides)
+
+    with pytest.raises(api_modules["RoundNotFoundError"]):
+        store.load_round("round-successor")
+    assert store.load_round(prior_round.id) == before
+
+    result = start_successor(api_modules, store, prior_round, candidate_context)
+
+    assert result.round.id == "round-successor"
