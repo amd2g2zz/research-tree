@@ -45,6 +45,13 @@ from .intent import (
     QuestionRecommendation,
     WorkingBriefCompiler,
 )
+from .scheduler import (
+    AdaptivePortfolioScheduler,
+    InvalidPortfolioError,
+    PortfolioError,
+    WORK_PORTFOLIO_KIND,
+    validate_portfolio_payload,
+)
 from .storage import RunStore
 from .work_items import (
     InvalidWorkItemError,
@@ -58,6 +65,7 @@ __all__ = [
     "ArtifactNotFoundError",
     "ArtifactRef",
     "ArtifactRevision",
+    "AdaptivePortfolioScheduler",
     "BlueprintTargetCompiler",
     "BlueprintTargetError",
     "DataIntegrityError",
@@ -77,6 +85,7 @@ __all__ = [
     "InvalidIntentModelError",
     "InvalidInputError",
     "InvalidPayloadError",
+    "InvalidPortfolioError",
     "InvalidWorkingBriefError",
     "InvalidWorkItemError",
     "LineageEvent",
@@ -91,9 +100,12 @@ __all__ = [
     "RuntimeStoreError",
     "QuestionPolicy",
     "QuestionRecommendation",
+    "PortfolioError",
     "WorkingBriefCompiler",
     "WorkItemCompiler",
     "WorkItemError",
     "WorkItemPlanner",
     "WorkItemStatusService",
+    "WORK_PORTFOLIO_KIND",
+    "validate_portfolio_payload",
 ]
