@@ -1,0 +1,60 @@
+{
+  "schema_version": "1",
+  "corpus_version": "2026.1",
+  "cases": [
+    {
+      "id": "click-isolated-filesystem",
+      "corpus_version": "2026.1",
+      "source": {
+        "locator": "https://github.com/pallets/click",
+        "permission": "public MIT-licensed repository"
+      },
+      "baseline": {
+        "revision": "333c28d79cd982990ee98eef61ec20ab1a4f38ba",
+        "sha256": "f4a87b32ebbe55d747f6771af954734d4be356633c4a873ecab190c296dcc1a5"
+      },
+      "environment": {
+        "image": "python:3.12-slim",
+        "digest": "sha256:e0c4ccf32c1889744d12ab31ff06c9bd3fb4a9c31c1ae10c72eb948e07bec558",
+        "recipe": "Evaluator pins dependencies from the baseline and runs its isolated test recipe."
+      },
+      "public_materials": [
+        {
+          "kind": "repository_baseline",
+          "locator": "https://github.com/pallets/click/tree/333c28d79cd982990ee98eef61ec20ab1a4f38ba"
+        }
+      ],
+      "hidden_oracle_id": "click-isolated-filesystem-oracle-v1",
+      "limitations": [
+        "The evaluator retains the eventual change, discussion, and acceptance oracle outside this public manifest."
+      ]
+    },
+    {
+      "id": "requests-contributing-link",
+      "corpus_version": "2026.1",
+      "source": {
+        "locator": "https://github.com/psf/requests",
+        "permission": "public Apache-2.0-licensed repository"
+      },
+      "baseline": {
+        "revision": "4c800e9aea2059660b8306b0fc8f9e9a4232cb3e",
+        "sha256": "a4914384f9aa4ec756a90618d16e4e738602938124e63dfaaf9eb75768a1dc90"
+      },
+      "environment": {
+        "image": "python:3.12-slim",
+        "digest": "sha256:e0c4ccf32c1889744d12ab31ff06c9bd3fb4a9c31c1ae10c72eb948e07bec558",
+        "recipe": "Evaluator pins dependencies from the baseline and runs its isolated test recipe."
+      },
+      "public_materials": [
+        {
+          "kind": "repository_baseline",
+          "locator": "https://github.com/psf/requests/tree/4c800e9aea2059660b8306b0fc8f9e9a4232cb3e"
+        }
+      ],
+      "hidden_oracle_id": "requests-contributing-link-oracle-v1",
+      "limitations": [
+        "The evaluator retains the eventual change, discussion, and acceptance oracle outside this public manifest."
+      ]
+    }
+  ]
+}
