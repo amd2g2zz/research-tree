@@ -13,6 +13,12 @@ class IntentPort(Protocol):
     def model(self, context: Mapping[str, Any]) -> Mapping[str, Any]: ...
 
 
+class IntentAnalysisPort(Protocol):
+    """Optional semantic adapter; compilers validate its structured output."""
+
+    def analyze(self, context: Mapping[str, Any]) -> Mapping[str, Any]: ...
+
+
 class StrategyPort(Protocol):
     def plan(self, intent_model: Mapping[str, Any]) -> Mapping[str, Any]: ...
 
