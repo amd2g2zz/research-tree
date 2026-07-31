@@ -37,3 +37,27 @@ class DeliveryPort(Protocol):
 
 class VerificationPort(Protocol):
     def verify(self, package: Mapping[str, Any]) -> Mapping[str, Any]: ...
+
+
+class SourceAcquisitionPort(Protocol):
+    """Obtain a selected source without defining a mandatory research path."""
+
+    def acquire(self, request: Mapping[str, Any]) -> Mapping[str, Any]: ...
+
+
+class PrimarySourceValidationPort(Protocol):
+    """Check whether a selected source is primary for the claimed evidence."""
+
+    def validate_primary_source(self, request: Mapping[str, Any]) -> Mapping[str, Any]: ...
+
+
+class EvidenceReviewPort(Protocol):
+    """Review a source's applicability to one bounded technical decision."""
+
+    def review(self, request: Mapping[str, Any]) -> Mapping[str, Any]: ...
+
+
+class ProvenanceIntegrityPort(Protocol):
+    """Verify recorded version and extraction provenance for selected evidence."""
+
+    def verify_integrity(self, request: Mapping[str, Any]) -> Mapping[str, Any]: ...
