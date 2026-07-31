@@ -1,0 +1,340 @@
+# Product Contracts
+
+These contracts describe the target product state. They are intentionally
+independent of the retired schema-2 research state and establish the starting
+point for a new implementation.
+
+## Input Ledger Entry
+
+```jsonc
+{
+  "id": "input-001",
+  "kind": "brief|article|note|draft|repository|log|prior_output|feedback|context_bundle|other",
+  "origin": {
+    "type": "user|workspace|url|repository|generated",
+    "locator": "relative/path or URL"
+  },
+  "revision": {
+    "branch": "main",
+    "commit": "optional commit",
+    "sha256": "optional content hash",
+    "observed_at": "2026-07-31T00:00:00Z"
+  },
+  "read_scope": "files, paths, pages, or sections the agent may inspect",
+  "role": "baseline|constraint|signal|evidence|history",
+  "member_input_ids": [],
+  "grouping": "user_provided|agent_composed|none",
+  "used_by_rounds": ["round-001"]
+}
+```
+
+Repository entries are read-only by default. A baseline must record the
+relevant paths, symbols, interfaces, behavior, dependencies, tests, deployment
+configuration, and change surface. Secret files, binaries, symlinks that leave
+the repository, and unrelated large directories are outside the default scope.
+
+For `kind: context_bundle`, `member_input_ids` records the materials supplied
+together. The bundle itself preserves the user's grouping; every member keeps
+its own ledger entry and may appear in more than one bundle. A non-bundle input
+uses an empty `member_input_ids` list and `grouping: none`.
+
+## Context Bundle
+
+```jsonc
+{
+  "id": "input-bundle-001",
+  "kind": "context_bundle",
+  "origin": {"type": "user", "locator": "conversation turn or uploaded folder"},
+  "member_input_ids": ["input-brief", "input-article-a", "input-note", "input-repository"],
+  "grouping": "user_provided",
+  "role": "baseline"
+}
+```
+
+A Context Bundle can be one sentence, many documents, or a repository plus
+other materials. Membership describes delivery context, not authority or
+agreement. The agent does not flatten conflicting entries into a single source.
+
+## Intent Model
+
+```jsonc
+{
+  "id": "intent-002",
+  "round_id": "round-002",
+  "revision": 1,
+  "context_bundle_ids": ["input-bundle-001"],
+  "input_ids": ["input-brief", "input-article-a", "input-note", "input-repository"],
+  "signals": [{
+    "input_id": "input-note",
+    "observation": "what the material literally says or demonstrates",
+    "kind": "stated_goal|constraint|preference|repository_fact|context|other",
+    "authority_boundary": "what the signal can and cannot establish"
+  }],
+  "hypotheses": [{
+    "id": "intent-hypothesis-01",
+    "interpretation": "the requester is trying to enable ...",
+    "status": "leading|viable|rejected|needs_user_input",
+    "signal_refs": ["input-note"],
+    "confidence": "low|medium|high",
+    "decision_consequence": "which research or blueprint choices would change",
+    "validation": "alignment_research|repository_inspection|experiment|user_question|none"
+  }],
+  "desired_outcomes": [],
+  "success_signals": [],
+  "decision_drivers": [{"dimension": "technical|user|delivery|commercial|risk|other", "statement": "...", "signal_refs": []}],
+  "hard_constraints": [],
+  "non_goals": [],
+  "unresolved_interpretations": []
+}
+```
+
+The Intent Model is the agent's revisable understanding of what the requester
+is trying to achieve. It does not turn an inference into a user requirement.
+It keeps multiple viable interpretations when their consequence is material and
+only asks the requester when available inputs, repository facts, and bounded
+alignment research cannot responsibly distinguish a non-recoverable choice.
+
+## Working Brief
+
+```jsonc
+{
+  "id": "brief-002",
+  "round_id": "round-002",
+  "parent_round_id": "round-001",
+  "triggers": [{
+    "kind": "initial_request|feedback|new_material|new_repository",
+    "text": "one event that starts or reshapes this round",
+    "input_ids": ["input-001", "input-007"]
+  }],
+  "context_bundle_ids": ["input-bundle-001"],
+  "selected_input_ids": ["input-brief", "input-article-a", "input-note", "input-repository"],
+  "intent_model_id": "intent-002",
+  "intent_hypothesis_ids": ["intent-hypothesis-01"],
+  "input_roles": {
+    "input-brief": "primary",
+    "input-article-a": "context",
+    "input-note": "constraint",
+    "input-repository": "baseline"
+  },
+  "working_interpretation": "the strategy-ready interpretation selected from the Intent Model",
+  "material_conflicts": [{"input_ids": ["input-article-a", "input-note"], "status": "open|scoped|resolved", "note": "..."}],
+  "technical_outcome": "the capability or design decision to enable",
+  "non_goals": [],
+  "retained_hard_constraints": [],
+  "assumptions": [],
+  "prior_material_disposition": {
+    "finding-001": "reuse|revalidate|downgrade|ignore|overturn"
+  },
+  "delivery_targets": {
+    "technical_research_package": true,
+    "human_brief": true,
+    "openspec": false
+  }
+}
+```
+
+This is an internal Working Brief, not a single user material or the source of
+truth for intent. It snapshots the Intent Model interpretation selected for the
+strategy. A strategy can select individual bundle members, a whole bundle, or
+independent inputs. It must preserve the role, authority boundary, unresolved
+conflict, and viable alternative interpretation of every selected item.
+Unmentioned or previously accepted material is not automatically retained; the
+new strategy decides its disposition.
+
+## Research Strategy
+
+```jsonc
+{
+  "id": "strategy-002",
+  "brief_id": "brief-002",
+  "intent_model_id": "intent-002",
+  "technical_outcome": "...",
+  "context_bundle_ids": ["input-bundle-001"],
+  "baseline_input_ids": ["input-001", "input-002"],
+  "input_disposition": {
+    "input-001": "primary|constraint|context|counterexample|out_of_scope",
+    "input-002": "primary|constraint|context|counterexample|out_of_scope"
+  },
+  "blueprint_target_id": "blueprint-target-002",
+  "tracks": [{
+    "id": "architecture",
+    "question": "Which architecture can meet the outcome in this repository?",
+    "intent_hypothesis_ids": ["intent-hypothesis-01"],
+    "decision_slot_ids": ["decision-slot-architecture"],
+    "decision_value": "Changes the main integration boundary",
+    "priority": 1,
+    "methods": ["repository_inspection", "primary_docs", "prototype"],
+    "evidence_standard": "...",
+    "depth": "bounded|deep",
+    "exit_criteria": ["..."],
+    "status": "planned|active|complete|deferred"
+  }],
+  "budget": {
+    "time": "bounded default or explicit value",
+    "source_limit": "bounded default or explicit value",
+    "prototype_limit": "bounded default or explicit value"
+  },
+  "autonomy": {
+    "ask_user": "only non-recoverable unresolved decisions",
+    "assumption_policy": "record and validate later"
+  },
+  "strategy_changes": [],
+  "delivery_targets": {
+    "technical_research_package": true,
+    "human_brief": true,
+    "openspec": false
+  }
+}
+```
+
+Tracks organize work; they are not completion units. A completed strategy can
+still be incomplete when a critical Decision Slot is open. The strategy must
+also state which Intent Model hypotheses it carries, tests, or intentionally
+leaves viable, so later technical choices do not lose their reason for existing.
+
+## Blueprint Target and Decision Slot
+
+```jsonc
+{
+  "id": "blueprint-target-002",
+  "brief_id": "brief-002",
+  "intent_model_id": "intent-002",
+  "revision": 1,
+  "slots": [{
+    "id": "decision-slot-architecture",
+    "kind": "architecture|interface|state|security|migration|validation|operations|other",
+    "question": "Which technical choice must be made?",
+    "intent_hypothesis_ids": ["intent-hypothesis-01"],
+    "priority": "P0|P1|P2",
+    "impact": "low|medium|high",
+    "uncertainty": "low|medium|high",
+    "irreversibility": "low|medium|high",
+    "constraints": ["explicit constraint or repository fact id"],
+    "alternatives": ["candidate-a", "candidate-b"],
+    "repository_touchpoints": [{"path": "src/example.ts", "symbol": "optional"}],
+    "depends_on": [],
+    "evidence_standard": "primary docs plus repository check",
+    "closure_rule": "selected, conditional with validation, or deferred with fallback",
+    "status": "open|researching|selected|conditional|deferred|blocked"
+  }]
+}
+```
+
+A Blueprint Target is revisable within a round. Each revision records why a
+slot was added, removed, split, merged, or reprioritized. It must not be used as
+a mandatory pre-research questionnaire.
+
+## Work Item and Finding Pack
+
+```jsonc
+{
+  "id": "work-014",
+  "round_id": "round-002",
+  "decision_slot_id": "decision-slot-architecture",
+  "intent_hypothesis_ids": ["intent-hypothesis-01"],
+  "kind": "external_research|repository_analysis|prototype|evaluation",
+  "scope": "one bounded question and its exclusions",
+  "depends_on": ["work-003"],
+  "methods": ["primary_docs", "repository_inspection"],
+  "budget": {"tool_calls": 12, "time": "bounded"},
+  "completion_rule": "return a Finding Pack or explain why evidence is unavailable",
+  "status": "planned|ready|running|complete|cancelled|deferred"
+}
+```
+
+```jsonc
+{
+  "id": "finding-014",
+  "work_item_id": "work-014",
+  "observations": [{
+    "claim": "atomic observed fact",
+    "anchor": {"kind": "source|repository|input|experiment", "ref": "URL or path:symbol"},
+    "applicability": "conditions and version scope",
+    "confidence": "low|medium|high",
+    "limitation": "what this does not establish"
+  }],
+  "option_effects": [{"option": "candidate-a", "effect": "supports|contradicts|limits"}],
+  "implementation_implications": [],
+  "remaining_uncertainties": []
+}
+```
+
+Workers return Finding Packs, not standalone report chapters. A source list
+without atomic observations and decision effects is not a Finding Pack.
+
+## Decision Ledger Entry
+
+```jsonc
+{
+  "id": "decision-009",
+  "round_id": "round-002",
+  "decision_slot_id": "decision-slot-architecture",
+  "status": "selected|conditional|deferred|blocked",
+  "selected_option": "candidate-a",
+  "alternatives": [{"option": "candidate-b", "disposition": "rejected|deferred", "reason": "..."}],
+  "anchors": ["finding-014", "repo:path:symbol"],
+  "design_consequence": "component, interface, or state change",
+  "repository_touchpoints": ["src/example.ts:Example"],
+  "validation": {"kind": "test|spike|metric|review", "oracle": "observable pass condition"},
+  "assumptions": [],
+  "fallback": "safe behavior when the condition fails",
+  "reversal_condition": "new evidence or outcome that changes this choice"
+}
+```
+
+The Technical Research Package is compiled from the Decision Ledger. Each P0
+entry needs a traceable path from anchor to design consequence, change task, and
+acceptance oracle.
+
+## Readiness Record
+
+```jsonc
+{
+  "id": "readiness-002",
+  "round_id": "round-002",
+  "blueprint_target_revision": 1,
+  "gates": {
+    "intent_alignment": "pass|fail|deferred",
+    "decision_closure": "pass|fail",
+    "traceability": "pass|fail",
+    "repository_fit": "pass|fail|not_applicable",
+    "implementation_readiness": "pass|fail|deferred",
+    "operational_quality": "pass|fail|deferred"
+  },
+  "risk_tier": "default|medium|high",
+  "findings": [],
+  "next_work_item_ids": []
+}
+```
+
+A failed readiness gate becomes a targeted same-round work item unless it
+changes the user's target or success definition. `intent_alignment` checks that
+the leading interpretation and material alternatives remain visible in the
+blueprint; it is not a claim that the agent has proven the user's private
+intent. Only target-changing feedback starts a new Working Brief.
+
+## Research Round
+
+```jsonc
+{
+  "id": "round-002",
+  "brief_id": "brief-002",
+  "intent_model_id": "intent-002",
+  "strategy_id": "strategy-002",
+  "parent_round_id": "round-001",
+  "status": "planning|researching|ready|superseded|complete",
+  "artifact_refs": {
+    "intent_model": "research/round-002/intent-model.json",
+    "technical_research_package": "research/round-002/agent-package.md",
+    "human_brief": "research/round-002/human-brief.md",
+    "decision_ledger": "research/round-002/decision-ledger.json",
+    "readiness_record": "research/round-002/readiness.json",
+    "openspec": null
+  },
+  "superseded_by_round_id": null
+}
+```
+
+`superseded` means the current strategy should not receive more normal work.
+It does not delete evidence or artifacts; they remain candidate context for the
+next Brief.
