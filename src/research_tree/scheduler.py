@@ -14,7 +14,7 @@ from .domain import (
     validate_identifier,
 )
 from .storage import RunStore
-from .work_items import WORK_ITEM_KIND
+from .work_items import WORK_ITEM_KIND, supersession_for_round
 
 
 WORK_PORTFOLIO_KIND = "work-portfolio"
@@ -61,6 +61,13 @@ class AdaptivePortfolioScheduler:
 
         try:
             snapshot = self._store.load_round(round_id)
+            supersession = supersession_for_round(snapshot.artifacts)
+            if supersession is not None:
+                successor = supersession.payload.get("successor_round_id")
+                suffix = f" by {successor}" if isinstance(successor, str) and successor else ""
+                raise InvalidPortfolioError(
+                    f"round is superseded{suffix}; normal portfolios cannot be scheduled"
+                )
             validate_identifier(portfolio_id, "portfolio_id")
             _ensure_id_compatibility(snapshot.artifacts, portfolio_id, WORK_PORTFOLIO_KIND)
             target = _resolve_exact(

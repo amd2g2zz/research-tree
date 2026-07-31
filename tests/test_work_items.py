@@ -214,6 +214,48 @@ def test_dependency_respecting_planner_emits_deterministic_bounded_work(tmp_path
     assert [item.payload for item in rerun] == [item.payload for item in items]
 
 
+def test_planner_rejects_normal_work_for_a_superseded_round(tmp_path: Path) -> None:
+    modules, store, round_record, target = context_target(tmp_path)
+    store.append_artifact(
+        round_record.id,
+        "round-supersession-round-next",
+        "round-supersession",
+        {"status": "superseded", "successor_round_id": "round-next"},
+    )
+
+    with pytest.raises(modules["InvalidWorkItemError"], match="superseded"):
+        modules["WorkItemPlanner"](store).plan(
+            round_id=round_record.id,
+            blueprint_target=target,
+            work_item_ids={
+                "slot-architecture": "work-architecture",
+                "slot-security": "work-security",
+            },
+        )
+
+    with pytest.raises(modules["InvalidWorkItemError"], match="superseded"):
+        modules["WorkItemCompiler"](store).compile(
+            round_id=round_record.id,
+            work_item_id="work-direct",
+            blueprint_target=target,
+            decision_slot_id="slot-architecture",
+            kind="repository_analysis",
+            scope="Inspect the old architecture boundary.",
+            exclusions="Do not close the decision.",
+            decision_change_reason="The old strategy is no longer allowed to spend work.",
+            depends_on=(),
+            methods=("repository_inspection",),
+            budget={"tool_calls": 4, "time": "bounded"},
+            completion_rule="Return a bounded Finding Pack.",
+        )
+
+    assert not [
+        artifact
+        for artifact in store.load_round(round_record.id).artifacts
+        if artifact.kind == "work-item"
+    ]
+
+
 def test_serial_planner_turns_stable_topological_order_into_a_chain(tmp_path: Path) -> None:
     modules, store, round_record, target = context_target(tmp_path)
     brief = next(

@@ -296,6 +296,25 @@ def test_scheduler_is_reproducible_and_dispatches_only_independent_ready_work(tm
     assert thaw_json(fresh.payload) == payload
 
 
+def test_scheduler_rejects_normal_portfolios_for_a_superseded_round(tmp_path: Path) -> None:
+    modules, store, round_record, target, works = context(tmp_path)
+    store.append_artifact(
+        round_record.id,
+        "round-supersession-round-next",
+        "round-supersession",
+        {"status": "superseded", "successor_round_id": "round-next"},
+    )
+
+    with pytest.raises(modules["InvalidPortfolioError"], match="superseded"):
+        schedule(modules, store, round_record, target, works)
+
+    assert not [
+        artifact
+        for artifact in store.load_round(round_record.id).artifacts
+        if artifact.kind == "work-portfolio"
+    ]
+
+
 def test_budget_exhaustion_and_duplicate_work_are_explicitly_recorded(tmp_path: Path) -> None:
     modules, store, round_record, target, works = context(tmp_path)
     compiler = modules["WorkItemCompiler"](store)
