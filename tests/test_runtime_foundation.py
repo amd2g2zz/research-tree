@@ -14,6 +14,7 @@ def runtime_api():
     from research_tree import (
         ArtifactNotFoundError,
         ArtifactRef,
+        DataIntegrityError,
         InvalidIdentifierError,
         InvalidPayloadError,
         RoundAlreadyExistsError,
@@ -23,6 +24,7 @@ def runtime_api():
     return {
         "ArtifactNotFoundError": ArtifactNotFoundError,
         "ArtifactRef": ArtifactRef,
+        "DataIntegrityError": DataIntegrityError,
         "InvalidIdentifierError": InvalidIdentifierError,
         "InvalidPayloadError": InvalidPayloadError,
         "RoundAlreadyExistsError": RoundAlreadyExistsError,
@@ -159,6 +161,34 @@ def test_store_rejects_unsafe_or_unresolvable_inputs_without_writing(tmp_path: P
         )
 
     assert store.load_round(round_record.id).artifacts == ()
+
+
+def test_tampered_artifact_content_is_rejected_on_reload(tmp_path: Path) -> None:
+    api = runtime_api()
+    root = tmp_path / "store"
+    store = api["RunStore"](root)
+    round_record = store.create_round("round-integrity")
+    artifact = store.append_artifact(
+        round_record.id,
+        "artifact-package",
+        "technical-package",
+        {"outcome": "original"},
+    )
+
+    artifact_path = (
+        root
+        / "rounds"
+        / round_record.id
+        / "artifacts"
+        / artifact.id
+        / f"{artifact.revision:06d}.json"
+    )
+    tampered = json.loads(artifact_path.read_text(encoding="utf-8"))
+    tampered["payload"]["outcome"] = "tampered"
+    artifact_path.write_text(json.dumps(tampered), encoding="utf-8")
+
+    with pytest.raises(api["DataIntegrityError"]):
+        api["RunStore"](root).load_round(round_record.id)
 
 
 def test_store_requires_an_explicit_root_and_ignores_ambient_workspace(
