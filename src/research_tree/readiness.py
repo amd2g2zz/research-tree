@@ -20,6 +20,14 @@ from .domain import (
 from .intent import INTENT_MODEL_KIND, WORKING_BRIEF_KIND
 from .ledger import DECISION_LEDGER_KIND, FINDING_PACK_KIND
 from .storage import RunStore
+from .verification import (
+    FAILURE_CATEGORY_GATES,
+    InvalidVerificationError,
+    IsolatedVerificationAdapter,
+    RiskVerificationAssessment,
+    assess_risk_verification,
+    validate_risk_verification_payload,
+)
 
 
 READINESS_RECORD_KIND = "readiness-record"
@@ -63,6 +71,7 @@ class ReadinessVerifier:
         technical_package: ArtifactRevision,
         repository_roots: Mapping[str, str | Path] | None = None,
         risk_tier: str = "default",
+        verification_adapter: IsolatedVerificationAdapter | None = None,
     ) -> ArtifactRevision:
         """Append one diagnostic readiness record for an exact package revision.
 
@@ -99,6 +108,24 @@ class ReadinessVerifier:
                 root_map,
                 tier,
             )
+            assessment = assess_risk_verification(
+                round_id=round_id,
+                risk_tier=tier,
+                technical_package=package,
+                repositories=sources["repositories"],
+                adapter=verification_adapter,
+            )
+            risk_verification = _apply_risk_verification(
+                assessment,
+                snapshot.artifacts,
+                slots=_slots(sources["target"]),
+                records={
+                    _identifier(item.get("decision_slot_id"), "decision_record decision_slot_id"): item
+                    for item in _mappings(document["decision_records"], "decision_records")
+                },
+                diagnostics=diagnostics,
+                gate_states=gate_states,
+            )
             delivery_readiness = _delivery_projection(tier, gate_states, diagnostics)
             payload = {
                 "technical_package_ref": _ref_dict(package),
@@ -106,9 +133,10 @@ class ReadinessVerifier:
                 "diagnostics": diagnostics,
                 "repository_anchor_checks": checks,
                 "source_refs": [_ref_dict(artifact) for artifact in sources["artifacts"]],
+                "risk_verification": risk_verification,
             }
             validate_readiness_record_payload(payload)
-        except (InvalidIdentifierError, TypeError, ValueError) as error:
+        except (InvalidIdentifierError, InvalidVerificationError, TypeError, ValueError) as error:
             raise InvalidReadinessError(str(error)) from error
 
         parent_refs = _unique_refs(
@@ -139,18 +167,31 @@ def readiness_for_delivery(record: ArtifactRevision) -> Mapping[str, Any]:
 def validate_readiness_record_payload(payload: Mapping[str, Any]) -> None:
     """Validate the public, persisted readiness record schema recursively."""
 
-    _require_exact_keys(
-        payload,
-        {
-            "technical_package_ref",
-            "delivery_readiness",
-            "diagnostics",
-            "repository_anchor_checks",
-            "source_refs",
-        },
-        "readiness record payload",
+    legacy_keys = {
+        "technical_package_ref",
+        "delivery_readiness",
+        "diagnostics",
+        "repository_anchor_checks",
+        "source_refs",
+    }
+    current_keys = legacy_keys | {"risk_verification"}
+    actual_keys = set(payload)
+    if frozenset(actual_keys) not in {frozenset(legacy_keys), frozenset(current_keys)}:
+        raise InvalidReadinessError(
+            "readiness record payload has unexpected keys; "
+            f"missing={sorted(legacy_keys - actual_keys)}, extra={sorted(actual_keys - current_keys)}"
     )
     _validate_ref(payload["technical_package_ref"], "technical_package_ref")
+    if "risk_verification" in payload:
+        validate_risk_verification_payload(payload["risk_verification"])
+        risk_evidence = _mapping(payload["risk_verification"], "risk_verification")
+        risk_package = _mapping(
+            risk_evidence["technical_package"], "risk_verification.technical_package"
+        )
+        if risk_package["ref"] != payload["technical_package_ref"]:
+            raise InvalidReadinessError(
+                "risk_verification technical package ref must match readiness technical_package_ref"
+            )
     projection = _mapping(payload["delivery_readiness"], "delivery_readiness")
     _require_exact_keys(
         projection,
@@ -172,25 +213,38 @@ def validate_readiness_record_payload(payload: Mapping[str, Any]) -> None:
     expected_diagnostics = _mappings(payload["diagnostics"], "diagnostics")
     for index, diagnostic in enumerate(expected_diagnostics):
         label = f"diagnostics[{index}]"
-        _require_exact_keys(
-            diagnostic,
-            {
-                "gate",
-                "status",
-                "summary",
-                "decision_slot_id",
-                "decision_id",
-                "work_item_id",
-                "recommended_work",
-            },
-            label,
-        )
+        legacy_diagnostic_keys = {
+            "gate",
+            "status",
+            "summary",
+            "decision_slot_id",
+            "decision_id",
+            "work_item_id",
+            "recommended_work",
+        }
+        current_diagnostic_keys = legacy_diagnostic_keys | {"failure_category"}
+        diagnostic_keys = set(diagnostic)
+        if frozenset(diagnostic_keys) not in {
+            frozenset(legacy_diagnostic_keys),
+            frozenset(current_diagnostic_keys),
+        }:
+            raise InvalidReadinessError(
+                f"{label} has unexpected keys; missing={sorted(legacy_diagnostic_keys - diagnostic_keys)}, "
+                f"extra={sorted(diagnostic_keys - current_diagnostic_keys)}"
+            )
         gate = _enum(diagnostic["gate"], f"{label}.gate", set(READINESS_GATES))
         _enum(diagnostic["status"], f"{label}.status", GATE_STATES[gate] - {"pass"})
         _nonempty(diagnostic["summary"], f"{label}.summary")
         for field in ("decision_slot_id", "decision_id", "work_item_id"):
             if diagnostic[field] is not None:
                 _identifier(diagnostic[field], f"{label}.{field}")
+        failure_category = diagnostic.get("failure_category")
+        if failure_category is not None:
+            _enum(
+                failure_category,
+                f"{label}.failure_category",
+                set(FAILURE_CATEGORY_GATES),
+            )
         _validate_recommended_work(diagnostic["recommended_work"], f"{label}.recommended_work")
         if diagnostic["status"] != "fail" and diagnostic["recommended_work"] is not None:
             raise InvalidReadinessError(
@@ -207,8 +261,24 @@ def validate_readiness_record_payload(payload: Mapping[str, Any]) -> None:
         if not isinstance(check["resolved"], bool):
             raise InvalidReadinessError(f"{label}.resolved must be a boolean")
         _nonempty(check["reason"], f"{label}.reason")
-    for index, ref in enumerate(_mappings(payload["source_refs"], "source_refs")):
-        _validate_ref(ref, f"source_refs[{index}]")
+    source_refs = {
+        _artifact_ref(ref, f"source_refs[{index}]")
+        for index, ref in enumerate(_mappings(payload["source_refs"], "source_refs"))
+    }
+    if "risk_verification" in payload:
+        risk_evidence = _mapping(payload["risk_verification"], "risk_verification")
+        baseline_refs = [
+            _artifact_ref(baseline["input_ref"], f"risk_verification.baselines[{index}].input_ref")
+            for index, baseline in enumerate(
+                _mappings(risk_evidence["baselines"], "risk_verification.baselines")
+            )
+        ]
+        if len(set(baseline_refs)) != len(baseline_refs):
+            raise InvalidReadinessError("risk_verification baselines must not repeat an input ref")
+        if not set(baseline_refs) <= source_refs:
+            raise InvalidReadinessError(
+                "risk_verification baseline refs must belong to the readiness source refs"
+            )
 
 
 def _resolve_package_sources(
@@ -323,6 +393,138 @@ def _evaluate_package(
     states["repository_fit"] = repository_state
     states["operational_quality"] = _evaluate_operational(document, slots, tier, diagnostics)
     return diagnostics, checks, states
+
+
+def _apply_risk_verification(
+    assessment: RiskVerificationAssessment,
+    artifacts: Sequence[ArtifactRevision],
+    *,
+    slots: Mapping[str, Mapping[str, Any]],
+    records: Mapping[str, Mapping[str, Any]],
+    diagnostics: list[dict[str, Any]],
+    gate_states: dict[str, str],
+) -> dict[str, Any]:
+    """Attach execution failures to current-round work without changing the target."""
+
+    evidence = thaw_json(assessment.evidence)
+    if not isinstance(evidence, dict):
+        raise InvalidReadinessError("risk verification assessment must be a JSON object")
+    raw_failures = _mappings(evidence.get("failures"), "risk verification failures")
+    latest_work = _latest_work_items(artifacts)
+    resolved_failures: list[dict[str, Any]] = []
+    follow_ups: list[dict[str, Any]] = []
+    resolved_by_signature: dict[tuple[str, str], dict[str, Any]] = {}
+
+    for index, raw in enumerate(raw_failures):
+        label = f"risk verification failures[{index}]"
+        category = _enum(raw.get("category"), f"{label}.category", set(FAILURE_CATEGORY_GATES))
+        summary = _nonempty(raw.get("summary"), f"{label}.summary")
+        slot_id, work_item_id = _resolve_verification_failure_target(
+            raw,
+            slots,
+            latest_work,
+            label,
+        )
+        decision = records.get(slot_id)
+        gate = FAILURE_CATEGORY_GATES[category]
+        gate_states[gate] = "fail"
+        diagnostics.append(
+            _diagnostic(
+                gate,
+                "fail",
+                summary,
+                slot_id=slot_id,
+                decision_id=None if decision is None else decision.get("decision_id"),
+                work_item_id=work_item_id,
+                failure_category=category,
+            )
+        )
+        resolved = {
+            "category": category,
+            "summary": summary,
+            "decision_slot_id": slot_id,
+            "work_item_id": work_item_id,
+        }
+        resolved_failures.append(resolved)
+        follow_ups.append(
+            {
+                "category": category,
+                "decision_slot_id": slot_id,
+                "work_item_id": work_item_id,
+                "action": "replan",
+                "summary": summary,
+            }
+        )
+        resolved_by_signature[(category, summary)] = resolved
+
+    for check in _mappings(evidence.get("executed_checks"), "risk verification executed checks"):
+        failure = check.get("failure")
+        if failure is None:
+            continue
+        raw_failure = _mapping(failure, "risk verification execution failure")
+        signature = (
+            _nonempty(raw_failure.get("category"), "risk verification execution failure category"),
+            _nonempty(raw_failure.get("summary"), "risk verification execution failure summary"),
+        )
+        resolved = resolved_by_signature.get(signature)
+        if resolved is None:
+            raise InvalidReadinessError(
+                "risk verification executed check failure is absent from its failure list"
+            )
+        check["failure"] = dict(resolved)
+
+    evidence["failures"] = resolved_failures
+    evidence["same_round_follow_ups"] = follow_ups
+    return evidence
+
+
+def _latest_work_items(artifacts: Sequence[ArtifactRevision]) -> dict[str, ArtifactRevision]:
+    latest: dict[str, ArtifactRevision] = {}
+    for artifact in artifacts:
+        if artifact.kind != "work-item":
+            continue
+        previous = latest.get(artifact.id)
+        if previous is None or artifact.revision > previous.revision:
+            latest[artifact.id] = artifact
+    return latest
+
+
+def _resolve_verification_failure_target(
+    failure: Mapping[str, Any],
+    slots: Mapping[str, Mapping[str, Any]],
+    latest_work: Mapping[str, ArtifactRevision],
+    label: str,
+) -> tuple[str, str | None]:
+    raw_slot = failure.get("decision_slot_id")
+    slot_id = None if raw_slot is None else _identifier(raw_slot, f"{label}.decision_slot_id")
+    raw_work = failure.get("work_item_id")
+    work_item_id = None if raw_work is None else _identifier(raw_work, f"{label}.work_item_id")
+    if work_item_id is not None:
+        work = latest_work.get(work_item_id)
+        if work is None:
+            raise InvalidReadinessError(
+                f"{label}.work_item_id must identify a current-round Work Item"
+            )
+        work_slot = _identifier(work.payload.get("decision_slot_id"), f"Work Item {work.id} decision_slot_id")
+        if slot_id is not None and slot_id != work_slot:
+            raise InvalidReadinessError(
+                f"{label} names a Work Item owned by a different Decision Slot"
+            )
+        slot_id = work_slot
+    if slot_id is None:
+        slot_id = next(
+            (
+                candidate
+                for candidate in _stable_slot_order(slots)
+                if slots[candidate].get("priority") == "P0"
+            ),
+            None,
+        )
+    if slot_id is None:
+        slot_id = next(iter(_stable_slot_order(slots)), None)
+    if slot_id is None or slot_id not in slots:
+        raise InvalidReadinessError(f"{label} cannot be assigned to a current Decision Slot")
+    return slot_id, work_item_id
 
 
 def _index_ledgers(
@@ -899,6 +1101,7 @@ def _diagnostic(
     slot_id: str | None = None,
     decision_id: str | None = None,
     work_item_id: str | None = None,
+    failure_category: str | None = None,
 ) -> dict[str, Any]:
     return {
         "gate": gate,
@@ -918,6 +1121,7 @@ def _diagnostic(
                 "reason": f"Resolve the {gate} gate without changing the requester target.",
             }
         ),
+        "failure_category": failure_category,
     }
 
 
