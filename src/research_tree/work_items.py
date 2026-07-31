@@ -17,6 +17,7 @@ from .storage import RunStore
 
 
 WORK_ITEM_KIND = "work-item"
+ROUND_SUPERSESSION_KIND = "round-supersession"
 WORK_KINDS = {"external_research", "repository_analysis", "prototype", "evaluation"}
 WORK_METHODS = {
     "primary_docs",
@@ -69,6 +70,7 @@ class WorkItemCompiler:
 
         try:
             snapshot = self._store.load_round(round_id)
+            _ensure_round_accepts_normal_work(snapshot.artifacts)
             validate_identifier(work_item_id, "work_item_id")
             _ensure_work_id_compatibility(snapshot.artifacts, work_item_id)
             target = _resolve_exact_target(snapshot.artifacts, blueprint_target)
@@ -157,6 +159,7 @@ class WorkItemPlanner:
 
         try:
             snapshot = self._store.load_round(round_id)
+            _ensure_round_accepts_normal_work(snapshot.artifacts)
             target = _resolve_exact_target(snapshot.artifacts, blueprint_target)
             if target.round_id != round_id:
                 raise InvalidWorkItemError("blueprint_target must belong to planner round")
@@ -290,6 +293,30 @@ def _ensure_work_id_compatibility(
         raise InvalidWorkItemError(
             f"work_item_id {work_item_id!r} is already used by artifact kinds: {sorted(foreign_kinds)}"
         )
+
+
+def supersession_for_round(artifacts: Sequence[ArtifactRevision]) -> ArtifactRevision | None:
+    """Return the latest immutable overlay that stops normal predecessor work."""
+
+    candidates = [
+        artifact
+        for artifact in artifacts
+        if artifact.kind == ROUND_SUPERSESSION_KIND and artifact.payload.get("status") == "superseded"
+    ]
+    return max(
+        candidates,
+        key=lambda artifact: (artifact.created_at, artifact.id, artifact.revision),
+        default=None,
+    )
+
+
+def _ensure_round_accepts_normal_work(artifacts: Sequence[ArtifactRevision]) -> None:
+    supersession = supersession_for_round(artifacts)
+    if supersession is None:
+        return
+    successor = supersession.payload.get("successor_round_id")
+    suffix = f" by {successor}" if isinstance(successor, str) and successor else ""
+    raise InvalidWorkItemError(f"round is superseded{suffix}; normal work cannot be planned")
 
 
 def _resolve_exact_target(
