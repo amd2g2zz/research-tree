@@ -33,8 +33,12 @@ the original discovery process.
 | Research Agent | Understands intent from context, inspects repositories, performs alignment and deep research, chooses a research strategy, and produces the two reports. |
 | Implementation Agent | Consumes the Technical Research Package and optionally an OpenSpec change to implement and validate the work. |
 
-The requester is not a required participant at every stage. Collaborative
-exploration is an explicit mode, not the default runtime behavior.
+The requester and Research Agent collaborate while the Intent Model and
+Research Strategy are being formed. Once the strategy is selected, an explicit
+control handoff gives the Research Agent full autonomy for execution,
+replanning, delegation, and continuous intent correction within the granted
+authority and environment. The requester is not a required participant after
+that handoff.
 
 ## 3. Context Pack
 
@@ -93,7 +97,7 @@ Technical Research Package + Human Brief
     +--> explicit request only --> OpenSpec conversion
 ```
 
-### 4.1 Intent understanding is the first product problem
+### 4.1 Intent understanding is a continuous product loop
 
 The product's first job is not to extract keywords or turn user material into a
 requirements form. It is to understand what the requester is trying to achieve
@@ -101,8 +105,16 @@ well enough to choose useful research and design work. A literal request, a
 collection of articles, a repository, and a draft may each contain only partial
 or even conflicting signals of that intent.
 
-Before selecting deep-research tracks, the agent creates a revisable **Intent
-Model**. It separates:
+The agent creates a revisable **Intent Model** as soon as it has enough context
+to state a useful hypothesis, but intent understanding never becomes a finished
+pre-research phase. Repository inspection, alignment research, experiments,
+external evidence, and requester feedback can all change the current reading.
+The agent must repeatedly test the Intent Model while it researches, and must
+revise the Working Brief, Decision Map, and active strategy when the evidence
+changes the intended outcome, scope, authority, success definition, or a premise
+that materially affects a user choice.
+
+The Intent Model separates:
 
 - observed statements and repository facts from inferences about intent;
 - intended technical outcome from the material used to describe it;
@@ -117,8 +129,9 @@ business analysis is required, but it must preserve such a driver when it
 changes technical architecture, scope, or validation.
 
 The Intent Model is neither a mandatory questionnaire nor a frozen intent
-contract. The agent may form and test hypotheses through repository inspection
-and bounded alignment research. It asks the requester only when consequential,
+contract. The agent may form and test hypotheses through repository inspection,
+bounded alignment research, and deep technical research itself. It asks the
+requester only during the pre-strategy collaboration phase when consequential,
 non-recoverable choices differ across viable intent interpretations and the
 available material and research cannot responsibly rank them.
 
@@ -129,7 +142,8 @@ was completed. This is the wrong behavior. The agent may need to inspect the
 web, supplied material, or repository first to understand the request well
 enough to form a useful strategy.
 
-By default, the agent proceeds using best judgment. It asks only when:
+Before the Research Strategy is selected, the agent proceeds using best
+judgment. It asks only when:
 
 - the requester asks to explore interactively;
 - a decision is consequential and non-recoverable; and
@@ -154,9 +168,15 @@ become a full research run or lock the user into a direction.
 
 ### 4.4 Autonomous deep research
 
-Once the Research Strategy exists, the Research Agent owns normal uncertainty.
-It researches, compares alternatives, tests where possible, and records
-assumptions and validation work. It does not repeatedly wait for user answers.
+Once the Research Strategy exists, control is handed to the Research Agent. It
+owns normal uncertainty, does not freeze the Intent Model, and does not return
+ordinary research decisions to the requester. It researches, compares
+alternatives, tests where possible, records assumptions and validation work,
+and performs an intent review after each meaningful evidence batch. If evidence
+changes the target or invalidates the strategy, the agent creates a successor
+Intent Model, Working Brief, and Strategy revision internally and continues
+within the granted authority. It does not reopen collaborative questioning just
+because its own understanding changed.
 
 ## 5. Intent Model, Working Brief, and Research Strategy
 
@@ -169,9 +189,11 @@ and what evidence or user answer would change the interpretation. It must point
 back to Context Bundle members, repository observations, and alignment research
 instead of presenting an inferred goal as a verbatim user requirement.
 
-An Intent Model can be partially unresolved. The agent branches internally or
-adds low-cost intent-validation work when an ambiguity is recoverable. It does
-not require every ambiguity to be resolved before it begins technical research.
+An Intent Model can be partially unresolved and is revised throughout the round.
+The agent branches internally or adds intent-validation work whenever an
+ambiguity is recoverable. It does not require every ambiguity to be resolved
+before it begins technical research, and it must not treat the first model as
+permission to ignore later evidence.
 
 ### 5.2 Working Brief
 
@@ -220,9 +242,10 @@ security and permissions, performance, data and state management, evaluation,
 deployment, observability, migration, and failure recovery. The strategy must
 select only tracks relevant to the current Working Brief.
 
-If the requested depth, time, or cost is unspecified, use a bounded default
-budget and disclose the unvalidated remainder. Do not block only because the
-requester did not provide a budget.
+If the requested depth or time is unspecified, use a bounded operational
+guardrail and disclose the unvalidated remainder. Do not invent a monetary cap
+or block only because the requester did not provide one; financial cost is
+non-gating unless explicitly supplied as a constraint.
 
 ### 5.4 Blueprint Target and Decision Map
 
@@ -351,11 +374,12 @@ or split earlier Context Bundles when their members have different relevance.
 Prior approval or silence is not proof of current relevance. Only an explicitly
 retained hard constraint is automatically carried forward.
 
-Feedback received while a round is still running marks that round
-`superseded` at the next safe checkpoint. Completed work remains traceable
-candidate context, but the agent does not silently continue spending the old
-strategy's budget. The feedback becomes one trigger and input of the next
-Intent Model, Working Brief, and strategy.
+Feedback received while a round is still running becomes an input at the next
+safe checkpoint. Before strategy handoff, it participates in collaboration and
+may change the selected strategy. After handoff, the agent incorporates it
+autonomously, marks the affected round or strategy revision as superseded when
+needed, and continues without waiting for another approval. Completed work
+remains traceable candidate context.
 
 When the requester rejects the overall direction, the agent starts a new root
 Working Brief. Otherwise it retains provenance so the new package can explain
@@ -425,7 +449,7 @@ Blueprint Target / Decision Map
  independent research tasks run in parallel when safe
              |
              v
- Finding Packs -> Decision Ledger -> replan or converge
+       Finding Packs -> intent review -> Decision Ledger -> replan or converge
              |
              v
  Blueprint compiler -> readiness verification -> two deliveries

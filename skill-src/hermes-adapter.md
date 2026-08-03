@@ -8,9 +8,11 @@
   behavior. Do not assume LangGraph, LangChain, or their state/checkpoint model
   is present. If an external LangGraph workflow is explicitly supplied, treat
   it as a separate callable or service boundary.
-- When the active Hermes toolset exposes native `clarify`, use it for 1-3
-  consequential alignment decisions. Otherwise use ordinary dialogue. Delegate
-  only when delegation is exposed.
+- When the active Hermes toolset exposes native `clarify`, use it only for the
+  1-3 consequential decisions before the Research Strategy handoff. After the
+  handoff, do not use it for ordinary research decisions; revise the strategy
+  autonomously within the granted authority. Otherwise use ordinary dialogue
+  during pre-handoff alignment. Delegate only when delegation is exposed.
 - Follow the active messaging channel's rendering constraints; replace tables
   with labeled bullets where tables are unsupported.
 - Keep research artifacts in the writable task workspace. Do not modify the

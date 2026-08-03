@@ -57,9 +57,12 @@ another host merely because they appear in examples.
   `references/` or `assets/` from the user's working directory.
 - Read `references/claude-code-compatibility.md` before the first alignment or
   research action, as well as before Claude-specific installation or hooks.
-- When the current session exposes `AskUserQuestion`, use it for 1-3
-  consequential alignment decisions. Otherwise use ordinary dialogue; never
-  assume `AskUserQuestion`, `ask_user_question`, or another host tool exists.
+- When the current session exposes `AskUserQuestion`, use it only for the 1-3
+  consequential decisions before the Research Strategy handoff. After the
+  handoff, do not use it for ordinary research decisions; revise the strategy
+  autonomously within the granted authority. Otherwise use ordinary dialogue
+  during pre-handoff alignment; never assume `AskUserQuestion`,
+  `ask_user_question`, or another host tool exists.
 - In Claude Code, "I don't know", "I don't understand", or a correction means
   the brief needs teaching or verification. Explain the missing context in
   plain language, update the Living Brief, and continue the bounded research
@@ -186,10 +189,12 @@ an ordinary research run.
   reconnaissance.
 - Maintain exactly one active research tree. A changed tree supersedes its
   predecessor and records why; do not present several trees as “latest.”
-- During deep research, continuously test the early understanding. Re-enter
-  dialogue when evidence materially changes the desired outcome, authority,
-  success definition, risk boundary, or a premise on which the requester must
-  choose. Revise local research details autonomously.
+- During deep research, continuously test the early understanding. After the
+  Research Strategy handoff, revise the Intent Model, Working Brief, strategy,
+  and active tree autonomously when evidence changes the desired outcome,
+  scope, authority, success definition, risk boundary, or a premise. Do not
+  re-enter ordinary collaboration after handoff; stop only when the existing
+  authority or safety boundary cannot support a responsible continuation.
 - Produce concrete design decisions, implementation consequences, and honest
   artifact evidence. A compiled report is not an executed system.
 
@@ -240,14 +245,16 @@ capabilities actually exposed in the current session.
   installed skill directory as read-only unless the user explicitly requests a
   skill update.
 
-### Autonomy envelope after alignment
+### Autonomy envelope after strategy handoff
 
-Once the Alignment Checkpoint is closed, declare an autonomy envelope in the
-active strategy before starting long-horizon work:
+Once the Research Strategy is selected, declare the control handoff and
+autonomy envelope before starting long-horizon work:
 
-- autonomous choices: routine, recoverable research and scheduling decisions;
-- reopen triggers: material outcome, authority, safety, environment, success
-  oracle, or feasibility changes;
+- autonomous choices: all research, tool, delegation, scheduling, intent
+  revision, and strategy revision decisions within the granted authority;
+- hard stop triggers: the current authority or safety boundary is insufficient,
+  a required capability is unavailable, or the completion oracle cannot be
+  evaluated honestly;
 - continuation state: the Living Brief revision, active tree revision,
   Decision Map, work status, evidence ledger, and next batch;
 - completion oracle: the evidence standard and delivery conditions; and
@@ -255,9 +262,10 @@ active strategy before starting long-horizon work:
   evidence for unrecoverable failures, and never silently downgrade the goal.
 
 After each meaningful batch, persist the continuation state before returning a
-response. If no reopen trigger is present, continue autonomously or leave an
-explicitly resumable next batch; absence of a user response is not approval for
-a newly exposed non-recoverable choice.
+response. If evidence invalidates the current strategy, create a successor
+revision internally and continue; do not wait for another user approval. A hard
+stop records the missing capability or boundary and a fallback, without
+silently expanding authority.
 
 ## Collaborative alignment loop
 
@@ -299,6 +307,12 @@ a discovery method or evaluation criterion instead of selecting one.
 
 Keep one versioned Living Brief across dialogue and research. It is accumulated
 joint state, not an approval receipt or a rewritten copy of the user's message.
+Intent understanding remains active throughout the round: repository facts,
+external findings, experiments, and worker results may change the current
+interpretation even after a strategy has been selected. After each meaningful
+batch, explicitly test whether the desired outcome, scope, authority, success
+oracle, or a premise affecting a human choice has changed. Revise the Intent
+Model and Working Brief before continuing when it has.
 Record:
 
 - original and later user requests;
@@ -342,21 +356,24 @@ Start implementation-oriented deep research only when:
   questions; and
 - feasibility is `plausible` or `conditional`, with every condition visible.
 
-If these conditions are not met, use the next response to add knowledge and
-continue the loop. A feedback or correction turn must produce an evidence-bearing
+If these conditions are not met before strategy handoff, use the next response
+to add knowledge and continue the collaborative loop. A feedback or correction turn must produce an evidence-bearing
 interim artifact before returning control, unless the requester explicitly says
 to pause or stop. Do not repeatedly ask the same question without new evidence.
-Use a structured question tool when available for the
+Use a structured question tool when available only during this pre-handoff
+collaboration for the
 1-3 bounded decisions, and continue from its answers as new Living Brief
 evidence. If the requester explicitly says to skip discussion and execute,
 record a provisional internal frame, assumptions, and boundaries, then apply
 the same feasibility rule without waiting for dialogue; explicit execution does
 not grant unsafe or unspecified permissions or make contradictions feasible.
 
-For `infeasible`, stop before creating an implementation research tree. Deliver
-the feasibility finding and ask which outcome or constraint, if any, may be
-changed; use a structured question tool when available. Do not elaborate a
-replacement plan before that choice. For `indeterminate`, create only a bounded
+For `infeasible` before handoff, stop before creating an implementation research
+tree. Deliver the feasibility finding and ask which outcome or constraint, if
+any, may be changed; use a structured question tool when available. Do not
+elaborate a replacement plan before that choice. After handoff, the agent
+selects an internally feasible replan within its authority or records a hard
+stop with fallback. For `indeterminate`, create only a bounded
 feasibility investigation with a decisive oracle. A full research tree is
 warranted only after that
 investigation changes the disposition, unless the requested deliverable is
@@ -368,7 +385,7 @@ Create a strategy from the current Living Brief only after the feasibility rule
 above permits it. Include:
 
 - the technical outcome and implementation decision to enable;
-- the alignment basis and events that would reopen dialogue;
+  - the alignment basis, handoff boundary, and internal supersession triggers;
 - the Blueprint Target and Decision Map of design obligations;
 - prioritized research tracks and decision-shaped subquestions;
 - depth, source classes, operational guardrails, evidence standards, and exit criteria;
@@ -389,18 +406,19 @@ active revision before executing it.
 ## Execute recursive deep research
 
 Research autonomously while repeatedly testing both the user model and the
-agent model:
+agent model. Intent understanding is not a completed preflight phase:
 
 ```text
 Living Brief vN -> active tree vN -> retrieve / inspect / experiment
-    -> atomic evidence -> epistemic review
+    -> atomic evidence -> intent and epistemic review
     -> update claims, brief, decisions, and active tree
-    -> continue locally OR return to mutual alignment
+    -> continue locally OR create an internal successor revision
 ```
 
 After a user feedback or correction event, start a new bounded evidence batch
-before ending the turn. Reopen dialogue only after that batch exposes a material
-choice; do not treat a newly stated problem as completion of the old one.
+before ending the turn. Before handoff, return to collaboration only when a
+material choice remains. After handoff, incorporate the feedback autonomously
+and revise the successor state without requesting another approval.
 
 After every meaningful search, repository-inspection, or experiment batch,
 record:
@@ -416,15 +434,18 @@ Classify updates:
 
 1. **Local refinement:** revise the one active tree autonomously and record the
    superseded revision.
-2. **Material intent or authority change:** produce an updated Blind-Spot Packet
-   and return to the requester before committing to the changed direction.
+2. **Material intent change after handoff:** produce an updated Intent Model,
+   Working Brief, and successor strategy internally before continuing.
+   Material choices are part of the autonomous handoff, not a new question to
+   the requester.
 3. **Evidence contradicts a user premise:** present the evidence, consequence,
    and viable choices; do not silently obey or overrule.
 4. **Evidence contradicts an agent premise:** explicitly self-correct, update
    the Living Brief, and revise or supersede the tree.
-5. **Feasibility changes:** stop or reopen the implementation tree when new
-   evidence moves the disposition to `infeasible` or `indeterminate`; do not
-   preserve sunk-cost plans.
+5. **Feasibility changes:** internally replan when new evidence moves the
+   disposition to `infeasible` or `indeterminate`; if no responsible path fits
+   the granted authority, persist a hard stop and fallback. Do not preserve
+   sunk-cost plans.
 
 Use 2-4 decision-shaped subquestions per external track and varied search
 formulations. Prefer primary research, official documentation, standards,
