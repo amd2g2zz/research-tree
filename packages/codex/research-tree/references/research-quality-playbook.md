@@ -148,12 +148,33 @@ Do not dump a universal checklist. Select blind spots that can materially alter
 this task. Do not show a detailed branch-specific architecture before the
 domain evidence supports it.
 
-Use `ask_user_question` or an equivalent structured tool when available for the
-1-3 bounded choices. The surrounding response must first explain evidence,
+Use `ask_user_question` or an equivalent structured tool when available only
+before the Research Strategy handoff for the 1-3 bounded choices. The
+surrounding response must first explain evidence,
 alternatives, and consequences. If the tool is unavailable, use normal
 dialogue. Never encode an unsupported agent default as the recommended option.
 
-### Recursive dialogue and convergence
+### Co-evolutionary intent alignment and recursive dialogue
+
+Intent understanding is never a one-time pre-research gate. Before strategy
+handoff, the requester and agent co-evolve their models through a bounded
+debate loop. The agent exposes its reading, evidence, assumptions, blind spots,
+and strongest counterargument; the requester supplies context and counterclaims;
+the agent tests them, provides counterevidence or alternatives, and records the
+belief delta and decision effect. Repository facts, external sources,
+experiments, and worker findings remain evidence about both the technical
+problem and what the requester is trying to achieve.
+
+The loop converges at a decision equilibrium, not at user acquiescence. The
+handoff requires visible belief evolution, supported feasibility, an actionable
+success oracle, and no unresolved high-impact choice that still requires the
+requester's selection. After handoff, the agent owns ordinary research and
+strategy revision within the granted authority; user feedback may be consumed
+as new evidence but is not requested for routine execution.
+
+After each meaningful batch, test whether the desired outcome, scope, authority,
+success oracle, or a premise affecting a human choice changed. Update the
+Intent Model, Working Brief, Decision Map, and active strategy when necessary.
 
 One exchange is rarely enough for a vague task. Each dialogue turn must do at
 least one of these: add inspected knowledge, expose a new consequential blind
@@ -182,37 +203,41 @@ This is a convergence threshold, not permanent approval. If the requester says
 continue without dialogue, while preserving explicit safety and permission
 boundaries and reporting assumptions later.
 
-### Autonomy envelope after alignment
+### Autonomy envelope after strategy handoff
 
-Once the checkpoint closes, the strategy must state the autonomy envelope:
+Once the Research Strategy is selected, the strategy must state the control
+handoff and autonomy envelope:
 
-- routine, recoverable choices the agent may make without asking;
-- material changes that reopen alignment;
+- all research, tool, delegation, scheduling, intent-revision, and strategy-
+  revision choices within the granted authority;
+- hard stops when authority, safety, required capability, or honest completion
+  evidence is unavailable;
 - durable continuation state and the next-batch location;
 - the evidence-based completion oracle; and
 - retry, replan, and unrecoverable-failure behavior.
 
-Long-horizon work must persist that state after every meaningful batch. If no
-reopen trigger exists, the agent continues locally or leaves a resumable next
-batch. A missing user response is never approval for a newly exposed
-non-recoverable choice.
+Long-horizon work must persist that state after every meaningful batch. If
+evidence invalidates the strategy, the agent creates a successor state
+internally and continues without requesting another approval. A hard stop
+records the missing capability or boundary and a fallback without expanding
+authority.
 
 ## 2. Recursive research loop
 
-Deep research must continue testing the early problem model:
+Deep research must continue testing the early problem and intent models:
 
 ```text
 Living Brief vN
   -> active research tree vN
   -> retrieve / inspect / experiment
   -> atomic evidence and counterevidence
-  -> epistemic review
+  -> intent and epistemic review
        user claim changed?
        agent claim changed?
        intent/scope/authority changed?
        decision/tree changed?
   -> update Living Brief and the one active tree
-  -> continue locally, reopen alignment, or stop
+  -> continue locally, create an internal successor revision, or hard-stop
 ```
 
 ### Update classes
@@ -220,7 +245,7 @@ Living Brief vN
 | Class | Example | Required behavior |
 |---|---|---|
 | Local refinement | Evidence changes a recoverable internal design choice | Supersede the active tree revision, log the reason, continue autonomously |
-| Material intent/authority change | Evidence exposes a new target, permission, risk acceptance, or success decision | Update the Blind-Spot Packet and reopen dialogue before committing |
+| Material intent change after handoff | Evidence exposes a new target, risk acceptance, or success decision | Create a successor Intent Model, Working Brief, and Strategy internally before continuing |
 | User premise contradicted | Evidence conflicts with a user-supplied technical premise | Present evidence and consequence, preserve the user's decision authority, and ask only if a material choice remains |
 | Agent premise contradicted | Evidence conflicts with an agent-selected interpretation or default | Explicitly self-correct, mark the claim refuted, revise intent/scope/tree |
 

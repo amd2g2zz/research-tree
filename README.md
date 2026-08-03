@@ -75,13 +75,13 @@ Question, source bundle, or repository
         Bounded reconnaissance
                     |
                     v
-     Mutual alignment and feasibility
+     Mutual cognition + debate + feasibility
           ^                     |
           |                     v
           +---- new evidence or feedback
                     |
                     v
-       Living Brief + Research Strategy
+       Decision equilibrium -> Strategy handoff
                     |
                     v
        Recursive evidence-driven research
@@ -97,8 +97,9 @@ Question, source bundle, or repository
 ```
 
 The research tree is an execution view of the current understanding, not a
-fixed plan. Findings discovered during research can change the brief, reopen a
-decision, or replace part of the tree.
+fixed plan. Intent understanding continues during repository inspection and
+deep research. Findings discovered during research can change the brief,
+reopen a decision, or replace part of the tree.
 
 ## Quick Start
 

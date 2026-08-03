@@ -2,6 +2,9 @@
 
 - Read `references/codex-cli-compatibility.md` before host-specific alignment.
 - Codex may expose the experimental `request_user_input` app-server request;
-  when exposed, use it for 1-3 consequential alignment decisions.
+  when exposed, use it only for the 1-3 consequential decisions before the
+  Research Strategy handoff. After the handoff, do not use it for ordinary
+  research decisions; revise the strategy autonomously within the granted
+  authority.
 - Do not assume it exists in a Skill shell or non-interactive `codex exec` run;
   use ordinary dialogue when it is absent.

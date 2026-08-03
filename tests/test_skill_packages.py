@@ -173,7 +173,42 @@ def test_long_horizon_policy_is_cost_tolerant_and_resumable() -> None:
             / "research-tree" / "SKILL.md"
         ).read_text(encoding="utf-8")
         assert "cost-tolerant" in skill
-        assert "Autonomy envelope after alignment" in skill
+        assert "Autonomy envelope after strategy handoff" in skill
+
+
+def test_intent_understanding_remains_live_during_research() -> None:
+    product = (ROOT / "PRODUCT.md").read_text(encoding="utf-8")
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
+        encoding="utf-8"
+    )
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Intent understanding is a continuous product loop" in product
+    assert "Intent understanding remains active throughout the round" in template
+    assert "Intent understanding is never a one-time pre-research gate" in playbook
+    for host in ("codex", "claude", "hermes"):
+        package = "claude-code" if host == "claude" else host
+        skill = (ROOT / "packages" / package / "research-tree" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        assert "Intent understanding remains active throughout the round" in skill
+
+
+def test_strategy_handoff_requires_coevolutionary_debate() -> None:
+    product = (ROOT / "PRODUCT.md").read_text(encoding="utf-8")
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
+        encoding="utf-8"
+    )
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "decision equilibrium" in product
+    assert "Co-evolve cognition before strategy handoff" in template
+    assert "co-evolve their models" in playbook
+    assert "not at user acquiescence" in playbook
 
 
 def test_each_package_uses_only_its_hosts_metadata_format() -> None:

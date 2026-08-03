@@ -9,9 +9,12 @@ another host merely because they appear in examples.
   `references/` or `assets/` from the user's working directory.
 - Read `references/claude-code-compatibility.md` before the first alignment or
   research action, as well as before Claude-specific installation or hooks.
-- When the current session exposes `AskUserQuestion`, use it for 1-3
-  consequential alignment decisions. Otherwise use ordinary dialogue; never
-  assume `AskUserQuestion`, `ask_user_question`, or another host tool exists.
+- When the current session exposes `AskUserQuestion`, use it only for the 1-3
+  consequential decisions before the Research Strategy handoff. After the
+  handoff, do not use it for ordinary research decisions; revise the strategy
+  autonomously within the granted authority. Otherwise use ordinary dialogue
+  during pre-handoff alignment; never assume `AskUserQuestion`,
+  `ask_user_question`, or another host tool exists.
 - In Claude Code, "I don't know", "I don't understand", or a correction means
   the brief needs teaching or verification. Explain the missing context in
   plain language, update the Living Brief, and continue the bounded research
