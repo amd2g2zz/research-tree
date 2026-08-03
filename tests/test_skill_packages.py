@@ -58,6 +58,38 @@ def test_only_hermes_package_contains_hermes_compatibility_material() -> None:
     assert (hermes / "scripts" / "hermes_skill_adapter.py").is_file()
 
 
+def test_only_claude_package_contains_claude_compatibility_material() -> None:
+    codex = ROOT / "packages" / "codex" / "research-tree"
+    claude = ROOT / "packages" / "claude-code" / "research-tree"
+    hermes = ROOT / "packages" / "hermes" / "research-tree"
+
+    for package in (codex, hermes):
+        skill = (package / "SKILL.md").read_text(encoding="utf-8")
+        assert "Claude Code runtime adapter" not in skill
+        assert not (package / "references" / "claude-code-compatibility.md").exists()
+
+    claude_skill = (claude / "SKILL.md").read_text(encoding="utf-8")
+    assert "Claude Code runtime adapter" in claude_skill
+    assert (claude / "references" / "claude-code-compatibility.md").is_file()
+
+
+def test_feedback_reopens_research_and_requires_evidence_progress() -> None:
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
+        encoding="utf-8"
+    )
+    claude = (
+        ROOT / "packages" / "claude-code" / "research-tree" / "SKILL.md"
+    ).read_text(encoding="utf-8")
+
+    for body in (template, claude):
+        assert '"I don\'t know"' in body
+        assert "evidence-bearing" in body
+        assert "Never end a requested investigation" in body
+        assert "A worker may report a blocker only after" in body
+
+    assert "Never claim completion merely because a Blind-Spot Packet" in claude
+
+
 def test_each_package_uses_only_its_hosts_metadata_format() -> None:
     codex = ROOT / "packages" / "codex" / "research-tree"
     claude = ROOT / "packages" / "claude-code" / "research-tree"

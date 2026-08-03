@@ -14,6 +14,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "skill-src" / "SKILL.template.md"
 HERMES_ADAPTER = ROOT / "skill-src" / "hermes-adapter.md"
+CLAUDE_ADAPTER = ROOT / "skill-src" / "claude-adapter.md"
 TOKEN = "<!-- HOST_ADAPTER -->"
 FRONTMATTER_TOKEN = "<!-- HOST_FRONTMATTER -->"
 RESOURCE_RE = re.compile(r"`((?:references|templates|scripts|assets)/[^`\r\n]+)`")
@@ -35,6 +36,7 @@ HERMES_FILES = (
     Path("references/hermes-agent-compatibility.md"),
     Path("scripts/hermes_skill_adapter.py"),
 )
+CLAUDE_FILES = (Path("references/claude-code-compatibility.md"),)
 HOST_FILE_MAP = {
     "codex": (
         (Path("skill-src/codex-openai.yaml"), Path("agents/openai.yaml")),
@@ -69,6 +71,10 @@ def _render_skill(host: str, root: Path) -> str:
     if host == "hermes":
         adapter = (
             root / HERMES_ADAPTER.relative_to(ROOT)
+        ).read_text(encoding="utf-8").strip()
+    elif host == "claude":
+        adapter = (
+            root / CLAUDE_ADAPTER.relative_to(ROOT)
         ).read_text(encoding="utf-8").strip()
     return (
         template.replace(
@@ -125,6 +131,8 @@ def validate_package(
             errors.append("SKILL.md is stale relative to its host template")
 
     expected_files = {Path("SKILL.md"), *COMMON_FILES}
+    if host == "claude":
+        expected_files.update(CLAUDE_FILES)
     if host == "hermes":
         expected_files.update(HERMES_FILES)
     expected_files.update(target for _source, target in HOST_FILE_MAP[host])
@@ -167,6 +175,15 @@ def validate_package(
     if host != "hermes" and has_hermes_material:
         errors.append(f"{host} package contains Hermes-only compatibility material")
 
+    has_claude_material = (
+        "Claude Code runtime adapter" in text
+        or (package / "references/claude-code-compatibility.md").exists()
+    )
+    if host == "claude" and not has_claude_material:
+        errors.append("Claude package is missing its host adapter")
+    if host != "claude" and has_claude_material:
+        errors.append(f"{host} package contains Claude-only compatibility material")
+
     claude_fields = (
         "argument-hint:",
         "disable-model-invocation:",
@@ -206,6 +223,8 @@ def build_packages(root: Path = ROOT) -> dict[str, object]:
                 _render_skill(host, root), encoding="utf-8", newline="\n"
             )
             _copy_files(root, staged, COMMON_FILES)
+            if host == "claude":
+                _copy_files(root, staged, CLAUDE_FILES)
             if host == "hermes":
                 _copy_files(root, staged, HERMES_FILES)
             _copy_mapped_files(root, staged, HOST_FILE_MAP[host])
