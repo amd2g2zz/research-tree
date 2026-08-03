@@ -26,6 +26,16 @@ Adapt these host differences:
   user explicitly supplies a LangGraph workflow, invoke it as an independent
   callable or service and choose one owner for conversation/checkpoint state.
 
+## User questions
+
+Hermes' native structured question tool is `clarify` in the `clarify` toolset.
+It supports open-ended questions, up to four single-select choices, and
+`multi_select` choices. It is available in the default `hermes-cli` and most
+gateway platform presets, but is explicitly removed from `hermes-acp` and
+`hermes-api-server`; inspect the active toolset before using it. Do not confuse
+`kanban_block` with a general user-question mechanism. If `clarify` is absent,
+use ordinary conversation and keep the Alignment Checkpoint open.
+
 ## Full-fidelity local loading
 
 Add only the isolated Hermes package directory, not the repository root or a
@@ -105,3 +115,6 @@ Primary sources:
 - [Hermes Python library guide](https://github.com/NousResearch/hermes-agent/blob/v2026.7.30/website/docs/guides/python-library.md)
 - [Hermes skill loader](https://github.com/NousResearch/hermes-agent/blob/v2026.7.30/agent/prompt_builder.py)
 - [Hermes Skills Hub implementation](https://github.com/NousResearch/hermes-agent/blob/v2026.7.30/tools/skills_hub.py)
+- [Hermes built-in tools reference](https://hermes-agent.nousresearch.com/docs/reference/tools-reference)
+- [Hermes toolsets reference](https://hermes-agent.nousresearch.com/docs/reference/toolsets-reference)
+- [Hermes clarify implementation](https://github.com/NousResearch/hermes-agent/blob/main/tools/clarify_tool.py)

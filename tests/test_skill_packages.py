@@ -73,6 +73,39 @@ def test_only_claude_package_contains_claude_compatibility_material() -> None:
     assert (claude / "references" / "claude-code-compatibility.md").is_file()
 
 
+def test_only_codex_package_contains_codex_compatibility_material() -> None:
+    codex = ROOT / "packages" / "codex" / "research-tree"
+    claude = ROOT / "packages" / "claude-code" / "research-tree"
+    hermes = ROOT / "packages" / "hermes" / "research-tree"
+
+    for package in (claude, hermes):
+        skill = (package / "SKILL.md").read_text(encoding="utf-8")
+        assert "Codex CLI runtime adapter" not in skill
+        assert not (package / "references" / "codex-cli-compatibility.md").exists()
+
+    codex_skill = (codex / "SKILL.md").read_text(encoding="utf-8")
+    assert "Codex CLI runtime adapter" in codex_skill
+    codex_ref = codex / "references" / "codex-cli-compatibility.md"
+    assert codex_ref.is_file()
+    assert "request_user_input" in codex_ref.read_text(encoding="utf-8")
+
+
+def test_host_question_references_name_only_their_native_capability() -> None:
+    codex = ROOT / "packages" / "codex" / "research-tree"
+    claude = ROOT / "packages" / "claude-code" / "research-tree"
+    hermes = ROOT / "packages" / "hermes" / "research-tree"
+
+    assert "AskUserQuestion" in (
+        claude / "references" / "claude-code-compatibility.md"
+    ).read_text(encoding="utf-8")
+    assert "clarify" in (
+        hermes / "references" / "hermes-agent-compatibility.md"
+    ).read_text(encoding="utf-8")
+    assert "Do not assume Claude's `AskUserQuestion`" in (
+        codex / "references" / "codex-cli-compatibility.md"
+    ).read_text(encoding="utf-8")
+
+
 def test_feedback_reopens_research_and_requires_evidence_progress() -> None:
     template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
         encoding="utf-8"
