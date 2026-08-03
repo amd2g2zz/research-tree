@@ -1,0 +1,10 @@
+hooks:
+  on_session_start:
+    - command: "uv run --locked research-tree-hook --host hermes --event on_session_start"
+      timeout: 10
+  on_session_end:
+    - command: "uv run --locked research-tree-hook --host hermes --event on_session_end"
+      timeout: 10
+
+# Keep first-use consent enabled. Review the commands before approving them.
+hooks_auto_accept: false

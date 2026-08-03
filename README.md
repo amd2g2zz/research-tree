@@ -1,189 +1,431 @@
-# research-tree
+# Research Tree
 
-`research-tree` is a strategy-driven technical research and blueprint skill. It
-turns incomplete project context and large-scale research into the grounded
-technical blueprint an implementation agent needs to ship quickly.
+Evidence-driven technical research for Codex, Claude Code, and Hermes Agent.
 
-The input can be a short idea, a collection of articles, notes, drafts, links,
-an existing code repository, test failures, or feedback on an earlier result.
-The user is not expected to know the correct research questions, architecture,
-or implementation path.
+`research-tree` turns a vague question, a collection of source material, or an
+existing repository into an implementation-ready technical research package.
+It does not assume that either the requester or the agent understands the
+problem correctly at the start. Instead, it uses bounded reconnaissance,
+mutual alignment, feasibility checks, and recursive research to improve the
+shared understanding before committing to a design.
 
-A user-provided brief is not assumed to be one document. It can be a grouped
-Context Bundle containing any number of materials, including a repository. The
-agent preserves each material and its revision separately, then creates a
-traceable Working Brief that records which inputs are primary, constraints,
-context, or counterexamples. Conflicting materials remain visible rather than
-being silently combined into a fictional requirement.
+This repository contains two related products:
 
-More importantly, the agent performs **Intent Understanding** before choosing a
-research strategy. It creates a revisable Intent Model that distinguishes user
-statements from inferred outcomes, success signals, drivers, constraints,
-non-goals, and viable alternative readings. A Working Brief is the
-strategy-ready snapshot of that model, not the intent-understanding process
-itself.
+1. **An installable Agent Skill** for Codex, Claude Code, and Hermes Agent.
+   The host agent performs the actual research using its available web,
+   repository, execution, and delegation capabilities.
+2. **A Python artifact runtime** for persisting research rounds, validating
+   contracts, compiling decisions, checking readiness, and reconstructing
+   prior state.
 
-> Product status: this repository ships an implemented, composable Python
-> runtime for persisted research-round artifacts and their workflow services.
-> It is not a standalone autonomous-research CLI: source acquisition, research
-> decisions, and production sandbox adapters remain explicit caller-owned work.
+The Python CLI is not a standalone autonomous research agent. It manages
+persisted rounds; source acquisition and agent execution remain host-owned.
 
-## First Runtime Path
+## Why Research Tree?
 
-The runtime uses an explicit run-store root. It never infers a workspace or
-persists state somewhere else, so retain the same path to recover a round after
-a process restart.
+Most research prompts are incomplete even when they sound specific. Important
+constraints, evaluation criteria, operational boundaries, or feasibility facts
+are often missing. A conventional research workflow can produce a polished
+answer to the wrong question.
 
-```powershell
-git clone https://github.com/amd2g2zz/research-tree.git
-cd research-tree
-uv sync
+Research Tree treats alignment as an ongoing evidence process:
 
-$store = Join-Path $PWD ".research-tree-demo"
-uv run python -m research_tree --help
-uv run python -m research_tree create-round --store $store --round-id round-first
-uv run python -m research_tree show-round --store $store --round-id round-first
-```
-
-The final `show-round` command is the recovery/readback path: run it again with
-the same `--store` and `--round-id` to reconstruct the persisted round. Creating
-that id again is rejected rather than overwriting the existing state.
-
-## Runtime Boundaries
-
-The `research-tree` CLI is round-management only. It supports `create-round`
-and `show-round`; it does not ingest material, choose a strategy, collect
-sources, or compile a complete technical handoff.
-
-Use the public `research_tree` Python API for the composed workflow. It exports
-`RunStore`, `InputIntakeService`, `IntentModelCompiler`,
-`WorkingBriefCompiler`, `BlueprintTargetCompiler`, `DecisionLedgerCompiler`,
-`DeliveryCompiler`, `ReadinessVerifier`, `FeedbackRoundService`, and explicit
-OpenSpec/evaluation adapters. The public export surface is in
-[`research_tree.__init__`](src/research_tree/__init__.py); the end-to-end test
-shows the composed delivery, readiness, evaluation, and opt-in export route in
-[`test_e2e_blueprint.py`](tests/test_e2e_blueprint.py).
+- user statements, agent interpretations, repository observations, and
+  external sources remain distinguishable;
+- the agent performs lightweight reconnaissance before asking the requester to
+  make consequential choices;
+- unrealistic combinations of budget, schedule, scope, and quality are tested
+  instead of accepted at face value;
+- feedback updates the living brief and may revise the research strategy;
+- research branches are expanded, merged, superseded, or reopened as the
+  evidence changes;
+- completion is based on decision closure and implementation readiness, not on
+  source count or report length.
 
 ## What It Produces
 
-Every completed research round produces two first-class artifacts:
+Every completed research round has two primary deliverables:
 
-1. **Technical Research Package** for an implementation agent. It contains the
-   repository baseline, Decision Ledger, recommended design, alternatives,
-   implementation boundaries, validation plan, readiness result, and unresolved
-   assumptions.
-2. **Human Brief** for the requester. It explains what was understood, the
-   recommended direction, the consequential trade-offs, the expected technical
-   outcome, and the important uncertainty without forcing the reader through
-   the full implementation package.
+### Technical Research Package
 
-OpenSpec artifacts are optional. When the user explicitly asks for them, the
-Technical Research Package is converted into an OpenSpec proposal, specs,
-design, and task list. They are not a default research deliverable.
+The implementation-facing package records:
 
-## Default Flow
+- the interpreted outcome, scope, constraints, and unresolved assumptions;
+- repository and environment baselines;
+- evidence-backed findings with provenance and confidence;
+- alternatives, trade-offs, reversals, and rejected directions;
+- the recommended architecture and integration boundaries;
+- an implementation sequence, validation plan, and readiness assessment.
 
-```text
-Context pack
-  (idea, articles, drafts, repository, prior feedback)
-        |
-        v
-Repository/material analysis + proportionate alignment research
-        |
-        v
-Intent Understanding / Intent Model
-        |
-        v
-Working Brief + Blueprint Target + Research Strategy
-        |
-        v
-Adaptive large-scale research around open design decisions
-        |
-        v
-Decision Ledger -> Technical Research Package + Human Brief
-        |
-        +-- explicit request --> OpenSpec artifacts --> implementation agent
-```
+### Human Brief
 
-The default is autonomous. The skill does not turn every ambiguity into a
-question or require continuous conversation. It consults the user only when
-the user asks to co-explore, or when a consequential and non-recoverable choice
-cannot be responsibly inferred from the available context.
+The requester-facing brief explains the recommended direction, important
+choices, feasibility limits, uncertainty, and what has actually been verified.
+It is intentionally shorter than the technical package.
 
-## Research Strategy, Not a Fixed Pipeline
+OpenSpec artifacts are optional and are generated only when explicitly
+requested.
 
-The central product artifacts before deep research are an **Intent Model**, a
-**Blueprint Target**, and a **Research Strategy**. The Intent Model determines
-what outcome the agent is trying to serve and which alternative readings remain
-viable; the target defines the consequential technical decisions that must
-close before an implementation agent can start; the strategy decides how to
-investigate them, why they matter, how deeply to investigate them, which facts
-should come from the repository versus external sources, and what counts as
-closure.
-
-Research runs first broad coverage across independent high-impact decisions,
-then deepens only where evidence can change the blueprint. Workers return
-traceable Finding Packs, and the coordinator compiles a Decision Ledger rather
-than concatenating research reports. Completion is based on decision closure and
-implementation readiness, not source count, task count, or report length.
-
-Lightweight web research is allowed before the strategy is fixed when it helps
-the agent understand supplied material or have a useful conversation. Once a
-strategy is selected, the agent performs the deep research without repeatedly
-returning routine unknowns to the user. It records assumptions, alternatives,
-and validation work instead.
-
-## Feedback Starts a New Round
-
-Feedback is not a request to patch the previous report. It becomes one input to
-a new Working Brief and a new research round:
+## Operating Model
 
 ```text
-previous context + user feedback
-             |
-             v
-      new Working Brief
-             |
-             v
-      new Research Strategy
-             |
-             v
-        new research round
+Question, source bundle, or repository
+                    |
+                    v
+        Bounded reconnaissance
+                    |
+                    v
+     Mutual alignment and feasibility
+          ^                     |
+          |                     v
+          +---- new evidence or feedback
+                    |
+                    v
+       Living Brief + Research Strategy
+                    |
+                    v
+       Recursive evidence-driven research
+                    |
+                    v
+        Decision Ledger and readiness gate
+                    |
+          +---------+---------+
+          |                   |
+          v                   v
+ Technical Research      Human Brief
+      Package
 ```
 
-Earlier findings are candidate context, not inherited truth. The new strategy
-may reuse, revalidate, downgrade, ignore, or overturn them, and may regroup or
-split prior Context Bundles. Only constraints the user explicitly keeps as
-non-negotiable are carried forward automatically. A user who rejects the
-overall direction starts a new root Working Brief instead.
+The research tree is an execution view of the current understanding, not a
+fixed plan. Findings discovered during research can change the brief, reopen a
+decision, or replace part of the tree.
 
-## Existing Repositories
+## Quick Start
 
-When a repository is supplied, it is a first-class source of technical truth.
-The agent first reconstructs the relevant behavior, architecture, entry points,
-dependencies, tests, interfaces, deployment boundaries, and change surface.
-It does not ask the user for facts that can be discovered from the codebase.
-External research must then be tied back to actual integration points rather
-than describing a greenfield architecture.
+### Requirements
 
-## Product Documents
+- Git
+- Python 3.11 or newer
+- [uv](https://docs.astral.sh/uv/)
+- at least one supported host: Codex, Claude Code, or Hermes Agent
 
-- [Product specification](PRODUCT.md): target behavior, artifacts, state
-  model, target algorithm/architecture, quality bar, and migration plan.
-- [Skill instructions](SKILL.md): operational instructions for the research
-  agent.
-- [Product contracts](references/product-contracts.md): target state records
-  for inputs, Context Bundles, Working Briefs, strategies, Blueprint Targets,
-  decisions, and rounds.
-- [Artifact templates](assets/): Working Brief, strategy, agent package, and human
-  brief templates.
-- [Blueprint generation research](references/blueprint-generation-research.md):
-  evidence, algorithm, architecture, and evaluation design for the new loop.
+Clone the repository and create the development environment:
 
-## Retired Runtime
+```bash
+git clone https://github.com/amd2g2zz/research-tree.git
+cd research-tree
+uv sync
+```
 
-The previous mandatory intent gate, recursive evidence DAG, source-review
-stages, snapshot freeze, and multi-chapter report pipeline have been removed.
-They are available only in repository history. A future high-assurance research
-adapter may reuse selected ideas, but it must be built as an explicit opt-in
-component and must not restore the retired workflow as the default experience.
+Install the package for your host:
+
+```bash
+# Codex
+uv run research-tree-setup install --host codex --source .
+
+# Claude Code
+uv run research-tree-setup install --host claude --source .
+
+# Hermes Agent
+uv run research-tree-setup install --host hermes --source .
+```
+
+Confirm the installation:
+
+```bash
+uv run research-tree-setup status --host all --source .
+```
+
+Then invoke the skill from the selected host:
+
+```text
+# Codex
+$research-tree Investigate how to build a fully autonomous reverse-engineering agent.
+
+# Claude Code
+/research-tree Investigate how to build a fully autonomous reverse-engineering agent.
+
+# Hermes Agent
+/research-tree Investigate how to build a fully autonomous reverse-engineering agent.
+```
+
+The initial request can also include links, local files, prior reports, or a
+repository path.
+
+## Installation Instructions for Coding Agents
+
+A coding agent can install this skill on the requester's behalf. The agent must
+treat installation as a host-specific operation, not as a generic copy of the
+repository.
+
+### Agent Installation Contract
+
+1. Locate the repository root containing `pyproject.toml`, `skill-src/`, and
+   `packages/`.
+2. Determine the intended host from the active environment or the request:
+   `codex`, `claude`, or `hermes`. Do not install all hosts unless requested.
+3. Verify that Python 3.11 or newer and `uv` are available.
+4. Synchronize the environment and validate the generated packages.
+5. Run the installer with `--dry-run` before changing the host's skill
+   directory.
+6. If the dry run reports `conflict`, stop and report the existing path. Never
+   delete or overwrite an unrelated installation.
+7. Install only the package selected for the active host. Never install the
+   repository root, `skill-src/`, or another host's package.
+8. Verify that the final installation status is `current` and that package
+   validation still succeeds.
+9. Install lifecycle hooks only when the requester explicitly asks for them.
+   Merge the host template into existing configuration instead of replacing
+   unrelated hooks or settings.
+
+Run the following commands from the repository root, replacing `HOST_NAME`
+with `codex`, `claude`, or `hermes`:
+
+```bash
+uv sync
+uv run python scripts/build_skill_packages.py --check
+uv run research-tree-setup install --host HOST_NAME --source . --dry-run
+uv run research-tree-setup install --host HOST_NAME --source .
+uv run research-tree-setup status --host HOST_NAME --source .
+```
+
+The default installation mode is `link`, which keeps the installed skill in
+sync with its generated package in this checkout. Use `--mode copy` only when
+the requester wants an independent installation or when a link cannot be used.
+After installation, start a new host session if the skill is not discovered;
+Hermes can reload it immediately with `/reload-skills`.
+
+### Ready-to-Use Agent Prompt
+
+Give the following prompt to a coding agent that has shell access to the cloned
+repository:
+
+```text
+Install Research Tree for your active agent host from this repository.
+
+- Identify whether the host is Codex, Claude Code, or Hermes Agent.
+- Use only that host's package under packages/.
+- Run uv sync and validate all generated packages before installation.
+- Run research-tree-setup install with --dry-run first.
+- Do not overwrite an existing conflicting skill directory.
+- Perform the installation, then run research-tree-setup status.
+- Finish only when the selected host reports status "current" and package
+  validation succeeds. Report the installed package path and target path.
+- Do not enable lifecycle hooks unless I explicitly request them.
+```
+
+## Host-Specific Packages
+
+Each host receives an isolated, self-contained package. The packages share the
+research method and artifact templates, but their host metadata and runtime
+adaptation are intentionally different.
+
+| Host | Package | User installation | Project installation | Explicit invocation |
+| --- | --- | --- | --- | --- |
+| Codex | `packages/codex/research-tree` | `$CODEX_HOME/skills/research-tree` (defaults to `~/.codex/skills/research-tree`) | `.agents/skills/research-tree` | `$research-tree ...` |
+| Claude Code | `packages/claude-code/research-tree` | `~/.claude/skills/research-tree` | `.claude/skills/research-tree` | `/research-tree ...` |
+| Hermes Agent | `packages/hermes/research-tree` | `~/.hermes/skills/research-tree` | Configure `skills.external_dirs` | `/research-tree ...` |
+
+The formats are not interchangeable:
+
+- **Codex** uses the strict `SKILL.md` metadata contract and ships UI metadata
+  in `agents/openai.yaml`.
+- **Claude Code** uses Claude-specific invocation controls in `SKILL.md`,
+  including `argument-hint`, `disable-model-invocation`, and
+  `user-invocable`.
+- **Hermes Agent** uses minimal Agent Skills metadata plus a dedicated runtime
+  adapter and compatibility reference. It does not assume that LangGraph or
+  LangChain is installed.
+
+Do not install the repository root or copy one host package into another
+host's skill directory.
+
+## Installation Options
+
+The setup command defaults to a user-scoped link installation. On Windows it
+falls back to a directory junction when a symbolic link cannot be created.
+Use `--mode copy` when you need an independent copy.
+
+Install all supported user packages in one operation:
+
+```bash
+uv run research-tree-setup install --host all --source .
+```
+
+Install Codex or Claude Code into another project:
+
+```bash
+uv run research-tree-setup install \
+  --host codex \
+  --scope project \
+  --project-root ../another-project \
+  --source .
+```
+
+Hermes does not have a native project skill directory. To load the checked-in
+Hermes package without copying it, add its package parent to
+`~/.hermes/config.yaml`:
+
+```yaml
+skills:
+  external_dirs:
+    - /absolute/path/to/research-tree/packages/hermes
+```
+
+Run `/reload-skills` in Hermes after changing the configuration.
+
+The installer performs a preflight check and refuses to overwrite an unrelated
+existing skill directory. Use `--dry-run` to inspect the planned operation.
+
+## Optional Lifecycle Hooks
+
+The repository includes opt-in lifecycle hooks for recording when a supported
+agent session starts and stops. They are not required for the Research Tree
+skill and are not installed automatically. Hook commands run with the user's
+credentials, so review and enable them deliberately.
+
+The shared hook records only sanitized lifecycle metadata:
+
+- host and event name;
+- timestamp;
+- repository-relative working directory;
+- bounded session, turn, and agent identifiers when supplied by the host.
+
+It does not persist prompts, tool inputs, transcripts, model responses, or
+environment variables. Events are written atomically under
+`.research-tree-hooks/events/`; that runtime directory is ignored by Git, while
+the source and templates under `hooks/` are tracked.
+
+| Host | Template | Configuration target |
+| --- | --- | --- |
+| Codex | `hooks/codex.hooks.template.json` | Project `.codex/hooks.json` |
+| Claude Code | `hooks/claude-code.settings.template.json` | Merge its `hooks` object into `.claude/settings.json` |
+| Hermes Agent | `hooks/hermes.config.template.yaml` | Merge its `hooks` entries into `~/.hermes/config.yaml` |
+
+For Codex, copy the template only when the target file does not already exist.
+If it exists, merge the `SessionStart` and `Stop` arrays with the existing
+`hooks` object. For Claude Code, preserve every existing settings key and merge
+only the two Research Tree hook groups. For Hermes, preserve the existing YAML
+configuration and keep first-use consent enabled; then inspect the result with
+`hermes hooks doctor`.
+
+All templates invoke the checked-out runtime through:
+
+```bash
+uv run --locked research-tree-hook --host HOST_NAME --event EVENT_NAME
+```
+
+The command must run inside this checkout so `uv` can resolve the project and
+the observer can confine output to the repository. A malformed payload,
+unsupported event, timeout, or filesystem error fails open and never blocks the
+agent session.
+
+## Repository Layout
+
+```text
+research-tree/
+|-- packages/              # Generated, installable host packages
+|   |-- codex/
+|   |-- claude-code/
+|   `-- hermes/
+|-- skill-src/             # Shared authoring template and host overlays
+|-- assets/                # Living Brief and report templates
+|-- references/            # Research method and product contracts
+|-- src/research_tree/     # Python artifact runtime
+|-- scripts/               # Package builder and Hermes adapter tooling
+|-- hooks/                 # Optional host lifecycle hook templates
+|-- tests/                 # Runtime, packaging, installation, and E2E tests
+|-- PRODUCT.md             # Product specification
+`-- pyproject.toml         # Python package and CLI entry points
+```
+
+The files under `packages/` are generated artifacts. Edit the corresponding
+source under `skill-src/`, `assets/`, `references/`, or `scripts/`, then rebuild
+the packages.
+
+## Python Runtime
+
+The `research_tree` package provides composable services for applications that
+need persisted and validated research artifacts. Its public API includes:
+
+- `RunStore` for isolated, reconstructable research rounds;
+- context intake and repository safety policies;
+- intent, Working Brief, Blueprint Target, and work-item compilers;
+- finding and Decision Ledger compilation;
+- readiness, assurance, verification, and evaluation contracts;
+- Technical Research Package and Human Brief delivery;
+- feedback rounds and opt-in OpenSpec export.
+
+The command-line interface is round-management only: it exposes round creation
+and reconstruction. Use the `research_tree` Python API for composed workflow
+services.
+
+```bash
+STORE=.research-tree-demo
+
+uv run python -m research_tree create-round \
+  --store "$STORE" \
+  --round-id round-first
+
+uv run python -m research_tree show-round \
+  --store "$STORE" \
+  --round-id round-first
+```
+
+Use the same `--store` path to reconstruct a round after restarting the
+process. Creating an existing round ID is rejected instead of overwriting its
+state.
+
+See [`src/research_tree/__init__.py`](src/research_tree/__init__.py) for the
+public API and [`tests/test_e2e_blueprint.py`](tests/test_e2e_blueprint.py) for
+the composed delivery path.
+
+## Development
+
+Rebuild all host packages after changing the skill template, shared resources,
+or a host adapter:
+
+```bash
+uv run python scripts/build_skill_packages.py
+```
+
+Verify that checked-in packages are current and isolated correctly:
+
+```bash
+uv run python scripts/build_skill_packages.py --check
+```
+
+Run the full test suite:
+
+```bash
+uv run pytest -q
+```
+
+Package validation checks that:
+
+- generated files match their authoring sources;
+- every referenced resource exists;
+- each package contains only its expected files;
+- Claude Code metadata does not leak into Codex or Hermes;
+- Codex UI metadata does not leak into Claude Code or Hermes;
+- Hermes compatibility files remain Hermes-only.
+
+## Documentation
+
+- [Product specification](PRODUCT.md)
+- [Skill authoring template](skill-src/SKILL.template.md)
+- [Codex package](packages/codex/research-tree/SKILL.md)
+- [Claude Code package](packages/claude-code/research-tree/SKILL.md)
+- [Hermes package](packages/hermes/research-tree/SKILL.md)
+- [Research quality playbook](references/research-quality-playbook.md)
+- [Product contracts](references/product-contracts.md)
+- [Blueprint generation research](references/blueprint-generation-research.md)
+- [Hermes compatibility notes](references/hermes-agent-compatibility.md)
+
+## Project Status
+
+The repository currently ships usable host-specific skill packages and an
+implemented Python artifact runtime. The host agent is still responsible for
+web access, repository inspection, tool execution, model calls, and worker
+delegation. There is no standalone command that autonomously performs an entire
+research run outside a supported agent host.
