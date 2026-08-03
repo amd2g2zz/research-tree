@@ -138,6 +138,22 @@ def test_all_host_packages_expose_opt_in_debug_tracing() -> None:
         assert (package / "references" / "debug-tracing.md").is_file()
 
 
+def test_host_adapters_direct_the_native_question_capability() -> None:
+    codex = (ROOT / "packages" / "codex" / "research-tree" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    claude = (
+        ROOT / "packages" / "claude-code" / "research-tree" / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    hermes = (ROOT / "packages" / "hermes" / "research-tree" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "request_user_input" in codex
+    assert "AskUserQuestion" in claude
+    assert "native `clarify`" in hermes
+
+
 def test_each_package_uses_only_its_hosts_metadata_format() -> None:
     codex = ROOT / "packages" / "codex" / "research-tree"
     claude = ROOT / "packages" / "claude-code" / "research-tree"
