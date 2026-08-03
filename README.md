@@ -320,6 +320,26 @@ the observer can confine output to the repository. A malformed payload,
 unsupported event, timeout, or filesystem error fails open and never blocks the
 agent session.
 
+## Optional Debug Trace
+
+For a difficult workflow diagnosis, enable a bounded trace from the source
+checkout. It records phase, status, host, timestamp, and approved reason codes;
+it never records prompts, responses, tool input, repository content, or
+environment variables.
+
+```bash
+uv run --locked research-tree-debug emit \
+  --host codex --phase alignment_blocked --status blocked \
+  --code missing-success-oracle
+uv run --locked research-tree-debug summary --limit 50
+```
+
+Trace files are atomically stored under `.research-tree-debug/events/` and are
+ignored by Git. The research skill emits these only when diagnostic tracing is
+explicitly requested and the source runtime is available. To debug an optional
+lifecycle hook, temporarily append `--debug` to its command; it remains
+fail-open and writes only sanitized setup errors to stderr.
+
 ## Repository Layout
 
 ```text

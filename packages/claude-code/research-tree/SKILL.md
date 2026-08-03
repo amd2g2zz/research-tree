@@ -44,21 +44,19 @@ Create OpenSpec artifacts only when explicitly requested.
   revising the Blueprint Target and Decision Map.
 - Read `references/product-contracts.md` only when exact persisted schemas or
   runtime artifacts matter.
+- Read `references/debug-tracing.md` only for explicit behavior diagnosis or debug mode.
 
 ## Claude Code runtime adapter
 
-This is the Claude Code package of `research-tree`. Invoke it with
-`/research-tree`; use only Claude Code capabilities that are exposed in the
-current session. Do not call a named tool from another host merely because it
-appears in an example.
+This is the Claude Code package of `research-tree`. Invoke with `/research-tree`
+and use only capabilities exposed by the current session; never call tools from
+another host merely because they appear in examples.
 
 - Resolve bundled resources from the active skill directory, including
   `${CLAUDE_SKILL_DIR}` when the host provides it. Do not resolve
   `references/` or `assets/` from the user's working directory.
-- Read `references/claude-code-compatibility.md` before Claude-specific
-  installation, hooks, or source-checkout development work.
-- Use ordinary dialogue for alignment unless Claude Code exposes a structured
-  question capability in the current session. Never assume that
+- Read `references/claude-code-compatibility.md` before Claude-specific installation, hooks, or source-checkout development work.
+- Use ordinary dialogue unless Claude exposes structured questions; never assume
   `ask_user_question`, `multi_tool_use`, or another host-specific tool exists.
 - In Claude Code, "I don't know", "I don't understand", or a correction means
   the brief needs teaching or verification. Explain the missing context in
@@ -70,14 +68,11 @@ appears in an example.
   listing causes, options, or proposed fixes; return an evidence-bearing interim
   result in the same turn. Ask only for a consequential choice that cannot be
   recovered autonomously.
-- Never claim completion merely because a Blind-Spot Packet or research tree was
-  displayed. The requested investigation must have a report or a clearly
-  labeled, evidence-bearing interim package.
-- Treat the installed package as read-only. Keep research reports, briefs,
+- Treat the installed package as read-only; keep research reports, briefs,
   evidence ledgers, and other task artifacts in the writable workspace.
-- The installed Claude package contains only `SKILL.md`, bundled references,
-  and bundled assets. It does not contain the repository's Python runtime,
-  lifecycle hooks, builder, or evaluation corpus.
+- The installed package contains only `SKILL.md`, bundled references, and
+  assets, not the repository's Python runtime, lifecycle hooks, builder, or
+  evaluation corpus.
 
 ### Source checkout development boundary
 
@@ -100,13 +95,9 @@ the host-native skill workflow.
 
 ### Claude Code hooks
 
-Hooks are opt-in repository settings, not automatic Skill behavior. If the
-requester explicitly enables them, merge
-`hooks/claude-code.settings.template.json` into the project's
-`.claude/settings.json` without replacing unrelated settings or hooks. The
-hook command requires the source checkout and `uv`; it records only sanitized
-lifecycle metadata and fails open on errors. Do not enable it for an ordinary
-research run.
+Hooks are opt-in repository settings, not normal Skill behavior. Read the
+compatibility reference before explicitly enabling them; never enable them for
+an ordinary research run.
 
 ## Product Rules
 
@@ -149,6 +140,14 @@ research run.
 - Treat every user technical assertion and every agent technical assertion as a
   claim with provenance and evidence status. Do not silently obey, overrule, or
   promote either side's assertion to fact.
+- Before any implementation, target edit, or irreversible experiment, emit an
+  **Alignment Checkpoint** stating the goal and deliverable, scope and
+  non-goals, authority and environment, success oracle, unresolved high-impact
+  decisions, and feasibility. Do not act while a high-impact field is unknown
+  or agent-selected: continue reconnaissance and ask 1-3 questions. Silence,
+  "okay", or "continue" is not alignment evidence. Explicit execute-direct
+  permits a provisional checkpoint but does not waive safety, authority, or
+  feasibility checks.
 - Test whether outcome, scope, quality, budget, time, environment, authority,
   and required evidence are mutually consistent before building an
   implementation-oriented research tree. Human insistence does not make an
@@ -222,6 +221,7 @@ capabilities actually exposed in the current session.
   provider.
 - Run experiments only when a safe execution surface is available. Otherwise
   record the missing evidence without upgrading its level.
+- When debug tracing is enabled and `research-tree-debug` is available, emit sanitized phase events from `references/debug-tracing.md`; trace failure must never block research or target work.
 - Delegate only when a worker/subagent mechanism is available; otherwise run
   independent tracks sequentially.
 - Preserve the fields in bundled table templates, but render them as labeled

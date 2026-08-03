@@ -42,6 +42,7 @@ Create OpenSpec artifacts only when explicitly requested.
   revising the Blueprint Target and Decision Map.
 - Read `references/product-contracts.md` only when exact persisted schemas or
   runtime artifacts matter.
+- Read `references/debug-tracing.md` only for explicit behavior diagnosis or debug mode.
 
 <!-- HOST_ADAPTER -->
 
@@ -86,6 +87,14 @@ Create OpenSpec artifacts only when explicitly requested.
 - Treat every user technical assertion and every agent technical assertion as a
   claim with provenance and evidence status. Do not silently obey, overrule, or
   promote either side's assertion to fact.
+- Before any implementation, target edit, or irreversible experiment, emit an
+  **Alignment Checkpoint** stating the goal and deliverable, scope and
+  non-goals, authority and environment, success oracle, unresolved high-impact
+  decisions, and feasibility. Do not act while a high-impact field is unknown
+  or agent-selected: continue reconnaissance and ask 1-3 questions. Silence,
+  "okay", or "continue" is not alignment evidence. Explicit execute-direct
+  permits a provisional checkpoint but does not waive safety, authority, or
+  feasibility checks.
 - Test whether outcome, scope, quality, budget, time, environment, authority,
   and required evidence are mutually consistent before building an
   implementation-oriented research tree. Human insistence does not make an
@@ -159,6 +168,7 @@ capabilities actually exposed in the current session.
   provider.
 - Run experiments only when a safe execution surface is available. Otherwise
   record the missing evidence without upgrading its level.
+- When debug tracing is enabled and `research-tree-debug` is available, emit sanitized phase events from `references/debug-tracing.md`; trace failure must never block research or target work.
 - Delegate only when a worker/subagent mechanism is available; otherwise run
   independent tracks sequentially.
 - Preserve the fields in bundled table templates, but render them as labeled

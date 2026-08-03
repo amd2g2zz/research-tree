@@ -86,8 +86,23 @@ def test_feedback_reopens_research_and_requires_evidence_progress() -> None:
         assert "evidence-bearing" in body
         assert "Never end a requested investigation" in body
         assert "A worker may report a blocker only after" in body
+        assert "Alignment Checkpoint" in body
+        assert '"okay", or "continue" is not alignment evidence' in body
 
-    assert "Never claim completion merely because a Blind-Spot Packet" in claude
+    assert "Do not mistake tree display for alignment or delivery" in claude
+
+
+def test_all_host_packages_expose_opt_in_debug_tracing() -> None:
+    packages = (
+        ROOT / "packages" / "codex" / "research-tree",
+        ROOT / "packages" / "claude-code" / "research-tree",
+        ROOT / "packages" / "hermes" / "research-tree",
+    )
+
+    for package in packages:
+        skill = (package / "SKILL.md").read_text(encoding="utf-8")
+        assert "research-tree-debug" in skill
+        assert (package / "references" / "debug-tracing.md").is_file()
 
 
 def test_each_package_uses_only_its_hosts_metadata_format() -> None:
