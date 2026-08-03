@@ -154,6 +154,28 @@ def test_host_adapters_direct_the_native_question_capability() -> None:
     assert "native `clarify`" in hermes
 
 
+def test_long_horizon_policy_is_cost_tolerant_and_resumable() -> None:
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
+        encoding="utf-8"
+    )
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
+        encoding="utf-8"
+    )
+    assert "cost-tolerant" in template
+    assert "monetary cost is non-gating" in playbook
+    for body in (template, playbook):
+        assert "resumable" in body
+        assert "Autonomy envelope" in body
+
+    for host in ("codex", "claude", "hermes"):
+        skill = (
+            ROOT / "packages" / ("claude-code" if host == "claude" else host)
+            / "research-tree" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        assert "cost-tolerant" in skill
+        assert "Autonomy envelope after alignment" in skill
+
+
 def test_each_package_uses_only_its_hosts_metadata_format() -> None:
     codex = ROOT / "packages" / "codex" / "research-tree"
     claude = ROOT / "packages" / "claude-code" / "research-tree"

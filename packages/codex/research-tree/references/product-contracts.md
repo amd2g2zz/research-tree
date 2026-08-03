@@ -201,11 +201,13 @@ new strategy decides its disposition.
   "budget": {
     "time": "bounded default or explicit value",
     "source_limit": "bounded default or explicit value",
-    "prototype_limit": "bounded default or explicit value"
+    "prototype_limit": "bounded default or explicit value",
+    "monetary": "unset unless explicitly supplied by the requester"
   },
   "autonomy": {
     "ask_user": "only non-recoverable unresolved decisions",
-    "assumption_policy": "record and validate later"
+    "assumption_policy": "record and validate later",
+    "continuation_policy": "persist checkpoint and resume; do not treat operational guardrails as infeasibility"
   },
   "strategy_changes": [],
   "delivery_targets": {
