@@ -38,6 +38,15 @@ can correct the agent. Evidence can correct the requester. The agent can detect
 and record its own error. None of those events receives automatic technical
 truth status merely because of its origin.
 
+Feedback is also a work signal. "I don't know", "I don't understand", "not
+sure", and a correction mean that the current brief needs more knowledge or
+verification; they are not refusal, a blocker, or permission to end. After a
+concrete correction or failure report, the agent must update the Living Brief
+and run a bounded evidence batch before handing control back. A response that
+contains only a tree, diagnosis, option table, or proposed fixes is incomplete
+when investigation or improvement was requested. Recommendations-only scope
+limits edits to the target system; it does not waive research and reporting.
+
 ### Authority rules
 
 - User statements control preferences, desired outcome, risk tolerance, and
@@ -121,6 +130,13 @@ One exchange is rarely enough for a vague task. Each dialogue turn must do at
 least one of these: add inspected knowledge, expose a new consequential blind
 spot, test a prior assumption, resolve a disagreement, or sharpen an evidence
 criterion. Do not repeat a question merely because it was unanswered.
+
+When a user supplies a concrete pain point after reconnaissance, continue with
+the next bounded search, source inspection, or safe experiment before asking
+generic preference questions again. Ask only when a consequential,
+non-recoverable choice remains. A worker is not blocked until it has searched
+available sources, inspected local material, attempted safe alternatives, and
+recorded the missing capability or evidence.
 
 Mark the Living Brief `provisionally-aligned` only when:
 
@@ -276,6 +292,8 @@ Fail the package if any of these is true:
   execute-direct instruction;
 - it outputs a research tree or questionnaire without adding inspected
   knowledge;
+- it treats "I don't know" or a user correction as a stop signal, or ends a
+  requested investigation after only proposing fixes;
 - it silently chooses a domain, target, user, tool, or architecture;
 - it records user correction but not the agent belief that changed;
 - it treats user or agent technical statements as authoritative facts;

@@ -67,6 +67,22 @@ Create OpenSpec artifacts only when explicitly requested.
   merely because another host provides it.
 - Repeat reconnaissance and dialogue as needed. Do not assume that one exchange
   can align a vague problem.
+- Treat "I don't know", "I don't understand", "not sure", and corrections as
+  work signals, not refusal, blockage, or permission to end. Translate the
+  feedback into missing knowledge, update the Living Brief, and run the next
+  bounded inspection, search, or experiment.
+- When feedback supplies a concrete pain point, do not repeat generic preference
+  questions before making progress. Ask again only when a consequential,
+  non-recoverable choice is genuinely required.
+- Never end a requested investigation after only showing a research tree,
+  option table, diagnosis, or proposed fix list. Deliver evidence-bearing
+  progress in the same round: inspected sources, repository facts, a safe
+  experiment, or a scoped feasibility result. "Recommendations only" means do
+  not edit the target system; it does not mean skip the research or report.
+- A worker may report a blocker only after searching available sources and tools,
+  inspecting local references or the repository, and trying safe alternatives.
+  Record the missing capability and evidence. "I don't know" by itself is not
+  a blocker.
 - Treat every user technical assertion and every agent technical assertion as a
   claim with provenance and evidence status. Do not silently obey, overrule, or
   promote either side's assertion to fact.
@@ -235,8 +251,10 @@ Start implementation-oriented deep research only when:
 - feasibility is `plausible` or `conditional`, with every condition visible.
 
 If these conditions are not met, use the next response to add knowledge and
-continue the loop. Do not repeatedly ask the same question without new
-evidence. Use a structured question tool when available for the
+continue the loop. A feedback or correction turn must produce an evidence-bearing
+interim artifact before returning control, unless the requester explicitly says
+to pause or stop. Do not repeatedly ask the same question without new evidence.
+Use a structured question tool when available for the
 1-3 bounded decisions, and continue from its answers as new Living Brief
 evidence. If the requester explicitly says to skip discussion and execute,
 record a provisional internal frame, assumptions, and boundaries, then apply
@@ -287,6 +305,10 @@ Living Brief vN -> active tree vN -> retrieve / inspect / experiment
     -> update claims, brief, decisions, and active tree
     -> continue locally OR return to mutual alignment
 ```
+
+After a user feedback or correction event, start a new bounded evidence batch
+before ending the turn. Reopen dialogue only after that batch exposes a material
+choice; do not treat a newly stated problem as completion of the old one.
 
 After every meaningful search, repository-inspection, or experiment batch,
 record:
@@ -402,6 +424,8 @@ Finish only when:
 - consequential claims have proportionate evidence and citation coverage;
 - the implementation path is repository-grounded or clearly greenfield;
 - requested executable claims have honest run evidence or named blockers;
+- the latest feedback turn contains evidence-bearing progress rather than only
+  questions, a tree, or proposals;
 - the two deliveries agree on scope, decisions, uncertainty, and evidence; and
 - further research is unlikely to change the recommendation within the stated
   budget, or the remaining uncertainty requires a human decision.
