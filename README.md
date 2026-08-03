@@ -240,6 +240,23 @@ The formats are not interchangeable:
 Do not install the repository root or copy one host package into another
 host's skill directory.
 
+### User-question capabilities
+
+The skill never assumes that a question tool from another host exists. It uses
+the native capability when exposed and falls back to ordinary conversation
+otherwise:
+
+| Host | Native structured question capability | Availability boundary |
+| --- | --- | --- |
+| Codex | Experimental `request_user_input` app-server request | Conditional; not guaranteed in Skill shells or non-interactive `codex exec` |
+| Claude Code | `AskUserQuestion` | Session-dependent; Agent SDK sessions must include it in `tools` and handle `canUseTool` |
+| Hermes Agent | `clarify` in the `clarify` toolset | Present in `hermes-cli`/most gateways; removed from `hermes-acp` and `hermes-api-server` |
+
+See the host compatibility references for the exact schemas and fallbacks:
+[Codex](packages/codex/research-tree/references/codex-cli-compatibility.md),
+[Claude Code](packages/claude-code/research-tree/references/claude-code-compatibility.md),
+and [Hermes](packages/hermes/research-tree/references/hermes-agent-compatibility.md).
+
 ## Installation Options
 
 The setup command defaults to a user-scoped link installation. On Windows it

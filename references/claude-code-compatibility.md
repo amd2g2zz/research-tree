@@ -46,6 +46,16 @@ The Skill owns research alignment and report production; Claude Code owns
 model calls, repository inspection, web access, shell execution, permissions,
 and any delegation that is actually available.
 
+## User questions
+
+Claude Code's structured user-question tool is named `AskUserQuestion`. In the
+Agent SDK it must be included in the session's `tools` list and handled by the
+`canUseTool` callback; it supports multiple-choice questions and can block until
+the user responds. Native availability is still session-dependent for a Skill,
+so do not call the name unless the host exposes it. When absent, use ordinary
+dialogue with the same 1-3 decision limit. This tool gathers requirements; it
+is distinct from permission prompts for dangerous tool calls.
+
 ## Optional project hooks
 
 The repository template `hooks/claude-code.settings.template.json` contains
@@ -80,3 +90,5 @@ Primary documentation:
 - [Claude Code skills](https://code.claude.com/docs/en/skills)
 - [Claude Code hooks](https://code.claude.com/docs/en/hooks)
 - [Claude Code settings](https://code.claude.com/docs/en/settings)
+- [Claude Code user input](https://code.claude.com/docs/en/agent-sdk/user-input)
+- [Claude Code tools reference](https://code.claude.com/docs/en/tools-reference)

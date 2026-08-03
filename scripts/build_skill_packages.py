@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "skill-src" / "SKILL.template.md"
 HERMES_ADAPTER = ROOT / "skill-src" / "hermes-adapter.md"
 CLAUDE_ADAPTER = ROOT / "skill-src" / "claude-adapter.md"
+CODEX_ADAPTER = ROOT / "skill-src" / "codex-adapter.md"
 TOKEN = "<!-- HOST_ADAPTER -->"
 FRONTMATTER_TOKEN = "<!-- HOST_FRONTMATTER -->"
 RESOURCE_RE = re.compile(r"`((?:references|templates|scripts|assets)/[^`\r\n]+)`")
@@ -38,6 +39,7 @@ HERMES_FILES = (
     Path("scripts/hermes_skill_adapter.py"),
 )
 CLAUDE_FILES = (Path("references/claude-code-compatibility.md"),)
+CODEX_FILES = (Path("references/codex-cli-compatibility.md"),)
 HOST_FILE_MAP = {
     "codex": (
         (Path("skill-src/codex-openai.yaml"), Path("agents/openai.yaml")),
@@ -69,7 +71,11 @@ def _render_skill(host: str, root: Path) -> str:
             root / "skill-src" / "claude-frontmatter.yaml"
         ).read_text(encoding="utf-8").strip()
     adapter = ""
-    if host == "hermes":
+    if host == "codex":
+        adapter = (
+            root / CODEX_ADAPTER.relative_to(ROOT)
+        ).read_text(encoding="utf-8").strip()
+    elif host == "hermes":
         adapter = (
             root / HERMES_ADAPTER.relative_to(ROOT)
         ).read_text(encoding="utf-8").strip()
@@ -132,6 +138,8 @@ def validate_package(
             errors.append("SKILL.md is stale relative to its host template")
 
     expected_files = {Path("SKILL.md"), *COMMON_FILES}
+    if host == "codex":
+        expected_files.update(CODEX_FILES)
     if host == "claude":
         expected_files.update(CLAUDE_FILES)
     if host == "hermes":
@@ -185,6 +193,15 @@ def validate_package(
     if host != "claude" and has_claude_material:
         errors.append(f"{host} package contains Claude-only compatibility material")
 
+    has_codex_material = (
+        "Codex CLI runtime adapter" in text
+        or (package / "references/codex-cli-compatibility.md").exists()
+    )
+    if host == "codex" and not has_codex_material:
+        errors.append("Codex package is missing its host adapter")
+    if host != "codex" and has_codex_material:
+        errors.append(f"{host} package contains Codex-only compatibility material")
+
     claude_fields = (
         "argument-hint:",
         "disable-model-invocation:",
@@ -224,6 +241,8 @@ def build_packages(root: Path = ROOT) -> dict[str, object]:
                 _render_skill(host, root), encoding="utf-8", newline="\n"
             )
             _copy_files(root, staged, COMMON_FILES)
+            if host == "codex":
+                _copy_files(root, staged, CODEX_FILES)
             if host == "claude":
                 _copy_files(root, staged, CLAUDE_FILES)
             if host == "hermes":
