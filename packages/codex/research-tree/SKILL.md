@@ -100,10 +100,18 @@ Create OpenSpec artifacts only when explicitly requested.
   "okay", or "continue" is not alignment evidence. Explicit execute-direct
   permits a provisional checkpoint but does not waive safety, authority, or
   feasibility checks.
-- Test whether outcome, scope, quality, budget, time, environment, authority,
-  and required evidence are mutually consistent before building an
+- Test whether outcome, scope, quality, explicitly stated budget, time,
+  environment, authority, and required evidence are mutually consistent before building an
   implementation-oriented research tree. Human insistence does not make an
   infeasible combination feasible.
+- Do not invent a monetary budget or use API/token spend as a default reason to
+  narrow, stop, or reject long-horizon research. Treat this class of work as
+  cost-tolerant unless the requester explicitly supplies a financial cap.
+  Distinguish that policy from operational guardrails such as time slices,
+  tool-call batches, concurrency, storage, safety, and host limits. When an
+  operational guardrail is reached, persist the checkpoint and continue in a
+  later batch or resume cycle; do not report the research as infeasible merely
+  because a guardrail ended the current batch.
 - Classify each stated constraint as `hard`, `preference`, `aspiration`, or
   `estimate` from its wording and dialogue anchors. Do not silently relax a hard
   constraint or reject the task because a negotiable aspiration is unmet.
@@ -181,6 +189,25 @@ capabilities actually exposed in the current session.
 - Store long-lived research state in a writable workspace location. Treat the
   installed skill directory as read-only unless the user explicitly requests a
   skill update.
+
+### Autonomy envelope after alignment
+
+Once the Alignment Checkpoint is closed, declare an autonomy envelope in the
+active strategy before starting long-horizon work:
+
+- autonomous choices: routine, recoverable research and scheduling decisions;
+- reopen triggers: material outcome, authority, safety, environment, success
+  oracle, or feasibility changes;
+- continuation state: the Living Brief revision, active tree revision,
+  Decision Map, work status, evidence ledger, and next batch;
+- completion oracle: the evidence standard and delivery conditions; and
+- failure policy: retry or replan recoverable failures, persist a blocker with
+  evidence for unrecoverable failures, and never silently downgrade the goal.
+
+After each meaningful batch, persist the continuation state before returning a
+response. If no reopen trigger is present, continue autonomously or leave an
+explicitly resumable next batch; absence of a user response is not approval for
+a newly exposed non-recoverable choice.
 
 ## Collaborative alignment loop
 
@@ -294,7 +321,7 @@ above permits it. Include:
 - the alignment basis and events that would reopen dialogue;
 - the Blueprint Target and Decision Map of design obligations;
 - prioritized research tracks and decision-shaped subquestions;
-- depth, source classes, budget, evidence standards, and exit criteria;
+- depth, source classes, operational guardrails, evidence standards, and exit criteria;
 - repository baseline and expected change surfaces;
 - experiment and representative-artifact contracts;
 - the minimum viable technical loop and path to production; and
@@ -362,16 +389,19 @@ externally verifiable consequential claim in the final deliveries needs an
 inline link or exact source-ledger reference.
 
 When testable, run a safe, bounded experiment with baseline, hypothesis,
-metric/oracle, fixed budget, coherent change, regression guard, raw evidence,
+metric/oracle, fixed operational guardrail, coherent change, regression guard, raw evidence,
 and keep/discard result. Assign artifacts one evidence level: `proposed`,
 `source-inspected`, `built`, `executed`, or `independently-reviewed`. When the
 request asks for a usable or validated result, execute the smallest
-representative artifact unless safety, permission, cost, or environment blocks
-it; record the blocker without inflating the evidence level.
+representative artifact unless safety, permission, environment, or an explicitly
+stated financial cap blocks it; record the blocker without inflating the
+evidence level.
 
 Stop a track when its decision-specific evidence standard is met, additional
-work cannot change the decision within budget, or the remaining gap has an
-explicit fallback. Do not seek endless factual certainty. Reopen alignment only
+work cannot change the decision within the agreed evidence scope, or the
+remaining gap has an explicit fallback. Reaching a time/tool-call batch
+guardrail creates a resumable checkpoint, not an automatic final stop. Do not
+seek endless factual certainty. Reopen alignment only
 when a material human choice is newly exposed, not for routine uncertainty.
 
 When subagents are available, give each a disjoint decision question, source

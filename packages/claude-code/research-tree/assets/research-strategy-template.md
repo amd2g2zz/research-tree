@@ -74,7 +74,7 @@ claims, intent, scope, decisions, and tree. Classify the result:
 
 ## Budget, Autonomy, and Questions
 
-- Time/source/prototype budget: {{bounded default or explicit}}
+- Operational time/source/prototype guardrails: {{bounded default or explicit; not a monetary cap unless explicitly requested}}
 - Autonomous choices: {{routine recoverable uncertainty}}
 - Human decisions: {{material outcome, authorization, success, risk, or premise changes}}
 - Structured question tool: {{use ask_user_question/equivalent when available; ordinary dialogue fallback}}

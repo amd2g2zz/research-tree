@@ -92,6 +92,13 @@ transparent assumptions, and confidence. If only one constraint appears to
 need relaxation, show it; if several trade-offs exist, ask which one the
 requester values most.
 
+For long-horizon research, monetary cost is non-gating by default. Do not
+invent a financial cap or stop because of token/API spend unless the requester
+explicitly supplied that constraint. Keep separate operational guardrails for
+time slices, tool-call batches, concurrency, storage, safety, and host limits;
+reaching one should produce a durable checkpoint and continuation path rather
+than an infeasibility finding.
+
 Nearest feasible reframings are options, not automatic scope changes. Do not
 select and elaborate one merely because it is technically attractive. Wait for
 the requester to choose or explicitly delegate the changed outcome; an
@@ -174,6 +181,21 @@ This is a convergence threshold, not permanent approval. If the requester says
 “do not discuss; execute directly,” create an internal provisional frame and
 continue without dialogue, while preserving explicit safety and permission
 boundaries and reporting assumptions later.
+
+### Autonomy envelope after alignment
+
+Once the checkpoint closes, the strategy must state the autonomy envelope:
+
+- routine, recoverable choices the agent may make without asking;
+- material changes that reopen alignment;
+- durable continuation state and the next-batch location;
+- the evidence-based completion oracle; and
+- retry, replan, and unrecoverable-failure behavior.
+
+Long-horizon work must persist that state after every meaningful batch. If no
+reopen trigger exists, the agent continues locally or leaves a resumable next
+batch. A missing user response is never approval for a newly exposed
+non-recoverable choice.
 
 ## 2. Recursive research loop
 
@@ -270,7 +292,7 @@ For a testable consequential claim, define:
 - baseline and environment;
 - one hypothesis and coherent change surface;
 - metric or oracle;
-- fixed time/iteration budget;
+- fixed operational time/iteration guardrail (not an inferred financial cap);
 - regression or safety guard;
 - raw command/result location; and
 - keep/discard outcome.
@@ -291,7 +313,7 @@ Assign each requested output one level:
 File existence, a report build, or a proposed command does not establish a
 working product. When usable, actual, validated, or buildable output is
 requested, execute the smallest representative artifact unless blocked by
-safety, permission, environment, or cost. State the blocker and missing
+safety, permission, environment, or an explicitly stated financial cap. State the blocker and missing
 evidence without upgrading the level.
 
 ## 6. Multi-agent and context control
@@ -349,7 +371,7 @@ judge these invariant properties:
   incorporates later user feedback without erasing prior context.
 - **Mutual fallibility:** user technical claims and agent hypotheses retain
   provenance and can both be corrected by evidence.
-- **Constraint stress:** conflicting outcome, quality, budget, time, or
+- **Constraint stress:** conflicting outcome, quality, explicitly stated budget, time, or
   environment constraints produce an evidence-backed disposition before any
   implementation tree; infeasible cases yield reframing choices rather than
   ceremonial plans.
