@@ -75,13 +75,13 @@ Question, source bundle, or repository
         Bounded reconnaissance
                     |
                     v
-     Provisional intent + alignment + feasibility
+     Mutual cognition + debate + feasibility
           ^                     |
           |                     v
           +---- new evidence or feedback
                     |
                     v
-       Living Brief + Research Strategy
+       Decision equilibrium -> Strategy handoff
                     |
                     v
        Recursive evidence-driven research

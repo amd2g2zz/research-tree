@@ -269,6 +269,30 @@ silently expanding authority.
 
 ## Collaborative alignment loop
 
+### 0. Co-evolve cognition before strategy handoff
+
+The Research Strategy must emerge from a mutual cognition loop, not from an
+agent proposal followed by a yes/no approval. Before handoff, repeat this
+sequence as long as new evidence can change the direction:
+
+1. expose the agent's current reading, evidence, assumptions, blind spots,
+   strongest counterargument, and consequence if wrong;
+2. invite the requester to add context, constraints, priorities, corrections,
+   or counterclaims;
+3. test the new input, provide counterevidence or alternatives, and state what
+   changed in the human and agent models;
+4. update the Intent Model, Living Brief, claim ledger, and open disagreements;
+5. check whether the next research decision is now better determined.
+
+The strategy handoff occurs at a decision equilibrium, not when the requester
+says "okay". The equilibrium requires visible belief evolution, a supported
+feasibility disposition, an actionable success oracle, and no unresolved
+high-impact choice whose outcome still depends on the requester. Before that
+point, humans and agent are collaborators; after it, the agent owns execution,
+replanning, delegation, and intent correction within the granted authority.
+Native question tools are only transports for the 1-3 decision-shaped choices
+in this pre-handoff loop, not substitutes for debate or a reason to stop early.
+
 ### 1. Inventory and run rapid reconnaissance
 
 Inspect all supplied material before proposing a direction. For repositories,

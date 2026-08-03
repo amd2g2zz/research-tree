@@ -83,10 +83,13 @@ Context understanding and repository reconnaissance
     +--> proportionate alignment research when needed
     |
     v
-Intent Understanding / Intent Model
+Mutual cognition, debate, and belief updates
     |
     v
-Working Brief + Research Strategy
+Intent Model + Working Brief -> decision equilibrium
+    |
+    v
+Research Strategy + autonomy handoff
     |
     v
 Autonomous deep technical research
@@ -135,15 +138,42 @@ requester only during the pre-strategy collaboration phase when consequential,
 non-recoverable choices differ across viable intent interpretations and the
 available material and research cannot responsibly rank them.
 
-### 4.2 No mandatory dialogue gate
+### 4.2 Mutual cognitive alignment and strategy handoff
+
+The Research Strategy is not an agent proposal that the requester merely
+approves. It is produced after a bounded co-evolution loop in which the
+requester and Research Agent update their working models through prompts,
+evidence, counterarguments, and explicit trade-offs.
+
+Each alignment turn should make the current disagreement visible:
+
+1. the agent exposes its current reading, evidence, assumptions, blind spots,
+   and the consequence of being wrong;
+2. the requester adds context, constraints, priorities, corrections, or
+   counterclaims;
+3. the agent tests those inputs, supplies counterevidence or alternatives,
+   records what changed in both models, and proposes the next decision;
+4. both sides continue until the remaining disagreement is either resolved,
+   explicitly conditional with a validation path, or low-impact enough for
+   autonomous execution.
+
+The handoff point is a decision equilibrium, not user acquiescence. It requires
+visible intent evolution, evidence-backed feasibility, an actionable success
+oracle, and no unresolved high-impact choice whose outcome still depends on
+the requester. Only after this equilibrium is reached does the agent compile
+the Research Strategy and take full execution autonomy.
+
+### 4.3 No fixed questionnaire gate
 
 The previous product stopped before any online research until an intent contract
 was completed. This is the wrong behavior. The agent may need to inspect the
-web, supplied material, or repository first to understand the request well
-enough to form a useful strategy.
+web, supplied material, or repository first to improve the shared models before
+the debate converges.
 
 Before the Research Strategy is selected, the agent proceeds using best
-judgment. It asks only when:
+judgment and keeps the co-evolution loop moving. Each turn may ask only 1-3
+decision-shaped questions, but it must add evidence or a substantive argument;
+it asks when:
 
 - the requester asks to explore interactively;
 - a decision is consequential and non-recoverable; and
@@ -153,7 +183,7 @@ judgment. It asks only when:
 Questions must be minimal and decision-bearing, never a way to offload research
 back to the requester.
 
-### 4.3 Alignment research
+### 4.4 Alignment research
 
 Alignment research is small, reversible research that improves the agent's
 intent understanding before it commits to a deep research strategy. It can cover
@@ -166,7 +196,7 @@ the supplied material implies a technical feasibility problem, a deployment
 constraint, a target user workflow, or a commercial driver. It must not silently
 become a full research run or lock the user into a direction.
 
-### 4.4 Autonomous deep research
+### 4.5 Autonomous deep research
 
 Once the Research Strategy exists, control is handed to the Research Agent. It
 owns normal uncertainty, does not freeze the Intent Model, and does not return
@@ -187,7 +217,9 @@ available intent signals, leading and viable alternative readings, desired
 outcome, success signals, decision drivers, constraints, non-goals, ambiguity,
 and what evidence or user answer would change the interpretation. It must point
 back to Context Bundle members, repository observations, and alignment research
-instead of presenting an inferred goal as a verbatim user requirement.
+instead of presenting an inferred goal as a verbatim user requirement. During
+the pre-strategy co-evolution loop it also records the current human and agent
+belief deltas, active counterarguments, concessions, and unresolved trade-offs.
 
 An Intent Model can be partially unresolved and is revised throughout the round.
 The agent branches internally or adds intent-validation work whenever an

@@ -196,6 +196,21 @@ def test_intent_understanding_remains_live_during_research() -> None:
         assert "Intent understanding remains active throughout the round" in skill
 
 
+def test_strategy_handoff_requires_coevolutionary_debate() -> None:
+    product = (ROOT / "PRODUCT.md").read_text(encoding="utf-8")
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
+        encoding="utf-8"
+    )
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "decision equilibrium" in product
+    assert "Co-evolve cognition before strategy handoff" in template
+    assert "co-evolve their models" in playbook
+    assert "not at user acquiescence" in playbook
+
+
 def test_each_package_uses_only_its_hosts_metadata_format() -> None:
     codex = ROOT / "packages" / "codex" / "research-tree"
     claude = ROOT / "packages" / "claude-code" / "research-tree"

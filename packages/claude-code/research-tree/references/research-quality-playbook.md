@@ -154,16 +154,27 @@ surrounding response must first explain evidence,
 alternatives, and consequences. If the tool is unavailable, use normal
 dialogue. Never encode an unsupported agent default as the recommended option.
 
-### Continuous intent understanding and recursive dialogue
+### Co-evolutionary intent alignment and recursive dialogue
 
-Intent understanding is never a one-time pre-research gate. The first Intent
-Model is a provisional reading formed from the available Context Pack and
-bounded reconnaissance. Repository facts, external sources, experiments, and
-worker findings remain evidence about both the technical problem and what the
-requester is trying to achieve. After each meaningful batch, test whether the
-desired outcome, scope, authority, success oracle, or a premise affecting a
-human choice changed. Update the Intent Model, Working Brief, Decision Map, and
-active strategy when necessary before continuing.
+Intent understanding is never a one-time pre-research gate. Before strategy
+handoff, the requester and agent co-evolve their models through a bounded
+debate loop. The agent exposes its reading, evidence, assumptions, blind spots,
+and strongest counterargument; the requester supplies context and counterclaims;
+the agent tests them, provides counterevidence or alternatives, and records the
+belief delta and decision effect. Repository facts, external sources,
+experiments, and worker findings remain evidence about both the technical
+problem and what the requester is trying to achieve.
+
+The loop converges at a decision equilibrium, not at user acquiescence. The
+handoff requires visible belief evolution, supported feasibility, an actionable
+success oracle, and no unresolved high-impact choice that still requires the
+requester's selection. After handoff, the agent owns ordinary research and
+strategy revision within the granted authority; user feedback may be consumed
+as new evidence but is not requested for routine execution.
+
+After each meaningful batch, test whether the desired outcome, scope, authority,
+success oracle, or a premise affecting a human choice changed. Update the
+Intent Model, Working Brief, Decision Map, and active strategy when necessary.
 
 One exchange is rarely enough for a vague task. Each dialogue turn must do at
 least one of these: add inspected knowledge, expose a new consequential blind
