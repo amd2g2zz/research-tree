@@ -29,6 +29,7 @@ COMMON_FILES = (
     Path("assets/research-strategy-template.md"),
     Path("assets/technical-research-package-template.md"),
     Path("references/blueprint-generation-research.md"),
+    Path("references/debug-tracing.md"),
     Path("references/product-contracts.md"),
     Path("references/research-quality-playbook.md"),
 )

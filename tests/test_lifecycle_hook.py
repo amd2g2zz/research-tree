@@ -107,6 +107,24 @@ def test_hermes_session_event_and_response(tmp_path: Path) -> None:
     assert host_response("codex") == {"continue": True}
 
 
+def test_debug_hook_emits_a_sanitized_trace_without_changing_response(tmp_path: Path) -> None:
+    root = project(tmp_path)
+    result = observe(
+        {"cwd": str(root), "hook_event_name": "SessionStart"},
+        host="codex",
+        event="SessionStart",
+        project_root=root,
+        process_cwd=root,
+        debug=True,
+    )
+
+    trace_path = next((root / ".research-tree-debug" / "events").glob("*.json"))
+    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+    assert result["status"] == "recorded"
+    assert trace["phase"] == "lifecycle_observed"
+    assert trace["codes"] == ["event:SessionStart"]
+
+
 def test_read_payload_is_bounded_and_requires_an_object() -> None:
     assert read_payload(BytesIO(b'{"cwd":"/tmp"}')) == {"cwd": "/tmp"}
     with pytest.raises(LifecycleHookError, match="JSON object"):

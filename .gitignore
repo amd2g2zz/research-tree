@@ -19,3 +19,4 @@ Desktop.ini
 
 # Hook runtime output. Hook source and templates under hooks/ are tracked.
 .research-tree-hooks/
+.research-tree-debug/

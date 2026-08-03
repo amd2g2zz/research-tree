@@ -138,6 +138,7 @@ def observe(
     event: str,
     project_root: Path | None = None,
     process_cwd: Path | None = None,
+    debug: bool = False,
 ) -> dict[str, Any]:
     """Persist sanitized lifecycle metadata without affecting host behavior."""
     if not isinstance(payload, dict):
@@ -163,6 +164,20 @@ def observe(
         if value is not None:
             record[key] = value
     path = _write_record(root, record)
+    if debug:
+        try:
+            from .debug_trace import emit_trace
+
+            emit_trace(
+                host=host,
+                phase="lifecycle_observed",
+                status="completed",
+                codes=(f"event:{event}",),
+                project_root=root,
+            )
+        except (OSError, ValueError):
+            # Debug tracing is opt-in observability, never lifecycle behavior.
+            pass
     return {
         "status": "recorded",
         "host": host,
@@ -186,6 +201,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", choices=tuple(HOST_EVENTS), required=True)
     parser.add_argument("--event", required=True)
     parser.add_argument("--project-root", type=Path)
+    parser.add_argument("--debug", action="store_true")
     return parser
 
 
@@ -198,10 +214,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             host=arguments.host,
             event=arguments.event,
             project_root=arguments.project_root,
+            debug=arguments.debug,
         )
-    except (LifecycleHookError, OSError):
+    except (LifecycleHookError, OSError) as exc:
         # Lifecycle observation must never block an agent session.
-        pass
+        if arguments.debug:
+            print(f"research-tree hook debug: {exc}", file=sys.stderr)
     print(json.dumps(host_response(arguments.host), separators=(",", ":")))
     return 0
 

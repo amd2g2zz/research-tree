@@ -101,6 +101,28 @@ delegation.
 An explicit execute-direct instruction bypasses dialogue, not feasibility
 checking. Stop with evidence when the requested combination is infeasible.
 
+### Alignment Checkpoint before action
+
+Before changing the target system, creating implementation artifacts, or running
+an irreversible or target-specific experiment, publish one compact Alignment
+Checkpoint in the response and Living Brief. It must name:
+
+- the current goal and deliverable;
+- scope, non-goals, and the target boundary;
+- authority, environment, and permitted actions;
+- the success oracle and required evidence level;
+- unresolved high-impact Decision Slots and the next 1-3 questions; and
+- the current feasibility disposition and assumptions.
+
+This is an inspectable understanding checkpoint, not a ceremonial approval
+request. Do not treat silence, "okay", "sounds good", or "continue" as proof
+that an unstated requirement is resolved. If a high-impact field remains
+unknown or was selected only by the agent, continue bounded reconnaissance and
+dialogue. An explicit execute-direct request may use a provisional checkpoint,
+but it still requires visible assumptions and does not waive safety, authority,
+or feasibility checks. Safe, reversible reconnaissance may continue before the
+checkpoint; implementation must wait for it.
+
 ### Blind-Spot Packet quality
 
 A useful packet changes the requester's decision position. It must contain some
@@ -292,6 +314,8 @@ Fail the package if any of these is true:
   execute-direct instruction;
 - it outputs a research tree or questionnaire without adding inspected
   knowledge;
+- it starts implementation, target edits, or irreversible experiments without
+  an explicit Alignment Checkpoint covering the high-impact fields;
 - it treats "I don't know" or a user correction as a stop signal, or ends a
   requested investigation after only proposing fixes;
 - it silently chooses a domain, target, user, tool, or architecture;
@@ -329,6 +353,10 @@ judge these invariant properties:
   environment constraints produce an evidence-backed disposition before any
   implementation tree; infeasible cases yield reframing choices rather than
   ceremonial plans.
+- **Action gate:** no implementation or target mutation starts before the
+  Alignment Checkpoint names the goal, scope, authority, success oracle,
+  unresolved decisions, and feasibility; silence or a generic acknowledgement
+  does not close the gate.
 - **Recursive execution:** new evidence updates claims and the one active tree;
   material human choices reopen dialogue while local refinements do not.
 - **Explicit execution:** an unambiguous instruction to execute bypasses
