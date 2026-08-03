@@ -1,0 +1,31 @@
+{
+  "description": "Repository-local research-tree lifecycle hooks. Commands are static and never interpolate hook input.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --locked research-tree-hook --host codex --event SessionStart",
+            "commandWindows": "uv run --locked research-tree-hook --host codex --event SessionStart",
+            "timeout": 10,
+            "statusMessage": "Recording research lifecycle event"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --locked research-tree-hook --host codex --event Stop",
+            "commandWindows": "uv run --locked research-tree-hook --host codex --event Stop",
+            "timeout": 10,
+            "statusMessage": "Recording research lifecycle event"
+          }
+        ]
+      }
+    ]
+  }
+}

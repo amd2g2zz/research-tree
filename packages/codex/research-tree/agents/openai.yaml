@@ -1,0 +1,6 @@
+interface:
+  display_name: "Research Tree"
+  short_description: "Evidence-driven technical research and alignment"
+  default_prompt: "Use $research-tree to investigate this technical question and align the intended outcome before producing an implementation-ready research package."
+policy:
+  allow_implicit_invocation: true

@@ -16,3 +16,6 @@ __pycache__/
 Thumbs.db
 Desktop.ini
 .vs/
+
+# Hook runtime output. Hook source and templates under hooks/ are tracked.
+.research-tree-hooks/

@@ -1,0 +1,80 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+
+ROOT = Path(__file__).resolve().parents[1]
+BUILDER = ROOT / "scripts" / "build_skill_packages.py"
+
+
+def test_checked_in_host_packages_are_current_and_isolated() -> None:
+    completed = subprocess.run(
+        [sys.executable, str(BUILDER), "--check"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr or completed.stdout
+    result = json.loads(completed.stdout)
+    assert {item["host"] for item in result["packages"]} == {
+        "codex",
+        "claude",
+        "hermes",
+    }
+    assert all(item["valid"] for item in result["packages"])
+
+    codex = ROOT / "packages" / "codex" / "research-tree"
+    claude = ROOT / "packages" / "claude-code" / "research-tree"
+    hermes = ROOT / "packages" / "hermes" / "research-tree"
+    assert codex.is_dir() and claude.is_dir() and hermes.is_dir()
+    skill_bodies = {
+        (codex / "SKILL.md").read_bytes(),
+        (claude / "SKILL.md").read_bytes(),
+        (hermes / "SKILL.md").read_bytes(),
+    }
+    assert len(skill_bodies) == 3
+
+
+def test_only_hermes_package_contains_hermes_compatibility_material() -> None:
+    codex = ROOT / "packages" / "codex" / "research-tree"
+    claude = ROOT / "packages" / "claude-code" / "research-tree"
+    hermes = ROOT / "packages" / "hermes" / "research-tree"
+
+    for package in (codex, claude):
+        skill = (package / "SKILL.md").read_text(encoding="utf-8")
+        assert "Hermes runtime adapter" not in skill
+        assert not (package / "references" / "hermes-agent-compatibility.md").exists()
+        assert not (package / "scripts" / "hermes_skill_adapter.py").exists()
+
+    hermes_skill = (hermes / "SKILL.md").read_text(encoding="utf-8")
+    assert "Hermes runtime adapter" in hermes_skill
+    assert "Do not assume LangGraph" in hermes_skill
+    assert (hermes / "references" / "hermes-agent-compatibility.md").is_file()
+    assert (hermes / "scripts" / "hermes_skill_adapter.py").is_file()
+
+
+def test_each_package_uses_only_its_hosts_metadata_format() -> None:
+    codex = ROOT / "packages" / "codex" / "research-tree"
+    claude = ROOT / "packages" / "claude-code" / "research-tree"
+    hermes = ROOT / "packages" / "hermes" / "research-tree"
+
+    codex_skill = (codex / "SKILL.md").read_text(encoding="utf-8")
+    claude_skill = (claude / "SKILL.md").read_text(encoding="utf-8")
+    hermes_skill = (hermes / "SKILL.md").read_text(encoding="utf-8")
+
+    assert (codex / "agents" / "openai.yaml").is_file()
+    assert "$research-tree" in (
+        codex / "agents" / "openai.yaml"
+    ).read_text(encoding="utf-8")
+    assert "argument-hint:" not in codex_skill
+    assert "argument-hint:" in claude_skill
+    assert "disable-model-invocation: false" in claude_skill
+    assert "user-invocable: true" in claude_skill
+    assert not (claude / "agents" / "openai.yaml").exists()
+    assert "argument-hint:" not in hermes_skill
+    assert not (hermes / "agents" / "openai.yaml").exists()
