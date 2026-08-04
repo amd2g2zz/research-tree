@@ -77,5 +77,11 @@ their next validation or human decision.}}
 
 {{Path/reference to the agent-facing package. Mention OpenSpec only if requested.}}
 
+## Human Decision Gate
+
+- Status: {{pending|accepted|needs-revision|blocked}}
+- Requester satisfaction anchor: {{explicit acceptance or unresolved objection}}
+- Required revision/evidence batch: {{...}}
+
 {{Use plain language. Never describe a report, schema, pseudocode, or proposed
 implementation as a working system.}}

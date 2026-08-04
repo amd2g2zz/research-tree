@@ -8,7 +8,9 @@ import pytest
 def api():
     from research_tree import (
         AdaptivePortfolioScheduler,
+        advance_execution,
         BlueprintTargetCompiler,
+        FindingPackCompiler,
         InputIntakeService,
         IntentModelCompiler,
         InvalidPortfolioError,
@@ -19,7 +21,9 @@ def api():
 
     return {
         "AdaptivePortfolioScheduler": AdaptivePortfolioScheduler,
+        "advance_execution": advance_execution,
         "BlueprintTargetCompiler": BlueprintTargetCompiler,
+        "FindingPackCompiler": FindingPackCompiler,
         "InputIntakeService": InputIntakeService,
         "IntentModelCompiler": IntentModelCompiler,
         "InvalidPortfolioError": InvalidPortfolioError,
@@ -668,3 +672,106 @@ def test_later_evidence_driven_replan_requires_affected_work_and_evidence(
         if artifact.kind == "work-portfolio"
     ]
     assert portfolios == [first]
+
+
+def test_orchestration_compiles_plan_to_execute_waves_and_replans_after_ingestion(
+    tmp_path: Path,
+) -> None:
+    modules, store, round_record, target, works = context(tmp_path)
+    portfolio = schedule(modules, store, round_record, target, works)
+    orchestration = portfolio.payload["orchestration"]
+
+    assert orchestration["mode"] == "deep_research"
+    assert list(orchestration["phase_order"]) == [
+        "landscape",
+        "deep_dive",
+        "adversarial",
+        "validation",
+    ]
+    assert list(orchestration["coverage"]["p0_decision_slot_ids"]) == [
+        "slot-boundary",
+        "slot-sandbox",
+    ]
+    first = orchestration["execution"]
+    assert first["transition"] == "plan->execute->ingest->replan"
+    assert len(first["dispatch_task_ids"]) == 2
+    assert all(task_id.endswith("@landscape") for task_id in first["dispatch_task_ids"])
+
+    second = modules["advance_execution"](
+        orchestration,
+        completed_task_ids=first["dispatch_task_ids"],
+        max_parallelism=2,
+    )
+    assert second["state"] == "running"
+    assert len(second["dispatch_task_ids"]) == 2
+    assert all(
+        task_id.endswith("@deep_dive") or task_id.endswith("@adversarial")
+        for task_id in second["dispatch_task_ids"]
+    )
+
+
+def test_orchestration_surfaces_failed_predecessors_as_blocked(tmp_path: Path) -> None:
+    modules, store, round_record, target, works = context(tmp_path)
+    portfolio = schedule(modules, store, round_record, target, works)
+    orchestration = portfolio.payload["orchestration"]
+    first = orchestration["execution"]
+    failed = first["dispatch_task_ids"][0]
+    completed = [task_id for task_id in first["dispatch_task_ids"] if task_id != failed]
+
+    next_batch = modules["advance_execution"](
+        orchestration,
+        completed_task_ids=completed,
+        failed_task_ids=[failed],
+        max_parallelism=2,
+    )
+
+    assert failed in next_batch["failed_task_ids"]
+    assert any(task_id.startswith("work-boundary@") for task_id in next_batch["blocked_task_ids"])
+
+
+def test_scheduler_persists_execution_progress_with_finding_pack_provenance(
+    tmp_path: Path,
+) -> None:
+    modules, store, round_record, target, works = context(tmp_path)
+    scheduler = modules["AdaptivePortfolioScheduler"](store)
+    portfolio = schedule(modules, store, round_record, target, works)
+    execution = portfolio.payload["orchestration"]["execution"]
+    completed_task_id = execution["dispatch_task_ids"][0]
+    work_id = completed_task_id.split("@", 1)[0]
+    work = next(item for item in works if item.id == work_id)
+    finding = modules["FindingPackCompiler"](store).compile(
+        round_id=round_record.id,
+        finding_id="finding-first-phase",
+        work_item=work,
+        observations=[
+            {
+                "claim": "The current run boundary is explicit in the repository.",
+                "anchor": {"kind": "repository", "ref": "src/agent.py:run"},
+                "applicability": "The current fixture revision.",
+                "confidence": "high",
+                "limitation": "The fixture does not exercise deployment behavior.",
+            }
+        ],
+        option_effects=[{"option": "candidate-a", "effect": "supports"}],
+        implementation_implications=["Preserve the explicit run boundary."],
+        remaining_uncertainties=["Deployment behavior still requires validation."],
+    )
+
+    advanced = scheduler.advance_execution(
+        round_id=round_record.id,
+        portfolio=portfolio,
+        completed={completed_task_id: finding},
+        failed={execution["dispatch_task_ids"][1]: "Worker could not inspect the sandbox boundary."},
+    )
+
+    assert advanced.revision == portfolio.revision + 1
+    assert {reference.artifact_id for reference in advanced.parent_refs} == {
+        portfolio.id,
+        finding.id,
+    }
+    next_execution = advanced.payload["orchestration"]["execution"]
+    assert completed_task_id in next_execution["completed_task_ids"]
+    assert next_execution["result_reasons"]["failed"]
+    insights = advanced.payload["orchestration"]["insights"]
+    assert insights["finding_pack_count"] == 1
+    assert insights["closure"] == "blocked_by_uncovered_or_contested_slots"

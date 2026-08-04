@@ -50,6 +50,22 @@ found, user feedback received, and agent corrections made before deep research.}
 |---:|---|---|---|---|---|---|---|
 | 1 | {{...}} | {{2-4 decision-shaped questions}} | {{bounded|standard|deep}} | {{repository|primary|official|independent|experiment}} | {{...}} | {{...}} | {{...}} |
 
+## Plan-to-Execute Portfolio
+
+| Wave | Phase | Decision slot / task | Dependencies | Worker boundary | Finding Pack oracle | State |
+|---:|---|---|---|---|---|---|
+| 1 | {{landscape|deep_dive|adversarial|validation}} | {{...}} | {{...}} | {{no re-delegation; exact scope}} | {{...}} | {{planned|running|complete|failed|blocked}} |
+
+- Worker capacity and utilization: {{available, dispatched, and any bounded reason for unused capacity}}
+- Drain-loop continuation: {{next ready batch or blocker}}
+- Persisted execution revision: {{portfolio id/revision}}
+
+## Insight Digest
+
+| Decision slot | Signal | Cross-worker insight | Conflicts/constraints | Missing evidence | Successor action |
+|---|---|---|---|---|---|
+| {{...}} | {{uncovered|thin|contested|qualified|converging}} | {{relationship among findings, not a summary}} | {{...}} | {{...}} | {{dispatch depth|adversarial recheck|validation|ledger review}} |
+
 ### Counterevidence and Coverage
 
 | Decision slot | Supporting search/inspection | Counterevidence sought | Current anchors | Gap/next action |

@@ -125,6 +125,11 @@ Create OpenSpec artifacts only when explicitly requested.
   progress in the same round: inspected sources, repository facts, a safe
   experiment, or a scoped feasibility result. "Recommendations only" means do
   not edit the target system; it does not mean skip the research or report.
+- A Blind-Spot Packet, interim note, or Human Brief is not the final research
+  report. If the requester asks for a report while the Living Brief is still
+  `exploring` or `reopened`, label the response as interim, state what evidence
+  and intent decisions are missing, and continue bounded research. Do not
+  compress unfinished research into a final-looking brief.
 - A worker may report a blocker only after searching available sources and tools,
   inspecting local references or the repository, and trying safe alternatives.
   Record the missing capability and evidence. "I don't know" by itself is not
@@ -185,6 +190,15 @@ Create OpenSpec artifacts only when explicitly requested.
   authority or safety boundary cannot support a responsible continuation.
 - Produce concrete design decisions, implementation consequences, and honest
   artifact evidence. A compiled report is not an executed system.
+- Produce both co-primary deliverables: a deep, evidence-bearing Technical
+  Research Package for implementation and a faithful, plain-language Human
+  Brief for the requester. Never substitute the brief for the package, or the
+  package for human understanding.
+- Do not advance to implementation, OpenSpec conversion, or a dependent round
+  until both deliverables pass their gates. The package must be actionable and
+  the requester must be satisfied with the Human Brief. Dissatisfaction,
+  correction, or a depth objection reopens the Living Brief and requires a new
+  evidence-bearing batch. Silence or "okay" is not acceptance.
 
 ## Inputs and authority
 
@@ -507,6 +521,20 @@ When subagents are available, give each a disjoint decision question, source
 boundary, budget, and Finding Pack schema. The coordinator owns contradiction
 checks, deduplication, coverage, Living Brief updates, and synthesis. Workers
 return atomic Finding Packs, not prose chapters.
+
+Use the runtime's plan-to-execute loop when available. Compile bounded
+`landscape -> deep_dive -> adversarial -> validation` phase tasks, dispatch only
+the current dependency-ready batch, ingest Finding Packs, persist the execution
+transition, run the Insight Digest, and then replan. Do not hand a broad track to
+one worker or let workers re-delegate. Available worker capacity left unused
+without a dependency, safety, duplicate, or capability reason is a conformance
+failure.
+
+The coordinator must synthesize across workers before drafting delivery. Treat
+Insight Digest signals `uncovered`, `thin`, `contested`, and `qualified` as
+successor-work triggers, not report-writing cues. Only a `converging` slot may
+advance to Decision Ledger review, and final delivery remains blocked while an
+active P0 slot lacks completed depth, counterevidence, or validation evidence.
 
 ## Produce the deliveries
 

@@ -15,6 +15,12 @@ from .domain import (
 )
 from .storage import RunStore
 from .work_items import WORK_ITEM_KIND, supersession_for_round
+from .orchestration import (
+    advance_execution as advance_execution_plan,
+    compile_orchestration_plan,
+    validate_orchestration_plan,
+)
+from .insights import synthesize_insights, validate_insight_digest
 
 
 WORK_PORTFOLIO_KIND = "work-portfolio"
@@ -98,6 +104,12 @@ class AdaptivePortfolioScheduler:
                 budget,
                 parallelism,
                 normalized_event,
+                tuple(
+                    artifact
+                    for artifact in snapshot.artifacts
+                    if artifact.kind == "finding-pack"
+                    and artifact.round_id == round_id
+                ),
             )
             validate_portfolio_payload(payload)
         except (InvalidIdentifierError, TypeError, ValueError) as error:
@@ -112,6 +124,135 @@ class AdaptivePortfolioScheduler:
         return self._store.append_artifact(
             round_id,
             portfolio_id,
+            WORK_PORTFOLIO_KIND,
+            payload,
+            parent_refs=refs,
+        )
+
+    def advance_execution(
+        self,
+        *,
+        round_id: str,
+        portfolio: ArtifactRevision,
+        completed: Mapping[str, ArtifactRevision] | None = None,
+        failed: Mapping[str, str] | None = None,
+        blocked: Mapping[str, str] | None = None,
+    ) -> ArtifactRevision:
+        """Persist one plan-to-execute transition and dispatch the next ready batch."""
+
+        try:
+            snapshot = self._store.load_round(round_id)
+            current = _resolve_exact(
+                snapshot.artifacts,
+                portfolio,
+                WORK_PORTFOLIO_KIND,
+                "portfolio",
+            )
+            if current.round_id != round_id:
+                raise InvalidPortfolioError("portfolio must belong to execution round")
+            if _latest_artifact(snapshot.artifacts, current.id, WORK_PORTFOLIO_KIND) != current:
+                raise InvalidPortfolioError("portfolio must be the latest revision")
+            payload = thaw_json(current.payload)
+            if not isinstance(payload, dict):
+                raise InvalidPortfolioError("portfolio payload is malformed")
+            orchestration = payload.get("orchestration")
+            if not isinstance(orchestration, dict):
+                raise InvalidPortfolioError("portfolio orchestration is malformed")
+            execution = orchestration.get("execution")
+            if not isinstance(execution, Mapping):
+                raise InvalidPortfolioError("portfolio execution state is malformed")
+            tasks = {
+                str(task.get("task_id")): task
+                for task in orchestration.get("tasks", ())
+                if isinstance(task, Mapping)
+            }
+            completed_values = {} if completed is None else dict(completed)
+            failed_values = {} if failed is None else dict(failed)
+            blocked_values = {} if blocked is None else dict(blocked)
+            changed = set(completed_values) | set(failed_values) | set(blocked_values)
+            if not changed:
+                raise InvalidPortfolioError("execution advance requires a completed, failed, or blocked result")
+            if changed - set(tasks):
+                raise InvalidPortfolioError(
+                    f"execution result references unknown task ids: {sorted(changed - set(tasks))}"
+                )
+            if (set(completed_values) & set(failed_values)) or (
+                set(completed_values) & set(blocked_values)
+            ) or (set(failed_values) & set(blocked_values)):
+                raise InvalidPortfolioError("execution result categories must not overlap")
+            evidence: list[ArtifactRevision] = []
+            for task_id, finding in completed_values.items():
+                stored = _resolve_exact(
+                    snapshot.artifacts,
+                    finding,
+                    "finding-pack",
+                    f"completed[{task_id}]",
+                )
+                if stored.round_id != round_id:
+                    raise InvalidPortfolioError("completed Finding Pack must belong to execution round")
+                if stored.payload.get("work_item_id") != tasks[task_id].get("work_item_id"):
+                    raise InvalidPortfolioError("completed Finding Pack must match the phase task Work Item")
+                evidence.append(stored)
+            for label, values in (("failed", failed_values), ("blocked", blocked_values)):
+                for task_id, reason in values.items():
+                    _nonempty_string(reason, f"{label}[{task_id}]")
+            prior_completed = set(execution.get("completed_task_ids", ()))
+            prior_failed = set(execution.get("failed_task_ids", ()))
+            prior_blocked = set(execution.get("blocked_task_ids", ()))
+            prior_running = set(execution.get("running_task_ids", ()))
+            next_completed = prior_completed | set(completed_values)
+            next_failed = prior_failed | set(failed_values)
+            next_blocked = prior_blocked | set(blocked_values)
+            next_running = prior_running - next_completed - next_failed - next_blocked
+            max_parallelism = int(
+                orchestration["worker_utilization"]["available_parallelism"]
+            )
+            next_execution = advance_execution_plan(
+                orchestration,
+                completed_task_ids=sorted(next_completed),
+                failed_task_ids=sorted(next_failed),
+                blocked_task_ids=sorted(next_blocked),
+                running_task_ids=sorted(next_running),
+                max_parallelism=max_parallelism,
+            )
+            next_execution["result_reasons"] = {
+                "failed": {**dict(execution.get("result_reasons", {}).get("failed", {})), **failed_values},
+                "blocked": {**dict(execution.get("result_reasons", {}).get("blocked", {})), **blocked_values},
+            }
+            orchestration["execution"] = next_execution
+            orchestration["insights"] = synthesize_insights(
+                tuple(
+                    artifact
+                    for artifact in snapshot.artifacts
+                    if artifact.kind == "finding-pack" and artifact.round_id == round_id
+                ),
+                active_slot_ids=sorted(
+                    {
+                        str(task.get("decision_slot_id"))
+                        for task in tasks.values()
+                        if task.get("decision_slot_id")
+                    }
+                ),
+            )
+            orchestration["next_action"] = (
+                "ingest_dispatched_finding_packs"
+                if next_execution["state"] == "running"
+                else "replan_blocked_or_failed_tasks"
+                if next_execution["state"] in {"blocked", "failed"}
+                else "run_insight_and_decision_closure"
+            )
+            payload["orchestration"] = orchestration
+            validate_portfolio_payload(payload)
+        except (InvalidIdentifierError, TypeError, ValueError) as error:
+            raise InvalidPortfolioError(str(error)) from error
+
+        refs = _unique_refs(
+            (ArtifactRef(round_id, current.id, current.revision),)
+            + tuple(ArtifactRef(round_id, item.id, item.revision) for item in evidence)
+        )
+        return self._store.append_artifact(
+            round_id,
+            current.id,
             WORK_PORTFOLIO_KIND,
             payload,
             parent_refs=refs,
@@ -134,6 +275,7 @@ def validate_portfolio_payload(payload: Mapping[str, Any]) -> None:
             "scheduling_decisions",
             "budget",
             "replan_event",
+            "orchestration",
         },
         "work portfolio",
     )
@@ -153,6 +295,19 @@ def validate_portfolio_payload(payload: Mapping[str, Any]) -> None:
     )
     if not isinstance(payload["replan_event"], Mapping):
         raise InvalidPortfolioError("replan_event must be a mapping")
+    if not isinstance(payload["orchestration"], Mapping):
+        raise InvalidPortfolioError("orchestration must be a mapping")
+    try:
+        validate_orchestration_plan(payload["orchestration"])
+    except ValueError as error:
+        raise InvalidPortfolioError(str(error)) from error
+    insights = payload["orchestration"].get("insights")
+    if not isinstance(insights, Mapping):
+        raise InvalidPortfolioError("orchestration.insights must be a mapping")
+    try:
+        validate_insight_digest(insights)
+    except ValueError as error:
+        raise InvalidPortfolioError(str(error)) from error
 
 
 def _resolve_exact(
@@ -408,6 +563,7 @@ def _portfolio_payload(
     tool_call_budget: int,
     max_parallelism: int,
     event: Mapping[str, Any],
+    finding_packs: Sequence[ArtifactRevision],
 ) -> dict[str, Any]:
     by_id = {work.id: work for work in works}
     duplicates = _duplicate_work(by_id, scores, dag)
@@ -517,6 +673,22 @@ def _portfolio_payload(
             "reason": "All items are dependency-independent, non-duplicate, and budgeted.",
         }
     ]
+    orchestration = compile_orchestration_plan(
+        works,
+        _target_slots(target),
+        scores,
+        max_parallelism=max_parallelism,
+        initial_dispatch_ids=dispatched,
+    )
+    active_slot_ids = [
+        slot_id
+        for slot_id, slot in _target_slots(target).items()
+        if slot.get("status") in {"open", "researching"}
+    ]
+    orchestration["insights"] = synthesize_insights(
+        finding_packs,
+        active_slot_ids=active_slot_ids,
+    )
     return {
         "id": portfolio_id,
         "round_id": round_id,
@@ -542,6 +714,7 @@ def _portfolio_payload(
             "remaining_tool_calls": remaining,
         },
         "replan_event": dict(event),
+        "orchestration": orchestration,
     }
 
 

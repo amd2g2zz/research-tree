@@ -10,7 +10,9 @@ specification rather than revive its old state model.
 ## 1. Product Definition
 
 `research-tree` converts incomplete project context into research-grounded
-technical design that an implementation agent can use to ship quickly.
+technical design that an implementation agent can use to ship quickly, plus a
+human-facing explanation that lets the requester judge whether the direction is
+correct and worth continuing.
 
 It is not primarily a generic deep-research product, a fixed questionnaire, a
 business-planning assistant, or an automatic OpenSpec generator. Business,
@@ -35,10 +37,11 @@ the original discovery process.
 
 The requester and Research Agent collaborate while the Intent Model and
 Research Strategy are being formed. Once the strategy is selected, an explicit
-control handoff gives the Research Agent full autonomy for execution,
+control handoff gives the Research Agent full autonomy for routine execution,
 replanning, delegation, and continuous intent correction within the granted
-authority and environment. The requester is not a required participant after
-that handoff.
+authority and environment. The requester is not needed for routine research,
+but final delivery and any dependent implementation remain blocked until the
+requester accepts the Human Brief and has no unresolved dissatisfaction.
 
 ## 3. Context Pack
 
@@ -377,7 +380,8 @@ label them and define how an implementation agent should validate them.
 
 ### 7.1 Technical Research Package
 
-The agent-facing package is the primary deliverable. It contains, as relevant:
+The agent-facing package is one of two equally important deliverables. It
+contains, as relevant:
 
 1. Round identity, scope, non-goals, hard constraints, and relationship to
    earlier rounds.
@@ -412,12 +416,32 @@ blueprint element.
 
 ### 7.2 Human Brief
 
-The human-facing output is separate. It explains what the agent understood,
+The human-facing output is equally important, not a courtesy summary. It
+explains what the agent understood,
 the recommended technical direction, expected capability, consequential
 trade-offs, important change from the prior result, and current risk. It is not
-a compressed copy of the technical package.
+a compressed copy of the technical package, but it must contain enough plain
+language reasoning for the requester to judge whether the work addresses the
+right problem and is worth continuing.
 
-### 7.3 Optional OpenSpec conversion
+### 7.3 Dual-delivery acceptance gate
+
+Research cannot advance to implementation, an OpenSpec conversion, or a new
+dependent round until both co-primary deliverables pass their own gates:
+
+- the Technical Research Package is evidence-complete, decision-complete, and
+  actionable for an implementation agent; and
+- the Human Brief is understandable, faithful to the requester's intent, and
+  accepted by the requester as a satisfactory basis for continuing.
+
+Human dissatisfaction, correction, or a request for more depth reopens the
+Living Brief and blocks progression. The agent must record the feedback,
+perform the next evidence-bearing research batch, and revise both deliverables.
+Silence, "okay", or a generic acknowledgement is not acceptance. Routine
+post-handoff research decisions remain autonomous, but final delivery and any
+dependent implementation require this human gate.
+
+### 7.4 Optional OpenSpec conversion
 
 OpenSpec generation happens only when requested. The Technical Research Package
 maps to the standard OpenSpec flow:
@@ -484,6 +508,10 @@ The result is complete only when:
 - implementation work has dependencies and verification, not only headings;
 - unknowns are converted into assumptions, risks, or validation tasks;
 - the Human Brief is intelligible without reading the agent package; and
+- the requester has accepted the Human Brief as a satisfactory basis for
+  continuing, with no unresolved dissatisfaction or depth objection;
+- the Technical Research Package and Human Brief agree on outcome, scope,
+  feasibility, important choices, and what actually exists; and
 - OpenSpec artifacts appear only when explicitly requested.
 
 The following are insufficient on their own: a source list, an architecture
@@ -503,38 +531,35 @@ readiness, not on a completed evidence tree or a long report.
 The product-level recursive unit remains a **Working Brief round**, not an
 evidence node:
 
-```text
-Context Bundle or feedback -> Intent Model N -> Working Brief N -> Strategy N -> Research Round N -> artifacts
-                                                                     ^
-                                                                     |
-                                                       feedback creates Intent Model N+1
+```mermaid
+flowchart LR
+    C[Context bundle or feedback] --> I[Intent Model N]
+    I --> B[Working Brief N]
+    B --> S[Strategy N]
+    S --> R[Research Round N]
+    R --> A[Artifacts]
+    R -. material feedback .-> I2[Intent Model N+1]
 ```
 
 Within a round, the agent follows a Decision-Centric Adaptive Research Loop:
 
-```text
-Context + repository baseline
-             |
-             v
-Intent Understanding / Intent Model
-             |
-             v
-       Working Brief
-             |
-             v
-Blueprint Target / Decision Map
-             |
-             v
- Strategy compiler + dynamic work portfolio
-             |
-             v
- independent research tasks run in parallel when safe
-             |
-             v
-       Finding Packs -> intent review -> Decision Ledger -> replan or converge
-             |
-             v
- Blueprint compiler -> readiness verification -> two deliveries
+```mermaid
+flowchart TD
+    C[Context and repository baseline] --> I[Intent model]
+    I --> B[Working brief]
+    B --> D[Blueprint target and decision map]
+    D --> P[Plan-to-execute portfolio]
+    P --> L[Landscape worker wave]
+    L --> X[Deep-dive worker wave]
+    X --> A[Adversarial worker wave]
+    A --> V[Validation worker wave]
+    V --> F[Finding packs]
+    F --> G[Insight digest]
+    G --> Q{Coverage and contradiction check}
+    Q -->|gaps or conflicts| P
+    Q -->|converging| DL[Decision ledger]
+    DL --> R[Readiness verification]
+    R --> O[Technical package plus human brief]
 ```
 
 The first pass is deliberately broad: repository reconnaissance, technical
@@ -542,6 +567,14 @@ landscape, viable options, and major risks for high-impact Decision Slots. The
 next passes go deep only where evidence can change an architectural choice or
 unblock implementation. This avoids both early fixation and exhaustive research
 of low-value details.
+
+The runtime implements this as a **plan-to-execute drain loop**, not as a large
+single worker prompt. `compile_orchestration_plan` expands active Work Items into
+bounded landscape, deep-dive, adversarial, and validation phase tasks.
+`AdaptivePortfolioScheduler.advance_execution` persists completed, failed, and
+blocked phase results as a new portfolio revision, requires a Finding Pack for
+every claimed completion, and releases only the next dependency-ready batch.
+This state survives host turns and process restarts.
 
 A first implementation may use this explainable heuristic to prioritize a
 ready work item:
@@ -585,6 +618,14 @@ consequential record contains the selected option, meaningful alternatives,
 constraints, supporting and conflicting evidence, repository touch points,
 design consequence, acceptance oracle, uncertainty, fallback, and reversal
 condition. The Technical Research Package is compiled from this ledger.
+
+Before convergence, `synthesize_insights` performs a structured cross-worker
+pass per active Decision Slot. It identifies uncovered slots, thin evidence,
+repeated observations, conflicting option effects, shared constraints, and
+remaining uncertainties. The result is an **Insight Digest** with explicit
+successor actions such as independent depth, adversarial recheck, or validation.
+An Insight Digest never selects an option; it either reopens work or permits the
+Decision Ledger to review a converging evidence set.
 
 ### 10.3 Graph Boundaries
 

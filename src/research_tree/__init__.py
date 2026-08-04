@@ -141,6 +141,14 @@ from .scheduler import (
     WORK_PORTFOLIO_KIND,
     validate_portfolio_payload,
 )
+from .orchestration import (
+    EXECUTION_STATES,
+    RESEARCH_PHASES,
+    advance_execution,
+    compile_orchestration_plan,
+    validate_orchestration_plan,
+)
+from .insights import synthesize_insights, validate_insight_digest
 from .storage import RunStore
 from .work_items import (
     InvalidWorkItemError,
@@ -159,6 +167,13 @@ __all__ = [
     "ASSURANCE_FOLLOW_UP_KIND",
     "ASSURANCE_RESOLUTION_KIND",
     "AdaptivePortfolioScheduler",
+    "EXECUTION_STATES",
+    "RESEARCH_PHASES",
+    "advance_execution",
+    "compile_orchestration_plan",
+    "validate_orchestration_plan",
+    "synthesize_insights",
+    "validate_insight_digest",
     "AssuranceAdapterRunner",
     "AssuranceAdapterSet",
     "AssuranceError",

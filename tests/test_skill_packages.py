@@ -296,3 +296,14 @@ def test_each_package_uses_only_its_hosts_metadata_format() -> None:
     assert not (claude / "agents" / "openai.yaml").exists()
     assert "argument-hint:" not in hermes_skill
     assert not (hermes / "agents" / "openai.yaml").exists()
+
+
+def test_packages_expose_runtime_depth_and_insight_contract() -> None:
+    for package_name in ("codex", "claude-code", "hermes"):
+        skill = (ROOT / "packages" / package_name / "research-tree" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        assert "plan-to-execute" in skill
+        assert "Insight Digest" in skill
+        assert "Do not hand a broad track to" in skill
+        assert "workers re-delegate" in skill

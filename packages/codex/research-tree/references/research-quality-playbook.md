@@ -54,6 +54,12 @@ make the requester read or operate the Living Brief, claim ledger, Decision Map,
 or tree unless a small excerpt directly improves the next decision. Prefer
 progressive disclosure and plain-language explanations over process narration.
 
+The Human Brief and Technical Research Package are co-primary deliverables. The
+brief is concise but must let the requester judge intent fidelity, evidence
+quality, important trade-offs, feasibility, and whether continuing is justified;
+it is not a thin executive summary that can replace deep research. The package
+must be detailed enough for an implementation agent to avoid rediscovery.
+
 Every pre-handoff turn must be knowledge-bearing and decision-guiding. A
 question-only turn, a workflow-status dump, or an unannotated option table
 fails this rule. When the requester is confused, lacks a term, says they do not
@@ -407,6 +413,35 @@ deduplication, evidence coverage, epistemic review, and final synthesis.
 Compress large finding sets only while preserving every claim's provenance,
 limitation, dissent, and affected decision.
 
+### 6.1 Plan-to-execute drain loop
+
+Do not dispatch a broad research topic as one task. Compile each active Decision
+Slot into phase work: landscape mapping, decision-specific depth, adversarial
+search, and validation. Persist the plan before dispatch. Release only the
+dependency-ready phase tasks up to actual worker capacity, require a Finding
+Pack for completion, record failure or blockage with a reason, then ingest and
+replan. Continue until the portfolio is drained or a material human decision is
+required.
+
+The coordinator creates child work and owns synthesis. Workers must not create
+more workers or re-delegate. When delegated workers are available, doing all
+independent high-impact research serially without a documented constraint is a
+conformance failure.
+
+### 6.2 Insight synthesis
+
+After each Finding Pack batch, synthesize by Decision Slot rather than joining
+worker prose. Detect uncovered slots, repeated claims, conflicting option
+effects, cross-source constraints, explicit uncertainty, and missing validation.
+Emit an Insight Digest whose successor actions feed the next portfolio. Insight
+is a hypothesis about the relationship among findings, not a replacement for
+their anchors and not authority to select a design option.
+
+`uncovered`, `thin`, `contested`, and `qualified` signals keep the slot open.
+Only a converging evidence set proceeds to Decision Ledger review. For active
+P0 slots, completion additionally requires depth, counterevidence, and the
+stated validation oracle; a polished report cannot substitute for this closure.
+
 ## 7. Report evaluation
 
 Fail the package if any of these is true:
@@ -432,7 +467,22 @@ Fail the package if any of these is true:
 - high-impact decisions lack evidence standards, fallbacks, or reversal rules;
 - cited sources do not support the claims or are only snippets;
 - a report or schema is called an executed product; or
-- the Human Brief and Technical Research Package disagree.
+- the Human Brief and Technical Research Package disagree;
+- either co-primary deliverable is missing, shallow, or not traceable to the
+  same intent, evidence, decisions, and execution status; or
+- the requester has expressed dissatisfaction, a correction, or a depth
+  objection that has not been incorporated and revalidated; or
+- available independent workers were left unused without a recorded reason;
+- a broad track was delegated as one task, a worker re-delegated, or the
+  coordinator skipped plan-to-execute ingestion and replanning; or
+- final delivery started while an active P0 Insight Digest remained uncovered,
+  thin, contested, or qualified.
+
+Do not advance to implementation, OpenSpec conversion, or a dependent round
+until the Technical Research Package passes its readiness gates and the
+requester accepts the Human Brief. Silence, "okay", and generic acknowledgement
+are not acceptance. Routine research after strategy handoff remains autonomous,
+but this final human gate is mandatory before dependent work proceeds.
 
 ## 8. Heuristic conformance checks
 
@@ -488,6 +538,11 @@ properties does not pass.
 - [Codex Autoresearch](https://github.com/leo-lilinxiao/codex-autoresearch):
   explicit parsers and guards, append-only audit events, reproducible histories,
   exact failure state, and reversible trials.
+- [agent-swarm](https://github.com/desplega-ai/agent-swarm):
+  lead/worker isolation, drain loops, priority and dependency queues,
+  persistent shared memory, litmus-test quality gates, and explicit human gates.
+  This repository adapts those mechanisms to Decision Slots, Finding Packs, and
+  immutable run-scoped artifacts rather than copying its infrastructure.
 - [Superpowers Brainstorming](https://github.com/obra/superpowers/tree/main/skills/brainstorming):
   inspect project context first, advance one question at a time, decompose
   oversized requests, and validate evolving designs in small sections. This
