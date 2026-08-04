@@ -16,6 +16,7 @@ HERMES_VERSION = "v2026.8.3"
 MAX_NAME_LENGTH = 64
 MAX_DESCRIPTION_LENGTH = 1024
 MAX_SKILL_CHARS = 100_000
+RECOMMENDED_SKILL_CHARS = 20_000
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 RESOURCE_RE = re.compile(
     r"`((?:references|templates|scripts|assets)/[^`\r\n]+)`"
@@ -30,6 +31,54 @@ NATIVE_MARKERS = (
     "in-flight attempt `unknown`",
     "cronjob",
 )
+PROVIDER_FAILURE_MARKERS = {
+    "context_limit": (
+        "context length",
+        "context_length_exceeded",
+        "input too long",
+        "maximum context",
+        "max context",
+        "too many tokens",
+        "request too large",
+        "prompt is too long",
+    ),
+    "authentication": (
+        "authentication failed",
+        "incorrect api key",
+        "invalid api key",
+        "unauthorized",
+        "http 401",
+        "status code: 401",
+    ),
+    "rate_limit": (
+        "rate limit",
+        "rate_limit",
+        "too many requests",
+        "http 429",
+        "status code: 429",
+    ),
+    "provider_policy": (
+        "content policy",
+        "safety policy",
+        "request rejected",
+        "moderation",
+    ),
+    "network_or_timeout": (
+        "connection reset",
+        "connection closed",
+        "connection failed",
+        "timed out",
+        "timeout",
+        "broken pipe",
+        "end of file",
+    ),
+    "malformed_or_empty_stream": (
+        "malformed streaming",
+        "empty response stream",
+        "empty content after retries",
+        "no content after retries",
+    ),
+}
 
 
 def _default_skill_dir() -> Path:
@@ -68,6 +117,7 @@ def validate(skill_dir: Path, mode: str) -> dict[str, object]:
     warnings: list[str] = []
     description = ""
     resources: list[str] = []
+    skill_chars = 0
 
     if not skill_file.is_file():
         errors.append(f"missing {skill_file}")
@@ -82,10 +132,17 @@ def validate(skill_dir: Path, mode: str) -> dict[str, object]:
             text = ""
 
         if text:
+            skill_chars = len(text)
             if len(text) > MAX_SKILL_CHARS:
                 errors.append(
                     f"SKILL.md has {len(text)} characters; Hermes limit is "
                     f"{MAX_SKILL_CHARS}"
+                )
+            elif len(text) > RECOMMENDED_SKILL_CHARS:
+                warnings.append(
+                    f"SKILL.md has {len(text)} characters; split it below "
+                    f"{RECOMMENDED_SKILL_CHARS} characters to reduce provider "
+                    "context failures when Hermes loads the full skill"
                 )
             try:
                 metadata, _ = _frontmatter(text)
@@ -156,12 +213,22 @@ def validate(skill_dir: Path, mode: str) -> dict[str, object]:
     if description and not compact_description.lower().startswith("use "):
         warnings.append("put the activation trigger in the first 60 characters")
 
+    activation_payload_estimate = skill_chars + sum(
+        2 * len(relative) + 12 for relative in resources
+    ) + 500
+
     return {
         "compatible": not errors,
         "hermes_version": HERMES_VERSION,
         "mode": mode,
         "skill_dir": str(skill_dir),
         "compact_description": compact_description,
+        "prompt_risk": {
+            "skill_chars": skill_chars,
+            "recommended_skill_chars": RECOMMENDED_SKILL_CHARS,
+            "activation_payload_estimate_chars": activation_payload_estimate,
+            "level": "high" if skill_chars > RECOMMENDED_SKILL_CHARS else "low",
+        },
         "resources": resources,
         "errors": errors,
         "warnings": warnings,
@@ -251,12 +318,49 @@ def _hermes_version(executable: str | None) -> dict[str, object]:
     }
 
 
+def diagnose_gateway_log(log_path: Path) -> dict[str, object]:
+    """Classify recent provider failures without returning raw log content."""
+    log_path = log_path.expanduser().resolve()
+    result: dict[str, object] = {
+        "path": str(log_path),
+        "exists": log_path.is_file(),
+        "category": None,
+        "matched_marker": None,
+    }
+    if not log_path.is_file():
+        return result
+
+    try:
+        with log_path.open("rb") as handle:
+            handle.seek(0, 2)
+            size = handle.tell()
+            handle.seek(max(0, size - 256_000))
+            text = handle.read().decode("utf-8", errors="replace").lower()
+    except OSError as exc:
+        result["read_error"] = type(exc).__name__
+        return result
+
+    best: tuple[int, str, str] | None = None
+    for category, markers in PROVIDER_FAILURE_MARKERS.items():
+        for marker in markers:
+            position = text.rfind(marker)
+            if position >= 0 and (best is None or position > best[0]):
+                best = (position, category, marker)
+    if best:
+        result["category"] = best[1]
+        result["matched_marker"] = best[2]
+    elif any(token in text for token in ("provider failed", "api call failed")):
+        result["category"] = "unclassified_provider_failure"
+    return result
+
+
 def doctor(skill_dir: Path, hermes_home: Path) -> dict[str, object]:
     skill_dir = skill_dir.resolve()
     hermes_home = hermes_home.expanduser().resolve()
     validation = validate(skill_dir, "external-dir")
     executable = shutil.which("hermes") or shutil.which("hermes-agent")
     config = hermes_home / "config.yaml"
+    gateway_log = hermes_home / "logs" / "gateway.log"
     config_text = config.read_text(encoding="utf-8") if config.is_file() else ""
     skill_path = str(skill_dir).replace("\\", "/")
     hook_path = str((skill_dir / RUNTIME_HOOK).resolve()).replace("\\", "/")
@@ -271,6 +375,7 @@ def doctor(skill_dir: Path, hermes_home: Path) -> dict[str, object]:
             "skill_path_mentioned": skill_path in config_text.replace("\\", "/"),
             "runtime_hook_mentioned": hook_path in config_text.replace("\\", "/"),
         },
+        "gateway_log": diagnose_gateway_log(gateway_log),
         "next_actions": [
             "install Hermes CLI" if not executable else None,
             "merge the render-hooks output into ~/.hermes/config.yaml"

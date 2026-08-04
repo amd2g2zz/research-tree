@@ -13,6 +13,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "skill-src" / "SKILL.template.md"
+HERMES_TEMPLATE = ROOT / "skill-src" / "hermes-SKILL.template.md"
 HERMES_ADAPTER = ROOT / "skill-src" / "hermes-adapter.md"
 CLAUDE_ADAPTER = ROOT / "skill-src" / "claude-adapter.md"
 CODEX_ADAPTER = ROOT / "skill-src" / "codex-adapter.md"
@@ -35,8 +36,11 @@ COMMON_FILES = (
     Path("references/research-quality-playbook.md"),
 )
 HERMES_FILES = (
+    Path("references/hermes-alignment.md"),
     Path("references/hermes-agent-compatibility.md"),
+    Path("references/hermes-delivery.md"),
     Path("references/hermes-native-orchestration.md"),
+    Path("references/hermes-research-execution.md"),
     Path("scripts/hermes_runtime_hook.py"),
     Path("scripts/hermes_skill_adapter.py"),
 )
@@ -68,7 +72,10 @@ def package_source(host: str, root: Path = ROOT) -> Path:
 
 
 def _render_skill(host: str, root: Path) -> str:
-    template = (root / TEMPLATE.relative_to(ROOT)).read_text(encoding="utf-8")
+    template_path = HERMES_TEMPLATE if host == "hermes" else TEMPLATE
+    template = (root / template_path.relative_to(ROOT)).read_text(encoding="utf-8")
+    if host == "hermes":
+        return template.rstrip() + "\n"
     if template.count(TOKEN) != 1:
         raise ValueError(f"template must contain exactly one {TOKEN!r} marker")
     if template.count(FRONTMATTER_TOKEN) != 1:
