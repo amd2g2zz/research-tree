@@ -243,6 +243,24 @@ def test_vague_briefs_trigger_short_guided_communication() -> None:
     assert "progress -> new" in playbook
 
 
+def test_intent_elicitation_is_open_ended_and_context_first() -> None:
+    product = (ROOT / "PRODUCT.md").read_text(encoding="utf-8")
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
+        encoding="utf-8"
+    )
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
+        encoding="utf-8"
+    )
+
+    for body in (product, template, playbook):
+        assert "open-ended" in body
+        assert "current" in body and "context" in body
+        assert "in their own words" in body
+    assert "never make a menu the default" in product
+    assert "Do not use multiple-choice menus as the default" in template
+    assert "does not inherit" in playbook
+
+
 def test_each_package_uses_only_its_hosts_metadata_format() -> None:
     codex = ROOT / "packages" / "codex" / "research-tree"
     claude = ROOT / "packages" / "claude-code" / "research-tree"

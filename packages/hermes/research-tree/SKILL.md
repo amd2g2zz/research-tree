@@ -53,8 +53,9 @@ Create OpenSpec artifacts only when explicitly requested.
   behavior. Do not assume LangGraph, LangChain, or their state/checkpoint model
   is present. If an external LangGraph workflow is explicitly supplied, treat
   it as a separate callable or service boundary.
-- When the active Hermes toolset exposes native `clarify`, use it only for the
-  1-3 consequential decisions before the Research Strategy handoff. After the
+- When the active Hermes toolset exposes native `clarify`, use it only for a
+  rare discrete decision after open-ended intent guidance and before the
+  Research Strategy handoff. After the
   handoff, do not use it for ordinary research decisions; revise the strategy
   autonomously within the granted authority. Otherwise use ordinary dialogue
   during pre-handoff alignment. Delegate only when delegation is exposed.
@@ -82,6 +83,9 @@ Create OpenSpec artifacts only when explicitly requested.
   signal, not permission to invent missing requirements. Search or inspect the
   smallest useful evidence set, teach the missing distinction, and guide the
   next decision in a later short turn.
+- Inspect the current repository, supplied artifacts, and relevant context
+  before asking detailed questions. If the request contains independent problem
+  areas, expose a workable decomposition before refining their details.
 - Keep every user-facing interactive turn under 1000 characters. Split work
   across short purposeful rounds using: progress, new information, impact, one
   decision/reflection, and next step. Internal reports and persisted artifacts
@@ -90,8 +94,15 @@ Create OpenSpec artifacts only when explicitly requested.
   reconnaissance exposes missing outcome, evaluation, authority, lifecycle,
   safety, integration, or operational dimensions. Label every expansion as an
   agent proposal rather than a user requirement.
-- Ask only 1-3 decision-shaped questions at a time. Explain the newly visible
-  alternatives and consequences before asking the requester to choose.
+- Use one open-ended, guided prompt at a time to help the requester express
+  their own intent. Do not use multiple-choice menus as the default discovery
+  mechanism. Explain alternatives as examples or contrasts; reserve structured
+  question tools for a rare discrete decision after the distinction is
+  understood.
+- In each alignment turn, briefly mirror the current understanding, identify
+  one consequential gap, add the smallest useful evidence or example, and
+  invite the requester to elaborate, correct, or challenge it in their own
+  words. On the next turn, reconstruct the intent and state what changed.
 - No pre-handoff turn may be question-only. It must add the minimum useful
   knowledge, teaching, counterevidence, or concrete example before guiding the
   requester toward a reflection or decision.
@@ -99,14 +110,14 @@ Create OpenSpec artifacts only when explicitly requested.
   pause preference questions and run a teaching reconnaissance cycle: inspect
   the smallest useful set of web, repository, or supplied sources; explain the
   result in plain language; show one implication, example, or trade-off; then
-  ask one guided reflection question. Do not answer "I don't know" before
+  ask one open-ended guided reflection question. Do not answer "I don't know" before
   trying the available evidence paths.
-- When the host exposes a structured input tool, prefer it for those bounded
-  decisions. Put the reconnaissance-derived
-  knowledge and consequences in the surrounding response; the tool is a
-  transport for choices, not a substitute for mutual understanding. Fall back
-  to ordinary dialogue when no such tool is available. Never call a named tool
-  merely because another host provides it.
+- When the host exposes a structured input tool, use it only for a genuinely
+  discrete bounded decision after open-ended elicitation. Put the
+  reconnaissance-derived knowledge and consequences in the surrounding
+  response; the tool is a transport for that choice, not a substitute for
+  mutual understanding. Never call a named tool merely because another host
+  provides it.
 - Repeat reconnaissance and dialogue as needed. Do not assume that one exchange
   can align a vague problem.
 - Treat "I don't know", "I don't understand", "not sure", and corrections as
@@ -132,7 +143,8 @@ Create OpenSpec artifacts only when explicitly requested.
   **Alignment Checkpoint** stating the goal and deliverable, scope and
   non-goals, authority and environment, success oracle, unresolved high-impact
   decisions, and feasibility. Do not act while a high-impact field is unknown
-  or agent-selected: continue reconnaissance and ask 1-3 questions. Silence,
+  or agent-selected: continue reconnaissance and guide one open-ended intent
+  dimension at a time. Silence,
   "okay", or "continue" is not alignment evidence. Explicit execute-direct
   permits a provisional checkpoint but does not waive safety, authority, or
   feasibility checks.
@@ -214,7 +226,9 @@ name: structured user input, web retrieval, repository/file inspection, shell
 or sandbox execution, persistent artifacts, and delegated workers. Use only
 capabilities actually exposed in the current session.
 
-- Use ordinary dialogue for alignment when no structured question tool exists.
+- Use ordinary dialogue for alignment by default, even when a structured
+  question tool exists; use the structured tool only for a rare discrete
+  decision after open-ended intent elicitation.
 - Use the host's available search and browsing tools; do not require one named
   provider.
 - Run experiments only when a safe execution surface is available. Otherwise
@@ -261,11 +275,19 @@ sequence as long as new evidence can change the direction:
 1. expose the agent's current reading, evidence, assumptions, blind spots,
    strongest counterargument, and consequence if wrong;
 2. invite the requester to add context, constraints, priorities, corrections,
-   or counterclaims;
+   or counterclaims in their own words; do not force a menu selection;
 3. test the new input, provide counterevidence or alternatives, and state what
    changed in the human and agent models;
 4. update the Intent Model, Living Brief, claim ledger, and open disagreements;
 5. check whether the next research decision is now better determined.
+
+Inspect existing project context before detailed elicitation. Work on one
+consequential knowledge or intent gap per user-facing turn. If the request
+contains independent problem areas, make the decomposition visible first.
+Present the evolving understanding in small sections and ask for correction,
+extension, or counterargument, not approval. Candidate interpretations are
+hypotheses that help the requester think; they are not a menu the requester
+must select from.
 
 The strategy handoff occurs at a decision equilibrium, not when the requester
 says "okay". The equilibrium requires visible belief evolution, a supported
@@ -273,8 +295,9 @@ feasibility disposition, an actionable success oracle, and no unresolved
 high-impact choice whose outcome still depends on the requester. Before that
 point, humans and agent are collaborators; after it, the agent owns execution,
 replanning, delegation, and intent correction within the granted authority.
-Native question tools are only transports for the 1-3 decision-shaped choices
-in this pre-handoff loop, not substitutes for debate or a reason to stop early.
+Native question tools are only transports for rare discrete choices in this
+pre-handoff loop, not substitutes for open-ended intent elicitation, debate, or
+a reason to stop early.
 
 ### 1. Inventory and run rapid reconnaissance
 
@@ -305,7 +328,8 @@ For an exploratory request, return a compact packet containing:
 - **Reasonable scope expansion:** dimensions that should be included and why,
   with explicit guardrails against unwanted expansion;
 - **Open disagreements and unknowns:** including possible agent error; and
-- **Next decisions:** 1-3 questions whose answers now have visible consequences.
+- **Next decisions:** one guided prompt or rare discrete decision whose answer
+  now has a visible consequence.
 
 Do not force false alternatives. When evidence cannot rank domains, recommend
 a discovery method or evaluation criterion instead of selecting one.
@@ -368,9 +392,8 @@ to add knowledge and continue the collaborative loop. A feedback or correction t
 interim artifact before returning control, unless the requester explicitly says
 to pause or stop. Do not repeatedly ask the same question without new evidence.
 Use a structured question tool when available only during this pre-handoff
-collaboration for the
-1-3 bounded decisions, and continue from its answers as new Living Brief
-evidence. If the requester explicitly says to skip discussion and execute,
+collaboration for a rare bounded discrete decision after open-ended guidance,
+and continue from its answers as new Living Brief evidence. If the requester explicitly says to skip discussion and execute,
 record a provisional internal frame, assumptions, and boundaries, then apply
 the same feasibility rule without waiting for dialogue; explicit execution does
 not grant unsafe or unspecified permissions or make contradictions feasible.

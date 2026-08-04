@@ -26,7 +26,7 @@ careless.
 initial request
   -> bounded reconnaissance
   -> compact teaching packet + intent rewrite + proposed scope expansion
-  -> 1-3 decision-shaped questions
+  -> one open-ended guided prompt (rare discrete choice only after explanation)
   -> user feedback / correction / delegation
   -> update Living Brief and claim ledger
   -> repeat until provisionally aligned
@@ -60,13 +60,17 @@ fails this rule. When the requester is confused, lacks a term, says they do not
 know, or gives a vague, short, incomplete, or contradictory brief, run this
 teaching reconnaissance cycle before asking another preference question:
 
-1. identify the missing distinction or knowledge needed for the next decision;
-2. inspect the smallest useful web, repository, or supplied-material sources;
-3. explain the finding in plain language and show one concrete implication,
+1. inspect the current project, supplied artifacts, and relevant context;
+2. identify one missing distinction or intent dimension needed next; if the
+   request spans independent problem areas, expose the decomposition first;
+3. inspect the smallest useful web, repository, or supplied-material sources;
+4. mirror the current understanding, explain the finding in plain language,
+   and show one concrete implication,
    example, counterexample, or trade-off;
-4. state how the new knowledge changes the available choices; and
-5. ask one guided reflection question, unless the agent can safely continue
-   without one.
+5. ask one open-ended prompt that invites the requester to elaborate, correct,
+   or challenge the interpretation in their own words; and
+6. on the next turn, reconstruct the intent and state what changed in both
+   working models.
 
 The cycle is adaptive, not a fixed questionnaire. Its success criterion is that
 the requester can make a more informed decision, not that every protocol field
@@ -74,6 +78,11 @@ has been displayed. Keep each user-facing interactive turn under 1000
 characters. Use short rounds with the compact project shape `progress -> new
 information -> impact -> one decision/reflection -> next step`; put long
 technical packages in workspace artifacts instead of chat.
+Candidate interpretations may be shown as examples that stimulate recall or
+contrast. They remain hypotheses; do not turn them into a menu or treat a brief
+acknowledgement as approval. Present evolving strategy fragments in small
+sections so errors can be corrected early without making the requester operate
+the protocol.
 
 ### Authority rules
 
@@ -146,7 +155,8 @@ Checkpoint in the response and Living Brief. It must name:
 - scope, non-goals, and the target boundary;
 - authority, environment, and permitted actions;
 - the success oracle and required evidence level;
-- unresolved high-impact Decision Slots and the next 1-3 questions; and
+- the one unresolved high-impact intent dimension to guide next, or a rare
+  discrete decision after open-ended elicitation; and
 - the current feasibility disposition and assumptions.
 
 This is an inspectable understanding checkpoint, not a ceremonial approval
@@ -177,8 +187,8 @@ this task. Do not show a detailed branch-specific architecture before the
 domain evidence supports it.
 
 Use `ask_user_question` or an equivalent structured tool when available only
-before the Research Strategy handoff for the 1-3 bounded choices. The
-surrounding response must first explain evidence,
+before the Research Strategy handoff for a rare bounded discrete choice after
+open-ended guidance. The surrounding response must first explain evidence,
 alternatives, and consequences. If the tool is unavailable, use normal
 dialogue. Never encode an unsupported agent default as the recommended option.
 
@@ -211,8 +221,9 @@ criterion. Do not repeat a question merely because it was unanswered.
 
 When a user supplies a concrete pain point after reconnaissance, continue with
 the next bounded search, source inspection, or safe experiment before asking
-generic preference questions again. Ask only when a consequential,
-non-recoverable choice remains. A worker is not blocked until it has searched
+generic preference questions again. Use open-ended prompts to help the requester
+articulate intent; ask for a discrete choice only when a consequential,
+non-recoverable decision remains after explanation. A worker is not blocked until it has searched
 available sources, inspected local material, attempted safe alternatives, and
 recorded the missing capability or evidence.
 
@@ -462,6 +473,11 @@ properties does not pass.
 - [Codex Autoresearch](https://github.com/leo-lilinxiao/codex-autoresearch):
   explicit parsers and guards, append-only audit events, reproducible histories,
   exact failure state, and reversible trials.
+- [Superpowers Brainstorming](https://github.com/obra/superpowers/tree/main/skills/brainstorming):
+  inspect project context first, advance one question at a time, decompose
+  oversized requests, and validate evolving designs in small sections. This
+  product adapts those interaction properties but deliberately does not inherit
+  its preference for multiple-choice elicitation or universal approval gates.
 
 Adapt mechanisms rather than copying whole workflows. Open-ended research needs
 multi-dimensional convergence, dynamic problem revision, and human-agent

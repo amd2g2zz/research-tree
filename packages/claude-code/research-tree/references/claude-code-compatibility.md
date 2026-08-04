@@ -52,8 +52,10 @@ Claude Code's structured user-question tool is named `AskUserQuestion`. In the
 Agent SDK it must be included in the session's `tools` list and handled by the
 `canUseTool` callback; it supports multiple-choice questions and can block until
 the user responds. Native availability is still session-dependent for a Skill,
-so do not call the name unless the host exposes it. When absent, use ordinary
-dialogue with the same 1-3 decision limit. This tool gathers requirements; it
+so do not call the name unless the host exposes it. Use ordinary open-ended
+dialogue for intent elicitation even when it is available. Reserve the tool for
+a rare consequential discrete decision after the agent has explained the
+distinction and invited the requester to respond in their own words. This tool
 is distinct from permission prompts for dangerous tool calls.
 
 ## Optional project hooks

@@ -159,6 +159,17 @@ communication shape: progress, new information, impact, one decision or
 reflection, and next step. Communication length is adaptive; convergence is
 based on human understanding and strategy quality, not a fixed number of
 messages. Long technical packages remain workspace artifacts, not chat dumps.
+Use open-ended prompts and reflective paraphrase to help the requester express
+their own intent. Present alternatives only as examples or contrasts after the
+agent has explained the distinction; never make a menu the default way to
+discover intent.
+
+For an existing repository or supplied artifact, inspect its current context
+before asking detailed questions. Advance one unresolved intent dimension per
+turn so the requester can respond without first learning the whole protocol.
+If the request spans independent problem areas, expose that decomposition
+before refining details. Present the evolving interpretation in small sections
+and invite correction, extension, or counterargument rather than approval.
 
 ### 4.3 Mutual cognitive alignment and strategy handoff
 
@@ -167,7 +178,8 @@ approves. It is produced after a bounded co-evolution loop in which the
 requester and Research Agent update their working models through prompts,
 evidence, counterarguments, and explicit trade-offs.
 
-Each alignment turn should make the current disagreement visible:
+Each alignment turn should make the current disagreement visible without
+forcing the requester into a predefined answer:
 
 1. the agent exposes its current reading, evidence, assumptions, blind spots,
    and the consequence of being wrong;
@@ -175,9 +187,17 @@ Each alignment turn should make the current disagreement visible:
    counterclaims;
 3. the agent tests those inputs, supplies counterevidence or alternatives,
    records what changed in both models, and proposes the next decision;
-4. both sides continue until the remaining disagreement is either resolved,
+4. the requester can correct the agent in their own words, and both sides
+   continue until the remaining disagreement is either resolved,
    explicitly conditional with a validation path, or low-impact enough for
    autonomous execution.
+
+Operationally, the agent briefly mirrors what it currently understands,
+identifies one consequential gap, contributes the smallest useful evidence or
+example, and asks the requester to elaborate that gap in their own words. The
+next turn reconstructs the intent from the answer and states the belief delta.
+Candidate interpretations may be offered to stimulate thought, but they remain
+hypotheses and never become a forced menu.
 
 The handoff point is a decision equilibrium, not user acquiescence. It requires
 visible intent evolution, evidence-backed feasibility, an actionable success
@@ -193,9 +213,11 @@ web, supplied material, or repository first to improve the shared models before
 the debate converges.
 
 Before the Research Strategy is selected, the agent proceeds using best
-judgment and keeps the co-evolution loop moving. Each turn may ask only 1-3
-decision-shaped questions, but it must add evidence or a substantive argument;
-it asks when:
+judgment and keeps the co-evolution loop moving. Each turn normally uses one
+open-ended guided prompt, not a multiple-choice menu. A structured question
+tool is reserved for the rare discrete decision that remains after the agent
+has explained the alternatives and the requester understands the distinction.
+The turn must add evidence or a substantive argument; it asks when:
 
 - the requester asks to explore interactively;
 - a decision is consequential and non-recoverable; and

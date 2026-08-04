@@ -32,7 +32,7 @@ side factually infallible.}}
 
 | Packet | Reconnaissance performed | Knowledge added | Blind spots/counterevidence | Decisions enabled | User response |
 |---|---|---|---|---|---|
-| {{BSP-1}} | {{...}} | {{...}} | {{...}} | {{1-3 bounded choices}} | {{pending or anchor}} |
+| {{BSP-1}} | {{...}} | {{...}} | {{...}} | {{one guided prompt or rare discrete choice}} | {{pending or anchor}} |
 
 ## Knowledge Alignment Ledger
 
