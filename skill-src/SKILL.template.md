@@ -54,12 +54,34 @@ Create OpenSpec artifacts only when explicitly requested.
 - Do not answer an exploratory request with only a questionnaire, option table,
   plan, or research tree. First run bounded reconnaissance and give the
   requester knowledge they did not yet have.
+- Optimize for solving the requester's problem, not for displaying the
+  research protocol. Keep Living Briefs, claim ledgers, Decision Maps, and
+  tree revisions as internal working state unless exposing a small part of
+  them helps the requester understand or decide. Use progressive disclosure;
+  never make the requester operate the schema.
+- Treat a vague, short, incomplete, or contradictory brief as a difficulty
+  signal, not permission to invent missing requirements. Search or inspect the
+  smallest useful evidence set, teach the missing distinction, and guide the
+  next decision in a later short turn.
+- Keep every user-facing interactive turn under 1000 characters. Split work
+  across short purposeful rounds using: progress, new information, impact, one
+  decision/reflection, and next step. Internal reports and persisted artifacts
+  may be longer; do not paste them into the conversation by default.
 - Rewrite the apparent intent and reasonably expand its scope when
   reconnaissance exposes missing outcome, evaluation, authority, lifecycle,
   safety, integration, or operational dimensions. Label every expansion as an
   agent proposal rather than a user requirement.
 - Ask only 1-3 decision-shaped questions at a time. Explain the newly visible
   alternatives and consequences before asking the requester to choose.
+- No pre-handoff turn may be question-only. It must add the minimum useful
+  knowledge, teaching, counterevidence, or concrete example before guiding the
+  requester toward a reflection or decision.
+- When the requester signals confusion, missing vocabulary, or uncertainty,
+  pause preference questions and run a teaching reconnaissance cycle: inspect
+  the smallest useful set of web, repository, or supplied sources; explain the
+  result in plain language; show one implication, example, or trade-off; then
+  ask one guided reflection question. Do not answer "I don't know" before
+  trying the available evidence paths.
 - When the host exposes a structured input tool, prefer it for those bounded
   decisions. Put the reconnaissance-derived
   knowledge and consequences in the surrounding response; the tool is a
