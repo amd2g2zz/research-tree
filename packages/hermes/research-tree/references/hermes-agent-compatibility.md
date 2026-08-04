@@ -1,7 +1,7 @@
 # Hermes Agent Compatibility
 
 Use this reference only when `research-tree` runs under Hermes Agent or when
-packaging it for Hermes. The compatibility baseline is Hermes Agent v2026.7.30.
+packaging it for Hermes. The compatibility baseline is Hermes Agent v2026.8.3.
 
 ## Runtime contract
 
@@ -16,7 +16,10 @@ Adapt these host differences:
   file_path="<relative-path>")` or from the injected absolute skill directory.
 - Do not assume `ask_user_question` exists. Use ordinary dialogue unless the
   active Hermes toolset exposes a structured input tool.
-- Invoke workers only when the active Hermes session exposes delegation.
+- Map long-horizon execution through
+  `references/hermes-native-orchestration.md`. Hermes top-level delegation is
+  background-native; batch independent leaf tasks rather than serializing
+  them, and verify returned artifacts instead of trusting child summaries.
 - Respect Hermes messaging-platform guidance. Replace Markdown tables with
   labeled bullets on channels that do not render tables.
 - Treat the external skill directory as mutable unless filesystem permissions
@@ -64,7 +67,29 @@ Validate the Hermes package before loading it:
 
 ```bash
 python scripts/hermes_skill_adapter.py validate --mode external-dir
+python scripts/hermes_skill_adapter.py doctor
 ```
+
+The doctor reports the detected CLI, package validity, config visibility, and
+whether the package-native observability hook is configured. It does not edit
+Hermes configuration.
+
+## Native lifecycle hooks
+
+Generate a hook fragment containing absolute interpreter and package paths:
+
+```bash
+python scripts/hermes_skill_adapter.py render-hooks
+```
+
+Merge the output into `~/.hermes/config.yaml`, review it, then approve it on
+first use. The self-contained hook records session, delegation, and subagent
+lifecycle metadata under each task workspace. It does not import the
+`research_tree` development package and does not record prompts, task bodies,
+summaries, or secrets.
+
+The checked-in `hooks/hermes.config.template.yaml` is a source-checkout example.
+Installed copies should use `render-hooks` so paths are correct on that host.
 
 ## Installation and publishing
 
@@ -109,14 +134,21 @@ copy compatibility changes across host variants.
 - `SKILL.md` is at most 100,000 characters.
 - Supporting paths remain under `references`, `templates`, `scripts`, or
   `assets`.
+- Model-facing `delegate_task` calls do not set `background`, `toolsets`, or
+  `max_iterations`. Current Hermes controls concurrency and iteration budgets
+  from its delegation configuration.
+- Completed background notifications survive restart, but in-flight child
+  execution does not resume after a host process crash. Recovery verifies
+  workspace artifacts and live delegation logs before retrying.
 
 Primary sources:
 
-- [Hermes skill authoring guide](https://github.com/NousResearch/hermes-agent/blob/v2026.7.30/skills/software-development/hermes-agent-skill-authoring/SKILL.md)
-- [Hermes skills user guide](https://github.com/NousResearch/hermes-agent/blob/v2026.7.30/website/docs/user-guide/features/skills.md)
-- [Hermes Python library guide](https://github.com/NousResearch/hermes-agent/blob/v2026.7.30/website/docs/guides/python-library.md)
-- [Hermes skill loader](https://github.com/NousResearch/hermes-agent/blob/v2026.7.30/agent/prompt_builder.py)
-- [Hermes Skills Hub implementation](https://github.com/NousResearch/hermes-agent/blob/v2026.7.30/tools/skills_hub.py)
+- [Hermes v2026.8.3 release](https://github.com/NousResearch/hermes-agent/releases/tag/v2026.8.3)
+- [Hermes skill authoring guide](https://github.com/NousResearch/hermes-agent/blob/v2026.8.3/skills/software-development/hermes-agent-skill-authoring/SKILL.md)
+- [Hermes skills user guide](https://github.com/NousResearch/hermes-agent/blob/v2026.8.3/website/docs/user-guide/features/skills.md)
+- [Hermes Python library guide](https://github.com/NousResearch/hermes-agent/blob/v2026.8.3/website/docs/guides/python-library.md)
+- [Hermes skill loader](https://github.com/NousResearch/hermes-agent/blob/v2026.8.3/agent/prompt_builder.py)
+- [Hermes Skills Hub implementation](https://github.com/NousResearch/hermes-agent/blob/v2026.8.3/tools/skills_hub.py)
 - [Hermes built-in tools reference](https://hermes-agent.nousresearch.com/docs/reference/tools-reference)
 - [Hermes toolsets reference](https://hermes-agent.nousresearch.com/docs/reference/toolsets-reference)
 - [Hermes clarify implementation](https://github.com/NousResearch/hermes-agent/blob/main/tools/clarify_tool.py)

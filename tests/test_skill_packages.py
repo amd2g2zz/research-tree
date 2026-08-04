@@ -49,12 +49,16 @@ def test_only_hermes_package_contains_hermes_compatibility_material() -> None:
         skill = (package / "SKILL.md").read_text(encoding="utf-8")
         assert "Hermes runtime adapter" not in skill
         assert not (package / "references" / "hermes-agent-compatibility.md").exists()
+        assert not (package / "references" / "hermes-native-orchestration.md").exists()
+        assert not (package / "scripts" / "hermes_runtime_hook.py").exists()
         assert not (package / "scripts" / "hermes_skill_adapter.py").exists()
 
     hermes_skill = (hermes / "SKILL.md").read_text(encoding="utf-8")
     assert "Hermes runtime adapter" in hermes_skill
     assert "Do not assume LangGraph" in hermes_skill
     assert (hermes / "references" / "hermes-agent-compatibility.md").is_file()
+    assert (hermes / "references" / "hermes-native-orchestration.md").is_file()
+    assert (hermes / "scripts" / "hermes_runtime_hook.py").is_file()
     assert (hermes / "scripts" / "hermes_skill_adapter.py").is_file()
 
 

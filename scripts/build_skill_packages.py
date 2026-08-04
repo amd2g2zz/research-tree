@@ -36,6 +36,8 @@ COMMON_FILES = (
 )
 HERMES_FILES = (
     Path("references/hermes-agent-compatibility.md"),
+    Path("references/hermes-native-orchestration.md"),
+    Path("scripts/hermes_runtime_hook.py"),
     Path("scripts/hermes_skill_adapter.py"),
 )
 CLAUDE_FILES = (Path("references/claude-code-compatibility.md"),)
@@ -177,6 +179,8 @@ def validate_package(
     has_hermes_material = (
         "Hermes runtime adapter" in text
         or (package / "references/hermes-agent-compatibility.md").exists()
+        or (package / "references/hermes-native-orchestration.md").exists()
+        or (package / "scripts/hermes_runtime_hook.py").exists()
         or (package / "scripts/hermes_skill_adapter.py").exists()
     )
     if host == "hermes" and not has_hermes_material:

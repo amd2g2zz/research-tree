@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate or stage the isolated research-tree package for Hermes Agent."""
+"""Validate, diagnose, or stage research-tree for Hermes Agent."""
 
 from __future__ import annotations
 
@@ -7,17 +7,28 @@ import argparse
 import json
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 
-HERMES_VERSION = "v2026.7.30"
+HERMES_VERSION = "v2026.8.3"
 MAX_NAME_LENGTH = 64
 MAX_DESCRIPTION_LENGTH = 1024
 MAX_SKILL_CHARS = 100_000
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 RESOURCE_RE = re.compile(
     r"`((?:references|templates|scripts|assets)/[^`\r\n]+)`"
+)
+NATIVE_REFERENCE = Path("references/hermes-native-orchestration.md")
+RUNTIME_HOOK = Path("scripts/hermes_runtime_hook.py")
+NATIVE_MARKERS = (
+    "delegate_task(tasks=[...])",
+    "session_search",
+    "workspace checkpoint",
+    "live/<delegation_id>",
+    "in-flight attempt `unknown`",
+    "cronjob",
 )
 
 
@@ -93,7 +104,9 @@ def validate(skill_dir: Path, mode: str) -> dict[str, object]:
             elif len(description) > MAX_DESCRIPTION_LENGTH:
                 errors.append("frontmatter description exceeds 1024 characters")
 
-            resources = sorted(set(RESOURCE_RE.findall(text)))
+            resources = sorted(
+                set(RESOURCE_RE.findall(text)) | {RUNTIME_HOOK.as_posix()}
+            )
             for relative in resources:
                 target = (skill_dir / relative).resolve()
                 try:
@@ -103,6 +116,28 @@ def validate(skill_dir: Path, mode: str) -> dict[str, object]:
                     continue
                 if not target.is_file():
                     errors.append(f"referenced resource is missing: {relative}")
+
+            native_path = skill_dir / NATIVE_REFERENCE
+            if not native_path.is_file():
+                errors.append(f"missing Hermes native contract: {NATIVE_REFERENCE}")
+            else:
+                native = native_path.read_text(encoding="utf-8")
+                for marker in NATIVE_MARKERS:
+                    if marker not in native:
+                        errors.append(f"Hermes native contract is missing: {marker}")
+                for unsupported in (
+                    "delegate_task(background=",
+                    "delegate_task(toolsets=",
+                    "delegate_task(max_iterations=",
+                ):
+                    if unsupported in native:
+                        errors.append(
+                            "Hermes native contract uses unsupported model argument: "
+                            + unsupported
+                        )
+
+            if not (skill_dir / RUNTIME_HOOK).is_file():
+                errors.append(f"missing Hermes runtime hook: {RUNTIME_HOOK}")
 
             if "ask_user_question" in text and not (
                 "ordinary dialogue" in text and "Never call a named tool" in text
@@ -154,6 +189,98 @@ def stage(source: Path, output: Path) -> Path:
     return target
 
 
+def _yaml_single_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def render_hooks(skill_dir: Path, python: Path | None = None) -> str:
+    skill_dir = skill_dir.resolve()
+    hook = (skill_dir / RUNTIME_HOOK).resolve()
+    if not hook.is_file():
+        raise ValueError(f"runtime hook is missing: {hook}")
+    executable = (python or Path(sys.executable)).resolve()
+    command = f'"{executable}" "{hook}"'
+    quoted = _yaml_single_quote(command)
+    lines = ["hooks:"]
+    for event in (
+        "on_session_start",
+        "on_session_end",
+        "on_session_finalize",
+        "on_session_reset",
+        "subagent_start",
+        "subagent_stop",
+    ):
+        lines.extend(
+            [
+                f"  {event}:",
+                f"    - command: {quoted}",
+                "      timeout: 10",
+            ]
+        )
+    lines.extend(
+        [
+            "  post_tool_call:",
+            '    - matcher: "^delegate_task$"',
+            f"      command: {quoted}",
+            "      timeout: 10",
+            "hooks_auto_accept: false",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def _hermes_version(executable: str | None) -> dict[str, object]:
+    if executable is None:
+        return {"found": False, "path": None, "version": None}
+    try:
+        completed = subprocess.run(
+            [executable, "--version"],
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"found": True, "path": executable, "version": None, "error": str(exc)}
+    output = (completed.stdout or completed.stderr).strip()
+    return {
+        "found": True,
+        "path": executable,
+        "version": output or None,
+        "returncode": completed.returncode,
+    }
+
+
+def doctor(skill_dir: Path, hermes_home: Path) -> dict[str, object]:
+    skill_dir = skill_dir.resolve()
+    hermes_home = hermes_home.expanduser().resolve()
+    validation = validate(skill_dir, "external-dir")
+    executable = shutil.which("hermes") or shutil.which("hermes-agent")
+    config = hermes_home / "config.yaml"
+    config_text = config.read_text(encoding="utf-8") if config.is_file() else ""
+    skill_path = str(skill_dir).replace("\\", "/")
+    hook_path = str((skill_dir / RUNTIME_HOOK).resolve()).replace("\\", "/")
+    return {
+        "healthy": bool(validation["compatible"] and executable),
+        "baseline": HERMES_VERSION,
+        "skill": validation,
+        "cli": _hermes_version(executable),
+        "config": {
+            "path": str(config),
+            "exists": config.is_file(),
+            "skill_path_mentioned": skill_path in config_text.replace("\\", "/"),
+            "runtime_hook_mentioned": hook_path in config_text.replace("\\", "/"),
+        },
+        "next_actions": [
+            "install Hermes CLI" if not executable else None,
+            "merge the render-hooks output into ~/.hermes/config.yaml"
+            if hook_path not in config_text.replace("\\", "/")
+            else None,
+            "run /reload-skills after installation or configuration changes",
+        ],
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -170,11 +297,35 @@ def main() -> int:
     stage_parser.add_argument("output", type=Path)
     stage_parser.add_argument("--skill-dir", type=Path, default=_default_skill_dir())
 
+    hooks_parser = subparsers.add_parser("render-hooks")
+    hooks_parser.add_argument("--skill-dir", type=Path, default=_default_skill_dir())
+    hooks_parser.add_argument("--python", type=Path)
+
+    doctor_parser = subparsers.add_parser("doctor")
+    doctor_parser.add_argument("--skill-dir", type=Path, default=_default_skill_dir())
+    doctor_parser.add_argument("--hermes-home", type=Path, default=Path("~/.hermes"))
+
     args = parser.parse_args()
     if args.command == "validate":
         result = validate(args.skill_dir, args.mode)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["compatible"] else 1
+
+    if args.command == "render-hooks":
+        try:
+            print(render_hooks(args.skill_dir, args.python), end="")
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        return 0
+
+    if args.command == "doctor":
+        result = doctor(args.skill_dir, args.hermes_home)
+        result["next_actions"] = [
+            action for action in result["next_actions"] if action is not None
+        ]
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["healthy"] else 1
 
     try:
         target = stage(args.skill_dir, args.output)

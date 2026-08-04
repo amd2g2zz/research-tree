@@ -131,7 +131,7 @@ def test_read_payload_is_bounded_and_requires_an_object() -> None:
         read_payload(BytesIO(b"[]"))
 
 
-def test_host_templates_use_native_wrappers_and_shared_command() -> None:
+def test_host_templates_use_native_wrappers_and_isolated_hermes_hook() -> None:
     root = Path(__file__).resolve().parents[1]
     codex = json.loads(
         (root / "hooks" / "codex.hooks.template.json").read_text(encoding="utf-8")
@@ -149,6 +149,10 @@ def test_host_templates_use_native_wrappers_and_shared_command() -> None:
     assert set(claude["hooks"]) == {"SessionStart", "Stop"}
     assert "on_session_start:" in hermes
     assert "on_session_end:" in hermes
-    for serialized in (json.dumps(codex), json.dumps(claude), hermes):
+    for serialized in (json.dumps(codex), json.dumps(claude)):
         assert "research-tree-hook" in serialized
         assert "research_orchestrator" not in serialized
+    assert "hermes_runtime_hook.py" in hermes
+    assert "research-tree-hook" not in hermes
+    assert "subagent_start:" in hermes
+    assert "post_tool_call:" in hermes
