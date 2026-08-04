@@ -60,6 +60,13 @@ def test_only_hermes_package_contains_hermes_compatibility_material() -> None:
     assert (hermes / "references" / "hermes-native-orchestration.md").is_file()
     assert (hermes / "scripts" / "hermes_runtime_hook.py").is_file()
     assert (hermes / "scripts" / "hermes_skill_adapter.py").is_file()
+    assert len(hermes_skill) <= 20_000
+    for phase in (
+        "hermes-alignment.md",
+        "hermes-research-execution.md",
+        "hermes-delivery.md",
+    ):
+        assert (hermes / "references" / phase).is_file()
 
 
 def test_only_claude_package_contains_claude_compatibility_material() -> None:

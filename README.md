@@ -286,6 +286,34 @@ skills:
 
 Run `/reload-skills` in Hermes after changing the configuration.
 
+### Hermes provider-failure diagnosis
+
+Hermes loads a skill on demand. The Hermes package therefore uses a compact
+entrypoint and loads alignment, execution, and delivery guidance by phase. Run
+the package preflight before the first session:
+
+```bash
+python packages/hermes/research-tree/scripts/hermes_skill_adapter.py validate \
+  --skill-dir packages/hermes/research-tree --mode external-dir
+python packages/hermes/research-tree/scripts/hermes_skill_adapter.py doctor \
+  --skill-dir packages/hermes/research-tree
+```
+
+If the gateway reports `The model provider failed after retries`, run `doctor`
+with the real Hermes home. It reports only a sanitized category such as
+`context_limit`, `authentication`, `rate_limit`, `network_or_timeout`, or
+`malformed_or_empty_stream`; raw provider responses and credentials remain in
+Hermes' gateway log:
+
+```bash
+python packages/hermes/research-tree/scripts/hermes_skill_adapter.py doctor \
+  --skill-dir ~/.hermes/skills/research-tree --hermes-home ~/.hermes
+```
+
+`prompt_risk.level: high` means the installed package is too large for reliable
+cross-provider loading. Use the current Hermes package and run `/reload-skills`
+after replacing an older installation.
+
 The installer performs a preflight check and refuses to overwrite an unrelated
 existing skill directory. Use `--dry-run` to inspect the planned operation.
 
