@@ -483,6 +483,9 @@ def _expected_finding_pack() -> dict[str, str]:
         "option_effects": "how each observation supports, contradicts, or limits an option",
         "implementation_implications": "concrete repository or greenfield design consequence",
         "remaining_uncertainties": "unresolved evidence that can still change the decision",
+        "research_node_id": "the exact persisted research-tree node being answered",
+        "research_continuations": "structured successor actions triggered by evidence, not prose suggestions",
+        "validation_result": "an optional passed, failed, or inconclusive result with its oracle and evidence",
     }
 
 

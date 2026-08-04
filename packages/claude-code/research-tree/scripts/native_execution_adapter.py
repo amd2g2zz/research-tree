@@ -101,6 +101,12 @@ def _load_state(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
         raise AdapterError("execution state identity does not match arguments")
     if not isinstance(state.get("tasks"), dict):
         raise AdapterError("execution state tasks must be an object")
+    if not isinstance(state.get("decision_slots"), dict) or not state["decision_slots"]:
+        raise AdapterError("execution state is not bound to confirmed Decision Slots")
+    if not isinstance(state.get("execution_context"), dict):
+        raise AdapterError("execution state is missing confirmed execution context")
+    if not isinstance(state.get("deliverables"), dict):
+        raise AdapterError("execution state is missing the delivery gate")
     return state
 
 
@@ -110,11 +116,26 @@ def _save_state(workspace: Path, state: dict[str, Any]) -> None:
     _atomic_write(_state_path(workspace, state["run_id"]), state)
 
 
-def init_run(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
+def _load_handoff(workspace: Path, path: Path) -> tuple[dict[str, Any], Path]:
+    resolved = _inside(workspace, path, "handoff path")
+    handoff = _read_json(resolved, "alignment handoff")
+    if handoff.get("schema") != 1 or handoff.get("kind") != "alignment-handoff":
+        raise AdapterError("handoff must be a schema-1 alignment-handoff artifact")
+    if not isinstance(handoff.get("decision_slots"), dict) or not handoff["decision_slots"]:
+        raise AdapterError("handoff decision_slots must be a nonempty object")
+    if not isinstance(handoff.get("execution_context"), dict):
+        raise AdapterError("handoff execution_context must be an object")
+    return handoff, resolved
+
+
+def init_run(
+    workspace: Path, run_id: str, host: str, handoff_path: Path
+) -> dict[str, Any]:
     workspace = workspace.resolve()
     path = _state_path(workspace, run_id)
     if path.exists():
         raise AdapterError(f"run already exists: {run_id}")
+    handoff, resolved_handoff = _load_handoff(workspace, handoff_path)
     state: dict[str, Any] = {
         "schema": SCHEMA,
         "host": host,
@@ -123,6 +144,15 @@ def init_run(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
         "revision": 0,
         "created_at": _now(),
         "updated_at": _now(),
+        "handoff_path": str(resolved_handoff),
+        "handoff_sha256": hashlib.sha256(resolved_handoff.read_bytes()).hexdigest(),
+        "alignment_run_id": handoff.get("run_id"),
+        "decision_slots": handoff["decision_slots"],
+        "execution_context": handoff["execution_context"],
+        "deliverables": {
+            "technical_research_package": {"status": "pending"},
+            "human_research_report": {"status": "pending"},
+        },
         "tasks": {},
     }
     _save_state(workspace, state)
@@ -142,6 +172,8 @@ def add_task(
     state = _load_state(workspace, run_id, host)
     task_id = _identifier(task_id, "task id")
     decision_slot = _identifier(decision_slot, "decision slot")
+    if decision_slot not in state.get("decision_slots", {}):
+        raise AdapterError(f"decision slot is not present in the confirmed handoff: {decision_slot}")
     if phase not in PHASES:
         raise AdapterError(f"invalid phase: {phase}")
     if task_id in state["tasks"]:
@@ -288,6 +320,37 @@ def validate_finding(path: Path) -> dict[str, Any]:
             raise AdapterError(f"Finding Pack option effect {index} is invalid")
     _require_list(pack.get("implementation_implications"), "implementation_implications")
     _require_list(pack.get("remaining_uncertainties"), "remaining_uncertainties")
+    continuations = pack.get("research_continuations", [])
+    _require_list(continuations, "research_continuations")
+    for index, continuation in enumerate(continuations):
+        if not isinstance(continuation, dict):
+            raise AdapterError(f"Finding Pack continuation {index} must be an object")
+        if continuation.get("kind") not in (
+            "deep_dive",
+            "adversarial",
+            "validation",
+            "method_switch",
+        ):
+            raise AdapterError(f"Finding Pack continuation {index} kind is invalid")
+        for key in ("question", "trigger", "evidence_needed", "oracle"):
+            _require_string(
+                continuation.get(key), f"continuation {index} {key}"
+            )
+        cost = continuation.get("estimated_cost")
+        if isinstance(cost, bool) or not isinstance(cost, (int, float)) or cost <= 0:
+            raise AdapterError(
+                f"Finding Pack continuation {index} estimated_cost must be positive"
+            )
+    validation_result = pack.get("validation_result")
+    if validation_result is not None:
+        if not isinstance(validation_result, dict):
+            raise AdapterError("Finding Pack validation_result must be an object")
+        if validation_result.get("status") not in ("passed", "failed", "inconclusive"):
+            raise AdapterError("Finding Pack validation_result status is invalid")
+        _require_string(validation_result.get("oracle"), "validation_result oracle")
+        _require_string(
+            validation_result.get("evidence_ref"), "validation_result evidence_ref"
+        )
     return pack
 
 
@@ -452,11 +515,56 @@ def status(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
     }
 
 
-def complete_run(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
+def _verify_report(
+    workspace: Path,
+    path: Path,
+    kind: str,
+    minimum_bytes: int,
+    minimum_headings: int,
+) -> dict[str, Any]:
+    resolved = _inside(workspace, path, f"{kind} path")
+    raw = resolved.read_bytes()
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raise AdapterError(f"{kind} must be UTF-8 without BOM")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise AdapterError(f"{kind} must be UTF-8") from exc
+    headings = len(re.findall(r"(?m)^#{1,6}\s+\S", text))
+    if len(raw) < minimum_bytes or headings < minimum_headings:
+        raise AdapterError(
+            f"{kind} is too shallow; requires at least {minimum_bytes} bytes and "
+            f"{minimum_headings} headings"
+        )
+    return {
+        "status": "verified",
+        "kind": kind,
+        "path": str(resolved),
+        "bytes": len(raw),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "heading_count": headings,
+    }
+
+
+def complete_run(
+    workspace: Path,
+    run_id: str,
+    host: str,
+    technical_report: Path,
+    human_report: Path,
+) -> dict[str, Any]:
     summary = status(workspace, run_id, host)
     if not summary["complete"]:
         raise AdapterError("run cannot complete while tasks or integrity checks remain")
     state = _load_state(workspace, run_id, host)
+    state["deliverables"] = {
+        "technical_research_package": _verify_report(
+            workspace, technical_report, "technical_research_package", 1024, 3
+        ),
+        "human_research_report": _verify_report(
+            workspace, human_report, "human_research_report", 512, 2
+        ),
+    }
     state["status"] = "complete"
     _save_state(workspace, state)
     return status(workspace, run_id, host)
@@ -470,6 +578,10 @@ def _parser() -> argparse.ArgumentParser:
 
     init_parser = subparsers.add_parser("init")
     init_parser.add_argument("--run-id", required=True)
+    init_parser.add_argument(
+        "--handoff", type=Path, required=True,
+        help="persisted alignment-handoff JSON produced by alignment_controller.py compile",
+    )
 
     add_parser = subparsers.add_parser("add-task")
     add_parser.add_argument("--run-id", required=True)
@@ -505,6 +617,8 @@ def _parser() -> argparse.ArgumentParser:
 
     complete_parser = subparsers.add_parser("complete")
     complete_parser.add_argument("--run-id", required=True)
+    complete_parser.add_argument("--technical-report", type=Path, required=True)
+    complete_parser.add_argument("--human-report", type=Path, required=True)
 
     validate_parser = subparsers.add_parser("validate-finding")
     validate_parser.add_argument("path", type=Path)
@@ -516,7 +630,8 @@ def main() -> int:
     workspace = args.workspace.resolve()
     try:
         if args.command == "init":
-            result = init_run(workspace, args.run_id, args.host)
+            handoff = args.handoff if args.handoff.is_absolute() else workspace / args.handoff
+            result = init_run(workspace, args.run_id, args.host, handoff)
         elif args.command == "add-task":
             artifact = args.artifact
             if not artifact.is_absolute():
@@ -559,7 +674,9 @@ def main() -> int:
         elif args.command == "status":
             result = status(workspace, args.run_id, args.host)
         elif args.command == "complete":
-            result = complete_run(workspace, args.run_id, args.host)
+            technical = args.technical_report if args.technical_report.is_absolute() else workspace / args.technical_report
+            human = args.human_report if args.human_report.is_absolute() else workspace / args.human_report
+            result = complete_run(workspace, args.run_id, args.host, technical, human)
         else:
             result = validate_finding(args.path.resolve())
     except (AdapterError, OSError) as exc:

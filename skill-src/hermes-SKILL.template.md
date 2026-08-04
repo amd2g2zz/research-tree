@@ -1,6 +1,6 @@
 ---
 name: research-tree
-description: "Use when explicit deep technical research must align a vague or evolving problem with the requester, then run autonomous evidence-driven research and deliver an actionable Technical Research Package plus a concise Human Brief."
+description: "Use when explicit deep technical research must align a vague or evolving problem with the requester, then run autonomous evidence-driven research and deliver an actionable Technical Research Package plus a professional Human Research Report."
 ---
 
 # research-tree
@@ -11,7 +11,9 @@ Turn a research request into two co-primary deliverables:
 
 1. an evidence-bearing Technical Research Package detailed enough to drive
    implementation; and
-2. a short Human Brief that the requester can understand, challenge, and use.
+2. a professional Human Research Report (persisted as the Human Brief artifact)
+   that the requester can understand, challenge, and use. It is not a shallow
+   summary.
 
 The requester and agent co-evolve the intent before strategy handoff. The
 requester controls outcomes, preferences, and authority, but both human and
@@ -27,6 +29,9 @@ small; never eagerly load every supporting file.
   `skill_view`; never resolve them from the task workspace.
 - Read `references/hermes-alignment.md` when intent is vague, disputed, or not
   yet at strategy equilibrium. It contains the detailed mutual-alignment loop.
+- Read `references/alignment-controller.md` and initialize its state before the
+  first alignment question; run its `plan` before every question and `record`
+  after every response.
 - Read `references/hermes-research-execution.md` only after strategy handoff or
   when recovering an autonomous run.
 - Read `references/hermes-delivery.md` only when synthesizing or auditing final
@@ -42,12 +47,22 @@ small; never eagerly load every supporting file.
 - Read `references/blueprint-generation-research.md` only when revising a
   Blueprint Target or Decision Map, and `references/product-contracts.md` only
   when exact persisted schemas matter.
+- Read `references/research-tree-architecture.md` before initializing,
+  expanding, pruning, or closing the active research tree.
 - Read `references/debug-tracing.md` only for explicit behavior diagnosis.
 
 Do not load `references/research-quality-playbook.md` in Hermes; the three
 Hermes phase references are its context-bounded operational form.
 
 ## Phase 1: mutual alignment
+
+Before composing any question, update the internal Intent Model, open-gap
+list, state fingerprint, and strategy revision, then run
+the `plan` command from `scripts/alignment_controller.py`. Ask only when it
+returns `ask_one`.
+Record the response immediately. Two unchanged turns trigger reconnaissance;
+six alignment turns or two asks for one gap end questioning. Do not expose the
+gap table or make the requester approve the whole internal state.
 
 Unless the requester explicitly says to skip discussion and execute directly,
 treat the initial request as materially incomplete. A repository plus a
@@ -83,11 +98,12 @@ brief; it is not merely a report-edit request.
 
 Before handoff, establish an Alignment Checkpoint containing goal and
 deliverables, scope and non-goals, authority and environment, success oracle,
-evidence standard, feasibility, and unresolved high-impact decisions. The
-strategy handoff occurs at decision equilibrium: visible mutual cognition
-change, supported feasibility, an actionable oracle, and no unresolved
-decision that could materially redirect the work. "Okay" or "continue" alone
-is not alignment evidence.
+evidence standard, feasibility, and unresolved high-impact decisions. This
+creates a visible decision-equilibrium draft. Show the strategy projection from
+the Alignment Graph and wait for explicit confirmation of the outcome, scope, authority,
+and autonomous-research transition. The agent must not declare alignment
+complete from its own checkpoint. "Okay" or "continue" alone is not alignment
+evidence.
 
 For the full algorithm and equilibrium tests, load
 `references/hermes-alignment.md`.
@@ -109,8 +125,8 @@ This work is cost-tolerant unless the requester supplies a monetary cap. Host
 time slices, context, concurrency, and tool limits are checkpoint boundaries,
 not reasons to declare the research complete or infeasible.
 
-Compile the strategy into a dependency DAG of bounded work items. Do not hand a broad track to
-one worker and do not let workers re-delegate unless a
+Compile the strategy into a dependency DAG of bounded work items.
+Do not hand a broad track to one worker; do not let workers re-delegate unless a
 deliberate nested-orchestrator design and host depth allow it. Every item needs
 one decision slot, evidence target, source boundary, artifact path, completion
 oracle, and replan trigger.
@@ -134,9 +150,18 @@ Intent understanding remains active throughout the round; it is not a one-time
 pre-research gate.
 
 Research recursively until the evidence coverage and decision slots satisfy
-the completion oracle. A tree, source list, recommendations list, or compiled
-brief is not completion. A worker may report a blocker only after available
-search, local inspection, and safe alternatives have been attempted.
+the completion oracle. Initialize the persisted tree from existing Finding
+Packs as a zero-delta baseline, then repeat: select frontier, execute, ingest,
+measure state delta, update bounded residual Decision Slot risk, grow structured
+continuations, normalize by observed branch complexity, prune or defer,
+checkpoint, and select again. A tree, source list, recommendations list, exhausted worker
+wave, or compiled brief is not completion. A worker may report a blocker only
+after available search, local inspection, and safe alternatives have been
+attempted.
+
+Decision-slot closure is not final completion. Persist `delivery_pending` and
+continue to the delivery phase until both deep reports exist; register them
+with `tree-deliver` so their UTF-8, depth, and digest checks are recorded.
 
 Load `references/hermes-research-execution.md` for task states, Finding Packs,
 insight generation, contradiction handling, recovery, and convergence gates.
@@ -150,10 +175,11 @@ alternatives, implementation consequences, validation plan, risks,
 uncertainty, and exact artifact status. Distinguish observed, inferred,
 proposed, and executed work.
 
-Then produce a Human Brief in plain language: what was learned, why it matters,
-what changed, the recommended direction, meaningful trade-offs, remaining
-uncertainty, and what artifact actually exists. Keep it concise but do not use
-it as a substitute for the technical package.
+Then produce a Human Research Report in clear professional language: what was
+learned, why it matters, what changed, the recommended direction, meaningful
+trade-offs, remaining uncertainty, and what artifact actually exists. Make it
+deep enough to support a human decision; do not reduce it to a shallow brief or
+use it as a substitute for the technical package.
 
 Do not advance to implementation or OpenSpec unless explicitly requested.
 Requester dissatisfaction, a correction, or a depth objection reopens the
@@ -178,6 +204,11 @@ evaluation.
   behavior; trace failure must never block research.
 - Use `scripts/hermes_skill_adapter.py` only for package validation, prompt-risk
   diagnosis, gateway-log diagnosis, hook rendering, or staging.
+- After handoff, use `scripts/hermes_execution_adapter.py` to initialize from
+  the persisted handoff, record each verified `delegate_task` wave, recover
+  in-flight waves as `unknown`, and register both deep reports before marking
+  the run complete. Hermes still owns delegation; this adapter owns durable
+  state and does not invent Hermes tool calls.
 
 ## Completion standard
 

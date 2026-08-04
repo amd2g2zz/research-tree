@@ -25,6 +25,8 @@ OPTION_EFFECTS = {"supports", "contradicts", "limits"}
 DECISION_STATUSES = {"selected", "conditional", "deferred", "blocked"}
 ALTERNATIVE_DISPOSITIONS = {"rejected", "deferred", "unresolved"}
 VALIDATION_KINDS = {"test", "spike", "metric", "review"}
+CONTINUATION_KINDS = {"deep_dive", "adversarial", "validation", "method_switch"}
+VALIDATION_RESULTS = {"passed", "failed", "inconclusive"}
 
 
 class FindingPackError(RuntimeStoreError):
@@ -59,6 +61,9 @@ class FindingPackCompiler:
         option_effects: Sequence[Mapping[str, Any]],
         implementation_implications: Sequence[str],
         remaining_uncertainties: Sequence[str],
+        research_node_id: str | None = None,
+        research_continuations: Sequence[Mapping[str, Any]] = (),
+        validation_result: Mapping[str, Any] | None = None,
     ) -> ArtifactRevision:
         """Append a Finding Pack only after its claims are bounded and anchored."""
 
@@ -105,6 +110,19 @@ class FindingPackCompiler:
                         error_type=InvalidFindingPackError,
                     )
                 ),
+                "research_node_id": (
+                    None
+                    if research_node_id is None
+                    else _nonempty_string(
+                        research_node_id,
+                        "research_node_id",
+                        InvalidFindingPackError,
+                    )
+                ),
+                "research_continuations": _normalize_research_continuations(
+                    research_continuations
+                ),
+                "validation_result": _normalize_validation_result(validation_result),
             }
         except (InvalidIdentifierError, TypeError, ValueError) as error:
             raise InvalidFindingPackError(str(error)) from error
@@ -388,6 +406,96 @@ def _normalize_option_effects(value: Any, options: tuple[str, ...]) -> list[dict
             }
         )
     return normalized
+
+
+def _normalize_research_continuations(value: Any) -> list[dict[str, Any]]:
+    continuations = _mapping_sequence(
+        value,
+        "research_continuations",
+        InvalidFindingPackError,
+    )
+    normalized: list[dict[str, Any]] = []
+    for index, continuation in enumerate(continuations):
+        label = f"research_continuations[{index}]"
+        _require_exact_keys(
+            continuation,
+            {
+                "kind",
+                "question",
+                "trigger",
+                "evidence_needed",
+                "oracle",
+                "estimated_cost",
+            },
+            label,
+            InvalidFindingPackError,
+        )
+        cost = continuation["estimated_cost"]
+        if isinstance(cost, bool) or not isinstance(cost, (int, float)) or cost <= 0:
+            raise InvalidFindingPackError(f"{label}.estimated_cost must be positive")
+        normalized.append(
+            {
+                "kind": _enum(
+                    continuation["kind"],
+                    f"{label}.kind",
+                    CONTINUATION_KINDS,
+                    InvalidFindingPackError,
+                ),
+                "question": _nonempty_string(
+                    continuation["question"],
+                    f"{label}.question",
+                    InvalidFindingPackError,
+                ),
+                "trigger": _nonempty_string(
+                    continuation["trigger"],
+                    f"{label}.trigger",
+                    InvalidFindingPackError,
+                ),
+                "evidence_needed": _nonempty_string(
+                    continuation["evidence_needed"],
+                    f"{label}.evidence_needed",
+                    InvalidFindingPackError,
+                ),
+                "oracle": _nonempty_string(
+                    continuation["oracle"],
+                    f"{label}.oracle",
+                    InvalidFindingPackError,
+                ),
+                "estimated_cost": float(cost),
+            }
+        )
+    return normalized
+
+
+def _normalize_validation_result(value: Any) -> dict[str, str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise InvalidFindingPackError("validation_result must be a mapping or null")
+    _require_exact_keys(
+        value,
+        {"status", "oracle", "evidence_ref"},
+        "validation_result",
+        InvalidFindingPackError,
+    )
+    return {
+        "status": _enum(
+            value["status"],
+            "validation_result.status",
+            VALIDATION_RESULTS,
+            InvalidFindingPackError,
+        ),
+        "oracle": _nonempty_string(
+            value["oracle"],
+            "validation_result.oracle",
+            InvalidFindingPackError,
+        ),
+        "evidence_ref": _nonempty_string(
+            value["evidence_ref"],
+            "validation_result.evidence_ref",
+            InvalidFindingPackError,
+        ),
+    }
 
 
 def _resolve_findings(

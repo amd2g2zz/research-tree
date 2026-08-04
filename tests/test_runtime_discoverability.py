@@ -43,12 +43,15 @@ def test_readme_and_cli_help_make_runtime_scope_discoverable() -> None:
         "uv sync",
         "uv run python -m research_tree create-round",
         "uv run python -m research_tree show-round",
-        "round-management only",
+            "uv run python -m research_tree tree-init",
+            "uv run python -m research_tree tree-init-alignment",
+        "uv run python -m research_tree tree-next",
+        "persisted recursive",
         "`research_tree` Python API",
     ):
         assert expected in content
 
     help_output = _run_cli("--help")
     assert help_output.returncode == 0, help_output.stderr
-    assert "round-management only" in help_output.stdout.lower()
-    assert "research_tree Python API" in help_output.stdout
+    assert "recursive research-tree state" in help_output.stdout.lower()
+    assert "tree-recover" in help_output.stdout

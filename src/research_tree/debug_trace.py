@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import time
 from typing import Any, Iterable, Sequence
 
 
@@ -99,8 +100,8 @@ def _write_record(root: Path, record: dict[str, Any]) -> Path:
     destination = _inside(root, root / TRACE_DIRECTORY,)
     destination.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(record, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
-    prefix = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     for _ in range(3):
+        prefix = f"{time.time_ns():020d}"
         path = _inside(
             root,
             destination / f"{prefix}-{secrets.token_hex(8)}.json",
@@ -136,7 +137,7 @@ def emit_trace(
     record: dict[str, Any] = {
         "schema": 1,
         "source": "research-tree-debug",
-        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
         "host": host,
         "phase": phase,
         "status": status,

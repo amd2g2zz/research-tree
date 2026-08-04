@@ -193,9 +193,13 @@ Use a heuristic priority, to be calibrated with real evaluations:
 
 ```text
 priority = (decision_impact * uncertainty * downstream_leverage * irreversibility
-            * expected_information_gain)
+            * expected_decision_value)
            / estimated_cost
 ```
+
+`expected_decision_value` is an action-selection prior, not measured
+information gain. After execution, calibrate it against the persisted evidence
+delta and Decision Slot changes.
 
 The scheduler additionally enforces coverage deficits, tool capacity, source
 diversity, duplicate suppression, and dependency readiness. It starts with a

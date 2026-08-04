@@ -14,12 +14,13 @@ This repository contains two related products:
 1. **An installable Agent Skill** for Codex, Claude Code, and Hermes Agent.
    The host agent performs the actual research using its available web,
    repository, execution, and delegation capabilities.
-2. **A Python artifact runtime** for persisting research rounds, validating
-   contracts, compiling decisions, checking readiness, and reconstructing
-   prior state.
+2. **A Python artifact runtime** for persisting research rounds and recursive
+   tree revisions, selecting the active frontier, replaying unconsumed Finding
+   Packs, compiling decisions, and checking readiness.
 
 The Python CLI is not a standalone autonomous research agent. It manages
-persisted rounds; source acquisition and agent execution remain host-owned.
+persisted rounds and research-tree state; source acquisition and agent
+execution remain host-owned.
 
 ## Why Research Tree?
 
@@ -40,7 +41,8 @@ Research Tree treats alignment as an ongoing evidence process:
 - research branches are expanded, merged, superseded, or reopened as the
   evidence changes;
 - completion is based on decision closure and implementation readiness, not on
-  source count or report length.
+  source count or report length; a closed decision ledger remains
+  `delivery_pending` until both deep reports pass the runtime delivery gate.
 
 ## What It Produces
 
@@ -57,11 +59,12 @@ The implementation-facing package records:
 - the recommended architecture and integration boundaries;
 - an implementation sequence, validation plan, and readiness assessment.
 
-### Human Brief
+### Human Research Report
 
-The requester-facing brief explains the recommended direction, important
-choices, feasibility limits, uncertainty, and what has actually been verified.
-It is intentionally shorter than the technical package.
+The requester-facing report is persisted as the Human Brief artifact. It is a
+professional, evidence-bearing explanation of the recommended direction,
+important choices, feasibility limits, uncertainty, and what has actually been
+verified. It is not a shallow executive summary.
 
 OpenSpec artifacts are optional and are generated only when explicitly
 requested.
@@ -71,28 +74,39 @@ requested.
 ```mermaid
 flowchart TD
     Q[Question, source bundle, or repository] --> R[Bounded reconnaissance]
-    R --> C[Mutual cognition, debate, and feasibility]
+    R --> C[SQLite Alignment Graph: mutual cognition, debate, and feasibility]
     C --> H{New evidence or feedback?}
     H -->|yes| C
-    H -->|aligned| S[Decision equilibrium and strategy handoff]
-    S --> P[Plan-to-execute research portfolio]
-    P --> W[Worker waves and Finding Packs]
-    W --> I[Insight Digest]
-    I -->|gaps or conflicts| P
-    I -->|converging| L[Decision Ledger and readiness gate]
+    H -->|ready| S[Show strategy projection and confirm digest]
+    S --> P[Compile tree revision zero and zero-delta evidence baseline]
+    P --> F[Select decision-valued frontier]
+    F --> W[Workers return Finding Packs and continuations]
+    W --> I[Measure ledger delta and synthesize insight]
+    I -->|grow, prune, defer| P
+    I -->|closure oracles pass| L[Decision Ledger and readiness gate]
     L --> T[Technical Research Package]
     L --> B[Human Brief]
 ```
 
-The research tree is an execution view of the current understanding, not a
-fixed plan. Intent understanding continues during repository inspection and
+The Alignment Graph is a temporal heterogeneous multigraph backed by SQLite;
+it preserves separate human and agent beliefs, parallel evidence relations,
+and every state revision. Only explicit confirmation compiles its open research
+obligations into Research Tree revision zero. The research tree is an execution
+view of the confirmed strategy, not a fixed plan. Intent understanding continues during repository inspection and
 deep research. Findings discovered during research can change the brief,
 reopen a decision, or replace part of the tree.
 
-The Python runtime makes the long-horizon part executable: the scheduler emits
-bounded worker waves, `advance_execution` persists the next ready batch across
-turns, and `synthesize_insights` turns cross-worker agreement or conflict into
-explicit successor work. It is a durable coordination layer, while the host
+The handoff is lossless across the execution boundary: exact validation
+oracles, authority, scope, constraints, and evidence-relation paths are carried
+into worker actions. Superseded questions are excluded, historical evidence is
+deduplicated, and baseline evidence never marks research complete.
+
+The Python runtime makes the long-horizon part executable:
+`RecursiveResearchCoordinator` persists each tree revision, exposes the next
+bounded frontier, consumes verified Finding Packs, grows successor actions,
+targets residual Decision Slot risk, normalizes observed branch complexity,
+and recovers results written after a crash. Existing evidence initializes a
+zero-delta baseline; repeated evidence does not count as new gain. The host
 agent still owns web access, worker processes, and source acquisition.
 
 ## Quick Start
@@ -409,16 +423,19 @@ The `research_tree` package provides composable services for applications that
 need persisted and validated research artifacts. Its public API includes:
 
 - `RunStore` for isolated, reconstructable research rounds;
+- `AlignmentGraphStore` for SQLite-backed, replayable pre-handoff cognition;
 - context intake and repository safety policies;
 - intent, Working Brief, Blueprint Target, and work-item compilers;
 - finding and Decision Ledger compilation;
+- persisted recursive-tree selection, ingestion, and crash recovery;
 - readiness, assurance, verification, and evaluation contracts;
 - Technical Research Package and Human Brief delivery;
 - feedback rounds and opt-in OpenSpec export.
 
-The command-line interface is round-management only: it exposes round creation
-and reconstruction. Use the `research_tree` Python API for composed workflow
-services.
+The command-line interface exposes alignment handoff compilation, round
+management, persisted recursive-tree initialization, frontier selection,
+Finding Pack ingestion, and crash
+recovery. Use the `research_tree` Python API for composed workflow services.
 
 ```bash
 STORE=.research-tree-demo
@@ -430,6 +447,38 @@ uv run python -m research_tree create-round \
 uv run python -m research_tree show-round \
   --store "$STORE" \
   --round-id round-first
+
+uv run python -m research_tree tree-init \
+  --store "$STORE" \
+  --round-id round-first \
+  --decision-slots ./decision-slots.json
+
+# Or compile a confirmed local Alignment Graph directly into revision zero.
+# The round above must already exist.
+uv run python -m research_tree tree-init-alignment \
+  --store "$STORE" \
+  --round-id round-first \
+  --alignment-db .research-tree-alignment/run-001/alignment.db
+
+uv run python -m research_tree tree-next \
+  --store "$STORE" \
+  --round-id round-first
+
+uv run python -m research_tree tree-ingest \
+  --store "$STORE" \
+  --round-id round-first \
+  --finding finding-001
+
+uv run python -m research_tree tree-recover \
+  --store "$STORE" \
+  --round-id round-first
+
+# Completion requires both persisted, non-shallow reports.
+uv run python -m research_tree tree-deliver \
+  --store "$STORE" \
+  --round-id round-first \
+  --technical-report ./technical-research-package.md \
+  --human-report ./human-research-report.md
 ```
 
 Use the same `--store` path to reconstruct a round after restarting the

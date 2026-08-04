@@ -25,8 +25,10 @@ epistemic process:
 Produce two final outputs:
 
 1. a cited **Technical Research Package** that can drive implementation; and
-2. a concise **Human Brief** explaining the current direction, important
-   choices, evidence, uncertainty, and what actually exists.
+2. a professional **Human Research Report** (persisted as the Human Brief
+   artifact) explaining the current direction, important choices, evidence,
+   uncertainty, and what actually exists. It must be deep enough to support a
+   human decision, not a shallow summary.
 
 Create OpenSpec artifacts only when explicitly requested.
 
@@ -35,6 +37,9 @@ Create OpenSpec artifacts only when explicitly requested.
 - Resolve every relative path against the skill directory supplied by the host.
 - Read `references/research-quality-playbook.md` before beginning alignment or
   research.
+- Read `references/alignment-controller.md` and initialize its run state before
+  the first alignment question. Run its `plan` command immediately before
+  every pre-handoff question and `record` immediately after the response.
 - Use `assets/brief-template.md`, `assets/research-strategy-template.md`,
   `assets/technical-research-package-template.md`, and
   `assets/human-brief-template.md` for their corresponding artifacts.
@@ -42,6 +47,8 @@ Create OpenSpec artifacts only when explicitly requested.
   revising the Blueprint Target and Decision Map.
 - Read `references/product-contracts.md` only when exact persisted schemas or
   runtime artifacts matter.
+- Read `references/research-tree-architecture.md` before initializing,
+  expanding, pruning, or closing a recursive research tree.
 - Read `references/debug-tracing.md` only for explicit behavior diagnosis or debug mode.
 
 <!-- HOST_ADAPTER -->
@@ -264,6 +271,20 @@ silently expanding authority.
 
 ## Collaborative alignment loop
 
+### Internal dialogue state gate
+
+Before composing any user-facing question, update the SQLite-backed temporal
+Alignment Graph with separate human beliefs, agent beliefs, evidence,
+disagreements, and strategy hypotheses. Run the `plan` command from
+`scripts/alignment_controller.py`. It may return
+only `ask_one`, `reconnaissance`, or `await_human_confirmation`; never bypass
+it by asking a compound question. The controller selects at most one human-only,
+high-impact node. After the response, run `record` with the observed outcome.
+Two unchanged fingerprints trigger reconnaissance instead of another question;
+six alignment turns or two asks for one node trigger evidence-based resolution
+or a visible draft with explicit assumptions, never automatic handoff. Do not
+show the internal graph to the requester as a questionnaire.
+
 ### 0. Co-evolve cognition before strategy handoff
 
 The Research Strategy must emerge from a mutual cognition loop, not from an
@@ -291,9 +312,12 @@ extension, or counterargument, not approval. Candidate interpretations are
 hypotheses that help the requester think; they are not a menu the requester
 must select from.
 
-The strategy handoff occurs at a decision equilibrium, not when the requester
-says "okay". The equilibrium requires visible belief evolution, a supported
-feasibility disposition, an actionable success oracle, and no unresolved
+The strategy handoff has two gates. First, the agent may prepare a decision
+equilibrium draft, not declare alignment complete. Second, it must show the
+strategy projection derived from the Alignment Graph and receive explicit confirmation
+of the outcome, scope, authority, and autonomous-research transition. The
+equilibrium requires visible belief evolution, a supported feasibility
+disposition, an actionable success oracle, and no unresolved
 high-impact choice whose outcome still depends on the requester. Before that
 point, humans and agent are collaborators; after it, the agent owns execution,
 replanning, delegation, and intent correction within the granted authority.
@@ -432,9 +456,11 @@ budget signal, not evidence of depth. Each Decision Slot records its intent
 basis, impact, uncertainty, irreversibility, alternatives, anchors, closure
 rule, validation oracle, fallback, and reversal condition.
 
-Show the tree only when it helps the requester inspect the working direction.
-Do not mistake tree display for alignment or delivery. Persist exactly one
-active revision before executing it.
+Show the current Alignment Graph's strategy projection at handoff so the
+requester can inspect the working direction. Display is not acceptance or
+delivery. After explicit confirmation, compile open decision obligations and
+anchored reconnaissance evidence into exactly one Research Tree revision zero.
+Do not create or display a Research Tree before this boundary.
 
 ## Execute recursive deep research
 
@@ -513,19 +539,34 @@ boundary, budget, and Finding Pack schema. The coordinator owns contradiction
 checks, deduplication, coverage, Living Brief updates, and synthesis. Workers
 return atomic Finding Packs, not prose chapters.
 
-Use the runtime's plan-to-execute loop when available. Compile bounded
-`landscape -> deep_dive -> adversarial -> validation` phase tasks, dispatch only
-the current dependency-ready batch, ingest Finding Packs, persist the execution
-transition, run the Insight Digest, and then replan. Do not hand a broad track to
-one worker or let workers re-delegate. Available worker capacity left unused
-without a dependency, safety, duplicate, or capability reason is a conformance
-failure.
+Use the runtime's plan-to-execute loop when available, but do not precompile the
+whole investigation as one static wave graph. Initialize revision zero from
+the current Decision Map and all existing Finding Packs; historical evidence
+forms the baseline and has zero realized delta. Dispatch only the current
+dependency-ready frontier, ingest verified Finding Packs, compute the measured
+ledger delta, grow structured successor actions, prune or defer dominated
+branches, persist a new `research-tree-state` revision, and select the next
+frontier. Selection targets bounded residual Decision Slot risk, upweights
+failed validation, and normalizes value by observed branch complexity; worker
+confidence is never an update signal. Continue until Decision Slot closure
+oracles pass. An empty static task list is not a stop condition.
+
+Workers may propose growth only through structured `research_continuations`
+with a triggering evidence reference, missing evidence, and closure oracle.
+The coordinator owns expansion, deduplication, value scoring, penalties, and
+stop decisions. Do not hand a broad track to one worker or let workers re-delegate.
+Available worker capacity left unused without a dependency,
+safety, duplicate, or capability reason is a conformance failure.
 
 The coordinator must synthesize across workers before drafting delivery. Treat
 Insight Digest signals `uncovered`, `thin`, `contested`, and `qualified` as
 successor-work triggers, not report-writing cues. Only a `converging` slot may
 advance to Decision Ledger review, and final delivery remains blocked while an
 active P0 slot lacks completed depth, counterevidence, or validation evidence.
+Even after all slots close, keep the persisted tree in `delivery_pending` until
+both the Technical Research Package and Human Research Report are present and
+verified through `tree-deliver`; a closed tree without the two reports is not a
+completed research round.
 
 ## Produce the deliveries
 
@@ -548,7 +589,7 @@ Include, where applicable:
    honest evidence levels;
 11. risks, fallbacks, reversal conditions, Source Ledger, and traceability.
 
-### Human Brief
+### Human Research Report (Human Brief artifact)
 
 Explain in decision-oriented language:
 

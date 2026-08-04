@@ -181,7 +181,7 @@ def test_feedback_reopens_research_and_requires_evidence_progress() -> None:
         assert "Alignment Checkpoint" in body
         assert '"okay", or "continue" is not alignment evidence' in body
 
-    assert "Do not mistake tree display for alignment or delivery" in claude
+    assert "Do not create or display a Research Tree before this boundary" in claude
 
 
 def test_all_host_packages_expose_opt_in_debug_tracing() -> None:
