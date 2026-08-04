@@ -9,6 +9,8 @@ another host merely because they appear in examples.
   `references/` or `assets/` from the user's working directory.
 - Read `references/claude-code-compatibility.md` before the first alignment or
   research action, as well as before Claude-specific installation or hooks.
+  Before handoff, delegation, compaction, or recovery, also read
+  `references/claude-native-orchestration.md`.
 - When the current session exposes `AskUserQuestion`, use it only for a rare
   discrete decision after open-ended intent guidance and before the Research
   Strategy handoff. After the
@@ -28,9 +30,23 @@ another host merely because they appear in examples.
   recovered autonomously.
 - Treat the installed package as read-only; keep research reports, briefs,
   evidence ledgers, and other task artifacts in the writable workspace.
-- The installed package contains only `SKILL.md`, bundled references, and
-  assets, not the repository's Python runtime, lifecycle hooks, builder, or
-  evaluation corpus.
+- After strategy handoff, map ready waves onto Claude Code's native task list
+  and Agent tool when exposed. Launch independent agents together, use
+  background execution only when the host supports it, and continue coordinator
+  work instead of polling. Use an agent team only when workers must debate or
+  exchange discoveries; independent research remains cheaper and clearer as
+  isolated leaf agents.
+- Treat subagent messages as self-reports. Read the requested Finding Pack,
+  inspect decisive evidence, and reconcile contradictions before updating the
+  shared ledger. Keep auto-memory and conversation resume as secondary context;
+  the workspace checkpoint is authoritative after compaction or restart.
+- After handoff, use `scripts/native_execution_adapter.py` with host argument
+  `claude` for atomic task attempts, crash recovery, Finding Pack validation,
+  and completion checks when Python is available. The native task list mirrors
+  this state; it does not replace it.
+- The installed package contains `SKILL.md`, bundled references/assets, and the
+  dependency-free native execution adapter. It does not contain the repository
+  Python runtime, lifecycle hooks, builder, or evaluation corpus.
 
 ### Source checkout development boundary
 

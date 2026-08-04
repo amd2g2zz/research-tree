@@ -14,6 +14,71 @@
         ]
       }
     ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --locked research-tree-hook --host codex --event SessionEnd",
+            "commandWindows": "uv run --locked research-tree-hook --host codex --event SessionEnd",
+            "timeout": 10,
+            "statusMessage": "Recording research session end"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --locked research-tree-hook --host codex --event PreCompact",
+            "commandWindows": "uv run --locked research-tree-hook --host codex --event PreCompact",
+            "timeout": 10,
+            "statusMessage": "Recording research compaction boundary"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --locked research-tree-hook --host codex --event PostCompact",
+            "commandWindows": "uv run --locked research-tree-hook --host codex --event PostCompact",
+            "timeout": 10,
+            "statusMessage": "Recording research context recovery"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --locked research-tree-hook --host codex --event SubagentStart",
+            "commandWindows": "uv run --locked research-tree-hook --host codex --event SubagentStart",
+            "timeout": 10,
+            "statusMessage": "Recording research worker start"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --locked research-tree-hook --host codex --event SubagentStop",
+            "commandWindows": "uv run --locked research-tree-hook --host codex --event SubagentStop",
+            "timeout": 10,
+            "statusMessage": "Recording research worker stop"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

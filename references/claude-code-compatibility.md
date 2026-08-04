@@ -3,6 +3,7 @@
 Use this reference when packaging or running the Claude Code variant. It is
 not needed for ordinary research unless the task involves Claude-specific
 installation or development.
+The verified baseline is Claude Code 2.1.221.
 
 ## Package boundary
 
@@ -14,8 +15,9 @@ self-contained Agent Skill with Claude Code frontmatter:
 - `disable-model-invocation: false` allows Claude Code to select the Skill when
   its description matches.
 
-The package does not include the repository Python runtime, hooks, builder, or
-evaluation corpus. Those remain development assets in the source checkout:
+The package includes the dependency-free `scripts/native_execution_adapter.py`
+but not the repository Python runtime, hooks, builder, or evaluation corpus.
+Those remain development assets in the source checkout:
 
 ```text
 hooks/research_hook.py
@@ -46,6 +48,11 @@ The Skill owns research alignment and report production; Claude Code owns
 model calls, repository inspection, web access, shell execution, permissions,
 and any delegation that is actually available.
 
+Read `references/claude-native-orchestration.md` before delegation, compaction,
+or recovery. It defines when to use parallel leaf agents, background execution,
+agent teams, session resume, worktrees, task lists, and auto-memory without
+confusing any of them with the durable research ledger.
+
 ## User questions
 
 Claude Code's structured user-question tool is named `AskUserQuestion`. In the
@@ -61,7 +68,8 @@ is distinct from permission prompts for dangerous tool calls.
 ## Optional project hooks
 
 The repository template `hooks/claude-code.settings.template.json` contains
-`SessionStart` and `Stop` command hooks. Merge only its `hooks` object into an
+`SessionStart`, `SessionEnd`, `PreCompact`, `SubagentStop`, and `Stop` command
+hooks. Merge only its `hooks` object into an
 existing `.claude/settings.json`. The hooks are not installed with the Skill,
 are not required for research, and must not be enabled without requester
 consent. They invoke `uv run --locked research-tree-hook` from the source
@@ -94,3 +102,7 @@ Primary documentation:
 - [Claude Code settings](https://code.claude.com/docs/en/settings)
 - [Claude Code user input](https://code.claude.com/docs/en/agent-sdk/user-input)
 - [Claude Code tools reference](https://code.claude.com/docs/en/tools-reference)
+- [Claude Code subagents](https://code.claude.com/docs/en/sub-agents)
+- [Claude Code agent teams](https://code.claude.com/docs/en/agent-teams)
+- [Claude Code memory](https://code.claude.com/docs/en/memory)
+- [Claude Code CLI reference](https://code.claude.com/docs/en/cli-reference)

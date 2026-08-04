@@ -76,7 +76,8 @@ def test_observe_rejects_event_mismatch(tmp_path: Path) -> None:
         )
 
 
-def test_claude_reentrant_stop_is_not_recorded(tmp_path: Path) -> None:
+@pytest.mark.parametrize("host", ["codex", "claude"])
+def test_reentrant_stop_is_not_recorded(tmp_path: Path, host: str) -> None:
     root = project(tmp_path)
     result = observe(
         {
@@ -84,7 +85,7 @@ def test_claude_reentrant_stop_is_not_recorded(tmp_path: Path) -> None:
             "hook_event_name": "Stop",
             "stop_hook_active": True,
         },
-        host="claude",
+        host=host,
         event="Stop",
         project_root=root,
         process_cwd=root,
@@ -145,8 +146,22 @@ def test_host_templates_use_native_wrappers_and_isolated_hermes_hook() -> None:
         encoding="utf-8"
     )
 
-    assert set(codex["hooks"]) == {"SessionStart", "Stop"}
-    assert set(claude["hooks"]) == {"SessionStart", "Stop"}
+    assert set(codex["hooks"]) == {
+        "SessionStart",
+        "SessionEnd",
+        "PreCompact",
+        "PostCompact",
+        "SubagentStart",
+        "SubagentStop",
+        "Stop",
+    }
+    assert set(claude["hooks"]) == {
+        "SessionStart",
+        "SessionEnd",
+        "PreCompact",
+        "SubagentStop",
+        "Stop",
+    }
     assert "on_session_start:" in hermes
     assert "on_session_end:" in hermes
     for serialized in (json.dumps(codex), json.dumps(claude)):

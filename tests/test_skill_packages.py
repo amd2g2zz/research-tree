@@ -71,10 +71,15 @@ def test_only_claude_package_contains_claude_compatibility_material() -> None:
         skill = (package / "SKILL.md").read_text(encoding="utf-8")
         assert "Claude Code runtime adapter" not in skill
         assert not (package / "references" / "claude-code-compatibility.md").exists()
+        assert not (package / "references" / "claude-native-orchestration.md").exists()
+        if package == hermes:
+            assert not (package / "scripts" / "native_execution_adapter.py").exists()
 
     claude_skill = (claude / "SKILL.md").read_text(encoding="utf-8")
     assert "Claude Code runtime adapter" in claude_skill
     assert (claude / "references" / "claude-code-compatibility.md").is_file()
+    assert (claude / "references" / "claude-native-orchestration.md").is_file()
+    assert (claude / "scripts" / "native_execution_adapter.py").is_file()
 
 
 def test_only_codex_package_contains_codex_compatibility_material() -> None:
@@ -86,12 +91,55 @@ def test_only_codex_package_contains_codex_compatibility_material() -> None:
         skill = (package / "SKILL.md").read_text(encoding="utf-8")
         assert "Codex CLI runtime adapter" not in skill
         assert not (package / "references" / "codex-cli-compatibility.md").exists()
+        assert not (package / "references" / "codex-native-orchestration.md").exists()
 
     codex_skill = (codex / "SKILL.md").read_text(encoding="utf-8")
     assert "Codex CLI runtime adapter" in codex_skill
     codex_ref = codex / "references" / "codex-cli-compatibility.md"
     assert codex_ref.is_file()
+    assert (codex / "references" / "codex-native-orchestration.md").is_file()
+    assert (codex / "scripts" / "native_execution_adapter.py").is_file()
     assert "request_user_input" in codex_ref.read_text(encoding="utf-8")
+
+
+def test_codex_and_claude_expose_distinct_native_orchestration() -> None:
+    codex = (
+        ROOT
+        / "packages"
+        / "codex"
+        / "research-tree"
+        / "references"
+        / "codex-native-orchestration.md"
+    ).read_text(encoding="utf-8")
+    claude = (
+        ROOT
+        / "packages"
+        / "claude-code"
+        / "research-tree"
+        / "references"
+        / "claude-native-orchestration.md"
+    ).read_text(encoding="utf-8")
+
+    for marker in ("AGENTS.md", "update_plan", "collaboration subagents", "fork"):
+        assert marker in codex
+    for marker in ("CLAUDE.md", "background agent", "agent team", "auto-memory"):
+        assert marker in claude
+    assert "CLAUDE.md" not in codex
+    assert "update_plan" not in claude
+
+    for package_name in ("codex", "claude-code"):
+        adapter = (
+            ROOT
+            / "packages"
+            / package_name
+            / "research-tree"
+            / "scripts"
+            / "native_execution_adapter.py"
+        ).read_text(encoding="utf-8")
+        assert '"observations"' in adapter
+        assert '"option_effects"' in adapter
+        assert '"attempt_id"' in adapter
+        assert 'task["status"] = "submitted"' in adapter
 
 
 def test_host_question_references_name_only_their_native_capability() -> None:

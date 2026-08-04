@@ -1,8 +1,23 @@
 # Codex CLI Compatibility
 
-Use this reference when `research-tree` runs under Codex CLI. The capability is
-session-dependent; a skill must inspect what the current host exposes instead of
-calling a tool by name from another host.
+Use this reference when `research-tree` runs under Codex CLI. The verified
+baseline is Codex CLI 0.146.0. Capabilities remain session-dependent; inspect
+what the current host exposes instead of calling a tool from another host.
+
+## Native execution
+
+Read `references/codex-native-orchestration.md` before delegation, compaction,
+or recovery. It defines the Codex-specific mapping for `AGENTS.md`, plan state,
+parallel tool calls, collaboration subagents, artifact verification, and saved
+thread recovery.
+
+Codex CLI can resume and fork saved interactive sessions. Those commands restore
+conversation state but do not prove that a subprocess, subagent, network call,
+or artifact write completed. Workspace state remains authoritative.
+
+Live web search requires the current surface to expose it; in the CLI it can be
+enabled with `--search`. Sandbox and approval policy still apply to all other
+tools and cannot be widened by a Skill.
 
 ## User questions
 
@@ -20,8 +35,19 @@ express intent in their own words. Keep any resulting options in the structured
 payload. Do not assume Claude's `AskUserQuestion` schema or Hermes' `clarify`
 tool name. Do not start implementation while the Alignment Checkpoint is open.
 
+## Hooks
+
+Current Codex supports command hooks for session, prompt, tool, permission,
+compaction, subagent, and stop events. The repository hook template observes a
+small research-specific subset and is opt-in. Hook trust must be reviewed by the
+requester; never use `--dangerously-bypass-hook-trust` from this Skill.
+
 Primary sources:
 
 - [Codex request_user_input parameters](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/json/ToolRequestUserInputParams.json)
 - [Codex request_user_input response](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/json/ToolRequestUserInputResponse.json)
 - [Codex app-server round-trip test](https://github.com/openai/codex/blob/main/codex-rs/app-server/tests/suite/v2/request_user_input.rs)
+- [Codex skills](https://github.com/openai/codex/blob/main/docs/skills.md)
+- [Codex hook configuration](https://github.com/openai/codex/blob/main/codex-rs/config/src/hook_config.rs)
+- [Codex hook schemas](https://github.com/openai/codex/tree/main/codex-rs/hooks/schema/generated)
+- [Codex CLI](https://github.com/openai/codex)
