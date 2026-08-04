@@ -25,7 +25,7 @@ careless.
 ```text
 initial request
   -> bounded reconnaissance
-  -> Blind-Spot Packet + intent rewrite + proposed scope expansion
+  -> compact teaching packet + intent rewrite + proposed scope expansion
   -> 1-3 decision-shaped questions
   -> user feedback / correction / delegation
   -> update Living Brief and claim ledger
@@ -46,6 +46,31 @@ and run a bounded evidence batch before handing control back. A response that
 contains only a tree, diagnosis, option table, or proposed fixes is incomplete
 when investigation or improvement was requested. Recommendations-only scope
 limits edits to the target system; it does not waive research and reporting.
+
+### Human-centered communication and confusion handling
+
+The protocol is internal machinery for solving the requester's problem. Do not
+make the requester read or operate the Living Brief, claim ledger, Decision Map,
+or tree unless a small excerpt directly improves the next decision. Prefer
+progressive disclosure and plain-language explanations over process narration.
+
+Every pre-handoff turn must be knowledge-bearing and decision-guiding. A
+question-only turn, a workflow-status dump, or an unannotated option table
+fails this rule. When the requester is confused, lacks a term, or says they do
+not know, run this teaching reconnaissance cycle before asking another
+preference question:
+
+1. identify the missing distinction or knowledge needed for the next decision;
+2. inspect the smallest useful web, repository, or supplied-material sources;
+3. explain the finding in plain language and show one concrete implication,
+   example, counterexample, or trade-off;
+4. state how the new knowledge changes the available choices; and
+5. ask one guided reflection question, unless the agent can safely continue
+   without one.
+
+The cycle is adaptive, not a fixed questionnaire. Its success criterion is that
+the requester can make a more informed decision, not that every protocol field
+has been displayed.
 
 ### Authority rules
 

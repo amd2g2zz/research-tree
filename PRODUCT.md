@@ -138,7 +138,24 @@ requester only during the pre-strategy collaboration phase when consequential,
 non-recoverable choices differ across viable intent interpretations and the
 available material and research cannot responsibly rank them.
 
-### 4.2 Mutual cognitive alignment and strategy handoff
+### 4.2 Human-centered communication
+
+The workflow exists to solve the requester's problem, not to make the requester
+operate the research protocol. Living Briefs, claim ledgers, Decision Maps,
+and tree revisions are internal working state. Expose only the smallest amount
+of that state needed to improve the requester's understanding or make the next
+decision; use progressive disclosure for deeper detail.
+
+Every pre-handoff response must increase the requester's ability to reason about
+the problem. A question-only turn, a process-status dump, or a complete schema
+without plain-language meaning is a failure. When the requester is confused or
+lacks a domain distinction, pause preference questions, perform the smallest
+useful web, repository, or supplied-material check, explain the result in plain
+language with one concrete implication or example, and then guide one
+reflection or decision. Communication length is adaptive; convergence is based
+on human understanding and strategy quality, not a fixed number of messages.
+
+### 4.3 Mutual cognitive alignment and strategy handoff
 
 The Research Strategy is not an agent proposal that the requester merely
 approves. It is produced after a bounded co-evolution loop in which the
@@ -163,7 +180,7 @@ oracle, and no unresolved high-impact choice whose outcome still depends on
 the requester. Only after this equilibrium is reached does the agent compile
 the Research Strategy and take full execution autonomy.
 
-### 4.3 No fixed questionnaire gate
+### 4.4 No fixed questionnaire gate
 
 The previous product stopped before any online research until an intent contract
 was completed. This is the wrong behavior. The agent may need to inspect the
@@ -183,7 +200,7 @@ it asks when:
 Questions must be minimal and decision-bearing, never a way to offload research
 back to the requester.
 
-### 4.4 Alignment research
+### 4.5 Alignment research
 
 Alignment research is small, reversible research that improves the agent's
 intent understanding before it commits to a deep research strategy. It can cover
@@ -196,7 +213,7 @@ the supplied material implies a technical feasibility problem, a deployment
 constraint, a target user workflow, or a commercial driver. It must not silently
 become a full research run or lock the user into a direction.
 
-### 4.5 Autonomous deep research
+### 4.6 Autonomous deep research
 
 Once the Research Strategy exists, control is handed to the Research Agent. It
 owns normal uncertainty, does not freeze the Intent Model, and does not return
