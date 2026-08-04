@@ -129,6 +129,10 @@ an ordinary research run.
   across short purposeful rounds using: progress, new information, impact, one
   decision/reflection, and next step. Internal reports and persisted artifacts
   may be longer; do not paste them into the conversation by default.
+- Persist an alignment-turn record after each meaningful pre-handoff exchange:
+  current mirror, one intent/knowledge gap, evidence added, response summary,
+  human and agent belief delta, and decision effect. If no field changes, do
+  not repeat the question; run a new bounded reconnaissance step instead.
 - Rewrite the apparent intent and reasonably expand its scope when
   reconnaissance exposes missing outcome, evaluation, authority, lifecycle,
   safety, integration, or operational dimensions. Label every expansion as an
@@ -149,8 +153,8 @@ an ordinary research run.
   pause preference questions and run a teaching reconnaissance cycle: inspect
   the smallest useful set of web, repository, or supplied sources; explain the
   result in plain language; show one implication, example, or trade-off; then
-  ask one open-ended guided reflection question. Do not answer "I don't know" before
-  trying the available evidence paths.
+  ask one open-ended guided reflection question. Do not answer "I don't know"
+  before trying the available evidence paths.
 - When the host exposes a structured input tool, use it only for a genuinely
   discrete bounded decision after open-ended elicitation. Put the
   reconnaissance-derived knowledge and consequences in the surrounding
@@ -320,6 +324,10 @@ sequence as long as new evidence can change the direction:
 4. update the Intent Model, Living Brief, claim ledger, and open disagreements;
 5. check whether the next research decision is now better determined.
 
+Persist the turn record before returning control. The record is structured
+state, not a transcript: never store prompts, full responses, secrets, or
+unbounded free-form notes in debug traces.
+
 Inspect existing project context before detailed elicitation. Work on one
 consequential knowledge or intent gap per user-facing turn. If the request
 contains independent problem areas, make the decomposition visible first.
@@ -432,10 +440,11 @@ interim artifact before returning control, unless the requester explicitly says
 to pause or stop. Do not repeatedly ask the same question without new evidence.
 Use a structured question tool when available only during this pre-handoff
 collaboration for a rare bounded discrete decision after open-ended guidance,
-and continue from its answers as new Living Brief evidence. If the requester explicitly says to skip discussion and execute,
-record a provisional internal frame, assumptions, and boundaries, then apply
-the same feasibility rule without waiting for dialogue; explicit execution does
-not grant unsafe or unspecified permissions or make contradictions feasible.
+and continue from its answers as new Living Brief evidence. If the requester
+explicitly says to skip discussion and execute, record a provisional internal
+frame, assumptions, and boundaries, then apply the same feasibility rule
+without waiting for dialogue; explicit execution does not grant unsafe or
+unspecified permissions or make contradictions feasible.
 
 For `infeasible` before handoff, stop before creating an implementation research
 tree. Deliver the feasibility finding and ask which outcome or constraint, if

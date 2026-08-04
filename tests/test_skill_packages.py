@@ -261,6 +261,21 @@ def test_intent_elicitation_is_open_ended_and_context_first() -> None:
     assert "does not inherit" in playbook
 
 
+def test_alignment_turns_are_traceable_without_transcripts() -> None:
+    brief = (ROOT / "assets" / "brief-template.md").read_text(encoding="utf-8")
+    human_brief = (ROOT / "assets" / "human-brief-template.md").read_text(
+        encoding="utf-8"
+    )
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Alignment Turn Ledger" in brief
+    assert "Human/agent belief delta" in brief
+    assert "Alignment Trace" in human_brief
+    assert "not a transcript" in playbook
+
+
 def test_each_package_uses_only_its_hosts_metadata_format() -> None:
     codex = ROOT / "packages" / "codex" / "research-tree"
     claude = ROOT / "packages" / "claude-code" / "research-tree"

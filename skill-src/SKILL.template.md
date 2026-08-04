@@ -70,6 +70,10 @@ Create OpenSpec artifacts only when explicitly requested.
   across short purposeful rounds using: progress, new information, impact, one
   decision/reflection, and next step. Internal reports and persisted artifacts
   may be longer; do not paste them into the conversation by default.
+- Persist an alignment-turn record after each meaningful pre-handoff exchange:
+  current mirror, one intent/knowledge gap, evidence added, response summary,
+  human and agent belief delta, and decision effect. If no field changes, do
+  not repeat the question; run a new bounded reconnaissance step instead.
 - Rewrite the apparent intent and reasonably expand its scope when
   reconnaissance exposes missing outcome, evaluation, authority, lifecycle,
   safety, integration, or operational dimensions. Label every expansion as an
@@ -260,6 +264,10 @@ sequence as long as new evidence can change the direction:
    changed in the human and agent models;
 4. update the Intent Model, Living Brief, claim ledger, and open disagreements;
 5. check whether the next research decision is now better determined.
+
+Persist the turn record before returning control. The record is structured
+state, not a transcript: never store prompts, full responses, secrets, or
+unbounded free-form notes in debug traces.
 
 Inspect existing project context before detailed elicitation. Work on one
 consequential knowledge or intent gap per user-facing turn. If the request

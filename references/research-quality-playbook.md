@@ -84,6 +84,21 @@ acknowledgement as approval. Present evolving strategy fragments in small
 sections so errors can be corrected early without making the requester operate
 the protocol.
 
+Persist an alignment-turn record after each meaningful pre-handoff exchange:
+
+| Field | Required content |
+|---|---|
+| Current mirror | The agent's current interpretation, separated from user facts |
+| Intent gap | One consequential missing distinction or knowledge dimension |
+| Evidence added | The bounded inspection, source, example, or counterargument |
+| Response summary | A short sanitized summary of what the requester added or corrected |
+| Belief delta | What changed in the human and agent models |
+| Decision effect | Which scope, success, authority, or tree decision changed |
+
+This is an audit aid, not a transcript. Never put full prompts, responses,
+secrets, URLs, or unbounded notes in debug events. If no field changes, do not
+repeat the same question; perform a new bounded reconnaissance step.
+
 ### Authority rules
 
 - User statements control preferences, desired outcome, risk tolerance, and

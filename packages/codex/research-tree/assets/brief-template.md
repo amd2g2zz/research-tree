@@ -49,6 +49,12 @@ agent technical assertions remain falsifiable.}}
 |---|---|---|---|---|---|
 | {{...}} | {{user correction|agent self-correction|new evidence}} | {{...}} | {{...}} | {{...}} | {{local revision|reopened alignment|none}} |
 
+## Alignment Turn Ledger
+
+| Turn | Current mirror | One intent/knowledge gap | Evidence added | Requester response summary | Human/agent belief delta | Decision effect |
+|---|---|---|---|---|---|---|
+| {{AT-1}} | {{...}} | {{...}} | {{...}} | {{sanitized summary}} | {{...}} | {{...}} |
+
 ## Current Provisional Working Frame
 
 - Outcome: {{...}}

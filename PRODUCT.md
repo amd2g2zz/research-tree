@@ -171,6 +171,12 @@ If the request spans independent problem areas, expose that decomposition
 before refining details. Present the evolving interpretation in small sections
 and invite correction, extension, or counterargument rather than approval.
 
+Each interactive round follows a traceable contract: progress, new information,
+impact, one open reflection, and next step. Persist an alignment-turn record
+with the current mirror, one unresolved gap, evidence added, the requester's
+response summary, the human/agent belief delta, and the resulting decision
+effect. If none of those fields changes, do not ask another question.
+
 ### 4.3 Mutual cognitive alignment and strategy handoff
 
 The Research Strategy is not an agent proposal that the requester merely

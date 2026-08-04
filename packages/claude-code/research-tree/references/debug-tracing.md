@@ -13,6 +13,7 @@ Emit a phase event after each meaningful transition, not every model message:
 | --- | --- | --- |
 | `intake` | `started` | Context Pack accepted for inspection |
 | `reconnaissance` | `completed` | Bounded inspection or search batch completed |
+| `alignment_turn` | `completed` | One guided pre-handoff turn changed the working model |
 | `alignment_checkpoint` | `completed` | Goal, scope, authority, oracle, open decisions, and feasibility made visible |
 | `alignment_blocked` | `blocked` | A high-impact decision prevents implementation |
 | `research_started` | `started` | Alignment gate permits implementation-oriented research |

@@ -18,6 +18,15 @@ than the original wording. Separate explicit user intent from agent inference.}}
 | {{Agent corrected itself}} | {{anchor/evidence}} | {{...}} |
 | {{Evidence changed a shared assumption}} | {{anchor}} | {{...}} |
 
+## Alignment Trace
+
+{{Summarize the meaningful alignment turns, not the full conversation. Show the
+one gap explored per turn and how the human and agent models changed.}}
+
+| Turn | Gap explored | Evidence/teaching | What the requester clarified | Resulting change |
+|---|---|---|---|---|
+| {{AT-1}} | {{...}} | {{...}} | {{sanitized summary}} | {{...}} |
+
 ## Recommended Technical Direction
 
 {{The capability, architecture direction, and first useful working loop.}}
