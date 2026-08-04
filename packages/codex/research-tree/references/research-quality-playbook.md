@@ -26,7 +26,7 @@ careless.
 initial request
   -> bounded reconnaissance
   -> compact teaching packet + intent rewrite + proposed scope expansion
-  -> 1-3 decision-shaped questions
+  -> one open-ended guided prompt (rare discrete choice only after explanation)
   -> user feedback / correction / delegation
   -> update Living Brief and claim ledger
   -> repeat until provisionally aligned
@@ -54,19 +54,29 @@ make the requester read or operate the Living Brief, claim ledger, Decision Map,
 or tree unless a small excerpt directly improves the next decision. Prefer
 progressive disclosure and plain-language explanations over process narration.
 
+The Human Brief and Technical Research Package are co-primary deliverables. The
+brief is concise but must let the requester judge intent fidelity, evidence
+quality, important trade-offs, feasibility, and whether continuing is justified;
+it is not a thin executive summary that can replace deep research. The package
+must be detailed enough for an implementation agent to avoid rediscovery.
+
 Every pre-handoff turn must be knowledge-bearing and decision-guiding. A
 question-only turn, a workflow-status dump, or an unannotated option table
 fails this rule. When the requester is confused, lacks a term, says they do not
 know, or gives a vague, short, incomplete, or contradictory brief, run this
 teaching reconnaissance cycle before asking another preference question:
 
-1. identify the missing distinction or knowledge needed for the next decision;
-2. inspect the smallest useful web, repository, or supplied-material sources;
-3. explain the finding in plain language and show one concrete implication,
+1. inspect the current project, supplied artifacts, and relevant context;
+2. identify one missing distinction or intent dimension needed next; if the
+   request spans independent problem areas, expose the decomposition first;
+3. inspect the smallest useful web, repository, or supplied-material sources;
+4. mirror the current understanding, explain the finding in plain language,
+   and show one concrete implication,
    example, counterexample, or trade-off;
-4. state how the new knowledge changes the available choices; and
-5. ask one guided reflection question, unless the agent can safely continue
-   without one.
+5. ask one open-ended prompt that invites the requester to elaborate, correct,
+   or challenge the interpretation in their own words; and
+6. on the next turn, reconstruct the intent and state what changed in both
+   working models.
 
 The cycle is adaptive, not a fixed questionnaire. Its success criterion is that
 the requester can make a more informed decision, not that every protocol field
@@ -74,6 +84,26 @@ has been displayed. Keep each user-facing interactive turn under 1000
 characters. Use short rounds with the compact project shape `progress -> new
 information -> impact -> one decision/reflection -> next step`; put long
 technical packages in workspace artifacts instead of chat.
+Candidate interpretations may be shown as examples that stimulate recall or
+contrast. They remain hypotheses; do not turn them into a menu or treat a brief
+acknowledgement as approval. Present evolving strategy fragments in small
+sections so errors can be corrected early without making the requester operate
+the protocol.
+
+Persist an alignment-turn record after each meaningful pre-handoff exchange:
+
+| Field | Required content |
+|---|---|
+| Current mirror | The agent's current interpretation, separated from user facts |
+| Intent gap | One consequential missing distinction or knowledge dimension |
+| Evidence added | The bounded inspection, source, example, or counterargument |
+| Response summary | A short sanitized summary of what the requester added or corrected |
+| Belief delta | What changed in the human and agent models |
+| Decision effect | Which scope, success, authority, or tree decision changed |
+
+This is an audit aid, not a transcript. Never put full prompts, responses,
+secrets, URLs, or unbounded notes in debug events. If no field changes, do not
+repeat the same question; perform a new bounded reconnaissance step.
 
 ### Authority rules
 
@@ -146,7 +176,8 @@ Checkpoint in the response and Living Brief. It must name:
 - scope, non-goals, and the target boundary;
 - authority, environment, and permitted actions;
 - the success oracle and required evidence level;
-- unresolved high-impact Decision Slots and the next 1-3 questions; and
+- the one unresolved high-impact intent dimension to guide next, or a rare
+  discrete decision after open-ended elicitation; and
 - the current feasibility disposition and assumptions.
 
 This is an inspectable understanding checkpoint, not a ceremonial approval
@@ -177,8 +208,8 @@ this task. Do not show a detailed branch-specific architecture before the
 domain evidence supports it.
 
 Use `ask_user_question` or an equivalent structured tool when available only
-before the Research Strategy handoff for the 1-3 bounded choices. The
-surrounding response must first explain evidence,
+before the Research Strategy handoff for a rare bounded discrete choice after
+open-ended guidance. The surrounding response must first explain evidence,
 alternatives, and consequences. If the tool is unavailable, use normal
 dialogue. Never encode an unsupported agent default as the recommended option.
 
@@ -211,10 +242,11 @@ criterion. Do not repeat a question merely because it was unanswered.
 
 When a user supplies a concrete pain point after reconnaissance, continue with
 the next bounded search, source inspection, or safe experiment before asking
-generic preference questions again. Ask only when a consequential,
-non-recoverable choice remains. A worker is not blocked until it has searched
-available sources, inspected local material, attempted safe alternatives, and
-recorded the missing capability or evidence.
+generic preference questions again. Use open-ended prompts to help the requester
+articulate intent; ask for a discrete choice only when a consequential,
+non-recoverable decision remains after explanation. A worker is not blocked
+until it has searched available sources, inspected local material, attempted
+safe alternatives, and recorded the missing capability or evidence.
 
 Mark the Living Brief `provisionally-aligned` only when:
 
@@ -381,6 +413,35 @@ deduplication, evidence coverage, epistemic review, and final synthesis.
 Compress large finding sets only while preserving every claim's provenance,
 limitation, dissent, and affected decision.
 
+### 6.1 Plan-to-execute drain loop
+
+Do not dispatch a broad research topic as one task. Compile each active Decision
+Slot into phase work: landscape mapping, decision-specific depth, adversarial
+search, and validation. Persist the plan before dispatch. Release only the
+dependency-ready phase tasks up to actual worker capacity, require a Finding
+Pack for completion, record failure or blockage with a reason, then ingest and
+replan. Continue until the portfolio is drained or a material human decision is
+required.
+
+The coordinator creates child work and owns synthesis. Workers must not create
+more workers or re-delegate. When delegated workers are available, doing all
+independent high-impact research serially without a documented constraint is a
+conformance failure.
+
+### 6.2 Insight synthesis
+
+After each Finding Pack batch, synthesize by Decision Slot rather than joining
+worker prose. Detect uncovered slots, repeated claims, conflicting option
+effects, cross-source constraints, explicit uncertainty, and missing validation.
+Emit an Insight Digest whose successor actions feed the next portfolio. Insight
+is a hypothesis about the relationship among findings, not a replacement for
+their anchors and not authority to select a design option.
+
+`uncovered`, `thin`, `contested`, and `qualified` signals keep the slot open.
+Only a converging evidence set proceeds to Decision Ledger review. For active
+P0 slots, completion additionally requires depth, counterevidence, and the
+stated validation oracle; a polished report cannot substitute for this closure.
+
 ## 7. Report evaluation
 
 Fail the package if any of these is true:
@@ -406,7 +467,22 @@ Fail the package if any of these is true:
 - high-impact decisions lack evidence standards, fallbacks, or reversal rules;
 - cited sources do not support the claims or are only snippets;
 - a report or schema is called an executed product; or
-- the Human Brief and Technical Research Package disagree.
+- the Human Brief and Technical Research Package disagree;
+- either co-primary deliverable is missing, shallow, or not traceable to the
+  same intent, evidence, decisions, and execution status; or
+- the requester has expressed dissatisfaction, a correction, or a depth
+  objection that has not been incorporated and revalidated; or
+- available independent workers were left unused without a recorded reason;
+- a broad track was delegated as one task, a worker re-delegated, or the
+  coordinator skipped plan-to-execute ingestion and replanning; or
+- final delivery started while an active P0 Insight Digest remained uncovered,
+  thin, contested, or qualified.
+
+Do not advance to implementation, OpenSpec conversion, or a dependent round
+until the Technical Research Package passes its readiness gates and the
+requester accepts the Human Brief. Silence, "okay", and generic acknowledgement
+are not acceptance. Routine research after strategy handoff remains autonomous,
+but this final human gate is mandatory before dependent work proceeds.
 
 ## 8. Heuristic conformance checks
 
@@ -462,6 +538,16 @@ properties does not pass.
 - [Codex Autoresearch](https://github.com/leo-lilinxiao/codex-autoresearch):
   explicit parsers and guards, append-only audit events, reproducible histories,
   exact failure state, and reversible trials.
+- [agent-swarm](https://github.com/desplega-ai/agent-swarm):
+  lead/worker isolation, drain loops, priority and dependency queues,
+  persistent shared memory, litmus-test quality gates, and explicit human gates.
+  This repository adapts those mechanisms to Decision Slots, Finding Packs, and
+  immutable run-scoped artifacts rather than copying its infrastructure.
+- [Superpowers Brainstorming](https://github.com/obra/superpowers/tree/main/skills/brainstorming):
+  inspect project context first, advance one question at a time, decompose
+  oversized requests, and validate evolving designs in small sections. This
+  product adapts those interaction properties but deliberately does not inherit
+  its preference for multiple-choice elicitation or universal approval gates.
 
 Adapt mechanisms rather than copying whole workflows. Open-ended research needs
 multi-dimensional convergence, dynamic problem revision, and human-agent

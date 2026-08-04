@@ -18,6 +18,15 @@ than the original wording. Separate explicit user intent from agent inference.}}
 | {{Agent corrected itself}} | {{anchor/evidence}} | {{...}} |
 | {{Evidence changed a shared assumption}} | {{anchor}} | {{...}} |
 
+## Alignment Trace
+
+{{Summarize the meaningful alignment turns, not the full conversation. Show the
+one gap explored per turn and how the human and agent models changed.}}
+
+| Turn | Gap explored | Evidence/teaching | What the requester clarified | Resulting change |
+|---|---|---|---|---|
+| {{AT-1}} | {{...}} | {{...}} | {{sanitized summary}} | {{...}} |
+
 ## Recommended Technical Direction
 
 {{The capability, architecture direction, and first useful working loop.}}
@@ -67,6 +76,12 @@ their next validation or human decision.}}
 ## Technical Package
 
 {{Path/reference to the agent-facing package. Mention OpenSpec only if requested.}}
+
+## Human Decision Gate
+
+- Status: {{pending|accepted|needs-revision|blocked}}
+- Requester satisfaction anchor: {{explicit acceptance or unresolved objection}}
+- Required revision/evidence batch: {{...}}
 
 {{Use plain language. Never describe a report, schema, pseudocode, or proposed
 implementation as a working system.}}

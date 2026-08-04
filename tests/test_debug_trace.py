@@ -64,6 +64,23 @@ def test_trace_summary_is_bounded_and_counts_transitions(tmp_path: Path) -> None
     assert summary["recent"][0]["phase"] == "alignment_checkpoint"
 
 
+def test_trace_accepts_alignment_turn_without_transcript_fields(tmp_path: Path) -> None:
+    root = project(tmp_path)
+    result = emit_trace(
+        host="hermes",
+        phase="alignment_turn",
+        status="completed",
+        codes=("model-delta",),
+        project_root=root,
+    )
+
+    record = json.loads((root / result["path"]).read_text(encoding="utf-8"))
+    assert record["phase"] == "alignment_turn"
+    assert record["codes"] == ["model-delta"]
+    assert "response" not in record
+    assert "prompt" not in record
+
+
 def test_trace_rejects_free_form_codes_and_invalid_limits(tmp_path: Path) -> None:
     root = project(tmp_path)
     with pytest.raises(DebugTraceError, match="debug code"):

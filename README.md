@@ -68,38 +68,32 @@ requested.
 
 ## Operating Model
 
-```text
-Question, source bundle, or repository
-                    |
-                    v
-        Bounded reconnaissance
-                    |
-                    v
-     Mutual cognition + debate + feasibility
-          ^                     |
-          |                     v
-          +---- new evidence or feedback
-                    |
-                    v
-       Decision equilibrium -> Strategy handoff
-                    |
-                    v
-       Recursive evidence-driven research
-                    |
-                    v
-        Decision Ledger and readiness gate
-                    |
-          +---------+---------+
-          |                   |
-          v                   v
- Technical Research      Human Brief
-      Package
+```mermaid
+flowchart TD
+    Q[Question, source bundle, or repository] --> R[Bounded reconnaissance]
+    R --> C[Mutual cognition, debate, and feasibility]
+    C --> H{New evidence or feedback?}
+    H -->|yes| C
+    H -->|aligned| S[Decision equilibrium and strategy handoff]
+    S --> P[Plan-to-execute research portfolio]
+    P --> W[Worker waves and Finding Packs]
+    W --> I[Insight Digest]
+    I -->|gaps or conflicts| P
+    I -->|converging| L[Decision Ledger and readiness gate]
+    L --> T[Technical Research Package]
+    L --> B[Human Brief]
 ```
 
 The research tree is an execution view of the current understanding, not a
 fixed plan. Intent understanding continues during repository inspection and
 deep research. Findings discovered during research can change the brief,
 reopen a decision, or replace part of the tree.
+
+The Python runtime makes the long-horizon part executable: the scheduler emits
+bounded worker waves, `advance_execution` persists the next ready batch across
+turns, and `synthesize_insights` turns cross-worker agreement or conflict into
+explicit successor work. It is a durable coordination layer, while the host
+agent still owns web access, worker processes, and source acquisition.
 
 ## Quick Start
 

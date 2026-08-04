@@ -9,8 +9,9 @@ another host merely because they appear in examples.
   `references/` or `assets/` from the user's working directory.
 - Read `references/claude-code-compatibility.md` before the first alignment or
   research action, as well as before Claude-specific installation or hooks.
-- When the current session exposes `AskUserQuestion`, use it only for the 1-3
-  consequential decisions before the Research Strategy handoff. After the
+- When the current session exposes `AskUserQuestion`, use it only for a rare
+  discrete decision after open-ended intent guidance and before the Research
+  Strategy handoff. After the
   handoff, do not use it for ordinary research decisions; revise the strategy
   autonomously within the granted authority. Otherwise use ordinary dialogue
   during pre-handoff alignment; never assume `AskUserQuestion`,

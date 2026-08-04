@@ -32,7 +32,7 @@ side factually infallible.}}
 
 | Packet | Reconnaissance performed | Knowledge added | Blind spots/counterevidence | Decisions enabled | User response |
 |---|---|---|---|---|---|
-| {{BSP-1}} | {{...}} | {{...}} | {{...}} | {{1-3 bounded choices}} | {{pending or anchor}} |
+| {{BSP-1}} | {{...}} | {{...}} | {{...}} | {{one guided prompt or rare discrete choice}} | {{pending or anchor}} |
 
 ## Knowledge Alignment Ledger
 
@@ -48,6 +48,12 @@ agent technical assertions remain falsifiable.}}
 | Event | What changed | Previous belief/plan | New belief/plan | Evidence or user anchor | Effect on scope/tree |
 |---|---|---|---|---|---|
 | {{...}} | {{user correction|agent self-correction|new evidence}} | {{...}} | {{...}} | {{...}} | {{local revision|reopened alignment|none}} |
+
+## Alignment Turn Ledger
+
+| Turn | Current mirror | One intent/knowledge gap | Evidence added | Requester response summary | Human/agent belief delta | Decision effect |
+|---|---|---|---|---|---|---|
+| {{AT-1}} | {{...}} | {{...}} | {{...}} | {{sanitized summary}} | {{...}} | {{...}} |
 
 ## Current Provisional Working Frame
 

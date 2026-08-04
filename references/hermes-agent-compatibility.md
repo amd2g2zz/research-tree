@@ -33,8 +33,10 @@ It supports open-ended questions, up to four single-select choices, and
 `multi_select` choices. It is available in the default `hermes-cli` and most
 gateway platform presets, but is explicitly removed from `hermes-acp` and
 `hermes-api-server`; inspect the active toolset before using it. Do not confuse
-`kanban_block` with a general user-question mechanism. If `clarify` is absent,
-use ordinary conversation and keep the Alignment Checkpoint open.
+`kanban_block` with a general user-question mechanism. Use ordinary open-ended
+dialogue for intent elicitation even when `clarify` is present; reserve it for
+a rare consequential discrete decision after explanation. If `clarify` is
+absent, continue ordinary conversation and keep the Alignment Checkpoint open.
 
 ## Full-fidelity local loading
 

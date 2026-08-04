@@ -20,6 +20,7 @@ PHASES = frozenset(
         "lifecycle_observed",
         "intake",
         "reconnaissance",
+        "alignment_turn",
         "alignment_checkpoint",
         "alignment_blocked",
         "research_started",
