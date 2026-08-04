@@ -56,9 +56,9 @@ progressive disclosure and plain-language explanations over process narration.
 
 Every pre-handoff turn must be knowledge-bearing and decision-guiding. A
 question-only turn, a workflow-status dump, or an unannotated option table
-fails this rule. When the requester is confused, lacks a term, or says they do
-not know, run this teaching reconnaissance cycle before asking another
-preference question:
+fails this rule. When the requester is confused, lacks a term, says they do not
+know, or gives a vague, short, incomplete, or contradictory brief, run this
+teaching reconnaissance cycle before asking another preference question:
 
 1. identify the missing distinction or knowledge needed for the next decision;
 2. inspect the smallest useful web, repository, or supplied-material sources;
@@ -70,7 +70,10 @@ preference question:
 
 The cycle is adaptive, not a fixed questionnaire. Its success criterion is that
 the requester can make a more informed decision, not that every protocol field
-has been displayed.
+has been displayed. Keep each user-facing interactive turn under 1000
+characters. Use short rounds with the compact project shape `progress -> new
+information -> impact -> one decision/reflection -> next step`; put long
+technical packages in workspace artifacts instead of chat.
 
 ### Authority rules
 

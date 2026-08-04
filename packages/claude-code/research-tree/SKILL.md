@@ -117,6 +117,14 @@ an ordinary research run.
   tree revisions as internal working state unless exposing a small part of
   them helps the requester understand or decide. Use progressive disclosure;
   never make the requester operate the schema.
+- Treat a vague, short, incomplete, or contradictory brief as a difficulty
+  signal, not permission to invent missing requirements. Search or inspect the
+  smallest useful evidence set, teach the missing distinction, and guide the
+  next decision in a later short turn.
+- Keep every user-facing interactive turn under 1000 characters. Split work
+  across short purposeful rounds using: progress, new information, impact, one
+  decision/reflection, and next step. Internal reports and persisted artifacts
+  may be longer; do not paste them into the conversation by default.
 - Rewrite the apparent intent and reasonably expand its scope when
   reconnaissance exposes missing outcome, evaluation, authority, lifecycle,
   safety, integration, or operational dimensions. Label every expansion as an

@@ -227,6 +227,22 @@ def test_early_communication_is_human_centered_and_confusion_driven() -> None:
     assert "smallest useful web, repository, or supplied-material sources" in playbook
 
 
+def test_vague_briefs_trigger_short_guided_communication() -> None:
+    product = (ROOT / "PRODUCT.md").read_text(encoding="utf-8")
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
+        encoding="utf-8"
+    )
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
+        encoding="utf-8"
+    )
+
+    for body in (product, template, playbook):
+        assert "1000" in body
+        assert "vague" in body
+        assert "short" in body
+    assert "progress -> new" in playbook
+
+
 def test_each_package_uses_only_its_hosts_metadata_format() -> None:
     codex = ROOT / "packages" / "codex" / "research-tree"
     claude = ROOT / "packages" / "claude-code" / "research-tree"
