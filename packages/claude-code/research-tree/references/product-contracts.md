@@ -55,6 +55,56 @@ A Context Bundle can be one sentence, many documents, or a repository plus
 other materials. Membership describes delivery context, not authority or
 agreement. The agent does not flatten conflicting entries into a single source.
 
+## Alignment Graph and Handoff
+
+Before autonomous research, persist a temporal heterogeneous multigraph in
+`.research-tree-alignment/<run-id>/alignment.db`. Nodes represent typed human
+or agent beliefs, intent hypotheses, constraints, evidence, disagreements,
+strategy, and closure oracles. Directed edges have independent IDs so the same
+nodes may retain multiple relations with different provenance, time, and
+confidence.
+
+SQLite `nodes` and `edges` tables are rebuildable materialized views. The
+append-only `events` table stores every complete revision; `controller` stores
+the current turn and handoff gate. WAL, foreign keys, and transactions are
+enabled on every controller connection.
+
+```jsonc
+{
+  "kind": "alignment-handoff",
+  "alignment_revision": 12,
+  "alignment_digest": "sha256 of displayed graph projection",
+  "objective": "confirmed outcome",
+  "strategy": "confirmed autonomous research strategy",
+  "execution_context": {
+    "intended_use": [],
+    "scope_boundaries": [],
+    "delivery": [],
+    "authority": [],
+    "success_oracles": [],
+    "feasibility": [],
+    "constraints": []
+  },
+  "decision_slots": {},
+  "baseline_findings": []
+}
+```
+
+The handoff compiler runs only after explicit confirmation of the displayed
+digest. Open agent-researchable nodes become Decision Slots; their oracles
+become validation rules. Anchored reconnaissance evidence becomes Finding Packs
+loaded into Research Tree revision zero with no realized gain. Indirect graph
+paths and their relation semantics remain attached to observations. Evidence
+without an anchor or a path to a current slot blocks compilation unless marked
+`alignment_only`; an active `supersedes` edge removes its target obligation.
+Human statements remain intent evidence and are never silently converted into
+technical facts.
+
+Closing every Decision Slot produces `delivery_pending`, not `complete`. The
+runtime's `tree-deliver` command verifies both report files, records their
+absolute path, UTF-8/no-BOM status, minimum depth, and digest, and only then
+permits the terminal state.
+
 ## Repository Baseline
 
 ```jsonc
@@ -288,7 +338,21 @@ a mandatory pre-research questionnaire.
   }],
   "option_effects": [{"option": "candidate-a", "effect": "supports|contradicts|limits"}],
   "implementation_implications": [],
-  "remaining_uncertainties": []
+  "remaining_uncertainties": [],
+  "research_node_id": "node:decision-slot-architecture:...",
+  "research_continuations": [{
+    "kind": "deep_dive|adversarial|validation|method_switch",
+    "question": "one successor question triggered by this evidence",
+    "trigger": "why the current evidence created this action",
+    "evidence_needed": "the missing evidence class",
+    "oracle": "observable condition that closes the child",
+    "estimated_cost": 1
+  }],
+  "validation_result": {
+    "status": "passed|failed|inconclusive",
+    "oracle": "the oracle that was evaluated",
+    "evidence_ref": "source or executed artifact reference"
+  }
 }
 ```
 
@@ -300,6 +364,25 @@ not close the current work item.
 
 Workers return Finding Packs, not standalone report chapters. A source list
 without atomic observations and decision effects is not a Finding Pack.
+`research_continuations` is the only worker-controlled growth proposal. The
+coordinator deduplicates, scores, and may reject it; workers do not mutate the
+active tree or assign their own information-gain score.
+
+## Persistent recursive research state
+
+Every accepted batch appends a `research-tree-state` artifact. Revision zero
+loads existing Finding Packs as the evidence baseline and records no realized
+gain. Later revisions reference the previous tree state and exactly the new
+Finding Packs they consume. The state includes active and terminal nodes,
+Decision Slot closure status, evidence fingerprints, measured deltas,
+bounded residual risk, observed branch complexity, validation outcomes,
+penalties, and the stop reason. Failed validation raises the slot's bounded
+residual and grows an independent-method retry; passed validation removes that
+closure deficit. Recovery loads the latest revision and replays
+persisted Finding Packs absent from `consumed_finding_ids`. It also stores the
+exact execution context and a two-entry `deliverables` manifest. Once all
+Decision Slots close, the state becomes `delivery_pending` until `tree-deliver`
+verifies both report artifacts; only then may it become `complete`.
 
 ## Decision Ledger Entry
 

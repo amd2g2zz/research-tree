@@ -67,7 +67,7 @@ After strategy handoff, initialize and advance durable state with the bundled
 adapter:
 
 ```bash
-python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . init --run-id <run-id>
+python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . init --run-id <run-id> --handoff .research-tree-alignment/<alignment-run>/handoff.json
 python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . add-task --run-id <run-id> --task-id <task-id> --decision-slot <slot> --phase landscape --artifact <finding.json>
 python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . start --run-id <run-id> --task-id <task-id> --worker-id <agent-id>
 python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . finish --run-id <run-id> --task-id <task-id> --result submitted
@@ -76,7 +76,10 @@ python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspa
 ```
 
 Resolve `<skill-dir>` from `${CLAUDE_SKILL_DIR}` when present or the injected
-Skill path, never from the task workspace. Add dependencies with `--depends-on`
+Skill path, never from the task workspace. `init` requires the persisted,
+digest-confirmed handoff and copies its Decision Slots, authority, scope, and
+success oracles into durable execution state. `add-task` rejects slots absent
+from that handoff. Add dependencies with `--depends-on`
 and give each worker the `attempt_id` returned by `start`. Run `recover` after a
 crash, uncertain resume, or integrity error. It reopens corrupt artifacts and
 their executed dependents so invalid evidence cannot release new work. `finish`

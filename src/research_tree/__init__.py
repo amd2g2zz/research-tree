@@ -149,6 +149,34 @@ from .orchestration import (
     validate_orchestration_plan,
 )
 from .insights import synthesize_insights, validate_insight_digest
+from .evidence_delta import (
+    EvidenceBaseline,
+    baseline_from_finding_packs,
+    measure_realized_delta,
+)
+from .recursive_search import (
+    RecursiveResearchCoordinator,
+    RecursiveSearchConfig,
+    apply_research_results,
+    evaluate_research_stop,
+    finalize_research_delivery,
+    initialize_research_state,
+    prune_research_state,
+    score_research_frontier,
+    select_research_actions,
+)
+from .tree_state import (
+    RESEARCH_TREE_STATE_KIND,
+    ResearchTreeStateError,
+    ResearchTreeStateService,
+    validate_tree_state_payload,
+)
+from .alignment_graph import AlignmentGraphError, AlignmentGraphStore
+from .alignment_handoff import (
+    ALIGNMENT_GRAPH_KIND,
+    ALIGNMENT_HANDOFF_KIND,
+    initialize_research_from_alignment,
+)
 from .storage import RunStore
 from .work_items import (
     InvalidWorkItemError,
@@ -174,6 +202,27 @@ __all__ = [
     "validate_orchestration_plan",
     "synthesize_insights",
     "validate_insight_digest",
+    "EvidenceBaseline",
+    "baseline_from_finding_packs",
+    "measure_realized_delta",
+    "RecursiveSearchConfig",
+    "RecursiveResearchCoordinator",
+    "initialize_research_state",
+    "apply_research_results",
+    "score_research_frontier",
+    "prune_research_state",
+    "select_research_actions",
+    "evaluate_research_stop",
+    "finalize_research_delivery",
+    "RESEARCH_TREE_STATE_KIND",
+    "ResearchTreeStateError",
+    "ResearchTreeStateService",
+    "validate_tree_state_payload",
+    "AlignmentGraphError",
+    "AlignmentGraphStore",
+    "ALIGNMENT_GRAPH_KIND",
+    "ALIGNMENT_HANDOFF_KIND",
+    "initialize_research_from_alignment",
     "AssuranceAdapterRunner",
     "AssuranceAdapterSet",
     "AssuranceError",

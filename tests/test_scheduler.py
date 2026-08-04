@@ -233,17 +233,17 @@ def context(tmp_path: Path):
 def scoring_inputs() -> dict[str, dict[str, int]]:
     return {
         "work-boundary": {
-            "expected_information_gain": 90,
+            "expected_decision_value": 90,
             "cost": 10,
             "duplicate_risk": 0,
         },
         "work-sandbox": {
-            "expected_information_gain": 70,
+            "expected_decision_value": 70,
             "cost": 10,
             "duplicate_risk": 0,
         },
         "work-logging": {
-            "expected_information_gain": 60,
+            "expected_decision_value": 60,
             "cost": 8,
             "duplicate_risk": 5,
         },
@@ -338,7 +338,7 @@ def test_budget_exhaustion_and_duplicate_work_are_explicitly_recorded(tmp_path: 
     )
     inputs = scoring_inputs() | {
         "work-boundary-copy": {
-            "expected_information_gain": 80,
+            "expected_decision_value": 80,
             "cost": 10,
             "duplicate_risk": 0,
         }
@@ -409,7 +409,7 @@ def test_replan_retains_prior_provenance_and_records_priority_change_event(tmp_p
     first = schedule(modules, store, round_record, target, works)
     revised_scores = scoring_inputs()
     revised_scores["work-sandbox"] = {
-        "expected_information_gain": 99,
+        "expected_decision_value": 99,
         "cost": 1,
         "duplicate_risk": 0,
     }
@@ -486,12 +486,12 @@ def test_duplicate_canonical_never_depends_on_a_cancelled_duplicate(tmp_path: Pa
     )
     inputs = scoring_inputs() | {
         "work-boundary": {
-            "expected_information_gain": 0,
+            "expected_decision_value": 0,
             "cost": 100,
             "duplicate_risk": 0,
         },
         "work-boundary-copy": {
-            "expected_information_gain": 100,
+            "expected_decision_value": 100,
             "cost": 0,
             "duplicate_risk": 0,
         }

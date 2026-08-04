@@ -12,6 +12,43 @@ ROOT = Path(__file__).resolve().parents[1]
 ADAPTER = ROOT / "scripts" / "native_execution_adapter.py"
 
 
+def write_handoff(workspace: Path) -> Path:
+    path = workspace / "handoff.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "kind": "alignment-handoff",
+                "run_id": "alignment-run",
+                "decision_slots": {
+                    "slot-a": {"question": "Primary decision"},
+                    "slot-b": {"question": "Secondary decision"},
+                },
+                "execution_context": {
+                    "authority": ["Autonomous research only; no target edits."],
+                    "success_oracles": ["All P0 decisions are independently validated."],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def write_reports(workspace: Path) -> tuple[Path, Path]:
+    technical = workspace / "technical-research-package.md"
+    technical.write_text(
+        "# Technical Research Package\n\n## Evidence\n\n## Validation\n" + "x" * 1100,
+        encoding="utf-8",
+    )
+    human = workspace / "human-research-report.md"
+    human.write_text(
+        "# Human Research Report\n\n## Findings\n\n" + "x" * 600,
+        encoding="utf-8",
+    )
+    return technical, human
+
+
 def run_adapter(
     workspace: Path, host: str, command: str, *args: str
 ) -> subprocess.CompletedProcess[str]:
@@ -63,7 +100,11 @@ def finding(
 @pytest.mark.parametrize("host", ["codex", "claude"])
 def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -> None:
     run_id = f"{host}-run"
-    assert run_adapter(tmp_path, host, "init", "--run-id", run_id).returncode == 0
+    technical, human = write_reports(tmp_path)
+    assert run_adapter(
+        tmp_path, host, "init", "--run-id", run_id,
+        "--handoff", str(write_handoff(tmp_path)),
+    ).returncode == 0
     first = run_adapter(
         tmp_path,
         host,
@@ -183,7 +224,17 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
     assert submitted["counts"]["submitted"] == 1
     assert submitted["ready"] == []
     assert submitted["complete"] is False
-    assert run_adapter(tmp_path, host, "complete", "--run-id", run_id).returncode == 1
+    assert run_adapter(
+        tmp_path,
+        host,
+        "complete",
+        "--run-id",
+        run_id,
+        "--technical-report",
+        str(technical),
+        "--human-report",
+        str(human),
+    ).returncode == 1
     unchecked = run_adapter(
         tmp_path,
         host,
@@ -261,7 +312,17 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
         "--checked-anchor",
         "https://example.test/source",
     ).returncode == 0
-    completed = run_adapter(tmp_path, host, "complete", "--run-id", run_id)
+    completed = run_adapter(
+        tmp_path,
+        host,
+        "complete",
+        "--run-id",
+        run_id,
+        "--technical-report",
+        str(technical),
+        "--human-report",
+        str(human),
+    )
     assert completed.returncode == 0, completed.stderr
     assert json.loads(completed.stdout)["complete"] is True
 
@@ -279,7 +340,10 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
 
 def test_adapter_rejects_invalid_finding_and_detects_tampering(tmp_path: Path) -> None:
     run_id = "integrity-run"
-    run_adapter(tmp_path, "codex", "init", "--run-id", run_id)
+    run_adapter(
+        tmp_path, "codex", "init", "--run-id", run_id,
+        "--handoff", str(write_handoff(tmp_path)),
+    )
     run_adapter(
         tmp_path,
         "codex",
@@ -431,7 +495,10 @@ def test_adapter_rejects_invalid_finding_and_detects_tampering(tmp_path: Path) -
 
 
 def test_adapter_rejects_artifacts_outside_workspace(tmp_path: Path) -> None:
-    run_adapter(tmp_path, "claude", "init", "--run-id", "safe-run")
+    run_adapter(
+        tmp_path, "claude", "init", "--run-id", "safe-run",
+        "--handoff", str(write_handoff(tmp_path)),
+    )
     outside = tmp_path.parent / "outside.json"
     completed = run_adapter(
         tmp_path,
@@ -450,3 +517,36 @@ def test_adapter_rejects_artifacts_outside_workspace(tmp_path: Path) -> None:
     )
     assert completed.returncode == 1
     assert "inside the workspace" in completed.stderr
+
+
+def test_adapter_requires_handoff_and_rejects_unknown_decision_slot(tmp_path: Path) -> None:
+    missing = run_adapter(tmp_path, "codex", "init", "--run-id", "missing-handoff")
+    assert missing.returncode != 0
+    assert "--handoff" in missing.stderr
+
+    initialized = run_adapter(
+        tmp_path, "codex", "init", "--run-id", "bound-run",
+        "--handoff", str(write_handoff(tmp_path)),
+    )
+    assert initialized.returncode == 0, initialized.stderr
+    state = json.loads(initialized.stdout)
+    assert state["execution_context"]["authority"] == [
+        "Autonomous research only; no target edits."
+    ]
+    rejected = run_adapter(
+        tmp_path,
+        "codex",
+        "add-task",
+        "--run-id",
+        "bound-run",
+        "--task-id",
+        "task-x",
+        "--decision-slot",
+        "slot-not-confirmed",
+        "--phase",
+        "landscape",
+        "--artifact",
+        "finding-x.json",
+    )
+    assert rejected.returncode == 1
+    assert "confirmed handoff" in rejected.stderr

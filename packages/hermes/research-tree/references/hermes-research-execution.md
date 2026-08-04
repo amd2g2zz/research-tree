@@ -6,8 +6,9 @@ durable scheduling, or live delegation recovery.
 
 ## Compile the strategy
 
-Represent the current strategy as one versioned dependency DAG. Each work item
-must contain:
+Represent the current strategy as one persisted recursive research state. Its
+current frontier is a bounded dependency DAG, but later Finding Packs may grow
+new successor actions. Each work item must contain:
 
 - stable ID, decision slot, phase, dependencies, and owner;
 - one bounded research question and explicit non-goals;
@@ -21,15 +22,17 @@ without user interaction or final-report drafting.
 
 ## Drain loop
 
-1. Reconcile persisted task state and artifact integrity.
-2. Select dependency-ready items by information gain and decision impact.
-3. Dispatch independent items as one bounded wave.
-4. Continue parent-only work: repository inspection, source normalization,
+1. Reconcile the latest `research-tree-state`, task state, and artifact integrity.
+2. Replay Finding Packs absent from `consumed_finding_ids` after a crash.
+3. Select dependency-ready items by expected decision value, not worker self-score.
+4. Dispatch independent items as one bounded wave.
+5. Continue parent-only work: repository inspection, source normalization,
    contradiction preparation, and state maintenance.
-5. Ingest only artifacts whose attempt ID and schema match the active task.
-6. Verify decisive anchors independently.
-7. Update evidence coverage, contradictions, Insight Digest, and strategy.
-8. Persist the next ready wave before continuing or returning.
+6. Ingest only artifacts whose attempt ID and schema match the active task.
+7. Verify decisive anchors independently.
+8. Measure the actual evidence-ledger delta against the persisted baseline.
+9. Grow, deduplicate, prune, or defer structured successor actions.
+10. Persist the next tree revision and ready frontier before continuing.
 
 Use task states `pending`, `running`, `submitted`, `completed`, `failed`, and
 `unknown`. Submission never releases dependents. Only parent verification may
@@ -40,10 +43,16 @@ and any downstream result that depended on it.
 
 Require atomic observations with claim, anchor, applicability, confidence, and
 limitation; option effects; implementation implications; remaining
-uncertainties; work item ID; decision slot; phase; and active attempt ID.
+uncertainties; structured `research_continuations`; work item ID; research node
+ID; decision slot; phase; and active attempt ID.
 Schema validity is not evidence validity. Open important URLs, inspect cited
 paths, reproduce calculations where proportionate, and compare overlapping
 workers.
+
+Historical Finding Packs are the initialization baseline and have zero
+realized delta. A continuation records its kind, question, evidence trigger,
+required evidence, oracle, and estimated cost. It does not assign information
+gain or mutate the tree; the coordinator decides whether it becomes active.
 
 ## Insight mechanism
 

@@ -33,7 +33,12 @@ COMMON_FILES = (
     Path("references/blueprint-generation-research.md"),
     Path("references/debug-tracing.md"),
     Path("references/product-contracts.md"),
+    Path("references/research-tree-architecture.md"),
     Path("references/research-quality-playbook.md"),
+    Path("references/alignment-controller.md"),
+)
+COMMON_FILE_MAP = (
+    (Path("src/research_tree/alignment_graph.py"), Path("scripts/alignment_controller.py")),
 )
 HERMES_FILES = (
     Path("references/hermes-alignment.md"),
@@ -43,6 +48,7 @@ HERMES_FILES = (
     Path("references/hermes-research-execution.md"),
     Path("scripts/hermes_runtime_hook.py"),
     Path("scripts/hermes_skill_adapter.py"),
+    Path("scripts/hermes_execution_adapter.py"),
 )
 CLAUDE_FILES = (
     Path("references/claude-code-compatibility.md"),
@@ -154,7 +160,11 @@ def validate_package(
         if text != _render_skill(host, root):
             errors.append("SKILL.md is stale relative to its host template")
 
-    expected_files = {Path("SKILL.md"), *COMMON_FILES}
+    expected_files = {
+        Path("SKILL.md"),
+        *COMMON_FILES,
+        *(target for _source, target in COMMON_FILE_MAP),
+    }
     if host == "codex":
         expected_files.update(CODEX_FILES)
     if host == "claude":
@@ -176,7 +186,7 @@ def validate_package(
         source_relative = next(
             (
                 source
-                for source, target in HOST_FILE_MAP[host]
+                for source, target in (*COMMON_FILE_MAP, *HOST_FILE_MAP[host])
                 if target == relative
             ),
             relative,
@@ -262,6 +272,7 @@ def build_packages(root: Path = ROOT) -> dict[str, object]:
                 _render_skill(host, root), encoding="utf-8", newline="\n"
             )
             _copy_files(root, staged, COMMON_FILES)
+            _copy_mapped_files(root, staged, COMMON_FILE_MAP)
             if host == "codex":
                 _copy_files(root, staged, CODEX_FILES)
             if host == "claude":

@@ -53,7 +53,7 @@ nearest feasible reframings, but do not silently choose a substitute.
 
 ## Strategy equilibrium
 
-Handoff is allowed only when:
+The agent may prepare a handoff draft only when:
 
 - the user and agent can each see how their model changed;
 - the outcome, scope, non-goals, artifact, authority, environment, and evidence
@@ -61,8 +61,13 @@ Handoff is allowed only when:
 - feasibility is supported rather than assumed;
 - the completion oracle is operational and observable;
 - no open disagreement can materially redirect research; and
-- the requester understands the Human Brief shape that will accompany the
-  technical package.
+- the requester understands that the Human Brief artifact will contain a
+  professional Human Research Report, not a shallow summary.
 
-Execute-direct permits a provisional checkpoint and immediate handoff, but it
-does not waive authority, safety, feasibility, or honest completion rules.
+Then show the strategy projection from the Alignment Graph and wait for explicit human
+confirmation of the outcome, scope, authority, and autonomous-research
+transition. The draft is not consent. `okay`, `continue`, silence, or the
+agent's own "alignment achieved" assertion are not confirmation. Execute-direct
+permits a provisional draft and immediate work only when the requester
+explicitly authorized direct execution; it still does not waive authority,
+safety, feasibility, or honest completion rules.

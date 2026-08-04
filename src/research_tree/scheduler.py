@@ -396,12 +396,12 @@ def _normalize_scoring_inputs(
             raise InvalidPortfolioError(f"scoring_inputs[{work.id}] must be a mapping")
         _require_exact_keys(
             raw,
-            {"expected_information_gain", "cost", "duplicate_risk"},
+            {"expected_decision_value", "cost", "duplicate_risk"},
             f"scoring_inputs[{work.id}]",
         )
         result[work.id] = {
             key: _score_input(raw[key], f"scoring_inputs[{work.id}].{key}")
-            for key in ("expected_information_gain", "cost", "duplicate_risk")
+            for key in ("expected_decision_value", "cost", "duplicate_risk")
         }
     return result
 
@@ -527,7 +527,7 @@ def _score_work(
             "uncertainty": _level(slot.get("uncertainty"), f"Decision Slot {slot_id}.uncertainty") * 20,
             "downstream_leverage": leverage[work.id] * 10,
             "irreversibility": _level(slot.get("irreversibility"), f"Decision Slot {slot_id}.irreversibility") * 15,
-            "expected_information_gain": factors["expected_information_gain"],
+            "expected_decision_value": factors["expected_decision_value"],
             "cost": -factors["cost"],
             "duplicate_risk": -factors["duplicate_risk"],
         }

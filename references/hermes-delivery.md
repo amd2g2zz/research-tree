@@ -22,9 +22,11 @@ Separate repository observation, external-source claim, experiment result,
 agent inference, and proposal. Never describe a report, generated code, or
 successful compilation as an executed production system.
 
-## Human Brief gate
+## Human Research Report gate (Human Brief artifact)
 
-The Human Brief is co-primary. In plain language explain:
+The requester-facing report is co-primary and must remain professional,
+evidence-bearing, and decision-capable rather than becoming a shallow summary.
+In plain language explain:
 
 - the question now being solved and how it changed;
 - the few findings that materially changed the direction;
