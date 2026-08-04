@@ -36,10 +36,20 @@ COMMON_FILES = (
 )
 HERMES_FILES = (
     Path("references/hermes-agent-compatibility.md"),
+    Path("references/hermes-native-orchestration.md"),
+    Path("scripts/hermes_runtime_hook.py"),
     Path("scripts/hermes_skill_adapter.py"),
 )
-CLAUDE_FILES = (Path("references/claude-code-compatibility.md"),)
-CODEX_FILES = (Path("references/codex-cli-compatibility.md"),)
+CLAUDE_FILES = (
+    Path("references/claude-code-compatibility.md"),
+    Path("references/claude-native-orchestration.md"),
+    Path("scripts/native_execution_adapter.py"),
+)
+CODEX_FILES = (
+    Path("references/codex-cli-compatibility.md"),
+    Path("references/codex-native-orchestration.md"),
+    Path("scripts/native_execution_adapter.py"),
+)
 HOST_FILE_MAP = {
     "codex": (
         (Path("skill-src/codex-openai.yaml"), Path("agents/openai.yaml")),
@@ -177,6 +187,8 @@ def validate_package(
     has_hermes_material = (
         "Hermes runtime adapter" in text
         or (package / "references/hermes-agent-compatibility.md").exists()
+        or (package / "references/hermes-native-orchestration.md").exists()
+        or (package / "scripts/hermes_runtime_hook.py").exists()
         or (package / "scripts/hermes_skill_adapter.py").exists()
     )
     if host == "hermes" and not has_hermes_material:
@@ -187,6 +199,7 @@ def validate_package(
     has_claude_material = (
         "Claude Code runtime adapter" in text
         or (package / "references/claude-code-compatibility.md").exists()
+        or (package / "references/claude-native-orchestration.md").exists()
     )
     if host == "claude" and not has_claude_material:
         errors.append("Claude package is missing its host adapter")
@@ -196,6 +209,7 @@ def validate_package(
     has_codex_material = (
         "Codex CLI runtime adapter" in text
         or (package / "references/codex-cli-compatibility.md").exists()
+        or (package / "references/codex-native-orchestration.md").exists()
     )
     if host == "codex" and not has_codex_material:
         errors.append("Codex package is missing its host adapter")

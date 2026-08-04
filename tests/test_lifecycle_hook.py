@@ -76,7 +76,8 @@ def test_observe_rejects_event_mismatch(tmp_path: Path) -> None:
         )
 
 
-def test_claude_reentrant_stop_is_not_recorded(tmp_path: Path) -> None:
+@pytest.mark.parametrize("host", ["codex", "claude"])
+def test_reentrant_stop_is_not_recorded(tmp_path: Path, host: str) -> None:
     root = project(tmp_path)
     result = observe(
         {
@@ -84,7 +85,7 @@ def test_claude_reentrant_stop_is_not_recorded(tmp_path: Path) -> None:
             "hook_event_name": "Stop",
             "stop_hook_active": True,
         },
-        host="claude",
+        host=host,
         event="Stop",
         project_root=root,
         process_cwd=root,
@@ -131,7 +132,7 @@ def test_read_payload_is_bounded_and_requires_an_object() -> None:
         read_payload(BytesIO(b"[]"))
 
 
-def test_host_templates_use_native_wrappers_and_shared_command() -> None:
+def test_host_templates_use_native_wrappers_and_isolated_hermes_hook() -> None:
     root = Path(__file__).resolve().parents[1]
     codex = json.loads(
         (root / "hooks" / "codex.hooks.template.json").read_text(encoding="utf-8")
@@ -145,10 +146,28 @@ def test_host_templates_use_native_wrappers_and_shared_command() -> None:
         encoding="utf-8"
     )
 
-    assert set(codex["hooks"]) == {"SessionStart", "Stop"}
-    assert set(claude["hooks"]) == {"SessionStart", "Stop"}
+    assert set(codex["hooks"]) == {
+        "SessionStart",
+        "SessionEnd",
+        "PreCompact",
+        "PostCompact",
+        "SubagentStart",
+        "SubagentStop",
+        "Stop",
+    }
+    assert set(claude["hooks"]) == {
+        "SessionStart",
+        "SessionEnd",
+        "PreCompact",
+        "SubagentStop",
+        "Stop",
+    }
     assert "on_session_start:" in hermes
     assert "on_session_end:" in hermes
-    for serialized in (json.dumps(codex), json.dumps(claude), hermes):
+    for serialized in (json.dumps(codex), json.dumps(claude)):
         assert "research-tree-hook" in serialized
         assert "research_orchestrator" not in serialized
+    assert "hermes_runtime_hook.py" in hermes
+    assert "research-tree-hook" not in hermes
+    assert "subagent_start:" in hermes
+    assert "post_tool_call:" in hermes

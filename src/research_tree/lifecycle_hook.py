@@ -16,8 +16,20 @@ MAX_INPUT_BYTES = 64 * 1024
 MAX_IDENTIFIER_LENGTH = 256
 EVENT_DIRECTORY = Path(".research-tree-hooks") / "events"
 HOST_EVENTS = {
-    "codex": frozenset({"SessionStart", "Stop"}),
-    "claude": frozenset({"SessionStart", "Stop"}),
+    "codex": frozenset(
+        {
+            "SessionStart",
+            "SessionEnd",
+            "PreCompact",
+            "PostCompact",
+            "SubagentStart",
+            "SubagentStop",
+            "Stop",
+        }
+    ),
+    "claude": frozenset(
+        {"SessionStart", "SessionEnd", "PreCompact", "SubagentStop", "Stop"}
+    ),
     "hermes": frozenset({"on_session_start", "on_session_end"}),
 }
 
@@ -145,7 +157,7 @@ def observe(
         raise LifecycleHookError("hook input must be a JSON object")
     _validate_event(payload, host, event)
 
-    if host == "claude" and event == "Stop" and payload.get("stop_hook_active") is True:
+    if event == "Stop" and payload.get("stop_hook_active") is True:
         return {"status": "skipped_reentrant_stop", "host": host, "event": event}
 
     root, workspace = validate_workspace(

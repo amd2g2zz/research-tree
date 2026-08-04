@@ -1,10 +1,27 @@
 hooks:
   on_session_start:
-    - command: "uv run --locked research-tree-hook --host hermes --event on_session_start"
+    - command: '"python" "D:/absolute/path/to/packages/hermes/research-tree/scripts/hermes_runtime_hook.py"'
       timeout: 10
   on_session_end:
-    - command: "uv run --locked research-tree-hook --host hermes --event on_session_end"
+    - command: '"python" "D:/absolute/path/to/packages/hermes/research-tree/scripts/hermes_runtime_hook.py"'
+      timeout: 10
+  on_session_finalize:
+    - command: '"python" "D:/absolute/path/to/packages/hermes/research-tree/scripts/hermes_runtime_hook.py"'
+      timeout: 10
+  on_session_reset:
+    - command: '"python" "D:/absolute/path/to/packages/hermes/research-tree/scripts/hermes_runtime_hook.py"'
+      timeout: 10
+  subagent_start:
+    - command: '"python" "D:/absolute/path/to/packages/hermes/research-tree/scripts/hermes_runtime_hook.py"'
+      timeout: 10
+  subagent_stop:
+    - command: '"python" "D:/absolute/path/to/packages/hermes/research-tree/scripts/hermes_runtime_hook.py"'
+      timeout: 10
+  post_tool_call:
+    - matcher: "^delegate_task$"
+      command: '"python" "D:/absolute/path/to/packages/hermes/research-tree/scripts/hermes_runtime_hook.py"'
       timeout: 10
 
-# Keep first-use consent enabled. Review the commands before approving them.
+# Prefer `hermes_skill_adapter.py render-hooks` for installed copies so both
+# paths are absolute. Keep first-use consent enabled and review before approval.
 hooks_auto_accept: false

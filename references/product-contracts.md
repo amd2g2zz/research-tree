@@ -277,6 +277,8 @@ a mandatory pre-research questionnaire.
 {
   "id": "finding-014",
   "work_item_id": "work-014",
+  "attempt_id": "attempt-runtime-id",
+  "phase": "landscape|deep_dive|adversarial|validation",
   "observations": [{
     "claim": "atomic observed fact",
     "anchor": {"kind": "source|repository|input|experiment", "ref": "URL or path:symbol"},
@@ -289,6 +291,12 @@ a mandatory pre-research questionnaire.
   "remaining_uncertainties": []
 }
 ```
+
+`attempt_id` and `phase` are execution-provenance fields required by the
+bundled native host adapter. The coordinator maps the verified pack into the
+immutable round artifact rather than treating schema validation as evidence
+review. A retry receives a new `attempt_id`; a pack from an older attempt must
+not close the current work item.
 
 Workers return Finding Packs, not standalone report chapters. A source list
 without atomic observations and decision effects is not a Finding Pack.
