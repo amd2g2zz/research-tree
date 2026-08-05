@@ -91,7 +91,9 @@ def build_parser() -> argparse.ArgumentParser:
     run_init = run_commands.add_parser("init")
     run_init.add_argument("--workspace", type=Path, required=True)
     run_init.add_argument("--run-id", required=True)
-    run_init.add_argument("--task-identity", type=Path)
+    run_init.add_argument("--handoff-ref", type=Path, required=True)
+    run_init.add_argument("--blueprint-target-ref", type=Path, required=True)
+    run_init.add_argument("--expected-revision", type=int, required=True)
     for name in ("status", "next", "replay", "explain", "why-action", "why-not-complete", "recover", "reconcile-host", "export-audit"):
         command = run_commands.add_parser(name)
         command.add_argument("--workspace", type=Path, required=True)
@@ -185,10 +187,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 coordinator = ResearchRunCoordinator(arguments.workspace)
                 if arguments.run_command == "init":
-                    identity = {}
-                    if arguments.task_identity:
-                        identity = json.loads(arguments.task_identity.read_text(encoding="utf-8"))
-                    output = coordinator.create(arguments.run_id, task_identity=identity)
+                    handoff_ref = json.loads(
+                        arguments.handoff_ref.read_text(encoding="utf-8")
+                    )
+                    blueprint_target_ref = json.loads(
+                        arguments.blueprint_target_ref.read_text(encoding="utf-8")
+                    )
+                    output = coordinator.initialize_from_alignment(
+                        arguments.run_id,
+                        handoff_ref=handoff_ref,
+                        blueprint_target_ref=blueprint_target_ref,
+                        expected_revision=arguments.expected_revision,
+                    )
                 elif arguments.run_command == "status":
                     output = coordinator.status(arguments.run_id)
                 elif arguments.run_command == "next":

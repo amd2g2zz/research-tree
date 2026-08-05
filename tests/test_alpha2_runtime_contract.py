@@ -69,6 +69,262 @@ def test_lifecycle_registry_is_exactly_the_runtime_transition_system() -> None:
     assert all(edge["host"] == "canonical-runtime" for edge in edges)
 
 
+def _confirmed_initialization_fixture(
+    tmp_path: Path,
+    *,
+    include_confirmation: bool = True,
+    include_handoff_parent: bool = True,
+):
+    from research_tree.coordinator import ResearchRunCoordinator
+    from research_tree.sqlite_ledger import SQLiteRunLedger
+
+    coordinator = ResearchRunCoordinator(tmp_path)
+    state = coordinator.create(
+        "run-init-contract",
+        task_identity={"subject": "research-runtime"},
+        authority={"scope": "confirmed"},
+    )
+    ledger = SQLiteRunLedger(tmp_path)
+    model = ledger.append_artifact(
+        run_id=state["run_id"],
+        artifact_id="intent-model",
+        kind="intent-model",
+        payload={"hypotheses": [{"id": "hypothesis-1", "statement": "Build the runtime."}]},
+        actor_kind="coordinator",
+        actor_id="alignment",
+        status="accepted",
+        expected_run_revision=state["revision"],
+    )
+    brief = ledger.append_artifact(
+        run_id=state["run_id"],
+        artifact_id="working-brief",
+        kind="working-brief",
+        payload={"objective": "Build the runtime."},
+        actor_kind="coordinator",
+        actor_id="alignment",
+        status="accepted",
+        parent_refs=[{"run_id": state["run_id"], "artifact_id": model["id"], "revision": model["revision"]}],
+        expected_run_revision=state["revision"] + 1,
+    )
+    graph = ledger.append_artifact(
+        run_id=state["run_id"],
+        artifact_id="alignment-graph",
+        kind="alignment-graph",
+        payload={"nodes": ["objective"], "edges": []},
+        actor_kind="coordinator",
+        actor_id="alignment",
+        status="accepted",
+        expected_run_revision=state["revision"] + 2,
+    )
+    strategy_digest = "a" * 64
+    handoff_payload = {
+        "run_id": state["run_id"],
+        "alignment_revision": 4,
+        "alignment_digest": "b" * 64,
+        "strategy_digest": strategy_digest,
+        "objective": "Build the runtime.",
+        "execution_context": {"scope": "confirmed"},
+        "alignment_graph_ref": {"run_id": state["run_id"], "artifact_id": graph["id"], "revision": graph["revision"], "content_hash": graph["content_hash"]},
+        "working_brief_ref": {"run_id": state["run_id"], "artifact_id": brief["id"], "revision": brief["revision"], "content_hash": brief["content_hash"]},
+        "intent_model_ref": {"run_id": state["run_id"], "artifact_id": model["id"], "revision": model["revision"], "content_hash": model["content_hash"]},
+    }
+    if include_confirmation:
+        handoff_payload["confirmation"] = {
+            "actor_id": "requester",
+            "response_digest": "c" * 64,
+            "displayed_strategy_digest": strategy_digest,
+            "confirmed_at": "2026-08-05T00:00:00Z",
+        }
+    handoff = ledger.append_artifact(
+        run_id=state["run_id"],
+        artifact_id="alignment-handoff",
+        kind="alignment-handoff",
+        payload=handoff_payload,
+        actor_kind="coordinator",
+        actor_id="alignment",
+        status="confirmed",
+        parent_refs=[
+            {"run_id": state["run_id"], "artifact_id": graph["id"], "revision": graph["revision"]},
+            {"run_id": state["run_id"], "artifact_id": brief["id"], "revision": brief["revision"]},
+            {"run_id": state["run_id"], "artifact_id": model["id"], "revision": model["revision"]},
+        ],
+        expected_run_revision=state["revision"] + 3,
+    )
+    target_payload = {
+        "target_id": "blueprint-target",
+        "run_id": state["run_id"],
+        "working_brief_ref": handoff_payload["working_brief_ref"],
+        "intent_model_ref": handoff_payload["intent_model_ref"],
+        "alignment_handoff_ref": {"run_id": state["run_id"], "artifact_id": handoff["id"], "revision": handoff["revision"], "content_hash": handoff["content_hash"]},
+        "slots": [{
+            "slot_id": "slot-p0",
+            "priority": "P0",
+            "question": "Which architecture closes the requirement?",
+            "decision_consequence": "Select implementation architecture.",
+            "options": ["a", "b"],
+            "required_evidence_classes": ["repository"],
+            "required_oracles": ["oracle-1"],
+            "fallback": "Block.",
+            "reversal_condition": "Contrary evidence.",
+            "status": "open",
+            "lineage_refs": ["working-brief"],
+        }],
+        "change": {"kind": "initial", "reason": "Confirmed handoff.", "predecessor_ref": None},
+    }
+    target_parents = [
+        {"run_id": state["run_id"], "artifact_id": brief["id"], "revision": brief["revision"]},
+        {"run_id": state["run_id"], "artifact_id": model["id"], "revision": model["revision"]},
+    ]
+    if include_handoff_parent:
+        target_parents.insert(0, {"run_id": state["run_id"], "artifact_id": handoff["id"], "revision": handoff["revision"]})
+    target = ledger.append_artifact(
+        run_id=state["run_id"],
+        artifact_id="blueprint-target",
+        kind="blueprint-target",
+        payload=target_payload,
+        actor_kind="coordinator",
+        actor_id="blueprint",
+        status="active",
+        parent_refs=target_parents,
+        expected_run_revision=state["revision"] + 4,
+    )
+    return coordinator, state, handoff, target
+
+
+def test_coordinator_initializes_only_from_confirmed_exact_lineage(tmp_path: Path) -> None:
+    coordinator, state, handoff, target = _confirmed_initialization_fixture(tmp_path)
+
+    initialized = coordinator.initialize_from_alignment(
+        state["run_id"],
+        handoff_ref={"run_id": state["run_id"], "artifact_id": handoff["id"], "revision": handoff["revision"], "content_hash": handoff["content_hash"]},
+        blueprint_target_ref={"run_id": state["run_id"], "artifact_id": target["id"], "revision": target["revision"], "content_hash": target["content_hash"]},
+        expected_revision=coordinator.status(state["run_id"])["revision"],
+    )
+
+    assert initialized["lifecycle_state"] == "autonomous_research"
+    assert [event["event_type"] for event in coordinator.events(state["run_id"])] [-2:] == ["handoff_confirmed", "blueprint_target_bound"]
+    events_before_retry = coordinator.events(state["run_id"])
+    repeated = coordinator.initialize_from_alignment(
+        state["run_id"],
+        handoff_ref={"run_id": state["run_id"], "artifact_id": handoff["id"], "revision": handoff["revision"], "content_hash": handoff["content_hash"]},
+        blueprint_target_ref={"run_id": state["run_id"], "artifact_id": target["id"], "revision": target["revision"], "content_hash": target["content_hash"]},
+        expected_revision=initialized["revision"],
+    )
+    assert repeated == initialized
+    assert coordinator.events(state["run_id"]) == events_before_retry
+
+
+@pytest.mark.parametrize("committed_prefix", ["handoff_pending", "autonomous_research"])
+def test_initialization_resumes_committed_prefix_without_duplicate_events(
+    tmp_path: Path, committed_prefix: str
+) -> None:
+    coordinator, state, handoff, target = _confirmed_initialization_fixture(tmp_path)
+    run_id = state["run_id"]
+    handoff_ref = {
+        "run_id": run_id,
+        "artifact_id": handoff["id"],
+        "revision": handoff["revision"],
+        "content_hash": handoff["content_hash"],
+    }
+    target_ref = {
+        "run_id": run_id,
+        "artifact_id": target["id"],
+        "revision": target["revision"],
+        "content_hash": target["content_hash"],
+    }
+    strategy_digest = "a" * 64
+
+    prefix = coordinator.transition(
+        run_id,
+        event="alignment_projection_ready",
+        actor="coordinator",
+        expected_revision=coordinator.status(run_id)["revision"],
+        payload={"strategy_digest": strategy_digest, "handoff_ref": handoff_ref},
+    )
+    if committed_prefix == "autonomous_research":
+        prefix = coordinator.transition(
+            run_id,
+            event="handoff_confirmed",
+            actor="human",
+            expected_revision=prefix["revision"],
+            payload={"displayed_digest": strategy_digest, "handoff_ref": handoff_ref},
+        )
+
+    initialized = coordinator.initialize_from_alignment(
+        run_id,
+        handoff_ref=handoff_ref,
+        blueprint_target_ref=target_ref,
+        expected_revision=prefix["revision"],
+    )
+
+    assert initialized["lifecycle_state"] == "autonomous_research"
+    event_types = [event["event_type"] for event in coordinator.events(run_id)]
+    assert event_types.count("alignment_projection_ready") == 1
+    assert event_types.count("handoff_confirmed") == 1
+    assert event_types.count("blueprint_target_bound") == 1
+
+
+def test_initialization_rejects_missing_confirmation_without_mutation(tmp_path: Path) -> None:
+    coordinator, state, handoff, target = _confirmed_initialization_fixture(tmp_path, include_confirmation=False)
+    before = coordinator.status(state["run_id"])
+    with pytest.raises(coordinator.error_type) as error:
+        coordinator.initialize_from_alignment(
+            state["run_id"],
+            handoff_ref={"run_id": state["run_id"], "artifact_id": handoff["id"], "revision": handoff["revision"], "content_hash": handoff["content_hash"]},
+            blueprint_target_ref={"run_id": state["run_id"], "artifact_id": target["id"], "revision": target["revision"], "content_hash": target["content_hash"]},
+            expected_revision=before["revision"],
+        )
+    assert error.value.code == "handoff_confirmation_invalid"
+    assert coordinator.status(state["run_id"]) == before
+
+
+def test_initialization_rejects_blueprint_without_handoff_parent(tmp_path: Path) -> None:
+    coordinator, state, handoff, target = _confirmed_initialization_fixture(tmp_path, include_handoff_parent=False)
+    before = coordinator.status(state["run_id"])
+    with pytest.raises(coordinator.error_type) as error:
+        coordinator.initialize_from_alignment(
+            state["run_id"],
+            handoff_ref={"run_id": state["run_id"], "artifact_id": handoff["id"], "revision": handoff["revision"], "content_hash": handoff["content_hash"]},
+            blueprint_target_ref={"run_id": state["run_id"], "artifact_id": target["id"], "revision": target["revision"], "content_hash": target["content_hash"]},
+            expected_revision=before["revision"],
+        )
+    assert error.value.code == "blueprint_lineage_invalid"
+    assert coordinator.status(state["run_id"]) == before
+
+
+def test_run_init_cli_consumes_exact_persisted_refs(tmp_path: Path, capsys) -> None:
+    from research_tree.cli import main
+
+    coordinator, state, handoff, target = _confirmed_initialization_fixture(tmp_path)
+    handoff_path = tmp_path / "handoff-ref.json"
+    target_path = tmp_path / "blueprint-ref.json"
+    handoff_path.write_text(
+        json.dumps({"run_id": state["run_id"], "artifact_id": handoff["id"], "revision": handoff["revision"], "content_hash": handoff["content_hash"]}),
+        encoding="utf-8",
+    )
+    target_path.write_text(
+        json.dumps({"run_id": state["run_id"], "artifact_id": target["id"], "revision": target["revision"], "content_hash": target["content_hash"]}),
+        encoding="utf-8",
+    )
+
+    assert main([
+        "run",
+        "init",
+        "--workspace",
+        str(tmp_path),
+        "--run-id",
+        state["run_id"],
+        "--handoff-ref",
+        str(handoff_path),
+        "--blueprint-target-ref",
+        str(target_path),
+        "--expected-revision",
+        str(coordinator.status(state["run_id"])["revision"]),
+    ]) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["lifecycle_state"] == "autonomous_research"
+
+
 def test_human_or_operator_transition_rejects_other_actors(tmp_path: Path) -> None:
     from research_tree.coordinator import ResearchRunCoordinator
 
@@ -643,9 +899,9 @@ def test_adaptive_policy_reuses_persisted_baseline_for_second_round_gain() -> No
 
 def test_canonical_run_cli_exposes_status_and_replay(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     from research_tree.cli import main
+    from research_tree.coordinator import ResearchRunCoordinator
 
-    assert main(["run", "init", "--workspace", str(tmp_path), "--run-id", "run-cli"]) == 0
-    capsys.readouterr()
+    ResearchRunCoordinator(tmp_path).create("run-cli")
     assert main(["run", "status", "--workspace", str(tmp_path), "--run-id", "run-cli"]) == 0
     output = json.loads(capsys.readouterr().out)
     assert output["lifecycle_state"] == "alignment"

@@ -447,6 +447,7 @@ class AlignmentGraphStore:
                 "confirmed_at": _now(),
                 "confirmation_digest": hashlib.sha256(text.encode("utf-8")).hexdigest(),
                 "alignment_digest": state["graph_digest"],
+                "actor_id": "requester",
             }
             connection.execute(
                 """
@@ -588,6 +589,7 @@ class AlignmentGraphStore:
             "run_id": state["controller"]["run_id"],
             "alignment_revision": state["controller"]["revision"],
             "alignment_digest": state["controller"]["handoff"]["alignment_digest"],
+            "strategy_digest": state["controller"]["handoff"]["alignment_digest"],
             "compiled_graph_digest": state["graph_digest"],
             "objective": objective,
             "strategy": strategy,
@@ -600,6 +602,12 @@ class AlignmentGraphStore:
                     for node_id, source_ids in sorted(superseded_by.items())
                 ],
                 "dropped_evidence": [],
+            },
+            "confirmation": {
+                "actor_id": state["controller"]["handoff"].get("actor_id", "requester"),
+                "response_digest": state["controller"]["handoff"]["confirmation_digest"],
+                "displayed_strategy_digest": state["controller"]["handoff"]["alignment_digest"],
+                "confirmed_at": state["controller"]["handoff"]["confirmed_at"],
             },
             "alignment_graph": state["graph"],
         }

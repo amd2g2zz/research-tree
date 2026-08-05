@@ -17,7 +17,15 @@ The change SHALL contain a checked-in contract registry under schemas/ (or a rat
 
 ### Requirement: Canonical entity fields and references are exact
 
-The registry SHALL define required fields, optional fields, enum values, uniqueness constraints, reference cardinality, and digest rules for InputRecord, PermissionProfile, AlignmentMessage, FeedbackEvent, ResearchRun, DecisionSlot, ResearchAction, WorkItem, AttemptLease, EvidenceArtifact, EvidenceAnchor, OracleSpec, OracleRun, SlotClosureAssessment, InsightDigest, ReadinessRecord, HostEvent, DeliveryManifest, DeliveryAcceptance, and ReleaseManifest.
+The registry SHALL define required fields, optional fields, enum values, uniqueness constraints, reference cardinality, and digest rules for InputRecord, PermissionProfile, AlignmentMessage, AlignmentHandoff, FeedbackEvent, ResearchRun, BlueprintTarget, DecisionSlot, ResearchAction, WorkItem, AttemptLease, EvidenceArtifact, EvidenceAnchor, OracleSpec, OracleRun, SlotClosureAssessment, InsightDigest, ReadinessRecord, HostEvent, DeliveryManifest, DeliveryAcceptance, and ReleaseManifest.
+
+`AlignmentHandoff` SHALL bind the exact Alignment Graph, Working Brief, and
+Intent Model refs to the objective, execution context, alignment digest,
+strategy digest, and explicit confirmation record. The confirmation record
+contains the human actor id, response digest, displayed strategy digest, and
+UTC confirmation time. `BlueprintTarget` SHALL carry exact refs to the same
+Working Brief and Intent Model and to that handoff; its artifact parent set
+must resolve to those three revisions.
 
 #### Scenario: Evidence anchor is submitted
 
@@ -29,6 +37,12 @@ The registry SHALL define required fields, optional fields, enum values, uniquen
 
 - **WHEN** a P0 Slot has no required oracle reference or a delivery claim has no evidence reference
 - **THEN** validation fails with a field-level error and cannot be marked complete
+
+#### Scenario: Handoff confirmation is not bound to the displayed strategy
+
+- **WHEN** the confirmation's displayed digest differs from the handoff's
+  strategy digest
+- **THEN** contract validation fails before coordinator initialization
 
 ### Requirement: Schema versions have a compatibility matrix
 

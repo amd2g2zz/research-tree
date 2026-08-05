@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/alignment-handoff-v1.json",
+  "title": "Alpha2 confirmed AlignmentHandoff payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id",
+    "alignment_revision",
+    "alignment_digest",
+    "strategy_digest",
+    "objective",
+    "execution_context",
+    "alignment_graph_ref",
+    "working_brief_ref",
+    "intent_model_ref",
+    "confirmation"
+  ],
+  "properties": {
+    "run_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "alignment_revision": { "type": "integer", "minimum": 1 },
+    "alignment_digest": { "$ref": "#/$defs/digest" },
+    "strategy_digest": { "$ref": "#/$defs/digest" },
+    "objective": { "type": "string", "minLength": 1 },
+    "execution_context": { "type": "object" },
+    "alignment_graph_ref": { "$ref": "#/$defs/artifactRef" },
+    "working_brief_ref": { "$ref": "#/$defs/artifactRef" },
+    "intent_model_ref": { "$ref": "#/$defs/artifactRef" },
+    "confirmation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor_id", "response_digest", "displayed_strategy_digest", "confirmed_at"],
+      "properties": {
+        "actor_id": { "type": "string", "minLength": 1 },
+        "response_digest": { "$ref": "#/$defs/digest" },
+        "displayed_strategy_digest": { "$ref": "#/$defs/digest" },
+        "confirmed_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "artifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "artifact_id", "revision", "content_hash"],
+      "properties": {
+        "run_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+        "artifact_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "content_hash": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}

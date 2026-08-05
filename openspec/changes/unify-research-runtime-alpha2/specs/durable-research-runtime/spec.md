@@ -29,6 +29,13 @@ The system SHALL allow only `ResearchRunCoordinator` to transition canonical lif
 - **WHEN** technical and human Markdown files are present but no closed Decision Ledger supports them
 - **THEN** the coordinator rejects delivery registration and the run remains non-complete
 
+#### Scenario: Initialization is replayed after an interrupted prefix
+
+- **WHEN** the confirmed handoff transition committed but Blueprint Target
+  binding did not
+- **THEN** repeating canonical initialization validates the same exact refs,
+  resumes at the missing step, and does not duplicate the prior transition
+
 ### Requirement: Recovery is exact, replayable, and idempotent
 The system SHALL reconstruct the latest committed state, mark uncertain in-flight attempts explicitly, replay unconsumed artifacts once, and produce the same state digest after repeated recovery.
 

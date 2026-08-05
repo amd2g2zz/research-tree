@@ -83,6 +83,39 @@ Every external attempt SHALL have a unique `attempt_id`, an immutable dispatch p
 
 The implementation SHALL expose a Python coordinator API and JSON CLI commands using the canonical form research-tree run <verb> for init, status, next, ingest, retry, recover, explain, why-action, why-not-complete, replay, reconcile-host, deliver, accept, supersede, and export-audit. Flat run-<verb> names and existing observability names may remain aliases but SHALL route to the same coordinator operation. Every command MUST document required inputs, output schema, exit codes, and whether it mutates state.
 
+`research-tree run init` SHALL be the canonical transition from persisted
+alignment state into autonomous research. It MUST receive the exact current
+`AlignmentHandoff` and `BlueprintTarget` artifact references plus the expected
+run revision. A caller cannot initialize autonomous research from task text,
+an adapter checkpoint, a generic acknowledgement, or an unpersisted payload.
+The low-level run-row creation API is an alignment bootstrap and migration
+boundary only; it is not autonomous initialization.
+
+Before changing lifecycle state, the coordinator SHALL resolve both artifacts,
+verify their content hashes and statuses, verify that the handoff contains a
+human confirmation bound to the displayed strategy digest, and verify that the
+initial Blueprint Target has exact parent lineage to that handoff, its Working
+Brief, and its Intent Model. Initialization advances through the published
+`alignment_projection_ready` and `handoff_confirmed` transitions and binds the
+Blueprint Target. Repeating the same request after any committed prefix SHALL
+resume or return the same final state without duplicating transitions or
+bindings; a different reference or digest SHALL fail without rewriting prior
+state.
+
+#### Scenario: Confirmed alignment initializes autonomous research
+
+- **WHEN** `run init` receives current exact handoff and Blueprint Target refs
+  whose confirmation and parent lineage validate
+- **THEN** the coordinator enters `autonomous_research`, binds the exact active
+  Slot set, and records the lifecycle and binding events
+
+#### Scenario: Blueprint Target is not derived from the confirmed handoff
+
+- **WHEN** the target omits or changes the handoff, Working Brief, or Intent
+  Model parent revision
+- **THEN** initialization fails with `blueprint_lineage_invalid`, leaves the
+  lifecycle and binding unchanged, and records no successful handoff
+
 Existing `create-round`, `show-round`, and `tree-*` commands SHALL either become thin compatibility aliases to the coordinator or fail with an explicit migration message; they SHALL not maintain an alternate completion authority.
 
 The canonical JSON result envelope SHALL use these exit codes: `0` for a committed or idempotent success, `2` for invalid input, `3` for stale revision or optimistic-concurrency conflict, `4` for a persisted blocked or unresolved obligation, `5` for retryable provider or tool failure, `6` for permission or safety denial, `7` for integrity or digest failure, `8` for unsupported schema or protocol version, `9` for canonical-store unavailability, and `10` for a terminal rejection, supersession, or authority block. The JSON body SHALL always include `code`, `category`, `retryability`, `run_id`, `safe_message`, `unmet_obligations`, `evidence_refs`, and `next_action` when applicable.

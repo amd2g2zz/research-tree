@@ -172,6 +172,11 @@ def test_controller_requires_explicit_handoff_confirmation(tmp_path: Path) -> No
         module.database_path(tmp_path, "handoff-run")
     ).compile_handoff()
     assert compiled["alignment_digest"] == decision["alignment_digest"]
+    assert compiled["strategy_digest"] == decision["alignment_digest"]
+    assert compiled["confirmation"]["actor_id"] == "requester"
+    assert compiled["confirmation"]["displayed_strategy_digest"] == decision["alignment_digest"]
+    assert len(compiled["confirmation"]["response_digest"]) == 64
+    assert compiled["confirmation"]["confirmed_at"]
     assert compiled["compiled_graph_digest"] != compiled["alignment_digest"]
     assert set(compiled["decision_slots"]) == {"question-architecture"}
     assert len(compiled["baseline_findings"]) == 1

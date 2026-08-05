@@ -29,6 +29,8 @@ tools, and release evidence.
 | delivery-manifest-v1.json | Claim-to-lineage delivery index | delivery compiler |
 | delivery-acceptance-v1.json | Exact-revision human acceptance | delivery service |
 | alignment-message-v1.json | One-prompt alignment turn and response binding | alignment service |
+| alignment-handoff-v1.json | Explicit confirmation and exact alignment/brief/model lineage | alignment/coordinator |
+| blueprint-target-v1.json | Initial Decision Slot set with exact handoff/brief/model lineage | blueprint compiler/coordinator |
 | feedback-event-v1.json | Material post-handoff correction lineage | feedback/coordinator |
 | readiness-record-v1.json | Field-level readiness and risk checks | readiness service |
 | release-manifest-v1.json | Immutable release gate evidence | release evaluator |

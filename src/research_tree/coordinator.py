@@ -15,7 +15,15 @@ from pathlib import Path
 import sqlite3
 from typing import Any, Callable, Mapping
 
-from .contracts import HostEvent, canonical_json_bytes, validate_feedback_event
+from .contracts import (
+    ContractError,
+    HostEvent,
+    canonical_json_bytes,
+    validate_alignment_handoff,
+    validate_blueprint_target,
+    validate_exact_artifact_ref,
+    validate_feedback_event,
+)
 from .replay import explain_run, why_not_complete
 from .leases import AttemptLease
 from .host_events import reconcile_host_events
@@ -401,6 +409,257 @@ class ResearchRunCoordinator:
             self._snapshot_current_revision(connection, run_id, source_event_id=event_id)
             self._event(connection, run_id, event_id, expected_revision, {"obligation": obligation, "evidence_ref": evidence_ref}, event_type="obligation_satisfied")
         return self.status(run_id)
+
+    def initialize_from_alignment(
+        self,
+        run_id: str,
+        *,
+        handoff_ref: Mapping[str, Any],
+        blueprint_target_ref: Mapping[str, Any],
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        """Enter autonomous research from one confirmed, exact lineage pair.
+
+        Validation happens before the first transition. The three existing
+        coordinator operations are then resumed from whichever committed
+        prefix is current, which makes a retry idempotent without introducing
+        a second transition implementation.
+        """
+
+        try:
+            exact_handoff_ref = validate_exact_artifact_ref(
+                handoff_ref, label="alignment handoff reference", run_id=run_id
+            )
+        except ContractError as error:
+            raise CoordinatorError(
+                "alignment handoff reference is invalid",
+                code="handoff_ref_invalid",
+            ) from error
+        try:
+            exact_blueprint_ref = validate_exact_artifact_ref(
+                blueprint_target_ref,
+                label="blueprint target reference",
+                run_id=run_id,
+            )
+        except ContractError as error:
+            raise CoordinatorError(
+                "blueprint target reference is invalid",
+                code="blueprint_ref_invalid",
+            ) from error
+
+        with self._connect() as connection:
+            row = self._require_run(connection, run_id)
+            if int(row["revision"]) != expected_revision:
+                raise CoordinatorError("expected revision is stale", code="stale_revision")
+            handoff_artifact = self._resolve_initialization_artifact(
+                connection,
+                exact_handoff_ref,
+                expected_kind="alignment-handoff",
+                stale_code="stale_handoff",
+            )
+            if handoff_artifact["status"] != "confirmed":
+                raise CoordinatorError(
+                    "alignment handoff is not explicitly confirmed",
+                    code="handoff_confirmation_invalid",
+                )
+            try:
+                handoff = validate_alignment_handoff(
+                    handoff_artifact["payload"], run_id=run_id
+                )
+            except ContractError as error:
+                raise CoordinatorError(
+                    "alignment handoff confirmation is invalid",
+                    code="handoff_confirmation_invalid",
+                ) from error
+
+            blueprint_artifact = self._resolve_initialization_artifact(
+                connection,
+                exact_blueprint_ref,
+                expected_kind="blueprint-target",
+                stale_code="stale_blueprint",
+            )
+            if blueprint_artifact["status"] != "active":
+                raise CoordinatorError(
+                    "blueprint target is not active", code="blueprint_lineage_invalid"
+                )
+            try:
+                blueprint = validate_blueprint_target(
+                    blueprint_artifact["payload"], run_id=run_id
+                )
+            except ContractError as error:
+                raise CoordinatorError(
+                    "blueprint target contract is invalid",
+                    code="blueprint_lineage_invalid",
+                ) from error
+            if blueprint["target_id"] != exact_blueprint_ref["artifact_id"]:
+                raise CoordinatorError(
+                    "blueprint target id does not match its artifact",
+                    code="blueprint_lineage_invalid",
+                )
+
+            lineage_refs = {
+                "alignment-graph": handoff["alignment_graph_ref"],
+                "working-brief": handoff["working_brief_ref"],
+                "intent-model": handoff["intent_model_ref"],
+            }
+            for expected_kind, reference in lineage_refs.items():
+                self._resolve_initialization_artifact(
+                    connection,
+                    reference,
+                    expected_kind=expected_kind,
+                    stale_code="blueprint_lineage_invalid",
+                )
+            expected_handoff_parents = {
+                self._lineage_key(reference) for reference in lineage_refs.values()
+            }
+            if handoff_artifact["parent_keys"] != expected_handoff_parents:
+                raise CoordinatorError(
+                    "alignment handoff parent lineage is not exact",
+                    code="blueprint_lineage_invalid",
+                )
+            if (
+                blueprint["working_brief_ref"] != handoff["working_brief_ref"]
+                or blueprint["intent_model_ref"] != handoff["intent_model_ref"]
+                or blueprint["alignment_handoff_ref"] != exact_handoff_ref
+            ):
+                raise CoordinatorError(
+                    "blueprint target does not bind the confirmed handoff lineage",
+                    code="blueprint_lineage_invalid",
+                )
+            expected_blueprint_parents = {
+                self._lineage_key(exact_handoff_ref),
+                self._lineage_key(handoff["working_brief_ref"]),
+                self._lineage_key(handoff["intent_model_ref"]),
+            }
+            if blueprint_artifact["parent_keys"] != expected_blueprint_parents:
+                raise CoordinatorError(
+                    "blueprint target parent lineage is not exact",
+                    code="blueprint_lineage_invalid",
+                )
+
+            state_name = row["lifecycle_state"]
+            strategy_digest = handoff["strategy_digest"]
+            current_binding = self._current_blueprint_target_ref(connection, run_id)
+            already_bound = (
+                current_binding is not None and current_binding[1] == exact_blueprint_ref
+            )
+            if current_binding is not None and not already_bound:
+                raise CoordinatorError(
+                    "another Blueprint Target is already bound",
+                    code="blueprint_binding_conflict",
+                )
+            if state_name not in {"alignment", "handoff_pending", "autonomous_research"}:
+                raise CoordinatorError(
+                    "run cannot initialize from its current lifecycle state",
+                    code="initialization_state_invalid",
+                )
+            if state_name in {"handoff_pending", "autonomous_research"} and row[
+                "authority_digest"
+            ] != strategy_digest:
+                raise CoordinatorError(
+                    "committed initialization prefix belongs to another strategy",
+                    code="stale_digest",
+                    next_action="return_to_alignment_and_rederive_strategy",
+                )
+            if state_name == "autonomous_research" and not already_bound:
+                # This is a valid interrupted prefix: handoff committed, binding did not.
+                pass
+
+        state = self.status(run_id)
+        if state["lifecycle_state"] == "alignment":
+            state = self.transition(
+                run_id,
+                event="alignment_projection_ready",
+                actor="coordinator",
+                expected_revision=state["revision"],
+                payload={
+                    "strategy_digest": strategy_digest,
+                    "handoff_ref": exact_handoff_ref,
+                },
+            )
+        if state["lifecycle_state"] == "handoff_pending":
+            state = self.transition(
+                run_id,
+                event="handoff_confirmed",
+                actor="human",
+                expected_revision=state["revision"],
+                payload={
+                    "displayed_digest": strategy_digest,
+                    "handoff_ref": exact_handoff_ref,
+                    "confirmation_actor_id": handoff["confirmation"]["actor_id"],
+                    "confirmation_response_digest": handoff["confirmation"][
+                        "response_digest"
+                    ],
+                },
+            )
+        with self._connect() as connection:
+            current_binding = self._current_blueprint_target_ref(connection, run_id)
+        if current_binding is None:
+            state = self.bind_blueprint_target(
+                run_id,
+                exact_blueprint_ref,
+                expected_revision=state["revision"],
+            )
+        elif current_binding[1] != exact_blueprint_ref:
+            raise CoordinatorError(
+                "another Blueprint Target is already bound",
+                code="blueprint_binding_conflict",
+            )
+        return state
+
+    @staticmethod
+    def _lineage_key(reference: Mapping[str, Any]) -> tuple[str, str, int]:
+        return (
+            str(reference["run_id"]),
+            str(reference["artifact_id"]),
+            int(reference["revision"]),
+        )
+
+    def _resolve_initialization_artifact(
+        self,
+        connection: sqlite3.Connection,
+        reference: Mapping[str, Any],
+        *,
+        expected_kind: str,
+        stale_code: str,
+    ) -> dict[str, Any]:
+        try:
+            row = connection.execute(
+                """SELECT kind,status,payload_json,content_hash FROM artifacts
+                   WHERE run_id=? AND artifact_id=? AND revision=?""",
+                self._lineage_key(reference),
+            ).fetchone()
+        except sqlite3.OperationalError as error:
+            raise CoordinatorError(
+                "canonical artifact ledger is unavailable",
+                code="canonical_store_unavailable",
+            ) from error
+        if row is None:
+            raise CoordinatorError(
+                f"{expected_kind} artifact does not resolve", code=stale_code
+            )
+        if row["kind"] != expected_kind or row["content_hash"] != reference["content_hash"]:
+            raise CoordinatorError(
+                f"{expected_kind} artifact reference is stale", code=stale_code
+            )
+        parents = connection.execute(
+            """SELECT parent_run_id,parent_artifact_id,parent_revision
+               FROM artifact_parents
+               WHERE run_id=? AND artifact_id=? AND revision=?""",
+            self._lineage_key(reference),
+        ).fetchall()
+        return {
+            "status": row["status"],
+            "payload": json.loads(row["payload_json"]),
+            "parent_keys": {
+                (
+                    parent["parent_run_id"],
+                    parent["parent_artifact_id"],
+                    int(parent["parent_revision"]),
+                )
+                for parent in parents
+            },
+        }
 
     def record_oracle_run(
         self,

@@ -47,6 +47,13 @@ The system SHALL permit handoff only when outcome, intended use, scope, delivery
 - **WHEN** the alignment state changes after the strategy digest was shown
 - **THEN** confirmation of the stale digest is rejected and a new strategy projection is required
 
+The compiled handoff artifact SHALL preserve `confirmed_at` and the normalized
+response digest from the accepted confirmation event. It SHALL also bind the
+displayed strategy digest and exact Alignment Graph, Working Brief, and Intent
+Model revisions. A runtime consumer MUST NOT infer confirmation from controller
+status, strategy status, a file read, or the existence of a handoff-shaped JSON
+object.
+
 ### Requirement: Alignment readiness has a decidable predicate
 
 Handoff readiness SHALL require non-empty, revisioned values for outcome, intended use, scope, non-goals, delivery contract, authority boundary, safety boundary, success oracle, feasibility assessment, strategy, and every P0 disagreement disposition. The predicate SHALL report each field as pass, fail, or unknown; "sufficiently resolved" without field-level results is invalid.
@@ -74,6 +81,13 @@ Every user-facing alignment turn SHALL persist a message id, run id, displayed b
 
 - **WHEN** the response does not accept the objective, scope, delivery, authority, and success fields
 - **THEN** the run remains handoff_pending and the planner emits at most one next open prompt
+
+#### Scenario: Handoff artifact omits confirmation evidence
+
+- **WHEN** a handoff lacks the human actor, response digest, displayed strategy
+  digest, or confirmation time
+- **THEN** the artifact cannot initialize autonomous research even when the
+  alignment graph is otherwise semantically ready
 
 ### Requirement: Material post-handoff feedback creates traceable replanning
 The system SHALL handle normal research corrections autonomously, but SHALL create a successor round when user feedback changes the target, priority, authority, or success definition.

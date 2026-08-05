@@ -51,6 +51,24 @@ FEEDBACK_IMPACT_CLASSES = frozenset(
 TASK_IDENTITY_DISPOSITIONS = frozenset(
     {"unchanged", "rederived", "superseded", "unknown"}
 )
+ARTIFACT_REF_FIELDS = frozenset(
+    {"run_id", "artifact_id", "revision", "content_hash"}
+)
+DECISION_SLOT_FIELDS = frozenset(
+    {
+        "slot_id",
+        "priority",
+        "question",
+        "decision_consequence",
+        "options",
+        "required_evidence_classes",
+        "required_oracles",
+        "fallback",
+        "reversal_condition",
+        "status",
+        "lineage_refs",
+    }
+)
 
 
 class ContractError(ValueError):
@@ -356,3 +374,195 @@ def validate_feedback_event(value: Mapping[str, Any]) -> dict[str, Any]:
             "rederived task identity requires successor_task_identity"
         )
     return normalized
+
+
+def validate_exact_artifact_ref(
+    value: Mapping[str, Any],
+    *,
+    label: str = "artifact reference",
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    """Validate one immutable artifact revision reference."""
+
+    data = _required_object(value, label)
+    _exact(data, set(ARTIFACT_REF_FIELDS), label)
+    _identifier(data["run_id"], f"{label} run_id")
+    _identifier(data["artifact_id"], f"{label} artifact_id")
+    if run_id is not None and data["run_id"] != run_id:
+        raise ContractError(f"{label} belongs to another run", code="artifact_scope_mismatch")
+    if (
+        isinstance(data["revision"], bool)
+        or not isinstance(data["revision"], int)
+        or data["revision"] < 1
+    ):
+        raise ContractError(f"{label} revision is invalid", code="invalid_artifact_ref")
+    if not isinstance(data["content_hash"], str) or not HASH_RE.fullmatch(
+        data["content_hash"]
+    ):
+        raise ContractError(f"{label} content_hash is invalid", code="invalid_artifact_ref")
+    return _normalize(data)
+
+
+def validate_alignment_handoff(
+    value: Mapping[str, Any], *, run_id: str | None = None
+) -> dict[str, Any]:
+    """Validate the semantic payload that grants autonomous handoff."""
+
+    data = _required_object(value, "alignment handoff")
+    required = {
+        "run_id",
+        "alignment_revision",
+        "alignment_digest",
+        "strategy_digest",
+        "objective",
+        "execution_context",
+        "alignment_graph_ref",
+        "working_brief_ref",
+        "intent_model_ref",
+        "confirmation",
+    }
+    _exact(data, required, "alignment handoff")
+    _identifier(data["run_id"], "alignment handoff run_id")
+    if run_id is not None and data["run_id"] != run_id:
+        raise ContractError(
+            "alignment handoff belongs to another run", code="artifact_scope_mismatch"
+        )
+    if (
+        isinstance(data["alignment_revision"], bool)
+        or not isinstance(data["alignment_revision"], int)
+        or data["alignment_revision"] < 1
+    ):
+        raise ContractError(
+            "alignment handoff revision is invalid", code="handoff_confirmation_invalid"
+        )
+    for field in ("alignment_digest", "strategy_digest"):
+        if not isinstance(data[field], str) or not HASH_RE.fullmatch(data[field]):
+            raise ContractError(
+                f"alignment handoff {field} is invalid",
+                code="handoff_confirmation_invalid",
+            )
+    if not isinstance(data["objective"], str) or not data["objective"].strip():
+        raise ContractError(
+            "alignment handoff objective is required", code="handoff_confirmation_invalid"
+        )
+    if not isinstance(data["execution_context"], Mapping):
+        raise ContractError(
+            "alignment handoff execution_context must be an object",
+            code="handoff_confirmation_invalid",
+        )
+    for field in ("alignment_graph_ref", "working_brief_ref", "intent_model_ref"):
+        data[field] = validate_exact_artifact_ref(
+            data[field], label=f"alignment handoff {field}", run_id=data["run_id"]
+        )
+    confirmation = _required_object(data["confirmation"], "handoff confirmation")
+    _exact(
+        confirmation,
+        {"actor_id", "response_digest", "displayed_strategy_digest", "confirmed_at"},
+        "handoff confirmation",
+    )
+    if not isinstance(confirmation["actor_id"], str) or not confirmation["actor_id"].strip():
+        raise ContractError(
+            "handoff confirmation actor_id is required",
+            code="handoff_confirmation_invalid",
+        )
+    for field in ("response_digest", "displayed_strategy_digest"):
+        if not isinstance(confirmation[field], str) or not HASH_RE.fullmatch(
+            confirmation[field]
+        ):
+            raise ContractError(
+                f"handoff confirmation {field} is invalid",
+                code="handoff_confirmation_invalid",
+            )
+    _timestamp(confirmation["confirmed_at"], "handoff confirmation confirmed_at")
+    if confirmation["displayed_strategy_digest"] != data["strategy_digest"]:
+        raise ContractError(
+            "handoff confirmation does not bind the displayed strategy digest",
+            code="handoff_confirmation_invalid",
+        )
+    data["confirmation"] = confirmation
+    return _normalize(data)
+
+
+def validate_blueprint_target(
+    value: Mapping[str, Any], *, run_id: str | None = None
+) -> dict[str, Any]:
+    """Validate the initial alpha2 Blueprint Target payload."""
+
+    data = _required_object(value, "blueprint target")
+    required = {
+        "target_id",
+        "run_id",
+        "working_brief_ref",
+        "intent_model_ref",
+        "alignment_handoff_ref",
+        "slots",
+        "change",
+    }
+    _exact(data, required, "blueprint target")
+    _identifier(data["target_id"], "blueprint target_id")
+    _identifier(data["run_id"], "blueprint run_id")
+    if run_id is not None and data["run_id"] != run_id:
+        raise ContractError(
+            "blueprint target belongs to another run", code="artifact_scope_mismatch"
+        )
+    for field in ("working_brief_ref", "intent_model_ref", "alignment_handoff_ref"):
+        data[field] = validate_exact_artifact_ref(
+            data[field], label=f"blueprint target {field}", run_id=data["run_id"]
+        )
+    slots = data["slots"]
+    if not isinstance(slots, list) or not slots:
+        raise ContractError("blueprint target requires Decision Slots", code="blueprint_slots_invalid")
+    seen: set[str] = set()
+    normalized_slots: list[dict[str, Any]] = []
+    for index, value_slot in enumerate(slots):
+        slot = _required_object(value_slot, f"blueprint slot {index}")
+        _exact(slot, set(DECISION_SLOT_FIELDS), f"blueprint slot {index}")
+        slot_id = _identifier(slot["slot_id"], f"blueprint slot {index} id")
+        if slot_id in seen:
+            raise ContractError("blueprint Slot ids must be unique", code="blueprint_slots_invalid")
+        seen.add(slot_id)
+        if slot["priority"] not in {"P0", "P1", "P2"}:
+            raise ContractError("blueprint Slot priority is invalid", code="blueprint_slots_invalid")
+        if slot["status"] not in {
+            "open", "researching", "contested", "conditionally_closed",
+            "closed", "blocked", "superseded",
+        }:
+            raise ContractError("blueprint Slot status is invalid", code="blueprint_slots_invalid")
+        for field in ("question", "decision_consequence", "fallback", "reversal_condition"):
+            if not isinstance(slot[field], str) or not slot[field].strip():
+                raise ContractError(
+                    f"blueprint Slot {field} is required", code="blueprint_slots_invalid"
+                )
+        for field in (
+            "options", "required_evidence_classes", "required_oracles", "lineage_refs"
+        ):
+            if (
+                not isinstance(slot[field], list)
+                or not all(isinstance(item, str) and item.strip() for item in slot[field])
+            ):
+                raise ContractError(
+                    f"blueprint Slot {field} is invalid", code="blueprint_slots_invalid"
+                )
+        if not slot["options"] or not slot["required_oracles"] or not slot["lineage_refs"]:
+            raise ContractError(
+                "blueprint Slot options, required_oracles, and lineage_refs are required",
+                code="blueprint_slots_invalid",
+            )
+        normalized_slots.append(_normalize(slot))
+    change = _required_object(data["change"], "blueprint change")
+    _exact(change, {"kind", "reason", "predecessor_ref"}, "blueprint change")
+    if change["kind"] not in {"initial", "add", "split", "merge", "remove", "reprioritize"}:
+        raise ContractError("blueprint change kind is invalid", code="blueprint_change_invalid")
+    if not isinstance(change["reason"], str) or not change["reason"].strip():
+        raise ContractError("blueprint change reason is required", code="blueprint_change_invalid")
+    if change["predecessor_ref"] is not None:
+        change["predecessor_ref"] = validate_exact_artifact_ref(
+            change["predecessor_ref"], label="blueprint predecessor_ref", run_id=data["run_id"]
+        )
+    if change["kind"] == "initial" and change["predecessor_ref"] is not None:
+        raise ContractError(
+            "initial blueprint cannot have a predecessor", code="blueprint_change_invalid"
+        )
+    data["slots"] = normalized_slots
+    data["change"] = change
+    return _normalize(data)

@@ -41,10 +41,10 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["run_id", "id", "revision"],
+        "required": ["run_id", "artifact_id", "revision"],
         "properties": {
           "run_id": { "type": "string", "minLength": 1 },
-          "id": { "type": "string", "minLength": 1 },
+          "artifact_id": { "type": "string", "minLength": 1 },
           "revision": { "type": "integer", "minimum": 1 }
         }
       }
