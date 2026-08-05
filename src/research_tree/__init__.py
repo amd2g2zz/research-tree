@@ -185,6 +185,7 @@ from .policy import AdaptiveResearchPolicy, DEFAULT_WEIGHTS
 from .host_events import emit_native_event, event_from_adapter_payload, reconcile_host_events
 from .debug_trace import emit_causal_trace
 from .alignment_strategy import AlignmentStrategyError, AlignmentStrategyState, select_alignment_action
+from .worker_contracts import AttemptPolicy, CanonicalWorkItem, FindingSubmission, WorkerContractError
 from .cas import CASError, CASIntegrityError, ContentAddressedStore
 from .evidence import EvidenceAnchor, EvidenceArtifact, EvidenceError
 from .oracles import OracleError, OracleRun, OracleSpec
@@ -335,6 +336,10 @@ __all__ = [
     "AlignmentStrategyError",
     "AlignmentStrategyState",
     "select_alignment_action",
+    "AttemptPolicy",
+    "CanonicalWorkItem",
+    "FindingSubmission",
+    "WorkerContractError",
     "CASError",
     "CASIntegrityError",
     "ContentAddressedStore",
