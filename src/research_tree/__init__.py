@@ -187,6 +187,8 @@ from .cas import CASError, CASIntegrityError, ContentAddressedStore
 from .evidence import EvidenceAnchor, EvidenceArtifact, EvidenceError
 from .oracles import OracleError, OracleRun, OracleSpec
 from .closure import ClosureError, SlotClosureAssessment
+from .acceptance import AcceptanceError, DeliveryAcceptance
+from .lifecycle import LifecycleError, allowed_transition, transition_table
 from .work_items import (
     InvalidWorkItemError,
     WorkItemCompiler,
@@ -328,6 +330,11 @@ __all__ = [
     "OracleSpec",
     "ClosureError",
     "SlotClosureAssessment",
+    "AcceptanceError",
+    "DeliveryAcceptance",
+    "LifecycleError",
+    "allowed_transition",
+    "transition_table",
     "RuntimeStoreError",
     "VerificationError",
     "VerificationFailure",
