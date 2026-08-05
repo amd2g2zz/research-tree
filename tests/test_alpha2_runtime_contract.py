@@ -47,6 +47,7 @@ def test_coordinator_rejects_illegal_transition_without_mutation(tmp_path: Path)
 
 def test_material_correction_invalidates_digest_and_keeps_task_identity(tmp_path: Path) -> None:
     from research_tree.coordinator import ResearchRunCoordinator
+    from research_tree.leases import AttemptLease
 
     coordinator = ResearchRunCoordinator(tmp_path)
     created = coordinator.create(
@@ -80,6 +81,31 @@ def test_material_correction_invalidates_digest_and_keeps_task_identity(tmp_path
     assert result["task_identity"]["subject"] == "autonomous-agent"
     with pytest.raises(coordinator.error_type, match="stale_digest"):
         coordinator.assert_current("run-correction", "a" * 64, action="dispatch")
+    with pytest.raises(coordinator.error_type, match="stale_digest") as stale:
+        coordinator.transition(
+            "run-correction",
+            event="alignment_projection_ready",
+            actor="coordinator",
+            expected_revision=result["revision"],
+            payload={"strategy_digest": "a" * 64},
+        )
+    assert stale.value.code == "stale_digest"
+    assert stale.value.next_action == "return_to_alignment_and_rederive_strategy"
+    with pytest.raises(coordinator.error_type, match="stale_digest"):
+        coordinator.issue_lease(
+            AttemptLease.create(
+                attempt_id="attempt-stale-strategy",
+                work_item_id="work-stale-strategy",
+                run_id="run-correction",
+                owner="worker",
+                status="leased",
+                dispatch_digest="a" * 64,
+                started_at="2026-08-05T00:00:00+00:00",
+                lease_expires_at="2026-08-05T01:00:00+00:00",
+            ),
+            expected_revision=result["revision"],
+        )
+    assert coordinator.attempts("run-correction") == {}
 
 
 def test_host_event_is_idempotent_but_payload_conflict_is_rejected(tmp_path: Path) -> None:

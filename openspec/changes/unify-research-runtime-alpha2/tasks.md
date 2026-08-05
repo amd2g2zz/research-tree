@@ -244,7 +244,7 @@ substitute for local evidence.
 - [ ] 23.2 Write failing integration tests showing a material FeedbackEvent atomically preserves the prior revision, creates a successor interpretation, and invalidates dependent strategy, handoff, closure, readiness, delivery, and acceptance revisions.
 - [ ] 23.3 Extend the canonical FeedbackEvent and lifecycle contracts with contradicted refs, affected fields, invalidated refs, successor refs, impact class, and task-identity disposition.
 - [x] 23.4 Implement correction ingestion and stale-state quarantine through the single ResearchRunCoordinator without adding a second writable authority.
-- [ ] 23.5 Reject confirmation, dispatch, delivery, and completion commands that reference a digest invalidated by correction, with stable error and next-action fields.
+- [x] 23.5 Reject confirmation, dispatch, delivery, and completion commands that reference a digest invalidated by correction, with stable error and next-action fields. Evidence: `ResearchRunCoordinator._assert_current_in_connection`, `tests/test_alpha2_runtime_contract.py::test_material_correction_invalidates_digest_and_keeps_task_identity`, and `uv run pytest -q tests/test_alpha2_runtime_contract.py`.
 - [x] 23.6 Add the diagnostic-subject/task-target contamination fixture and prove that old domain strategy cannot survive an explicit requester correction.
 - [ ] 23.7 Link the implementation, tests, replay trace, and migration disposition to issue #73 and the requirement-to-delivery matrix.
 

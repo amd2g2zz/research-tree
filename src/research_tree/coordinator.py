@@ -61,9 +61,16 @@ ATTEMPT_BOUND_EVENT_TYPES = frozenset({
 class CoordinatorError(RuntimeError):
     """Stable error with a machine-readable code."""
 
-    def __init__(self, message: str, *, code: str) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        next_action: str | None = None,
+    ) -> None:
         super().__init__(f"{message} [{code}]")
         self.code = code
+        self.next_action = next_action
 
 
 class ResearchRunCoordinator:
@@ -265,6 +272,9 @@ class ResearchRunCoordinator:
             row = self._require_run(connection, lease.run_id)
             if int(row["revision"]) != expected_revision:
                 raise CoordinatorError("expected revision is stale", code="stale_revision")
+            self._assert_current_in_connection(
+                connection, lease.run_id, lease.dispatch_digest, action="dispatch"
+            )
             if connection.execute("SELECT 1 FROM action_attempts WHERE run_id=? AND attempt_id=?", (lease.run_id, lease.attempt_id)).fetchone():
                 raise CoordinatorError("attempt already exists", code="duplicate_attempt")
             revision = expected_revision + 1
@@ -314,6 +324,9 @@ class ResearchRunCoordinator:
             row = self._require_run(connection, run_id)
             if int(row["revision"]) != expected_revision:
                 raise CoordinatorError("expected revision is stale", code="stale_revision")
+            self._assert_current_in_connection(
+                connection, run_id, dispatch_digest, action="retry"
+            )
             prior_row = connection.execute(
                 "SELECT lease_json FROM action_attempts WHERE run_id=? AND attempt_id=?",
                 (run_id, attempt_id),
@@ -378,6 +391,11 @@ class ResearchRunCoordinator:
             row = self._require_run(connection, run_id)
             if row["revision"] != expected_revision:
                 raise CoordinatorError("expected revision is stale", code="stale_revision")
+            for field, value in body.items():
+                if field.endswith("_digest") and isinstance(value, str):
+                    self._assert_current_in_connection(
+                        connection, run_id, value, action=event
+                    )
             if row["lifecycle_state"] in TERMINAL_STATES:
                 if event == "delivery_accepted" and row["lifecycle_state"] == "completed":
                     return self._row(row)
@@ -436,8 +454,25 @@ class ResearchRunCoordinator:
     def assert_current(self, run_id: str, digest: str, *, action: str) -> None:
         with self._connect() as connection:
             self._require_run(connection, run_id)
-            if connection.execute("SELECT 1 FROM invalidations WHERE run_id=? AND digest=?", (run_id, digest)).fetchone():
-                raise CoordinatorError(f"{action} references an invalidated digest", code="stale_digest")
+            self._assert_current_in_connection(connection, run_id, digest, action=action)
+
+    @staticmethod
+    def _assert_current_in_connection(
+        connection: sqlite3.Connection,
+        run_id: str,
+        digest: str,
+        *,
+        action: str,
+    ) -> None:
+        if connection.execute(
+            "SELECT 1 FROM invalidations WHERE run_id=? AND digest=?",
+            (run_id, digest),
+        ).fetchone():
+            raise CoordinatorError(
+                f"{action} references an invalidated digest",
+                code="stale_digest",
+                next_action="return_to_alignment_and_rederive_strategy",
+            )
 
     def ingest_host_event(self, event: HostEvent | Mapping[str, Any]) -> dict[str, Any]:
         host_event = event if isinstance(event, HostEvent) else HostEvent.from_dict(event)
