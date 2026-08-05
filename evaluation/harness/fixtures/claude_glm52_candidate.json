@@ -1,0 +1,11 @@
+{
+  "trace": [
+    {"phase": "activation", "revision": 1},
+    {"phase": "alignment_turn", "prompt_count": 1, "task_identity": "target-a"},
+    {"phase": "correction", "invalidated": true, "task_identity": "target-b"},
+    {"phase": "replan", "strategy_revision": 2},
+    {"phase": "research_attempt", "attempt_id": "a1"},
+    {"phase": "research_attempt", "attempt_id": "a2"},
+    {"phase": "delivery", "technical_depth": 8, "human_depth": 8, "claim_refs": 3}
+  ]
+}
