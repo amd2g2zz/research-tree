@@ -368,6 +368,17 @@ without atomic observations and decision effects is not a Finding Pack.
 coordinator deduplicates, scores, and may reject it; workers do not mutate the
 active tree or assign their own information-gain score.
 
+### Host event binding
+
+Host events that describe an attempt (`attempt_started`, `finding_submitted`,
+`review_completed`, `provider_failed`, `attempt_unknown`, `retry_requested`,
+or `worker_finished`) must carry an `attempt_id` already issued by the
+coordinator. Ingestion checks both the expected run revision and the
+`action_attempts` row before appending the event. A missing or unknown attempt
+is rejected without mutating the ledger; duplicate event IDs remain idempotent
+only when their payload digest is unchanged. Host-visible status never closes
+the work item or run by itself.
+
 ## Persistent recursive research state
 
 Every accepted batch appends a `research-tree-state` artifact. Revision zero

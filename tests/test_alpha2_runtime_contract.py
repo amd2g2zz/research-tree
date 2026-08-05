@@ -85,9 +85,23 @@ def test_material_correction_invalidates_digest_and_keeps_task_identity(tmp_path
 def test_host_event_is_idempotent_but_payload_conflict_is_rejected(tmp_path: Path) -> None:
     from research_tree.contracts import HostEvent
     from research_tree.coordinator import ResearchRunCoordinator
+    from research_tree.leases import AttemptLease
 
     coordinator = ResearchRunCoordinator(tmp_path)
     state = coordinator.create("run-events")
+    coordinator.issue_lease(
+        AttemptLease.create(
+            attempt_id="attempt-find-1",
+            work_item_id="work-find-1",
+            run_id="run-events",
+            owner="worker-1",
+            dispatch_digest="a" * 64,
+            started_at="2026-08-05T00:00:00+00:00",
+            lease_expires_at="2026-08-05T01:00:00+00:00",
+        ),
+        expected_revision=state["revision"],
+    )
+    state = coordinator.status("run-events")
     event = HostEvent.create(
         event_id="event-find-1",
         event_type="finding_submitted",
@@ -95,6 +109,7 @@ def test_host_event_is_idempotent_but_payload_conflict_is_rejected(tmp_path: Pat
         round_id="round-events",
         host="claude-code",
         expected_revision=state["revision"],
+        attempt_id="attempt-find-1",
         payload={"finding_id": "finding-1"},
     )
     first = coordinator.ingest_host_event(event)
@@ -107,10 +122,55 @@ def test_host_event_is_idempotent_but_payload_conflict_is_rejected(tmp_path: Pat
         round_id=event.round_id,
         host=event.host,
         expected_revision=event.expected_revision,
+        attempt_id=event.attempt_id,
         payload={"finding_id": "finding-2"},
     )
     with pytest.raises(coordinator.error_type, match="event_id_conflict"):
         coordinator.ingest_host_event(changed)
+
+
+def test_host_event_rejects_unbound_attempt_without_mutating_ledger(tmp_path: Path) -> None:
+    from research_tree.contracts import HostEvent
+    from research_tree.coordinator import ResearchRunCoordinator
+
+    coordinator = ResearchRunCoordinator(tmp_path)
+    state = coordinator.create("run-unbound-event")
+    event = HostEvent.create(
+        event_id="event-unbound-1",
+        event_type="worker_finished",
+        run_id="run-unbound-event",
+        round_id="round-events",
+        host="codex",
+        expected_revision=state["revision"],
+        attempt_id="attempt-does-not-exist",
+        payload={"status": "completed"},
+    )
+    with pytest.raises(coordinator.error_type, match="attempt_not_found"):
+        coordinator.ingest_host_event(event)
+    assert coordinator.status("run-unbound-event")["revision"] == state["revision"]
+    events = coordinator.events("run-unbound-event")
+    assert len(events) == 1
+    assert events[0]["event_type"] == "run_initialized"
+
+
+def test_attempt_bound_host_event_requires_attempt_id(tmp_path: Path) -> None:
+    from research_tree.contracts import HostEvent
+    from research_tree.coordinator import ResearchRunCoordinator
+
+    coordinator = ResearchRunCoordinator(tmp_path)
+    state = coordinator.create("run-missing-attempt")
+    event = HostEvent.create(
+        event_id="event-missing-attempt",
+        event_type="finding_submitted",
+        run_id="run-missing-attempt",
+        round_id="round-events",
+        host="hermes",
+        expected_revision=state["revision"],
+        payload={"finding_id": "finding-1"},
+    )
+    with pytest.raises(coordinator.error_type, match="attempt_binding_required"):
+        coordinator.ingest_host_event(event)
+    assert coordinator.status("run-missing-attempt")["revision"] == state["revision"]
 
 
 def test_single_transcript_is_observation_not_model_attribution() -> None:

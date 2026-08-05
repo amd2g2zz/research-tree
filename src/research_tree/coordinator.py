@@ -51,6 +51,10 @@ COMPLETION_OBLIGATIONS = (
     "p0_closure", "insight_clear", "readiness", "evaluation",
     "technical_delivery", "human_delivery", "acceptance",
 )
+ATTEMPT_BOUND_EVENT_TYPES = frozenset({
+    "attempt_started", "finding_submitted", "review_completed",
+    "provider_failed", "attempt_unknown", "retry_requested", "worker_finished",
+})
 
 
 class CoordinatorError(RuntimeError):
@@ -371,6 +375,21 @@ class ResearchRunCoordinator:
                 return json.loads(prior["event_json"])
             if row["revision"] != host_event.expected_revision:
                 raise CoordinatorError("host event expected revision is stale", code="stale_revision")
+            if host_event.event_type in ATTEMPT_BOUND_EVENT_TYPES:
+                if not host_event.attempt_id:
+                    raise CoordinatorError(
+                        "attempt-bound host event requires attempt_id",
+                        code="attempt_binding_required",
+                    )
+                attempt = connection.execute(
+                    "SELECT attempt_id FROM action_attempts WHERE run_id=? AND attempt_id=?",
+                    (host_event.run_id, host_event.attempt_id),
+                ).fetchone()
+                if attempt is None:
+                    raise CoordinatorError(
+                        "host event references an unknown attempt",
+                        code="attempt_not_found",
+                    )
             self._event(connection, host_event.run_id, host_event.event_id, host_event.expected_revision, payload, event_type=host_event.event_type)
             revision = int(row["revision"]) + 1
             state = self._state_payload(row, lifecycle_state=row["lifecycle_state"], revision=revision, body={})
