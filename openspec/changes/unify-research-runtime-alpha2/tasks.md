@@ -41,12 +41,12 @@ substitute for local evidence.
 
 ## 4. OracleRun and Slot Closure (#56)
 
-- [ ] 4.1 Define OracleSpec, OracleAttempt, OracleRun, and SlotClosureAssessment schemas with exact revision and attempt binding.
-- [ ] 4.2 Implement oracle result ingestion for method, environment, inputs, tool events, result artifacts, evaluator, verdict, and limitations.
+- [ ] 4.1 Define OracleSpec, OracleAttempt, OracleRun, and SlotClosureAssessment schemas with exact revision and attempt binding. Partial implementation evidence: strict `OracleSpec`, `OracleRun`, and `SlotClosureAssessment` contract parsers; persisted OracleAttempt binding remains open.
+- [ ] 4.2 Implement oracle result ingestion for method, environment, inputs, tool events, result artifacts, evaluator, verdict, and limitations. Partial implementation evidence: `OracleRun.from_mapping` validates the canonical result boundary; coordinator/ledger ingestion remains open.
 - [ ] 4.3 Remove authoritative meaning from worker-authored validation status strings and migrate Finding Packs to OracleRun references.
-- [ ] 4.4 Implement closure checks for evidence classes, provenance independence, counterevidence, contradictions, oracle status, selected or conditional decision, fallback, and reversal condition.
-- [ ] 4.5 Make the core evaluator the only closure-token issuer and persist machine-readable pass, fail, and inconclusive explanations.
-- [ ] 4.6 Generate independent validation, method-switch, fallback, or residual-risk work after failed or inconclusive oracles.
+- [ ] 4.4 Implement closure checks for evidence classes, provenance independence, counterevidence, contradictions, oracle status, selected or conditional decision, fallback, and reversal condition. Partial implementation evidence: `SlotClosureAssessment.assess_alpha2`; decision status integration remains open.
+- [ ] 4.5 Make the core evaluator the only closure-token issuer and persist machine-readable pass, fail, and inconclusive explanations. Partial implementation evidence: deterministic token and revocation API; SQLite persistence remains open.
+- [ ] 4.6 Generate independent validation, method-switch, fallback, or residual-risk work after failed or inconclusive oracles. Partial implementation evidence: `oracle_successor_actions`; scheduler integration remains open.
 - [ ] 4.7 Pass adversarial tests for nonexistent references, forged verdicts, active contradictions, and manual close-slot bypass attempts.
 
 ## 5. Single-Authority ResearchRunCoordinator (#57)

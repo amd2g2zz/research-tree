@@ -97,6 +97,32 @@
       "github_issue": "#54",
       "owner": "evidence",
       "status": "in_progress"
+    },
+    {
+      "requirement_id": "evidence-verification/validation-verdicts-come-from-executable-oraclerun-artifacts",
+      "source_modules": ["src/research_tree/oracles.py", "src/research_tree/closure.py"],
+      "public_surface": ["OracleSpec.from_mapping", "OracleRun.from_mapping", "SlotClosureAssessment.assess_alpha2"],
+      "migration_impact": "Legacy constructors remain non-authoritative compatibility APIs; alpha2 closure consumes canonical contract mappings only.",
+      "unit_tests": ["tests/test_oracle_closure.py"],
+      "integration_tests": ["tests/test_alpha2_completion_gates.py"],
+      "black_box_cases": ["evaluation/cases/alpha1-adversarial-v1.json"],
+      "evidence_artifact": "tests/test_oracle_closure.py::test_alpha2_closure_rejects_forged_verdict_and_active_contradiction",
+      "github_issue": "#56",
+      "owner": "evidence",
+      "status": "in_progress"
+    },
+    {
+      "requirement_id": "evidence-verification/decision-slot-closure-is-an-auditable-assessment",
+      "source_modules": ["src/research_tree/closure.py"],
+      "public_surface": ["SlotClosureAssessment.assess_alpha2", "SlotClosureAssessment.revoke"],
+      "migration_impact": "Legacy closure remains readable; alpha2 closure tokens use exact canonical assessment inputs and can be revoked.",
+      "unit_tests": ["tests/test_oracle_closure.py"],
+      "integration_tests": ["tests/test_alpha2_completion_gates.py"],
+      "black_box_cases": ["evaluation/cases/alpha1-adversarial-v1.json"],
+      "evidence_artifact": "tests/test_oracle_closure.py::test_alpha2_closure_token_is_replayable_and_revocable",
+      "github_issue": "#56",
+      "owner": "evidence",
+      "status": "in_progress"
     }
   ],
   "release_rule": "A capability row is not evidence of implementation. The generated requirement rows, tests, and immutable release manifest must all resolve before status becomes verified."

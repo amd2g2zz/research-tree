@@ -34,6 +34,12 @@ The system SHALL bind each validation verdict to the current OracleSpec, attempt
 - **WHEN** a Finding Pack contains a passed string but no resolvable OracleRun for the current attempt
 - **THEN** validation remains pending and the Finding Pack cannot close the Decision Slot
 
+The alpha2 contract path uses `OracleSpec.from_mapping` and `OracleRun.from_mapping`
+to retain exact execution permissions, limits, attempts, input and toolchain digests,
+timeout state, result artifacts, evaluator, limitations, and reproducibility. The
+legacy `create` API remains a compatibility constructor and does not itself authorize
+alpha2 closure.
+
 #### Scenario: Oracle execution fails
 - **WHEN** the recorded oracle result is failed or inconclusive
 - **THEN** the result remains visible and triggers an independent validation, method switch, fallback, or bounded residual-risk decision
@@ -48,6 +54,11 @@ The system SHALL issue a closure token only after evaluating required evidence c
 #### Scenario: P0 evidence and oracle requirements pass
 - **WHEN** all required evidence, counterevidence, contradiction, validation, and fallback obligations resolve for the current revisions
 - **THEN** the core evaluator emits a closure token that records every input reference and check result
+
+`SlotClosureAssessment.assess_alpha2` is the evaluator-owned path. It requires
+counterevidence completion, two provenance groups, every declared evidence class,
+a reproducible passing OracleRun, disposed contradictions, fallback, and reversal
+condition. Worker prose and legacy validation strings are not accepted inputs.
 
 ### Requirement: Evidence history is never deleted by pruning or supersession
 The system SHALL preserve rejected, contradicted, superseded, failed, and inconclusive evidence with its original provenance and disposition.
