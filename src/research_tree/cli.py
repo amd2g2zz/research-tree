@@ -118,6 +118,15 @@ def build_parser() -> argparse.ArgumentParser:
     accept.add_argument("--run-id", required=True)
     accept.add_argument("--expected-revision", type=int, required=True)
     accept.add_argument("--displayed-digest", required=True)
+    accept.add_argument("--technical-revision", required=True)
+    accept.add_argument("--human-revision", required=True)
+    accept.add_argument("--feedback", required=True)
+    obligation = run_commands.add_parser("satisfy")
+    obligation.add_argument("--workspace", type=Path, required=True)
+    obligation.add_argument("--run-id", required=True)
+    obligation.add_argument("--obligation", required=True)
+    obligation.add_argument("--evidence-ref", required=True)
+    obligation.add_argument("--expected-revision", type=int, required=True)
     migrate = run_commands.add_parser("migrate")
     migrate.add_argument("--workspace", type=Path, required=True)
     migrate.add_argument("--source", action="append", required=True)
@@ -163,6 +172,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     output = coordinator.status(arguments.run_id)
                 elif arguments.run_command == "next":
                     output = coordinator.next_actions(arguments.run_id)
+                elif arguments.run_command == "satisfy":
+                    output = coordinator.record_obligation(arguments.run_id, arguments.obligation, evidence_ref=arguments.evidence_ref, expected_revision=arguments.expected_revision)
                 elif arguments.run_command == "replay":
                     output = coordinator.replay(arguments.run_id)
                 elif arguments.run_command in {"explain", "why-action"}:
@@ -178,7 +189,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 elif arguments.run_command == "deliver":
                     output = coordinator.deliver(arguments.run_id, expected_revision=arguments.expected_revision, technical_digest=arguments.technical_digest, human_digest=arguments.human_digest)
                 elif arguments.run_command == "accept":
-                    output = coordinator.accept(arguments.run_id, expected_revision=arguments.expected_revision, displayed_digest=arguments.displayed_digest)
+                    output = coordinator.accept(arguments.run_id, expected_revision=arguments.expected_revision, displayed_digest=arguments.displayed_digest, technical_revision=arguments.technical_revision, human_revision=arguments.human_revision, feedback=arguments.feedback)
                 else:
                     payload = {}
                     if arguments.payload:

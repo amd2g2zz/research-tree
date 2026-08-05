@@ -47,6 +47,10 @@ TRANSITIONS = {
     ("autonomous_research", "cancel_requested"): ("superseded", "human_or_operator"),
     ("autonomous_research", "fatal_failure"): ("failed", "coordinator"),
 }
+COMPLETION_OBLIGATIONS = (
+    "p0_closure", "insight_clear", "readiness", "evaluation",
+    "technical_delivery", "human_delivery", "acceptance",
+)
 
 
 class CoordinatorError(RuntimeError):
@@ -106,6 +110,11 @@ class ResearchRunCoordinator:
           updated_at TEXT NOT NULL, PRIMARY KEY(run_id,attempt_id),
           FOREIGN KEY(run_id) REFERENCES runs(run_id)
         );
+        CREATE TABLE IF NOT EXISTS run_obligations(
+          run_id TEXT NOT NULL, obligation TEXT NOT NULL, satisfied INTEGER NOT NULL DEFAULT 0,
+          evidence_ref TEXT, updated_at TEXT NOT NULL,
+          PRIMARY KEY(run_id,obligation), FOREIGN KEY(run_id) REFERENCES runs(run_id)
+        );
         """)
         run_columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
         if "schema_version" not in run_columns:
@@ -138,6 +147,7 @@ class ResearchRunCoordinator:
             except sqlite3.IntegrityError as exc:
                 raise CoordinatorError("run already exists", code="duplicate_run") from exc
             self._event(connection, run_id, "run-initialized", 0, {"task_identity": identity}, event_type="run_initialized")
+            self._ensure_obligations(connection, run_id)
         return self.status(run_id)
 
     def status(self, run_id: str) -> dict[str, Any]:
@@ -172,10 +182,33 @@ class ResearchRunCoordinator:
 
     def why_not_complete(self, run_id: str) -> dict[str, Any]:
         state = self.status(run_id)
-        obligations: list[str] = []
-        if state["lifecycle_state"] == "awaiting_acceptance":
-            obligations.append("revision-bound human acceptance")
-        return why_not_complete(state, obligations)
+        records = self.obligations(run_id)
+        unmet = [name for name, value in records.items() if not value["satisfied"]]
+        return why_not_complete(state, unmet)
+
+    def obligations(self, run_id: str) -> dict[str, dict[str, Any]]:
+        with self._connect() as connection:
+            self._require_run(connection, run_id)
+            self._ensure_obligations(connection, run_id)
+            rows = connection.execute("SELECT obligation,satisfied,evidence_ref,updated_at FROM run_obligations WHERE run_id=? ORDER BY obligation", (run_id,)).fetchall()
+        return {row["obligation"]: {"satisfied": bool(row["satisfied"]), "evidence_ref": row["evidence_ref"], "updated_at": row["updated_at"]} for row in rows}
+
+    def record_obligation(self, run_id: str, obligation: str, *, evidence_ref: str, expected_revision: int) -> dict[str, Any]:
+        if obligation not in COMPLETION_OBLIGATIONS or obligation in {"technical_delivery", "human_delivery", "acceptance"}:
+            raise CoordinatorError("obligation must be recorded by its canonical boundary", code="invalid_obligation")
+        if not isinstance(evidence_ref, str) or not evidence_ref.strip():
+            raise CoordinatorError("obligation evidence is required", code="missing_evidence")
+        with self._connect() as connection:
+            row = self._require_run(connection, run_id)
+            if int(row["revision"]) != expected_revision:
+                raise CoordinatorError("expected revision is stale", code="stale_revision")
+            self._ensure_obligations(connection, run_id)
+            revision = expected_revision + 1
+            connection.execute("UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation=?", (evidence_ref, self._now(), run_id, obligation))
+            state = self._state_payload(row, lifecycle_state=row["lifecycle_state"], revision=revision, body={})
+            connection.execute("UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?", (revision, self._digest(state), self._now(), run_id))
+            self._event(connection, run_id, f"obligation-{obligation}-{revision}", expected_revision, {"obligation": obligation, "evidence_ref": evidence_ref}, event_type="obligation_satisfied")
+        return self.status(run_id)
 
     def next_actions(self, run_id: str) -> dict[str, Any]:
         state = self.status(run_id)
@@ -254,8 +287,8 @@ class ResearchRunCoordinator:
     def deliver(self, run_id: str, *, expected_revision: int, technical_digest: str, human_digest: str) -> dict[str, Any]:
         return self.transition(run_id, event="deliveries_compiled", actor="coordinator", expected_revision=expected_revision, payload={"technical_digest": technical_digest, "human_digest": human_digest})
 
-    def accept(self, run_id: str, *, expected_revision: int, displayed_digest: str) -> dict[str, Any]:
-        return self.transition(run_id, event="delivery_accepted", actor="human", expected_revision=expected_revision, payload={"displayed_digest": displayed_digest})
+    def accept(self, run_id: str, *, expected_revision: int, displayed_digest: str, technical_revision: str | None = None, human_revision: str | None = None, feedback: str | None = None) -> dict[str, Any]:
+        return self.transition(run_id, event="delivery_accepted", actor="human", expected_revision=expected_revision, payload={"displayed_digest": displayed_digest, "technical_revision": technical_revision, "human_revision": human_revision, "feedback": feedback})
 
     def transition(self, run_id: str, *, event: str, actor: str,
                    expected_revision: int, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -278,12 +311,20 @@ class ResearchRunCoordinator:
                 displayed = body.get("displayed_digest")
                 if not displayed or displayed != self._authority_digest(row):
                     raise CoordinatorError("confirmation digest is stale", code="stale_digest")
+            self._guard_transition(connection, row, event, body)
             revision = int(row["revision"]) + 1
             now = self._now()
             state = self._state_payload(row, lifecycle_state=next_state, revision=revision, body=body)
             digest = self._digest(state)
             authority_digest = body.get("strategy_digest") if event == "alignment_projection_ready" else row["authority_digest"]
             connection.execute("UPDATE runs SET lifecycle_state=?,revision=?,state_digest=?,authority_digest=?,updated_at=?,termination_reason=? WHERE run_id=?", (next_state, revision, digest, authority_digest or row["authority_digest"], now, body.get("termination_reason"), run_id))
+            if event == "deliveries_compiled":
+                connection.execute("UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation='technical_delivery'", (body["technical_digest"], now, run_id))
+                connection.execute("UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation='human_delivery'", (body["human_digest"], now, run_id))
+            elif event == "delivery_accepted":
+                connection.execute("UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation='acceptance'", (body["displayed_digest"], now, run_id))
+            elif event == "needs_deeper_research":
+                connection.execute("UPDATE run_obligations SET satisfied=0,updated_at=? WHERE run_id=? AND obligation IN ('readiness','evaluation','technical_delivery','human_delivery','acceptance')", (now, run_id))
             self._event(connection, run_id, f"{event}-{revision}", expected_revision, body, event_type=event)
         return self.status(run_id)
 
@@ -299,6 +340,8 @@ class ResearchRunCoordinator:
             if feedback["materiality"] in {"material", "terminal"}:
                 for digest in invalidated:
                     connection.execute("INSERT OR IGNORE INTO invalidations VALUES(?,?,?,?)", (run_id, digest, feedback["message"], revision))
+                self._ensure_obligations(connection, run_id)
+                connection.execute("UPDATE run_obligations SET satisfied=0,updated_at=? WHERE run_id=?", (self._now(), run_id))
             identity = feedback.get("successor_task_identity") or json.loads(row["task_identity_json"])
             next_state = "alignment" if feedback["materiality"] == "material" else row["lifecycle_state"]
             state = self._state_payload(row, lifecycle_state=next_state, revision=revision, body={"task_identity": identity, "feedback_id": feedback["feedback_id"]})
@@ -355,6 +398,35 @@ class ResearchRunCoordinator:
         if row is None:
             raise CoordinatorError("run does not exist", code="run_not_found")
         return row
+
+    def _ensure_obligations(self, connection: sqlite3.Connection, run_id: str) -> None:
+        now = self._now()
+        for obligation in COMPLETION_OBLIGATIONS:
+            connection.execute("INSERT OR IGNORE INTO run_obligations(run_id,obligation,satisfied,evidence_ref,updated_at) VALUES(?,?,0,NULL,?)", (run_id, obligation, now))
+
+    def _guard_transition(self, connection: sqlite3.Connection, row: sqlite3.Row, event: str, body: Mapping[str, Any]) -> None:
+        self._ensure_obligations(connection, row["run_id"])
+        records = {item["obligation"]: item for item in connection.execute("SELECT obligation,satisfied,evidence_ref FROM run_obligations WHERE run_id=?", (row["run_id"],)).fetchall()}
+        def require(names: tuple[str, ...]) -> None:
+            missing = [name for name in names if not bool(records[name]["satisfied"])]
+            if missing:
+                raise CoordinatorError("canonical obligations are not satisfied: " + ", ".join(missing), code="completion_gate_failed")
+        if event == "all_slots_closed":
+            require(("p0_closure", "insight_clear"))
+        elif event == "readiness_passed":
+            require(("p0_closure", "insight_clear", "readiness", "evaluation"))
+        elif event == "deliveries_compiled":
+            require(("p0_closure", "insight_clear", "readiness", "evaluation"))
+            if not body.get("technical_digest") or not body.get("human_digest"):
+                raise CoordinatorError("both delivery revisions are required", code="missing_delivery")
+        elif event == "delivery_accepted":
+            require(("p0_closure", "insight_clear", "readiness", "evaluation", "technical_delivery", "human_delivery"))
+            technical = body.get("technical_revision")
+            human = body.get("human_revision")
+            if technical != records["technical_delivery"]["evidence_ref"] or human != records["human_delivery"]["evidence_ref"]:
+                raise CoordinatorError("acceptance does not bind exact delivery revisions", code="stale_acceptance")
+            if not isinstance(body.get("feedback"), str) or body["feedback"].strip().casefold() in {"", "ok", "okay", "yes", "continue", "go ahead"}:
+                raise CoordinatorError("generic acknowledgement cannot accept delivery", code="invalid_acceptance")
 
     @staticmethod
     def _row(row: sqlite3.Row) -> dict[str, Any]:
