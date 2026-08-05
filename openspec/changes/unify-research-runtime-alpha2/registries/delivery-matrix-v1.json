@@ -29,6 +29,35 @@
   ],
   "requirement_overrides": [
     {
+      "requirement_id": "durable-research-runtime/canonical-run-state-is-stored-transactionally-in-sqlite",
+      "source_modules": [
+        "src/research_tree/sqlite_ledger.py",
+        "src/research_tree/coordinator.py"
+      ],
+      "public_surface": ["SQLiteRunLedger.append_artifact"],
+      "migration_impact": "Additive schema migration v2; artifact append now emits a canonical event and advances the run revision in one transaction.",
+      "unit_tests": ["tests/test_alpha2_sqlite_ledger.py"],
+      "integration_tests": ["tests/test_alpha2_replay_lease_migration.py"],
+      "black_box_cases": ["evaluation/cases/v1.json"],
+      "evidence_artifact": "tests/test_alpha2_sqlite_ledger.py::test_artifact_append_rolls_back_at_each_registered_write_boundary",
+      "github_issue": "#53",
+      "owner": "runtime",
+      "status": "in_progress"
+    },
+    {
+      "requirement_id": "durable-research-runtime/large-artifacts-use-tamper-evident-content-addressed-storage",
+      "source_modules": ["src/research_tree/cas.py"],
+      "public_surface": ["ContentAddressedStore"],
+      "migration_impact": "Metadata sidecars and staged/quarantine CAS paths are additive; legacy blobs require metadata verification before promotion.",
+      "unit_tests": ["tests/test_alpha2_sqlite_ledger.py::test_cas_rejects_file_outside_workspace_and_records_media_metadata"],
+      "integration_tests": ["tests/test_alpha2_sqlite_ledger.py::test_cas_staged_blob_is_inert_until_promoted_and_can_be_quarantined"],
+      "black_box_cases": ["evaluation/cases/v1.json"],
+      "evidence_artifact": "tests/test_alpha2_sqlite_ledger.py::test_cas_staged_blob_is_inert_until_promoted_and_can_be_quarantined",
+      "github_issue": "#53",
+      "owner": "runtime",
+      "status": "in_progress"
+    },
+    {
       "requirement_id": "mutual-alignment/corrections-transactionally-invalidate-dependent-state",
       "source_modules": [
         "src/research_tree/contracts.py",

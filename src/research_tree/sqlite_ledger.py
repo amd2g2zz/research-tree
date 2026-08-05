@@ -7,7 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from .contracts import canonical_json_bytes
 from .coordinator import ResearchRunCoordinator
@@ -22,8 +22,15 @@ class SQLiteLedgerError(ValueError):
 class SQLiteRunLedger:
     """Append-only artifact revisions with exact parent lineage."""
 
-    def __init__(self, workspace: str | Path) -> None:
+    def __init__(
+        self,
+        workspace: str | Path,
+        *,
+        fault_injector: Callable[[str], None] | None = None,
+    ) -> None:
         coordinator = ResearchRunCoordinator(workspace)
+        self.coordinator = coordinator
+        self._fault_injector = fault_injector
         self.database = coordinator.database
         with self._connect() as connection:
             connection.executescript("""
@@ -42,6 +49,8 @@ class SQLiteRunLedger:
             """)
             schema = canonical_json_bytes({"version": 1, "tables": ["runs", "events", "artifacts", "artifact_parents"]})
             connection.execute("INSERT OR IGNORE INTO schema_migrations VALUES(1,?,?)", (datetime.now(timezone.utc).isoformat(), hashlib.sha256(schema).hexdigest()))
+            schema_v2 = canonical_json_bytes({"version": 2, "tables": ["runs", "events", "artifacts", "artifact_parents", "action_attempts", "run_obligations", "run_revisions", "host_events"]})
+            connection.execute("INSERT OR IGNORE INTO schema_migrations VALUES(2,?,?)", (datetime.now(timezone.utc).isoformat(), hashlib.sha256(schema_v2).hexdigest()))
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database, timeout=10.0)
@@ -52,10 +61,15 @@ class SQLiteRunLedger:
         connection.execute("PRAGMA busy_timeout=10000")
         return connection
 
+    def _fault(self, boundary: str) -> None:
+        if self._fault_injector is not None:
+            self._fault_injector(boundary)
+
     def append_artifact(self, *, run_id: str, artifact_id: str, kind: str, payload: Mapping[str, Any], actor_kind: str, actor_id: str, status: str, parent_refs: Sequence[Mapping[str, Any]] = (), expected_revision: int | None = None, created_at: str | None = None) -> dict[str, Any]:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            if connection.execute("SELECT 1 FROM runs WHERE run_id=?", (run_id,)).fetchone() is None:
+            run_row = connection.execute("SELECT * FROM runs WHERE run_id=?", (run_id,)).fetchone()
+            if run_row is None:
                 raise SQLiteLedgerError("run does not exist", code="run_not_found")
             current = int(connection.execute("SELECT COALESCE(MAX(revision),0) FROM artifacts WHERE run_id=? AND artifact_id=?", (run_id, artifact_id)).fetchone()[0])
             if expected_revision is not None and current != expected_revision:
@@ -72,8 +86,58 @@ class SQLiteRunLedger:
                 connection.execute("INSERT INTO artifacts VALUES(?,?,?,?,?,?,?,?,?,?,?)", (run_id, artifact_id, revision, kind, 1, stamp, actor_kind, actor_id, status, canonical_json_bytes(payload).decode("utf-8"), content_hash))
             except sqlite3.IntegrityError as exc:
                 raise SQLiteLedgerError("artifact conflicts with immutable ledger", code="artifact_conflict") from exc
+            self._fault("after_artifact")
             for parent in parents:
                 connection.execute("INSERT INTO artifact_parents VALUES(?,?,?,?,?,?)", (run_id, artifact_id, revision, parent["run_id"], parent["artifact_id"], parent["revision"]))
+            self._fault("after_parents")
+            run_revision = int(run_row["revision"]) + 1
+            state = {
+                "run_id": run_id,
+                "revision": run_revision,
+                "lifecycle_state": run_row["lifecycle_state"],
+                "task_identity": json.loads(run_row["task_identity_json"]),
+                "feedback_id": None,
+            }
+            state_digest = hashlib.sha256(canonical_json_bytes(state)).hexdigest()
+            connection.execute(
+                "UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?",
+                (run_revision, state_digest, datetime.now(timezone.utc).isoformat(), run_id),
+            )
+            self._fault("after_run_update")
+            event_id = f"artifact-appended-{artifact_id}-{revision}"
+            event_payload = {
+                "artifact_id": artifact_id,
+                "artifact_revision": revision,
+                "kind": kind,
+                "content_hash": content_hash,
+            }
+            raw_event = canonical_json_bytes(event_payload)
+            sequence = int(
+                connection.execute(
+                    "SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE run_id=?",
+                    (run_id,),
+                ).fetchone()[0]
+            )
+            connection.execute(
+                """INSERT INTO events(
+                     run_id,event_id,sequence,event_type,expected_revision,payload_json,
+                     payload_digest,accepted,error_code,causation_id,correlation_id,emitted_at
+                   ) VALUES(?,?,?,?,?,?,?,1,NULL,NULL,NULL,?)""",
+                (
+                    run_id,
+                    event_id,
+                    sequence,
+                    "artifact_appended",
+                    int(run_row["revision"]),
+                    raw_event.decode("utf-8"),
+                    hashlib.sha256(raw_event).hexdigest(),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            self._fault("after_event")
+            self.coordinator._snapshot_current_revision(
+                connection, run_id, source_event_id=event_id
+            )
         return {**body, "content_hash": content_hash}
 
     def resolve(self, run_id: str, artifact_id: str, revision: int) -> dict[str, Any]:

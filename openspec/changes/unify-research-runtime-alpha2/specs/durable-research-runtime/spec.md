@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Canonical run state is stored transactionally in SQLite
-The system SHALL persist all runs in one workspace-scoped SQLite RunLedger at `.research-tree/run-ledger.sqlite3`; every canonical row is keyed by `run_id`. The ledger SHALL enforce foreign keys, WAL, full synchronization, busy timeout, and expected-revision checks.
+The system SHALL persist all runs in one workspace-scoped SQLite RunLedger at `.research-tree/run-ledger.sqlite3`; every canonical row is keyed by `run_id`. The ledger SHALL enforce foreign keys, WAL, full synchronization, busy timeout, and expected-revision checks. Artifact append SHALL advance the run revision and emit one canonical `artifact_appended` event in the same transaction.
 
 #### Scenario: Concurrent host events target the same revision
 - **WHEN** two events attempt to advance the same run revision
@@ -12,7 +12,7 @@ The system SHALL persist all runs in one workspace-scoped SQLite RunLedger at `.
 - **THEN** the transaction is rejected without partially appending the artifact or event
 
 ### Requirement: Large artifacts use tamper-evident content-addressed storage
-The system SHALL store large documents, source snapshots, binaries, images, and experiment outputs in a SHA-256 content-addressed store and SHALL bind ledger metadata to the exact digest, media type, size, and locator.
+The system SHALL store large documents, source snapshots, binaries, images, and experiment outputs in a SHA-256 content-addressed store and SHALL bind ledger metadata to the exact digest, media type, size, and locator. CAS ingestion SHALL reject source paths outside the workspace and persist bounded metadata alongside each blob.
 
 #### Scenario: Content changes after ingestion
 - **WHEN** a stored artifact no longer matches its recorded digest
