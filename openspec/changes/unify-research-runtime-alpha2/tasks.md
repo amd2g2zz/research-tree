@@ -76,14 +76,14 @@ fields, dependency cycles, evidence paths, and acceptance command paths.
 
 ## 7. Evidence-Bearing Mutual Alignment (#59)
 
-- [ ] 7.1 Extend alignment persistence with action attempts, pending-action identity, belief basis, confidence, disagreement disposition, and supersession lineage.
-- [ ] 7.2 Implement candidate scoring for reconnaissance, one open question, constructive disagreement, and confirmation using recorded semantic factors.
-- [ ] 7.3 Ensure agent-verifiable ambiguity consumes a reconnaissance attempt before requesting the technical fact from the user when reconnaissance has expected value.
-- [ ] 7.4 Implement candidate-understanding repair and supported/refuted/not-enough-information disagreement handling without overwriting either participant's belief.
-- [ ] 7.5 Enforce one short open prompt per user turn while preserving unresolved internal gaps across turns.
-- [ ] 7.6 Require semantic readiness, displayed digest freshness, and contextual user confirmation before autonomous handoff.
-- [ ] 7.7 Route material post-handoff target, priority, authority, or success changes through feedback lineage and successor-round creation.
-- [ ] 7.8 Add black-box alignment tests for vague briefs, impossible goals, wrong human premises, wrong agent premises, repeated planning, and generic acknowledgement.
+- [x] 7.1 Extend alignment persistence with action attempts, pending-action identity, belief basis, confidence, disagreement disposition, and supersession lineage. Evidence: additive SQLite `alignment_attempts`, pending controller identity, completed/unknown/superseded outcomes, rebuild support, and package parity.
+- [x] 7.2 Implement candidate scoring for reconnaissance, one open question, constructive disagreement, and confirmation using recorded semantic factors. Evidence: deterministic factor vectors expose impact, exclusivity, researchability, ambiguity reduction, consequence, cognitive-load, and repetition inputs.
+- [x] 7.3 Ensure agent-verifiable ambiguity consumes a reconnaissance attempt before requesting the technical fact from the user when reconnaissance has expected value. Evidence: score tests prove a high-value technical gap beats a lower-impact requester preference while equal-impact requester authority remains decisive.
+- [x] 7.4 Implement candidate-understanding repair and supported/refuted/not-enough-information disagreement handling without overwriting either participant's belief. Evidence: `record_disagreement` preserves belief bases and disposition confidence; correction tests retain superseded graph state.
+- [x] 7.5 Enforce one short open prompt per user turn while preserving unresolved internal gaps across turns. Evidence: selected projections contain at most one question while `AlignmentStrategyState.unresolved_gaps` retains the complete ordered backlog.
+- [x] 7.6 Require semantic readiness, displayed digest freshness, and contextual user confirmation before autonomous handoff. Evidence: field-level pass/fail/unknown readiness checks, pending confirmation-attempt binding, stale digest rejection, and generic acknowledgement rejection.
+- [x] 7.7 Route material post-handoff target, priority, authority, or success changes through feedback lineage and successor-round creation. Evidence: group-5 semantic feedback classifier and correction integration tests remain green under the new alignment attempt runtime.
+- [x] 7.8 Add black-box alignment tests for vague briefs, impossible goals, wrong human premises, wrong agent premises, repeated planning, and generic acknowledgement. Evidence: `tests/test_alpha2_alignment_attempts.py`, `tests/test_alignment_controller.py`, correction integration, and the full suite pass (`420 passed`).
 
 ## 8. Host Event Protocol and Native Adapters (#60)
 
