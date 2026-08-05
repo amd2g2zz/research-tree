@@ -3,6 +3,7 @@
   "row_key": "<capability>/<requirement-slug>",
   "required_columns": ["requirement_id", "source_modules", "public_surface", "migration_impact", "unit_tests", "integration_tests", "black_box_cases", "evidence_artifact", "github_issue", "owner", "status"],
   "status_values": ["planned", "in_progress", "verified", "blocked", "not_applicable"],
+  "default_black_box_cases": ["evaluation/cases/v1.json"],
   "generation_rule": "scripts/generate_delivery_matrix.py parses every spec.md Requirement heading and emits exactly one row; release validation rejects missing, duplicate, or orphan rows",
   "capability_rows": [
     { "capability": "canonical-runtime-contract", "source_modules": ["src/research_tree/coordinator.py", "src/research_tree/contracts/", "src/research_tree/ledger.py"], "public_surface": ["research-tree run"], "task_groups": [5, 14, 18], "github_issue": "#57", "owner": "runtime" },
@@ -27,6 +28,7 @@
     { "capability": "documentation-governance", "source_modules": ["registries/documentation-authority-v1.json", "scripts/check_docs.py"], "public_surface": [], "task_groups": [19], "github_issue": "#68", "owner": "documentation" },
     { "capability": "evaluation-asset-governance", "source_modules": ["registries/evaluation-paths-v1.json", "scripts/check_evaluation_assets.py"], "public_surface": [], "task_groups": [20], "github_issue": "#69", "owner": "quality" },
     { "capability": "repository-layout-governance", "source_modules": ["registries/repository-paths-v1.json", "scripts/check_repository_layout.py"], "public_surface": [], "task_groups": [21], "github_issue": "#70", "owner": "release" }
+    ,{ "capability": "skill-activation-integrity", "source_modules": ["src/research_tree/skill_activation.py", "scripts/activation_receipt.py"], "public_surface": ["activation receipt"], "task_groups": [24], "github_issue": "#71", "owner": "host-adapter", "black_box_cases": ["evaluation/cases/claude-glm52-v1.json"] }
   ],
   "requirement_overrides": [
     {

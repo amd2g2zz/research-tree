@@ -14,6 +14,7 @@ REQUIREMENT_RE = re.compile(r"^### Requirement:\s*(.+?)\s*$", re.MULTILINE)
 def generate(change_dir: Path) -> dict[str, object]:
     registry_path = change_dir / "registries" / "delivery-matrix-v1.json"
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    default_black_box_cases = list(registry.get("default_black_box_cases", []))
     capabilities = {
         item["capability"]: item for item in registry.get("capability_rows", [])
     }
@@ -33,7 +34,10 @@ def generate(change_dir: Path) -> dict[str, object]:
                 "source_modules": capability_defaults.get("source_modules", []),
                 "public_surface": capability_defaults.get("public_surface", []),
                 "migration_impact": "review",
-                "unit_tests": [], "integration_tests": [], "black_box_cases": [],
+                "unit_tests": [], "integration_tests": [],
+                "black_box_cases": capability_defaults.get(
+                    "black_box_cases", default_black_box_cases
+                ),
                 "evidence_artifact": None,
                 "github_issue": capability_defaults.get("github_issue"),
                 "owner": capability_defaults.get("owner"),

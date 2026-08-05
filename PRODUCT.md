@@ -445,6 +445,15 @@ Silence, "okay", or a generic acknowledgement is not acceptance. Routine
 post-handoff research decisions remain autonomous, but final delivery and any
 dependent implementation require this human gate.
 
+Canonical completion is owned only by `ResearchRunCoordinator`. Workers, host
+adapters, hooks, recursive projections, and report validators may emit evidence or
+events, but cannot close a Decision Slot, accept delivery, or complete a run. The
+ratified architecture is recorded in
+[ADR-002](docs/adr/ADR-002-single-completion-authority.md),
+[ADR-003](docs/adr/ADR-003-separate-graph-boundaries.md),
+[ADR-004](docs/adr/ADR-004-sqlite-and-content-addressed-storage.md), and
+[ADR-005](docs/adr/ADR-005-host-adapters-as-event-translators.md).
+
 ### 7.4 Optional OpenSpec conversion
 
 OpenSpec generation happens only when requested. The Technical Research Package

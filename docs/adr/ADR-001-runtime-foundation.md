@@ -1,21 +1,28 @@
-# ADR-001: Run-Scoped Local Runtime
+# ADR-001: Run-Scoped Filesystem Runtime
+
+Status: Superseded by [ADR-004](ADR-004-sqlite-and-content-addressed-storage.md)
+
+## Context
+
+The alpha1 runtime needed isolated, inspectable research rounds before the product's
+cross-host and long-horizon coordination requirements were understood.
 
 ## Decision
 
-Adopt the RT-001 design recorded in [方案设计](../方案设计.md): Python 3.11+,
-an explicit `RunStore` root, versioned JSON artifact envelopes, append-only
-lineage events, and `pytest` exercised through a locked `uv` environment.
+Alpha1 used Python 3.11+, an explicit filesystem `RunStore`, versioned JSON artifact
+envelopes, append-only lineage events, and a locked `uv` test environment.
 
-## Rationale
+## Consequences
 
-The product contracts need immutable lineage and reproducible local state now.
-They do not yet justify a network service, database, or a broad runtime
-framework. The chosen boundary isolates future modules from storage while
-keeping artifacts inspectable and tests deterministic from a clean checkout.
+The format remains readable for migration and audit. It is not a writable authority for
+alpha2 lifecycle, closure, delivery, or completion state.
 
-## Rejected alternatives
+## Rejected Alternatives
 
-- A global `research_state.json`: cannot isolate concurrent or recursive rounds.
-- A mutable document per round: cannot preserve artifact revisions.
-- A full server/database first: adds operational choices before the product's
-  domain behavior has been validated.
+- A global mutable state file could not isolate concurrent rounds.
+- A server-first runtime added operations before the local product contract was stable.
+
+## Migration
+
+`LegacyRunStoreImporter` imports alpha1 artifacts as `legacy_unverified`. Alpha2 writes
+canonical state only through the SQLite RunLedger selected by ADR-004.

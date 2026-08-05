@@ -33,6 +33,15 @@ Alpha2 is a local, Python 3.11+ skill runtime for Codex, Claude Code, and Hermes
 
 ## Decisions
 
+The architecture decisions below are ratified by repository ADRs:
+
+- `ADR-002`: one coordinator owns canonical completion;
+- `ADR-003`: intent, work, evidence, and rollout keep separate graph invariants;
+- `ADR-004`: SQLite is canonical state and large bytes use a SHA-256 CAS; and
+- `ADR-005`: host adapters translate events and own no business state.
+
+`ADR-001` is retained as superseded alpha1 history and is not an alpha2 design source.
+
 ### 1. The structured product path is authoritative
 
 `ResearchRunCoordinator` will compose the existing Intent, Blueprint Target, Work Item, Finding Pack, Decision Ledger, Readiness, Delivery, Evaluation, and Feedback services. It alone transitions a run among alignment, autonomous research, synthesis, readiness, delivery, acceptance, completion, supersession, and authority-blocked states.

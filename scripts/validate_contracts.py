@@ -6,23 +6,33 @@ import argparse
 import json
 from pathlib import Path
 
+from research_tree import ContractRegistry, ContractRegistryError
+
 
 def validate(root: Path) -> dict[str, object]:
     schema_root = root / "openspec" / "changes" / "unify-research-runtime-alpha2" / "schemas"
+    registry = ContractRegistry(schema_root)
     checked: list[str] = []
     errors: list[str] = []
-    for path in sorted(schema_root.glob("*.json")):
+    for schema_name in registry.schema_names():
         try:
-            raw = path.read_bytes()
-            if raw.startswith(b"\xef\xbb\xbf"):
-                errors.append(f"{path.name}: UTF-8 BOM")
-            value = json.loads(raw.decode("utf-8"))
-            if not isinstance(value, dict) or "$schema" not in value:
-                errors.append(f"{path.name}: missing JSON Schema declaration")
-            checked.append(path.relative_to(root).as_posix())
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            errors.append(f"{path.name}: {exc}")
-    return {"schema": 1, "checked": checked, "errors": errors, "valid": not errors}
+            registry.validator(schema_name)
+            checked.append((schema_root / schema_name).relative_to(root).as_posix())
+        except ContractRegistryError as exc:
+            errors.append(str(exc))
+    example_counts = {"valid_examples": 0, "invalid_examples": 0}
+    if not errors:
+        try:
+            example_counts = registry.validate_examples()
+        except ContractRegistryError as exc:
+            errors.append(str(exc))
+    return {
+        "schema": 1,
+        "checked": checked,
+        **example_counts,
+        "errors": errors,
+        "valid": not errors,
+    }
 
 
 def main() -> int:

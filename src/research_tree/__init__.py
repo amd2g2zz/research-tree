@@ -195,6 +195,7 @@ from .debug_trace import emit_causal_trace
 from .alignment_strategy import AlignmentStrategyError, AlignmentStrategyState, select_alignment_action
 from .worker_contracts import AttemptPolicy, CanonicalWorkItem, FindingSubmission, WorkerContractError
 from .run_ledger import RunLedgerProtocol
+from .schema_registry import ContractRegistry, ContractRegistryError
 from .sqlite_ledger import SQLiteLedgerError, SQLiteRunLedger
 from .evaluation_metrics import EvaluationManifest, FROZEN_METRICS, MetricDefinition, MetricError, evaluate_metric
 from .cas import CASError, CASIntegrityError, ContentAddressedStore
@@ -365,6 +366,8 @@ __all__ = [
     "AttemptPolicy",
     "CanonicalWorkItem",
     "RunLedgerProtocol",
+    "ContractRegistry",
+    "ContractRegistryError",
     "FindingSubmission",
     "WorkerContractError",
     "SQLiteLedgerError",
