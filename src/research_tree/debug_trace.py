@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 import secrets
 import time
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 
 TRACE_DIRECTORY = Path(".research-tree-debug") / "events"
@@ -124,6 +124,17 @@ def emit_trace(
     codes: Iterable[str] = (),
     run_id: str | None = None,
     project_root: Path | None = None,
+    sequence: int | None = None,
+    causation_id: str | None = None,
+    correlation_id: str | None = None,
+    action: str | None = None,
+    inputs: Iterable[str] = (),
+    score_components: Mapping[str, float] | None = None,
+    outcome: str | None = None,
+    redaction_class: str | None = None,
+    retention_class: str | None = None,
+    prior_digest: str | None = None,
+    next_digest: str | None = None,
 ) -> dict[str, Any]:
     """Persist one sanitized workflow transition and return its relative path."""
     if host not in HOSTS:
@@ -132,6 +143,8 @@ def emit_trace(
         raise DebugTraceError(f"unsupported debug phase: {phase}")
     if status not in STATUSES:
         raise DebugTraceError(f"unsupported debug status: {status}")
+    if sequence is not None and (not isinstance(sequence, int) or sequence < 1):
+        raise DebugTraceError("sequence must be a positive integer")
 
     root = _project_root(project_root)
     record: dict[str, Any] = {
@@ -146,8 +159,47 @@ def emit_trace(
     normalized_run_id = _identifier(run_id, "run id")
     if normalized_run_id is not None:
         record["run_id"] = normalized_run_id
+    optional = {
+        "sequence": sequence, "causation_id": _identifier(causation_id, "causation id"),
+        "correlation_id": _identifier(correlation_id, "correlation id"),
+        "action": _identifier(action, "action"), "inputs": _codes(inputs),
+        "score_components": dict(score_components or {}), "outcome": _identifier(outcome, "outcome"),
+        "redaction_class": _identifier(redaction_class, "redaction class"),
+        "retention_class": _identifier(retention_class, "retention class"),
+        "prior_digest": prior_digest, "next_digest": next_digest,
+    }
+    for key, value in optional.items():
+        if value is not None and value not in ([], {}):
+            record[key] = value
     path = _write_record(root, record)
     return {"status": "recorded", "path": path.relative_to(root).as_posix()}
+
+
+def emit_causal_trace(
+    *, host: str, phase: str, status: str, run_id: str, event_id: str,
+    sequence: int, actor: str, action: str, project_root: Path | None = None,
+    causation_id: str | None = None, correlation_id: str | None = None,
+    prior_digest: str | None = None, next_digest: str | None = None,
+    codes: Iterable[str] = (), outcome: str | None = None,
+) -> dict[str, Any]:
+    """Emit the complete causal-trace surface while excluding prompts/diagnostics."""
+    if not _identifier(event_id, "event id") or not _identifier(actor, "actor"):
+        raise DebugTraceError("event_id and actor are required")
+    result = emit_trace(
+        host=host, phase=phase, status=status, codes=codes, run_id=run_id,
+        project_root=project_root, sequence=sequence, causation_id=causation_id,
+        correlation_id=correlation_id, action=action, outcome=outcome,
+        prior_digest=prior_digest, next_digest=next_digest,
+        redaction_class="sanitized", retention_class="release-plus-audit",
+    )
+    root = _project_root(project_root)
+    path = root / result["path"]
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["trace_id"] = event_id
+    value["event_id"] = event_id
+    value["actor"] = actor
+    path.write_text(json.dumps(value, ensure_ascii=True, separators=(",", ":")), encoding="utf-8", newline="\n")
+    return result
 
 
 def summarize_traces(
@@ -167,6 +219,11 @@ def summarize_traces(
                 continue
             if isinstance(value, dict):
                 records.append(value)
+    records.sort(key=lambda item: (
+        0 if isinstance(item.get("sequence"), int) else 1,
+        item.get("sequence", 0) if isinstance(item.get("sequence"), int) else item.get("recorded_at", ""),
+        str(item.get("causation_id") or ""), str(item.get("event_id") or ""),
+    ))
     phases = Counter(
         item["phase"]
         for item in records

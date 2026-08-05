@@ -17,6 +17,7 @@ from typing import Any, Mapping
 from .contracts import HostEvent, canonical_json_bytes, validate_feedback_event
 from .replay import explain_run, why_not_complete
 from .leases import AttemptLease
+from .host_events import reconcile_host_events
 
 
 LIFECYCLE_STATES = frozenset({
@@ -186,6 +187,18 @@ class ResearchRunCoordinator:
 
         state = self.status(run_id)
         return {"run_id": run_id, "state": state, "reconciled_events": [], "next_action": self.next_actions(run_id)["next_action"]}
+
+    def reconcile_host(self, run_id: str) -> dict[str, Any]:
+        with self._connect() as connection:
+            self._require_run(connection, run_id)
+            attempts = {
+                row["attempt_id"]: json.loads(row["lease_json"])
+                for row in connection.execute("SELECT attempt_id,lease_json FROM action_attempts WHERE run_id=?", (run_id,)).fetchall()
+            }
+            events = [json.loads(row["event_json"]) for row in connection.execute("SELECT event_json FROM host_events WHERE run_id=? ORDER BY event_id", (run_id,)).fetchall()]
+        result = reconcile_host_events(canonical_attempts=attempts, host_events=events)
+        result["run_id"] = run_id
+        return result
 
     def issue_lease(self, lease: AttemptLease, *, expected_revision: int) -> dict[str, Any]:
         """Persist a new attempt lease and advance the run revision atomically."""

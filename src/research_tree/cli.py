@@ -174,7 +174,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 elif arguments.run_command == "recover":
                     output = coordinator.recover(arguments.run_id)
                 elif arguments.run_command == "reconcile-host":
-                    output = {"run_id": arguments.run_id, "status": "no_divergence_detected", "next_action": "continue"}
+                    output = coordinator.reconcile_host(arguments.run_id)
                 elif arguments.run_command == "deliver":
                     output = coordinator.deliver(arguments.run_id, expected_revision=arguments.expected_revision, technical_digest=arguments.technical_digest, human_digest=arguments.human_digest)
                 elif arguments.run_command == "accept":

@@ -74,3 +74,9 @@ def test_coordinator_persists_and_expires_attempt_leases(tmp_path):
     assert expired[0]["status"] == "unknown"
     with pytest.raises(CoordinatorError):
         coordinator.issue_lease(lease, expected_revision=1)
+
+
+def test_coordinator_reconcile_host_reads_canonical_ledger(tmp_path):
+    coordinator = ResearchRunCoordinator(tmp_path)
+    coordinator.create("run-1")
+    assert coordinator.reconcile_host("run-1")["status"] == "no_divergence_detected"
