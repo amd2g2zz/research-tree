@@ -173,6 +173,42 @@ def test_attempt_bound_host_event_requires_attempt_id(tmp_path: Path) -> None:
     assert coordinator.status("run-missing-attempt")["revision"] == state["revision"]
 
 
+def test_expired_attempt_cannot_submit_success_event(tmp_path: Path) -> None:
+    from research_tree.contracts import HostEvent
+    from research_tree.coordinator import ResearchRunCoordinator
+    from research_tree.leases import AttemptLease
+
+    coordinator = ResearchRunCoordinator(tmp_path)
+    state = coordinator.create("run-expired-event")
+    coordinator.issue_lease(
+        AttemptLease.create(
+            attempt_id="attempt-expired",
+            work_item_id="work-expired",
+            run_id="run-expired-event",
+            owner="worker-1",
+            status="unknown",
+            dispatch_digest="b" * 64,
+            started_at="2026-08-05T00:00:00+00:00",
+            lease_expires_at="2026-08-05T00:01:00+00:00",
+        ),
+        expected_revision=state["revision"],
+    )
+    state = coordinator.status("run-expired-event")
+    event = HostEvent.create(
+        event_id="event-expired-success",
+        event_type="worker_finished",
+        run_id="run-expired-event",
+        round_id="round-events",
+        host="codex",
+        expected_revision=state["revision"],
+        attempt_id="attempt-expired",
+        payload={"status": "completed"},
+    )
+    with pytest.raises(coordinator.error_type, match="attempt_expired"):
+        coordinator.ingest_host_event(event)
+    assert coordinator.status("run-expired-event")["revision"] == state["revision"]
+
+
 def test_single_transcript_is_observation_not_model_attribution() -> None:
     from research_tree.evaluation_fixtures import assess_attribution
 

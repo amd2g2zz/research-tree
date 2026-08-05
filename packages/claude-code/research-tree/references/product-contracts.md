@@ -375,9 +375,10 @@ Host events that describe an attempt (`attempt_started`, `finding_submitted`,
 or `worker_finished`) must carry an `attempt_id` already issued by the
 coordinator. Ingestion checks both the expected run revision and the
 `action_attempts` row before appending the event. A missing or unknown attempt
-is rejected without mutating the ledger; duplicate event IDs remain idempotent
-only when their payload digest is unchanged. Host-visible status never closes
-the work item or run by itself.
+is rejected without mutating the ledger. An attempt whose lease is already
+`unknown` may report `attempt_unknown`, but it cannot later submit a success
+event. Duplicate event IDs remain idempotent only when their payload digest is
+unchanged. Host-visible status never closes the work item or run by itself.
 
 ## Persistent recursive research state
 

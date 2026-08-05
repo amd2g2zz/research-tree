@@ -382,13 +382,19 @@ class ResearchRunCoordinator:
                         code="attempt_binding_required",
                     )
                 attempt = connection.execute(
-                    "SELECT attempt_id FROM action_attempts WHERE run_id=? AND attempt_id=?",
+                    "SELECT lease_json FROM action_attempts WHERE run_id=? AND attempt_id=?",
                     (host_event.run_id, host_event.attempt_id),
                 ).fetchone()
                 if attempt is None:
                     raise CoordinatorError(
                         "host event references an unknown attempt",
                         code="attempt_not_found",
+                    )
+                lease_status = json.loads(attempt["lease_json"]).get("status")
+                if lease_status == "unknown" and host_event.event_type != "attempt_unknown":
+                    raise CoordinatorError(
+                        "expired attempt cannot report success",
+                        code="attempt_expired",
                     )
             self._event(connection, host_event.run_id, host_event.event_id, host_event.expected_revision, payload, event_type=host_event.event_type)
             revision = int(row["revision"]) + 1
