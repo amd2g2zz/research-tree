@@ -38,6 +38,35 @@ can correct the agent. Evidence can correct the requester. The agent can detect
 and record its own error. None of those events receives automatic technical
 truth status merely because of its origin.
 
+### Control-state invariants
+
+The dialogue is not a loose checklist. Maintain the following run states and
+allow only the indicated progression:
+
+```text
+activate -> intake -> reconnaissance -> co_evolve -> handoff
+  -> execute_batch -> ingest_replan -> verify -> deliver
+```
+
+Activation must be evidenced before loading supporting references or claiming
+that the Skill is active. An ordinary file read is not activation evidence.
+
+A user correction, confusion signal, or material scope change is a control
+event. It reopens the affected Intent Model, Working Brief, Decision Map, and
+dependent strategy state. Persist a successor revision and invalidate stale
+handoff assumptions before asking another question or dispatching work. Do not
+continue by merely appending the correction to the final prose.
+
+The coordinator must distinguish `observed`, `supported`, `unverified`,
+`refuted`, and `superseded`. Missing command output, missing persistence, or an
+unavailable oracle is `unverified`; prose cannot promote it to executed,
+verified, converged, or complete.
+
+Do not infer model-, host-, library-, or provider-specific causes from one
+transcript. Such a cause needs a controlled comparison holding brief, context,
+tools, and success oracle constant. Until then, record the behavior as an
+observation and leave attribution unresolved.
+
 Feedback is also a work signal. "I don't know", "I don't understand", "not
 sure", and a correction mean that the current brief needs more knowledge or
 verification; they are not refusal, a blocker, or permission to end. After a

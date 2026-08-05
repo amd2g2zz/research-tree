@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/work-item-v1.json",
+  "title": "Alpha2 WorkItem",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["work_item_id", "slot_id", "action_kind", "objective", "inputs", "method", "expected_output", "success_oracle", "dependencies", "permission_profile", "attempt_policy", "completion_evidence"],
+  "properties": {
+    "work_item_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "slot_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "action_kind": { "type": "string", "enum": ["landscape", "deep_dive", "adversarial", "validation", "method_switch", "reconnaissance", "question", "disagreement"] },
+    "objective": { "type": "string", "minLength": 1 },
+    "inputs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "method": { "type": "string", "minLength": 1 },
+    "expected_output": { "type": "string", "minLength": 1 },
+    "success_oracle": { "type": "string", "minLength": 1 },
+    "dependencies": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "permission_profile": { "type": "string", "minLength": 1 },
+    "attempt_policy": { "type": "object" },
+    "completion_evidence": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  }
+}

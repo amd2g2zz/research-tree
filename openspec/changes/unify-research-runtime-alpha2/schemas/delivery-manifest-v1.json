@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/delivery-manifest-v1.json",
+  "title": "Alpha2 DeliveryManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["technical_revision", "human_revision", "source_ledger_digest", "compiler_version", "template_version", "encoding", "output_paths", "generated_at", "claim_index"],
+  "properties": {
+    "technical_revision": { "type": "string", "minLength": 1 },
+    "human_revision": { "type": "string", "minLength": 1 },
+    "source_ledger_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "compiler_version": { "type": "string", "minLength": 1 },
+    "template_version": { "type": "string", "minLength": 1 },
+    "encoding": { "const": "UTF-8" },
+    "output_paths": { "type": "object" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "claim_index": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim_id", "class", "text", "decision_refs", "finding_refs", "evidence_refs", "oracle_refs"],
+        "properties": {
+          "claim_id": { "type": "string", "minLength": 1 },
+          "class": { "type": "string", "enum": ["fact", "inference", "recommendation", "unknown", "limitation"] },
+          "text": { "type": "string", "minLength": 1 },
+          "decision_refs": { "type": "array", "items": { "type": "string" } },
+          "finding_refs": { "type": "array", "items": { "type": "string" } },
+          "evidence_refs": { "type": "array", "items": { "type": "string" } },
+          "oracle_refs": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

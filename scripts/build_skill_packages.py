@@ -19,6 +19,7 @@ CLAUDE_ADAPTER = ROOT / "skill-src" / "claude-adapter.md"
 CODEX_ADAPTER = ROOT / "skill-src" / "codex-adapter.md"
 TOKEN = "<!-- HOST_ADAPTER -->"
 FRONTMATTER_TOKEN = "<!-- HOST_FRONTMATTER -->"
+ACTIVATION_TOKEN = "<!-- HOST_ACTIVATION -->"
 RESOURCE_RE = re.compile(r"`((?:references|templates|scripts|assets)/[^`\r\n]+)`")
 PACKAGE_RELATIVES = {
     "codex": Path("packages/codex/research-tree"),
@@ -39,6 +40,7 @@ COMMON_FILES = (
 )
 COMMON_FILE_MAP = (
     (Path("src/research_tree/alignment_graph.py"), Path("scripts/alignment_controller.py")),
+    (Path("scripts/activation_receipt.py"), Path("scripts/activation_receipt.py")),
 )
 HERMES_FILES = (
     Path("references/hermes-alignment.md"),
@@ -67,6 +69,11 @@ HOST_FILE_MAP = {
     "claude": (),
     "hermes": (),
 }
+HOST_ACTIVATION_FILES = {
+    "codex": Path("skill-src/codex-activation.md"),
+    "claude": Path("skill-src/claude-activation.md"),
+    "hermes": Path("skill-src/hermes-activation.md"),
+}
 
 
 def package_source(host: str, root: Path = ROOT) -> Path:
@@ -80,8 +87,15 @@ def package_source(host: str, root: Path = ROOT) -> Path:
 def _render_skill(host: str, root: Path) -> str:
     template_path = HERMES_TEMPLATE if host == "hermes" else TEMPLATE
     template = (root / template_path.relative_to(ROOT)).read_text(encoding="utf-8")
+    if template.count(ACTIVATION_TOKEN) != 1:
+        raise ValueError(
+            f"template must contain exactly one {ACTIVATION_TOKEN!r} marker"
+        )
+    activation = (
+        root / HOST_ACTIVATION_FILES[host]
+    ).read_text(encoding="utf-8").strip()
     if host == "hermes":
-        return template.rstrip() + "\n"
+        return template.replace(ACTIVATION_TOKEN, activation).rstrip() + "\n"
     if template.count(TOKEN) != 1:
         raise ValueError(f"template must contain exactly one {TOKEN!r} marker")
     if template.count(FRONTMATTER_TOKEN) != 1:
@@ -111,6 +125,7 @@ def _render_skill(host: str, root: Path) -> str:
             FRONTMATTER_TOKEN + "\n",
             frontmatter + "\n" if frontmatter else "",
         )
+        .replace(ACTIVATION_TOKEN, activation)
         .replace(TOKEN, adapter)
         .rstrip()
         + "\n"
@@ -157,6 +172,8 @@ def validate_package(
             errors.append("unexpanded host adapter marker")
         if FRONTMATTER_TOKEN in text:
             errors.append("unexpanded host frontmatter marker")
+        if ACTIVATION_TOKEN in text:
+            errors.append("unexpanded host activation marker")
         if text != _render_skill(host, root):
             errors.append("SKILL.md is stale relative to its host template")
 
@@ -247,6 +264,14 @@ def validate_package(
         errors.append("Codex package is missing agents/openai.yaml")
     if host != "codex" and (package / "agents/openai.yaml").exists():
         errors.append(f"{host} package contains Codex-only agents/openai.yaml")
+
+    expected_marker = f"research-tree-activation: {host}:RT-ACTIVE-V1-{host.upper()}"
+    if text.count(expected_marker) != 1:
+        errors.append("package is missing its host-specific activation marker")
+    if "--activation-probe" not in text:
+        errors.append("package is missing its activation probe contract")
+    if "activation_receipt.py" not in text:
+        errors.append("package is missing its activation receipt contract")
 
     return {
         "host": host,

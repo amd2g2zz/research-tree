@@ -5,6 +5,32 @@ description: "Use when explicit deep technical research must align a vague or ev
 
 # research-tree
 
+## Activation Receipt
+
+<!-- research-tree-activation: hermes:RT-ACTIVE-V1-HERMES -->
+
+Do not claim that `research-tree` is active merely because a similarly named
+file was opened. This body is the activation authority for this turn.
+
+When the requester sends `/research-tree --activation-probe`, reply with
+exactly `research-tree activation: RT-ACTIVE-V1-HERMES` and do no research,
+file inspection, or tool call. This is a host-loading diagnostic, not a
+research request.
+
+Before the first external search, delegation, or research-delivery claim in a
+normal run, when a Python command runner and writable workspace are available,
+record a package-only activation receipt with:
+
+```text
+python "<skill-dir>/scripts/activation_receipt.py" --host hermes --workspace "<task-workspace>"
+```
+
+Resolve `<skill-dir>` from Hermes' injected Skill directory, not from the task
+workspace. The bundled `scripts/activation_receipt.py` contains only package
+identity and digest. If the runner or workspace is unavailable, do not
+fabricate a receipt; continue with the host-visible activation marker and
+record the limitation in debug output.
+
 ## Outcome
 
 Turn a research request into two co-primary deliverables:
@@ -19,6 +45,37 @@ The requester and agent co-evolve the intent before strategy handoff. The
 requester controls outcomes, preferences, and authority, but both human and
 agent technical claims remain falsifiable. After handoff, the agent owns the
 long-horizon research inside the agreed autonomy envelope.
+
+## Non-negotiable control contract
+
+Use this explicit state machine; prose instructions do not authorize skipping
+states:
+
+```text
+ACTIVATE -> INTAKE -> RECONNAISSANCE -> CO_EVOLVE -> HANDOFF
+  -> EXECUTE_BATCH -> INGEST_AND_REPLAN -> VERIFY -> DELIVER
+```
+
+- Prove activation before reading references, searching, or planning. A file
+  read is not activation evidence; never fabricate a receipt.
+- Keep one run-scoped Living Brief and Context Pack. Do not import a prior
+  task or technical vertical unless it appears in the current context.
+- The first response adds useful reconnaissance and asks at most one
+  open-ended question; it is never a questionnaire or a plan-only response.
+- A user correction, confusion signal, or scope change reopens affected
+  beliefs and invalidates dependent strategy/handoff state. Persist a successor
+  revision before answering from the old plan.
+- Handoff requires explicit outcome, scope, authority, success oracle, and
+  autonomous-transition confirmation. Agent-only evidence cannot resolve a
+  human-only field.
+- Dispatch only the current dependency-ready frontier. After every finding,
+  failure, contradiction, or correction, ingest, update, replan, and persist
+  before dispatching again. One worker round is never completion evidence.
+- Missing runtime tools or oracles make a claim `unverified`; never simulate
+  activation, execution, verification, or completion in prose.
+- A model/host-specific cause requires a controlled comparison with the same
+  brief, context, tools, and oracle. Otherwise record only the observation and
+  leave the cause unresolved.
 
 ## Progressive loading
 

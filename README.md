@@ -145,6 +145,42 @@ Confirm the installation:
 uv run research-tree-setup status --host all --source .
 ```
 
+Check activation readiness separately from installation status:
+
+```bash
+uv run research-tree-setup activation --host all --source .
+```
+
+This command proves that each generated host package has its activation
+contract and reports whether the configured target points to this checkout. It
+cannot prove that a live model turn received the full `SKILL.md` body. Run the
+host-specific probe in a fresh session and require the exact response shown by
+the command:
+
+```text
+# Codex
+$research-tree --activation-probe
+
+# Claude Code
+/research-tree --activation-probe
+
+# Hermes Agent
+/research-tree --activation-probe
+```
+
+The probe must return `research-tree activation: RT-ACTIVE-V1-CODEX`,
+`research-tree activation: RT-ACTIVE-V1-CLAUDE`, or
+`research-tree activation: RT-ACTIVE-V1-HERMES` respectively. Any other
+response means the current host session has not been verified; start a fresh
+session (or run Hermes `/reload-skills`) before claiming that the workflow is
+active.
+
+Codex App Server clients have one additional requirement: include both the
+`$research-tree` text marker and a typed `skill` input item pointing to the
+installed `SKILL.md`. A Markdown link or a path pasted into the request is only
+ordinary text and cannot establish activation. Claude Code and Hermes use their
+native `/research-tree` slash command instead of a file link.
+
 Then invoke the skill from the selected host:
 
 ```text
@@ -181,8 +217,9 @@ repository.
    delete or overwrite an unrelated installation.
 7. Install only the package selected for the active host. Never install the
    repository root, `skill-src/`, or another host's package.
-8. Verify that the final installation status is `current` and that package
-   validation still succeeds.
+8. Verify that the final installation status is `current`, the activation
+   contract is statically ready, and package validation still succeeds. Explain
+   that a fresh host-session probe is still required to prove body injection.
 9. Install lifecycle hooks only when the requester explicitly asks for them.
    Merge the host template into existing configuration instead of replacing
    unrelated hooks or settings.
@@ -196,13 +233,24 @@ uv run python scripts/build_skill_packages.py --check
 uv run research-tree-setup install --host HOST_NAME --source . --dry-run
 uv run research-tree-setup install --host HOST_NAME --source .
 uv run research-tree-setup status --host HOST_NAME --source .
+uv run research-tree-setup activation --host HOST_NAME --source .
 ```
 
 The default installation mode is `link`, which keeps the installed skill in
 sync with its generated package in this checkout. Use `--mode copy` only when
 the requester wants an independent installation or when a link cannot be used.
-After installation, start a new host session if the skill is not discovered;
-Hermes can reload it immediately with `/reload-skills`.
+After installation, use `research-tree-setup activation` and the host probe
+above. Start a new Codex or Claude Code session if the probe is not returned;
+Hermes can reload skills immediately with `/reload-skills`.
+
+If `status` reports `stale_link`, the target is a symlink or Windows junction
+to another `research-tree` checkout. Inspect it first, then explicitly refresh
+that link; the installer never silently repoints a user-owned link:
+
+```bash
+uv run research-tree-setup install --host HOST_NAME --source . \
+  --refresh-stale-link
+```
 
 ### Ready-to-Use Agent Prompt
 
@@ -218,8 +266,10 @@ Install Research Tree for your active agent host from this repository.
 - Run research-tree-setup install with --dry-run first.
 - Do not overwrite an existing conflicting skill directory.
 - Perform the installation, then run research-tree-setup status.
-- Finish only when the selected host reports status "current" and package
-  validation succeeds. Report the installed package path and target path.
+- Finish only when the selected host reports status "current", the activation
+  check is statically ready, and package validation succeeds. Report the
+  installed package path, target path, and the fresh-session probe command;
+  do not claim that static validation proves model-context injection.
 - Do not enable lifecycle hooks unless I explicitly request them.
 ```
 
@@ -248,6 +298,17 @@ The formats are not interchangeable:
 
 Do not install the repository root or copy one host package into another
 host's skill directory.
+
+### Activation versus discovery
+
+Host skill indexes normally keep only `name` and `description` in their
+always-visible catalog. The full `SKILL.md` body is loaded only after an
+explicit or implicit host trigger. Opening a file manually is not equivalent
+to host activation, and a model must not claim that the research workflow was
+active without the host-specific probe. An optional receipt script is bundled
+separately in every host package; it records only package identity, host, and
+digest plus its local workspace path under `.research-tree/activation/receipt.json`.
+It does not prove that the host injected the skill body.
 
 ### User-question capabilities
 

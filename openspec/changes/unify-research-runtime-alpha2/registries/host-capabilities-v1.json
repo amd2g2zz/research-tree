@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "capabilities": ["open_text_prompt", "native_ask", "delegate", "parallel_workers", "background_execution", "network_search", "restart_hook", "filesystem_write", "structured_event_transport"],
+  "hosts": {
+    "codex": { "package_format": "codex-skill", "open_text_prompt": true, "native_ask": false, "delegate": true, "parallel_workers": true, "background_execution": true, "network_search": "adapter-declared", "restart_hook": true, "filesystem_write": true, "structured_event_transport": "json-cli" },
+    "claude-code": { "package_format": "claude-skill", "open_text_prompt": true, "native_ask": true, "delegate": true, "parallel_workers": true, "background_execution": true, "network_search": "adapter-declared", "restart_hook": true, "filesystem_write": true, "structured_event_transport": "hook-json" },
+    "hermes": { "package_format": "hermes-skill", "open_text_prompt": true, "native_ask": "host-dependent", "delegate": true, "parallel_workers": "host-dependent", "background_execution": true, "network_search": "host-dependent", "restart_hook": true, "filesystem_write": true, "structured_event_transport": "hook-json" }
+  },
+  "negotiation_rule": "unknown or host-dependent is unsupported until the adapter probe records a capability result; fallbacks must be persisted in the execution plan"
+}

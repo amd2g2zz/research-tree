@@ -23,6 +23,8 @@ RESOURCE_RE = re.compile(
 )
 NATIVE_REFERENCE = Path("references/hermes-native-orchestration.md")
 RUNTIME_HOOK = Path("scripts/hermes_runtime_hook.py")
+ACTIVATION_RECEIPT = Path("scripts/activation_receipt.py")
+ACTIVATION_MARKER = "research-tree-activation: hermes:RT-ACTIVE-V1-HERMES"
 NATIVE_MARKERS = (
     "delegate_task(tasks=[...])",
     "session_search",
@@ -162,7 +164,8 @@ def validate(skill_dir: Path, mode: str) -> dict[str, object]:
                 errors.append("frontmatter description exceeds 1024 characters")
 
             resources = sorted(
-                set(RESOURCE_RE.findall(text)) | {RUNTIME_HOOK.as_posix()}
+                set(RESOURCE_RE.findall(text))
+                | {RUNTIME_HOOK.as_posix(), ACTIVATION_RECEIPT.as_posix()}
             )
             for relative in resources:
                 target = (skill_dir / relative).resolve()
@@ -195,6 +198,13 @@ def validate(skill_dir: Path, mode: str) -> dict[str, object]:
 
             if not (skill_dir / RUNTIME_HOOK).is_file():
                 errors.append(f"missing Hermes runtime hook: {RUNTIME_HOOK}")
+
+            if text.count(ACTIVATION_MARKER) != 1:
+                errors.append("missing Hermes activation marker")
+            if "--activation-probe" not in text:
+                errors.append("missing Hermes activation probe contract")
+            if not (skill_dir / ACTIVATION_RECEIPT).is_file():
+                errors.append(f"missing Hermes activation receipt: {ACTIVATION_RECEIPT}")
 
             if "ask_user_question" in text and not (
                 "ordinary dialogue" in text and "Never call a named tool" in text

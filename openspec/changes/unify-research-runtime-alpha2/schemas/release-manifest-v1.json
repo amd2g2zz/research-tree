@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/release-manifest-v1.json",
+  "title": "Alpha2 ReleaseManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["manifest_version", "source_revision", "created_at", "schema_versions", "host_packages", "commands", "evaluations", "gates", "limitations", "verifier"],
+  "properties": {
+    "manifest_version": { "const": 1 },
+    "source_revision": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "schema_versions": { "type": "object" },
+    "host_packages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["host", "package_revision", "package_digest", "smoke_result"],
+        "properties": {
+          "host": { "type": "string", "enum": ["codex", "claude-code", "hermes"] },
+          "package_revision": { "type": "string", "minLength": 1 },
+          "package_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "smoke_result": { "type": "string", "enum": ["passed", "failed", "not_run"] }
+        }
+      }
+    },
+    "commands": { "type": "array", "items": { "type": "object" } },
+    "evaluations": { "type": "array", "items": { "type": "object" } },
+    "gates": { "type": "array", "items": { "type": "object" } },
+    "limitations": { "type": "array", "items": { "type": "string" } },
+    "verifier": { "type": "object" }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/input-record-v1.json",
+  "title": "Alpha2 typed input record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["input_id", "run_id", "kind", "locator", "media_type", "content_digest", "permission", "acquisition_status", "parser_status", "limitations"],
+  "properties": {
+    "input_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "run_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "kind": { "type": "string", "enum": ["user_text", "repository", "source_file", "document", "image", "url", "experiment"] },
+    "locator": { "type": "object", "minProperties": 1 },
+    "media_type": { "type": "string", "minLength": 1 },
+    "content_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "permission": { "type": "string", "minLength": 1 },
+    "acquisition_status": { "type": "string", "enum": ["provided", "acquired", "failed", "unavailable", "quarantined"] },
+    "parser_status": { "type": "string", "enum": ["pending", "parsed", "unparsed", "failed", "not_applicable"] },
+    "limitations": { "type": "array", "items": { "type": "string" } },
+    "source_revision": { "type": ["string", "null"] }
+  }
+}
