@@ -108,9 +108,14 @@ set:
   Target, Finding Pack, InsightDigest, and prior decision refs, commits each
   immutable decision revision, recomputes closure consequences, and commits a
   ConvergenceRecord plus either `all_slots_closed` or `closure_deficit`;
-- `readiness` invokes the existing ReadinessVerifier over exact current
-  lineage and commits the ReadinessRecord, obligation disposition, and either
-  `readiness_passed` or `readiness_deficit` together; and
+- `readiness` invokes the canonical readiness evaluator in the existing
+  readiness service over the exact current Blueprint Target,
+  ConvergenceRecord, InsightDigest, Decision Ledger entries, P0 closure
+  aggregate, and evaluation-obligation snapshot. It commits the exact-lineage
+  ReadinessRecord, readiness-obligation disposition, and either
+  `readiness_passed` or `readiness_deficit` together. The legacy package
+  verifier remains a compatibility entry point and MUST NOT require a
+  Technical Research Package before the run enters `delivery_pending`; and
 - `successor-work` commits deterministic Work Items whose ids are derived from
   an exact ConvergenceRecord or ReadinessRecord deficit, contradiction, failed
   oracle, method limitation, or readiness diagnostic. A successor never
@@ -163,6 +168,21 @@ fail before semantic compilation and without mutation.
 - **THEN** the ReadinessRecord and targeted successor Work Items are retained
   as evidence, the run returns to `autonomous_research`, and no delivery
   obligation is satisfied
+
+#### Scenario: Legacy package readiness would create a lifecycle cycle
+
+- **WHEN** a canonical run is in `readiness` and no delivery package exists
+- **THEN** the coordinator evaluates the current canonical lineage directly
+- **AND** it does not compile, persist, or require a Technical Research Package
+  before a successful transition to `delivery_pending`
+
+#### Scenario: Readiness input is no longer current
+
+- **WHEN** the supplied ConvergenceRecord, InsightDigest, Decision Ledger
+  entry, Blueprint Target, or P0 closure aggregate is not the exact active
+  revision named by the run
+- **THEN** readiness fails as stale before its first write
+- **AND** no readiness obligation, artifact, snapshot, or event is committed
 
 ### Requirement: Coordinator APIs and CLI commands are stable
 

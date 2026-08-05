@@ -35,7 +35,7 @@ tools, and release evidence.
 | alignment-handoff-v1.json | Explicit confirmation and exact alignment/brief/model lineage | alignment/coordinator |
 | blueprint-target-v1.json | Initial Decision Slot set with exact handoff/brief/model lineage | blueprint compiler/coordinator |
 | feedback-event-v1.json | Material post-handoff correction lineage | feedback/coordinator |
-| readiness-record-v1.json | Field-level readiness and risk checks | readiness service |
+| readiness-record-v1.json | Exact-lineage canonical readiness checks and successor deficits | readiness service/coordinator |
 | release-manifest-v1.json | Immutable release gate evidence | release evaluator |
 | path-registry-v1.json | Repository path ownership and lifecycle | layout checker |
 | examples/index-v1.json | Smallest valid, P0, and negative contract fixtures | contract harness |

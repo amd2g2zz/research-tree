@@ -1,17 +1,122 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://research-tree.local/schemas/readiness-record-v1.json",
-  "title": "Alpha2 readiness record",
+  "title": "Alpha2 ReadinessRecord",
   "type": "object",
   "additionalProperties": false,
-  "required": ["readiness_id", "run_id", "revision", "risk_tier", "checks", "status", "source_digest"],
+  "required": [
+    "readiness_id", "run_id", "blueprint_target_ref",
+    "convergence_record_ref", "insight_digest_ref", "decision_refs",
+    "p0_closure_aggregate_ref", "evaluation_obligation", "risk_tier",
+    "checks", "status", "deficits", "source_digest", "producer_version"
+  ],
   "properties": {
-    "readiness_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
-    "run_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
-    "revision": { "type": "integer", "minimum": 1 },
-    "risk_tier": { "type": "string", "enum": ["low", "standard", "high", "critical"] },
-    "checks": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["check_id", "status", "reason", "evidence_refs"], "properties": { "check_id": { "type": "string", "minLength": 1 }, "status": { "type": "string", "enum": ["pass", "fail", "unknown", "not_applicable"] }, "reason": { "type": "string", "minLength": 1 }, "evidence_refs": { "type": "array", "items": { "type": "string" } } } } },
-    "status": { "type": "string", "enum": ["ready", "not_ready", "blocked", "stale"] },
-    "source_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+    "readiness_id": { "$ref": "#/$defs/identifier" },
+    "run_id": { "$ref": "#/$defs/identifier" },
+    "blueprint_target_ref": { "$ref": "#/$defs/artifactRef" },
+    "convergence_record_ref": { "$ref": "#/$defs/artifactRef" },
+    "insight_digest_ref": { "$ref": "#/$defs/artifactRef" },
+    "decision_refs": {
+      "type": "array", "uniqueItems": true,
+      "items": { "$ref": "#/$defs/artifactRef" }
+    },
+    "p0_closure_aggregate_ref": { "$ref": "#/$defs/aggregateRef" },
+    "evaluation_obligation": { "$ref": "#/$defs/obligationRef" },
+    "risk_tier": {
+      "type": "string", "enum": ["low", "standard", "high", "critical"]
+    },
+    "checks": {
+      "type": "array", "minItems": 6, "uniqueItems": true,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["check_id", "status", "reason", "source_refs"],
+        "properties": {
+          "check_id": {
+            "type": "string",
+            "enum": ["target_lineage", "convergence_closure", "decision_closure", "insight_clear", "evaluation_complete", "risk_disposition"]
+          },
+          "status": {
+            "type": "string", "enum": ["pass", "fail", "unknown", "not_applicable"]
+          },
+          "reason": { "type": "string", "minLength": 1 },
+          "source_refs": {
+            "type": "array", "uniqueItems": true,
+            "items": { "$ref": "#/$defs/sourceRef" }
+          }
+        }
+      }
+    },
+    "status": {
+      "type": "string", "enum": ["ready", "not_ready", "blocked", "stale"]
+    },
+    "deficits": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["deficit_id", "check_id", "kind", "trigger", "action", "source_refs"],
+        "properties": {
+          "deficit_id": { "$ref": "#/$defs/identifier" },
+          "check_id": { "$ref": "#/$defs/identifier" },
+          "kind": {
+            "type": "string",
+            "enum": ["lineage_stale", "closure_incomplete", "decision_invalid", "insight_blocked", "evaluation_missing", "risk_blocked"]
+          },
+          "trigger": { "type": "string", "minLength": 1 },
+          "action": {
+            "type": "string", "enum": ["landscape", "deep_dive", "adversarial", "validation", "method_switch"]
+          },
+          "source_refs": {
+            "type": "array", "minItems": 1, "uniqueItems": true,
+            "items": { "$ref": "#/$defs/sourceRef" }
+          }
+        }
+      }
+    },
+    "source_digest": { "$ref": "#/$defs/digest" },
+    "producer_version": { "type": "string", "minLength": 1 }
+  },
+  "allOf": [{
+    "if": { "properties": { "status": { "const": "ready" } }, "required": ["status"] },
+    "then": { "properties": { "deficits": { "maxItems": 0 } } },
+    "else": { "properties": { "deficits": { "minItems": 1 } } }
+  }],
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "artifactRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["run_id", "artifact_id", "revision", "content_hash"],
+      "properties": {
+        "run_id": { "$ref": "#/$defs/identifier" },
+        "artifact_id": { "$ref": "#/$defs/identifier" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "content_hash": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "aggregateRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["run_id", "aggregate_revision", "aggregate_digest"],
+      "properties": {
+        "run_id": { "$ref": "#/$defs/identifier" },
+        "aggregate_revision": { "type": "integer", "minimum": 1 },
+        "aggregate_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "obligationRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["obligation", "satisfied", "evidence_ref"],
+      "properties": {
+        "obligation": { "const": "evaluation" },
+        "satisfied": { "type": "boolean" },
+        "evidence_ref": { "type": ["string", "null"], "minLength": 1 }
+      }
+    },
+    "sourceRef": {
+      "oneOf": [
+        { "$ref": "#/$defs/artifactRef" },
+        { "$ref": "#/$defs/aggregateRef" },
+        { "$ref": "#/$defs/obligationRef" }
+      ]
+    }
   }
 }
