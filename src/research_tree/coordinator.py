@@ -127,6 +127,19 @@ class ResearchRunCoordinator:
           evidence_ref TEXT, updated_at TEXT NOT NULL,
           PRIMARY KEY(run_id,obligation), FOREIGN KEY(run_id) REFERENCES runs(run_id)
         );
+        CREATE TABLE IF NOT EXISTS run_revisions(
+          run_id TEXT NOT NULL, revision INTEGER NOT NULL,
+          lifecycle_state TEXT NOT NULL, authority_digest TEXT NOT NULL,
+          state_digest TEXT NOT NULL, task_identity_json TEXT NOT NULL,
+          source_event_id TEXT NOT NULL, created_at TEXT NOT NULL,
+          PRIMARY KEY(run_id,revision), FOREIGN KEY(run_id) REFERENCES runs(run_id)
+        );
+        CREATE TABLE IF NOT EXISTS attempt_invalidations(
+          run_id TEXT NOT NULL, attempt_id TEXT NOT NULL, feedback_id TEXT NOT NULL,
+          prior_status TEXT NOT NULL, revision INTEGER NOT NULL, reason TEXT NOT NULL,
+          created_at TEXT NOT NULL, PRIMARY KEY(run_id,attempt_id,feedback_id),
+          FOREIGN KEY(run_id,attempt_id) REFERENCES action_attempts(run_id,attempt_id)
+        );
         """)
         run_columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
         if "schema_version" not in run_columns:
@@ -138,6 +151,15 @@ class ResearchRunCoordinator:
         ):
             if name not in event_columns:
                 connection.execute(f"ALTER TABLE events ADD COLUMN {name} {declaration}")
+        connection.execute(
+            """INSERT OR IGNORE INTO run_revisions(
+                 run_id,revision,lifecycle_state,authority_digest,state_digest,
+                 task_identity_json,source_event_id,created_at
+               )
+               SELECT run_id,revision,lifecycle_state,authority_digest,state_digest,
+                      task_identity_json,'schema-backfill',updated_at
+               FROM runs"""
+        )
 
     @staticmethod
     def _now() -> str:
@@ -160,6 +182,9 @@ class ResearchRunCoordinator:
                 raise CoordinatorError("run already exists", code="duplicate_run") from exc
             self._event(connection, run_id, "run-initialized", 0, {"task_identity": identity}, event_type="run_initialized")
             self._ensure_obligations(connection, run_id)
+            self._snapshot_current_revision(
+                connection, run_id, source_event_id="run-initialized"
+            )
         return self.status(run_id)
 
     def status(self, run_id: str) -> dict[str, Any]:
@@ -216,6 +241,52 @@ class ResearchRunCoordinator:
             ).fetchall()
         return {row["attempt_id"]: json.loads(row["lease_json"]) for row in rows}
 
+    def revisions(self, run_id: str) -> dict[int, dict[str, Any]]:
+        """Return immutable canonical run snapshots indexed by revision."""
+
+        with self._connect() as connection:
+            self._require_run(connection, run_id)
+            rows = connection.execute(
+                """SELECT revision,lifecycle_state,authority_digest,state_digest,
+                          task_identity_json,source_event_id,created_at
+                   FROM run_revisions WHERE run_id=? ORDER BY revision""",
+                (run_id,),
+            ).fetchall()
+        return {
+            int(row["revision"]): {
+                "run_id": run_id,
+                "revision": int(row["revision"]),
+                "lifecycle_state": row["lifecycle_state"],
+                "authority_digest": row["authority_digest"],
+                "state_digest": row["state_digest"],
+                "task_identity": json.loads(row["task_identity_json"]),
+                "source_event_id": row["source_event_id"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        }
+
+    def attempt_invalidations(self, run_id: str) -> dict[str, dict[str, Any]]:
+        """Return attempt results quarantined by material feedback."""
+
+        with self._connect() as connection:
+            self._require_run(connection, run_id)
+            rows = connection.execute(
+                """SELECT attempt_id,feedback_id,prior_status,revision,reason,created_at
+                   FROM attempt_invalidations WHERE run_id=? ORDER BY attempt_id,revision""",
+                (run_id,),
+            ).fetchall()
+        return {
+            row["attempt_id"]: {
+                "feedback_id": row["feedback_id"],
+                "prior_status": row["prior_status"],
+                "revision": int(row["revision"]),
+                "reason": row["reason"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        }
+
     def record_obligation(self, run_id: str, obligation: str, *, evidence_ref: str, expected_revision: int) -> dict[str, Any]:
         if obligation not in COMPLETION_OBLIGATIONS or obligation in {"technical_delivery", "human_delivery", "acceptance"}:
             raise CoordinatorError("obligation must be recorded by its canonical boundary", code="invalid_obligation")
@@ -230,7 +301,9 @@ class ResearchRunCoordinator:
             connection.execute("UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation=?", (evidence_ref, self._now(), run_id, obligation))
             state = self._state_payload(row, lifecycle_state=row["lifecycle_state"], revision=revision, body={})
             connection.execute("UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?", (revision, self._digest(state), self._now(), run_id))
-            self._event(connection, run_id, f"obligation-{obligation}-{revision}", expected_revision, {"obligation": obligation, "evidence_ref": evidence_ref}, event_type="obligation_satisfied")
+            event_id = f"obligation-{obligation}-{revision}"
+            self._snapshot_current_revision(connection, run_id, source_event_id=event_id)
+            self._event(connection, run_id, event_id, expected_revision, {"obligation": obligation, "evidence_ref": evidence_ref}, event_type="obligation_satisfied")
         return self.status(run_id)
 
     def next_actions(self, run_id: str) -> dict[str, Any]:
@@ -281,7 +354,9 @@ class ResearchRunCoordinator:
             state = self._state_payload(row, lifecycle_state=row["lifecycle_state"], revision=revision, body={})
             connection.execute("INSERT INTO action_attempts VALUES(?,?,?,?)", (lease.run_id, lease.attempt_id, json.dumps(lease.to_dict(), sort_keys=True), self._now()))
             connection.execute("UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?", (revision, self._digest(state), self._now(), lease.run_id))
-            self._event(connection, lease.run_id, "attempt-started-" + lease.attempt_id, expected_revision, lease.to_dict(), event_type="attempt_lease_issued")
+            event_id = "attempt-started-" + lease.attempt_id
+            self._snapshot_current_revision(connection, lease.run_id, source_event_id=event_id)
+            self._event(connection, lease.run_id, event_id, expected_revision, lease.to_dict(), event_type="attempt_lease_issued")
         return self.status(lease.run_id)
 
     def heartbeat_lease(self, run_id: str, attempt_id: str, *, now: str, lease_seconds: int | None = None) -> dict[str, Any]:
@@ -364,6 +439,11 @@ class ResearchRunCoordinator:
                 "UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?",
                 (revision, self._digest(state), self._now(), run_id),
             )
+            self._snapshot_current_revision(
+                connection,
+                run_id,
+                source_event_id=f"retry-requested-{retry.attempt_id}",
+            )
             self._event(
                 connection,
                 run_id,
@@ -424,7 +504,9 @@ class ResearchRunCoordinator:
                 connection.execute("UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation='acceptance'", (body["displayed_digest"], now, run_id))
             elif event == "needs_deeper_research":
                 connection.execute("UPDATE run_obligations SET satisfied=0,updated_at=? WHERE run_id=? AND obligation IN ('readiness','evaluation','technical_delivery','human_delivery','acceptance')", (now, run_id))
-            self._event(connection, run_id, f"{event}-{revision}", expected_revision, body, event_type=event)
+            event_id = f"{event}-{revision}"
+            self._snapshot_current_revision(connection, run_id, source_event_id=event_id)
+            self._event(connection, run_id, event_id, expected_revision, body, event_type=event)
         return self.status(run_id)
 
     def record_feedback(self, value: Mapping[str, Any], *, expected_revision: int) -> dict[str, Any]:
@@ -434,19 +516,80 @@ class ResearchRunCoordinator:
             row = self._require_run(connection, run_id)
             if row["revision"] != expected_revision:
                 raise CoordinatorError("expected revision is stale", code="stale_revision")
+            self._snapshot_current_revision(
+                connection,
+                run_id,
+                source_event_id="feedback-predecessor-" + feedback["feedback_id"],
+            )
             revision = int(row["revision"]) + 1
-            invalidated = [str(ref).split(":", 1)[1] for ref in feedback["target_refs"] if str(ref).startswith("strategy:")]
+            invalidation_refs = list(feedback["target_refs"]) + list(
+                feedback.get("invalidated_refs", [])
+            )
+            invalidated = sorted(
+                {
+                    str(ref).split(":", 1)[1]
+                    for ref in invalidation_refs
+                    if str(ref).startswith("strategy:")
+                }
+            )
+            invalidated_attempt_ids: list[str] = []
+            invalidated_obligations: list[str] = []
             if feedback["materiality"] in {"material", "terminal"}:
                 for digest in invalidated:
                     connection.execute("INSERT OR IGNORE INTO invalidations VALUES(?,?,?,?)", (run_id, digest, feedback["message"], revision))
                 self._ensure_obligations(connection, run_id)
+                invalidated_obligations = [
+                    item["obligation"]
+                    for item in connection.execute(
+                        "SELECT obligation FROM run_obligations WHERE run_id=? AND satisfied=1 ORDER BY obligation",
+                        (run_id,),
+                    ).fetchall()
+                ]
                 connection.execute("UPDATE run_obligations SET satisfied=0,updated_at=? WHERE run_id=?", (self._now(), run_id))
+                for attempt in connection.execute(
+                    "SELECT attempt_id,lease_json FROM action_attempts WHERE run_id=? ORDER BY attempt_id",
+                    (run_id,),
+                ).fetchall():
+                    lease = AttemptLease.from_dict(json.loads(attempt["lease_json"]))
+                    if lease.dispatch_digest not in invalidated:
+                        continue
+                    invalidated_attempt_ids.append(lease.attempt_id)
+                    connection.execute(
+                        """INSERT OR IGNORE INTO attempt_invalidations(
+                             run_id,attempt_id,feedback_id,prior_status,revision,reason,created_at
+                           ) VALUES(?,?,?,?,?,?,?)""",
+                        (
+                            run_id,
+                            lease.attempt_id,
+                            feedback["feedback_id"],
+                            lease.status,
+                            revision,
+                            feedback["message"],
+                            self._now(),
+                        ),
+                    )
             identity = feedback.get("successor_task_identity") or json.loads(row["task_identity_json"])
             next_state = "alignment" if feedback["materiality"] == "material" else row["lifecycle_state"]
             state = self._state_payload(row, lifecycle_state=next_state, revision=revision, body={"task_identity": identity, "feedback_id": feedback["feedback_id"]})
             digest = self._digest(state)
             connection.execute("UPDATE runs SET lifecycle_state=?,revision=?,state_digest=?,task_identity_json=?,updated_at=? WHERE run_id=?", (next_state, revision, digest, json.dumps(identity, ensure_ascii=False, sort_keys=True), self._now(), run_id))
-            self._event(connection, run_id, "feedback-" + feedback["feedback_id"], expected_revision, feedback, event_type="feedback_recorded")
+            event_id = "feedback-" + feedback["feedback_id"]
+            self._snapshot_current_revision(
+                connection, run_id, source_event_id=event_id
+            )
+            event_payload = dict(feedback)
+            event_payload.update(
+                {
+                    "predecessor_revision": expected_revision,
+                    "predecessor_state_digest": row["state_digest"],
+                    "successor_revision": revision,
+                    "successor_state_digest": digest,
+                    "invalidated_digests": invalidated,
+                    "invalidated_attempt_ids": invalidated_attempt_ids,
+                    "invalidated_obligations": invalidated_obligations,
+                }
+            )
+            self._event(connection, run_id, event_id, expected_revision, event_payload, event_type="feedback_recorded")
         result = self.status(run_id)
         result["invalidated_digests"] = sorted(invalidated)
         return result
@@ -502,6 +645,15 @@ class ResearchRunCoordinator:
                         "host event references an unknown attempt",
                         code="attempt_not_found",
                     )
+                if connection.execute(
+                    "SELECT 1 FROM attempt_invalidations WHERE run_id=? AND attempt_id=?",
+                    (host_event.run_id, host_event.attempt_id),
+                ).fetchone():
+                    raise CoordinatorError(
+                        "attempt was invalidated by material feedback",
+                        code="attempt_invalidated",
+                        next_action="replan_and_create_new_attempt",
+                    )
                 lease_status = json.loads(attempt["lease_json"]).get("status")
                 if lease_status == "unknown" and host_event.event_type != "attempt_unknown":
                     raise CoordinatorError(
@@ -517,6 +669,11 @@ class ResearchRunCoordinator:
             )
             connection.execute("INSERT INTO host_events VALUES(?,?,?,?)", (host_event.run_id, host_event.event_id, raw, host_event.payload_digest))
             self._apply_host_event_effect(connection, host_event)
+            self._snapshot_current_revision(
+                connection,
+                host_event.run_id,
+                source_event_id=host_event.event_id,
+            )
         return payload
 
     def _apply_host_event_effect(self, connection: sqlite3.Connection, event: HostEvent) -> None:
@@ -583,6 +740,31 @@ class ResearchRunCoordinator:
         now = self._now()
         for obligation in COMPLETION_OBLIGATIONS:
             connection.execute("INSERT OR IGNORE INTO run_obligations(run_id,obligation,satisfied,evidence_ref,updated_at) VALUES(?,?,0,NULL,?)", (run_id, obligation, now))
+
+    def _snapshot_current_revision(
+        self,
+        connection: sqlite3.Connection,
+        run_id: str,
+        *,
+        source_event_id: str,
+    ) -> None:
+        row = self._require_run(connection, run_id)
+        connection.execute(
+            """INSERT OR IGNORE INTO run_revisions(
+                 run_id,revision,lifecycle_state,authority_digest,state_digest,
+                 task_identity_json,source_event_id,created_at
+               ) VALUES(?,?,?,?,?,?,?,?)""",
+            (
+                run_id,
+                int(row["revision"]),
+                row["lifecycle_state"],
+                row["authority_digest"],
+                row["state_digest"],
+                row["task_identity_json"],
+                source_event_id,
+                self._now(),
+            ),
+        )
 
     def _guard_transition(self, connection: sqlite3.Connection, row: sqlite3.Row, event: str, body: Mapping[str, Any]) -> None:
         self._ensure_obligations(connection, row["run_id"])

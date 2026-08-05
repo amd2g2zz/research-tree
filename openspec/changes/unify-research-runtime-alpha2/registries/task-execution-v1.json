@@ -26,6 +26,8 @@
     { "group": 19, "depends_on": [14], "owner": "documentation", "outputs": ["documentation-registry", "doc-checks"], "acceptance_command": "uv run python scripts/check_docs.py", "rollback": "mark docs change incomplete" },
     { "group": 20, "depends_on": [12, 18], "owner": "quality", "outputs": ["evaluation-registry", "evaluation-migration"], "acceptance_command": "uv run python scripts/check_evaluation_assets.py", "rollback": "retain raw runs outside tracked source" },
     { "group": 21, "depends_on": [13, 19, 20], "owner": "release", "outputs": ["path-registry", "clean-checkout-report"], "acceptance_command": "uv run python scripts/check_repository_layout.py", "rollback": "do not move untracked material" },
-    { "group": 22, "depends_on": [18, 19, 20, 21], "owner": "maintainers", "outputs": ["alpha2-release"], "acceptance_command": "uv run python scripts/verify_alpha2_release.py", "rollback": "do not tag or publish" }
+    { "group": 22, "depends_on": [18, 19, 20, 21], "owner": "maintainers", "outputs": ["alpha2-release"], "acceptance_command": "uv run python scripts/verify_alpha2_release.py", "rollback": "do not tag or publish" },
+    { "group": 23, "depends_on": [2, 5, 7, 14], "owner": "runtime", "outputs": ["correction-invalidation", "run-revision-history", "attempt-quarantine"], "acceptance_command": "uv run pytest -q tests/test_alpha2_correction_integration.py tests/test_alpha2_runtime_contract.py", "rollback": "retain revision and invalidation tables as read-only audit evidence" },
+    { "group": 24, "depends_on": [1, 8, 11, 12, 20], "owner": "quality", "outputs": ["claude-glm52-case", "controlled-attribution", "black-box-trace"], "acceptance_command": "uv run pytest -q tests/test_alpha2_fixture_runner.py tests/test_alpha2_evaluation_metrics.py", "rollback": "retain the case as an unverified fixture and make no model or host attribution claim" }
   ]
 }

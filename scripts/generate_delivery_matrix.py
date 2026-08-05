@@ -12,18 +12,42 @@ REQUIREMENT_RE = re.compile(r"^### Requirement:\s*(.+?)\s*$", re.MULTILINE)
 
 
 def generate(change_dir: Path) -> dict[str, object]:
+    registry_path = change_dir / "registries" / "delivery-matrix-v1.json"
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    capabilities = {
+        item["capability"]: item for item in registry.get("capability_rows", [])
+    }
+    overrides = {
+        item["requirement_id"]: item
+        for item in registry.get("requirement_overrides", [])
+    }
     rows: list[dict[str, object]] = []
     for spec in sorted((change_dir / "specs").glob("*/spec.md")):
         text = spec.read_text(encoding="utf-8")
         capability = spec.parent.name
         for title in REQUIREMENT_RE.findall(text):
             slug = re.sub(r"[^a-z0-9]+", "-", title.casefold()).strip("-")
-            rows.append({
+            capability_defaults = capabilities.get(capability, {})
+            row = {
                 "requirement_id": f"{capability}/{slug}",
-                "source_modules": [], "public_surface": [], "migration_impact": "review",
+                "source_modules": capability_defaults.get("source_modules", []),
+                "public_surface": capability_defaults.get("public_surface", []),
+                "migration_impact": "review",
                 "unit_tests": [], "integration_tests": [], "black_box_cases": [],
-                "evidence_artifact": None, "github_issue": None, "owner": None, "status": "planned",
-            })
+                "evidence_artifact": None,
+                "github_issue": capability_defaults.get("github_issue"),
+                "owner": capability_defaults.get("owner"),
+                "status": "planned",
+            }
+            override = overrides.pop(row["requirement_id"], None)
+            if override is not None:
+                row.update({key: value for key, value in override.items() if key != "requirement_id"})
+            rows.append(row)
+    if overrides:
+        raise ValueError(
+            "delivery matrix overrides reference unknown requirements: "
+            + ", ".join(sorted(overrides))
+        )
     return {"schema_version": 1, "generated_from": "OpenSpec Requirement headings", "rows": rows}
 
 

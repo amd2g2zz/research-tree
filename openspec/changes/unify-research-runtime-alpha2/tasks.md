@@ -187,9 +187,9 @@ substitute for local evidence.
 
 ## 18. Implementation Vertical Slices and Release Evidence (#53-#70)
 
-- [x] 18.1 Create a machine-readable requirement-to-delivery matrix mapping every requirement to source owner, public surface, migration impact, focused tests, black-box case, evidence artifact, and GitHub issue.
+- [ ] 18.1 Create a machine-readable requirement-to-delivery matrix mapping every requirement to source owner, public surface, migration impact, focused tests, black-box case, evidence artifact, and GitHub issue. Implementation present; dependency and release evidence remain pending.
 - [ ] 18.2 Define public Python API, CLI JSON schemas, configuration precedence, supported Python/OS matrix, package manifests, and first-success smoke commands for all three hosts.
-- [x] 18.10 Define the source-checkout launcher contract so documented test and subprocess commands resolve research_tree without an accidental PYTHONPATH dependency; test both direct interpreter and uv-managed invocation. Evidence: `scripts/run_research_tree.py`, `tests/test_runtime_discoverability.py::test_source_checkout_launcher_works_without_pythonpath`, and `uv run pytest -q tests/test_runtime_discoverability.py`.
+- [ ] 18.10 Define the source-checkout launcher contract so documented test and subprocess commands resolve research_tree without an accidental PYTHONPATH dependency; test both direct interpreter and uv-managed invocation. Implementation evidence: `scripts/run_research_tree.py`, `tests/test_runtime_discoverability.py::test_source_checkout_launcher_works_without_pythonpath`, and `uv run pytest -q tests/test_runtime_discoverability.py`; group dependencies remain pending.
 - [ ] 18.3 Implement migration inventory, dry-run, apply, verify, rollback, and status commands with source digests, collision reports, operator confirmations, and non-destructive untracked-data handling.
 - [ ] 18.4 Define and emit an immutable release manifest containing source revision, host package hashes, schema versions, test/evaluation commands, baselines, environments, verifier identity, limitations, and gate results.
 - [ ] 18.5 Freeze evaluation cases, baselines, metric aggregation, missing-data handling, expert rubric, and thresholds before candidate runs and reject post-hoc changes.
@@ -215,16 +215,16 @@ substitute for local evidence.
 - [ ] 20.3 Define tracked/ignored policy, provenance schema, retention, redaction, size limits, stable identifiers, and safe hidden-oracle references.
 - [ ] 20.4 Migrate or explicitly retire the ambiguous `evals/` root and preserve compatibility for `evaluation/cases/v1.json`.
 - [ ] 20.5 Classify retained alpha1 experience artifacts and migrate only release-relevant, redacted, provenance-complete evidence.
-- [x] 20.6 Add deterministic evaluation entry points and validators for misplaced output, schema drift, oracle leakage, missing provenance, and oversized transcripts.
+- [ ] 20.6 Add deterministic evaluation entry points and validators for misplaced output, schema drift, oracle leakage, missing provenance, and oversized transcripts. Implementation present; group dependencies remain pending.
 - [ ] 20.7 Update #55 and #64 implementations to consume the governed asset model and reject private local conventions.
 
 ## 21. Repository Layout Governance (#70)
 
 - [ ] 21.1 Inventory every top-level path and classify source, generated, installed, runtime, evaluation, build, cache, and historical ownership.
-- [x] 21.2 Define a machine-readable path registry with mutability, tracked status, distribution status, cleanup safety, owner, and canonical command.
+- [ ] 21.2 Define a machine-readable path registry with mutability, tracked status, distribution status, cleanup safety, owner, and canonical command. Implementation present; group dependencies remain pending.
 - [ ] 21.3 Reconcile `packages/`, `skill-src/`, shared resources, host overlays, and repository-local `.agents/.claude/.codex` installations with explicit source/generated/install boundaries.
 - [ ] 21.4 Reconcile `.gitignore`, package manifests, build/dist output, egg-info, caches, raw material, research runs, and evaluation output with the registry.
-- [x] 21.5 Implement checks for unexpected roots, generated-source drift, host-package leakage, misplaced runtime output, and undocumented artifacts.
+- [ ] 21.5 Implement checks for unexpected roots, generated-source drift, host-package leakage, misplaced runtime output, and undocumented artifacts. Implementation present; group dependencies remain pending.
 - [ ] 21.6 Prove package build, tests, supported local install, and a sample run leave a clean checkout with no unexplained files.
 - [ ] 21.7 Provide a non-destructive migration map with collision detection and explicit confirmation for user-owned untracked artifacts.
 - [ ] 21.8 Update repository layout and contributor documentation from the enforced registry.
@@ -240,20 +240,20 @@ substitute for local evidence.
 
 ## 23. Transactional Correction Invalidation (#73)
 
-- [x] 23.1 Write failing unit tests showing `record` rejects a response that does not match the current pending action and agent-only evidence cannot resolve a human-only field.
-- [ ] 23.2 Write failing integration tests showing a material FeedbackEvent atomically preserves the prior revision, creates a successor interpretation, and invalidates dependent strategy, handoff, closure, readiness, delivery, and acceptance revisions.
-- [x] 23.3 Extend the canonical FeedbackEvent and lifecycle contracts with contradicted refs, affected fields, invalidated refs, successor refs, impact class, and task-identity disposition. Evidence: `validate_feedback_event`, `feedback-event-v1.json`, the mutual-alignment correction contract, and `tests/test_alpha2_runtime_contract.py::test_feedback_event_validates_invalidation_lineage_and_terminal_impact`.
-- [x] 23.4 Implement correction ingestion and stale-state quarantine through the single ResearchRunCoordinator without adding a second writable authority.
-- [x] 23.5 Reject confirmation, dispatch, delivery, and completion commands that reference a digest invalidated by correction, with stable error and next-action fields. Evidence: `ResearchRunCoordinator._assert_current_in_connection`, `tests/test_alpha2_runtime_contract.py::test_material_correction_invalidates_digest_and_keeps_task_identity`, and `uv run pytest -q tests/test_alpha2_runtime_contract.py`.
-- [x] 23.6 Add the diagnostic-subject/task-target contamination fixture and prove that old domain strategy cannot survive an explicit requester correction.
-- [ ] 23.7 Link the implementation, tests, replay trace, and migration disposition to issue #73 and the requirement-to-delivery matrix.
+- [ ] 23.1 Write failing unit tests showing `record` rejects a response that does not match the current pending action and agent-only evidence cannot resolve a human-only field. Implementation evidence present; dependencies #53, #57, and #59 remain open.
+- [ ] 23.2 Write failing integration tests showing a material FeedbackEvent atomically preserves the prior revision, creates a successor interpretation, and invalidates dependent strategy, handoff, closure, readiness, delivery, and acceptance revisions. Implementation evidence: `tests/test_alpha2_correction_integration.py` and `evaluation/harness/fixtures/correction_invalidation_trace.json`; dependencies remain open.
+- [ ] 23.3 Extend the canonical FeedbackEvent and lifecycle contracts with contradicted refs, affected fields, invalidated refs, successor refs, impact class, and task-identity disposition. Implementation evidence: `validate_feedback_event`, `feedback-event-v1.json`, the mutual-alignment correction contract, and `tests/test_alpha2_runtime_contract.py::test_feedback_event_validates_invalidation_lineage_and_terminal_impact`; dependencies remain open.
+- [ ] 23.4 Implement correction ingestion and stale-state quarantine through the single ResearchRunCoordinator without adding a second writable authority. Implementation present; dependencies remain open.
+- [ ] 23.5 Reject confirmation, dispatch, delivery, and completion commands that reference a digest invalidated by correction, with stable error and next-action fields. Implementation evidence: `ResearchRunCoordinator._assert_current_in_connection`, `tests/test_alpha2_runtime_contract.py::test_material_correction_invalidates_digest_and_keeps_task_identity`, and `uv run pytest -q tests/test_alpha2_runtime_contract.py`; dependencies remain open.
+- [ ] 23.6 Add the diagnostic-subject/task-target contamination fixture and prove that old domain strategy cannot survive an explicit requester correction. Implementation present; dependencies remain open.
+- [ ] 23.7 Link the implementation, tests, replay trace, and migration disposition to issue #73 and the requirement-to-delivery matrix. Implementation evidence: `registries/delivery-matrix-v1.json` override and `tests/test_delivery_matrix.py`; dependencies remain open.
 
 ## 24. Claude Code and GLM5.2 Black-Box Regression (#72)
 
-- [x] 24.1 Register a redacted case manifest for the reported transcript with exact public turns, expected control transitions, hidden evaluator state, source permission, skill revision, and environment limitations.
+- [ ] 24.1 Register a redacted case manifest for the reported transcript with exact public turns, expected control transitions, hidden evaluator state, source permission, skill revision, and environment limitations. Implementation present; task-group dependency evidence remains pending.
 - [ ] 24.2 Write failing black-box assertions for activation-before-reference, one open prompt, correction invalidation, task identity, recursive continuation, unsupported attribution, and dual-delivery depth.
 - [ ] 24.3 Implement the fixture runner and retained evidence paths using the governed evaluation asset model from #69.
 - [ ] 24.4 Execute the same registered case against the alpha1 baseline and alpha2 candidate; record non-reproducibility instead of fabricating a baseline failure.
 - [ ] 24.5 Execute a controlled Claude Code native versus GLM5.2 comparison when both runtimes are available, otherwise persist an unavailable result with the external blocker.
-- [x] 24.6 Add an attribution validator that rejects model/host causal claims when more than the declared comparison factor changes or comparison evidence is missing.
+- [ ] 24.6 Add an attribution validator that rejects model/host causal claims when more than the declared comparison factor changes or comparison evidence is missing. Implementation present; task-group dependency evidence remains pending.
 - [ ] 24.7 Link case artifacts, traces, reviewer disposition, and residual uncertainty to issue #72 and the alpha2 release manifest.

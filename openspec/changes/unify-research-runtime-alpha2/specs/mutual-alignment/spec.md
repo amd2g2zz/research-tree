@@ -92,6 +92,12 @@ The event records `contradicted_refs`, `affected_fields`, `invalidated_refs`,
 `successor_refs`, `impact_class`, and `task_identity_disposition`; task identity
 marked `rederived` also carries the successor identity. Terminal feedback has a
 terminal impact by default rather than being treated as informational.
+The coordinator SHALL preserve the predecessor and successor canonical run
+snapshots in `run_revisions`. Attempts dispatched from an invalidated strategy
+remain historical records but receive an `attempt_invalidations` entry, and
+later host results for those attempts SHALL be rejected. The schema migration
+is additive: existing runs receive only a current-state backfill because the
+runtime must not fabricate historical revisions that were never recorded.
 
 #### Scenario: Correction invalidates a pending handoff
 - **WHEN** the requester corrects the outcome or scope after a strategy digest is displayed

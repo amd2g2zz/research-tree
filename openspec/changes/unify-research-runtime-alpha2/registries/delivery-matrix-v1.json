@@ -27,5 +27,34 @@
     { "capability": "evaluation-asset-governance", "source_modules": ["registries/evaluation-paths-v1.json", "scripts/check_evaluation_assets.py"], "public_surface": [], "task_groups": [20], "github_issue": "#69", "owner": "quality" },
     { "capability": "repository-layout-governance", "source_modules": ["registries/repository-paths-v1.json", "scripts/check_repository_layout.py"], "public_surface": [], "task_groups": [21], "github_issue": "#70", "owner": "release" }
   ],
+  "requirement_overrides": [
+    {
+      "requirement_id": "mutual-alignment/corrections-transactionally-invalidate-dependent-state",
+      "source_modules": [
+        "src/research_tree/contracts.py",
+        "src/research_tree/coordinator.py",
+        "src/research_tree/alignment_graph.py"
+      ],
+      "public_surface": [
+        "ResearchRunCoordinator.record_feedback",
+        "ResearchRunCoordinator.revisions",
+        "ResearchRunCoordinator.attempt_invalidations"
+      ],
+      "migration_impact": "Additive SQLite run_revisions and attempt_invalidations tables; current runs are backfilled without fabricating unavailable historical revisions.",
+      "unit_tests": [
+        "tests/test_alpha2_runtime_contract.py::test_material_correction_invalidates_digest_and_keeps_task_identity"
+      ],
+      "integration_tests": [
+        "tests/test_alpha2_correction_integration.py"
+      ],
+      "black_box_cases": [
+        "evaluation/cases/claude-glm52-v1.json"
+      ],
+      "evidence_artifact": "evaluation/harness/fixtures/correction_invalidation_trace.json",
+      "github_issue": "#73",
+      "owner": "runtime",
+      "status": "in_progress"
+    }
+  ],
   "release_rule": "A capability row is not evidence of implementation. The generated requirement rows, tests, and immutable release manifest must all resolve before status becomes verified."
 }

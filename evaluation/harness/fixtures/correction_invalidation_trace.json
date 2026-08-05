@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "issue": "#73",
+  "scenario": "material correction quarantines stale strategy state",
+  "trace": {
+    "predecessor_lifecycle_state": "completed",
+    "successor_lifecycle_state": "alignment",
+    "successor_task_subject": "autonomous-agent",
+    "invalidated_attempt_ids": [
+      "attempt-old-strategy"
+    ],
+    "invalidated_obligations": [
+      "acceptance",
+      "evaluation",
+      "human_delivery",
+      "insight_clear",
+      "p0_closure",
+      "readiness",
+      "technical_delivery"
+    ],
+    "rejected_followup_code": "attempt_invalidated"
+  },
+  "migration_disposition": {
+    "schema_change": "additive",
+    "tables": [
+      "run_revisions",
+      "attempt_invalidations"
+    ],
+    "existing_runs": "backfill current canonical row as schema-backfill; do not synthesize missing historical revisions",
+    "rollback": "retain additive tables as read-only audit evidence"
+  }
+}
