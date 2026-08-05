@@ -66,13 +66,13 @@ fields, dependency cycles, evidence paths, and acceptance command paths.
 
 ## 6. Local AdaptiveResearchPolicy (#58)
 
-- [ ] 6.1 Rename recursive search concepts and expose a pure AdaptiveResearchPolicy that consumes canonical Decision Slot deficits and emits typed action proposals.
-- [ ] 6.2 Remove canonical Slot status, report manifest, delivery registration, and run-completion authority from the recursive-search projection.
-- [ ] 6.3 Implement landscape, deep-dive, adversarial, validation, and method-switch proposals with triggering evidence, missing evidence, method boundary, and closure oracle.
-- [ ] 6.4 Replace the scalar-only evidence delta with auditable closure components for evidence class, independence, contradiction, oracle, implementation uncertainty, and Slot closure.
-- [ ] 6.5 Implement gain-ratio branch normalization, duplicate/dominated optional pruning, no-change penalties, and oracle-failure reweighting.
-- [ ] 6.6 Exempt P0 obligations, counterevidence, unresolved contradictions, and mandatory validation from score-only pruning and frontier capacity.
-- [ ] 6.7 Add tests for baseline delta zero, evidence-triggered growth, correction growth, unbounded worker suggestions, repeated evidence, drained frontier, and method switching.
+- [x] 6.1 Rename recursive search concepts and expose a pure AdaptiveResearchPolicy that consumes canonical Decision Slot deficits and emits typed action proposals. Evidence: `propose_from_deficits` is a pure, seeded projection with explicit trigger and closure fields.
+- [x] 6.2 Remove canonical Slot status, report manifest, delivery registration, and run-completion authority from the recursive-search projection. Evidence: recursive state labels projection-only status/manifest authority and `ResearchTreeStateService` accepts the additive projection metadata without changing canonical completion ownership.
+- [x] 6.3 Implement landscape, deep-dive, adversarial, validation, and method-switch proposals with triggering evidence, missing evidence, method boundary, and closure oracle. Evidence: typed deficit proposals plus correction and failed-oracle successor generation.
+- [x] 6.4 Replace the scalar-only evidence delta with auditable closure components for evidence class, independence, contradiction, oracle, implementation uncertainty, and Slot closure. Evidence: `measure_realized_delta` persists the six-component vector while retaining the bounded scheduling scalar.
+- [x] 6.5 Implement gain-ratio branch normalization, duplicate/dominated optional pruning, no-change penalties, and oracle-failure reweighting. Evidence: seeded gain ratios, duplicate/dominated dispositions, no-state-change accounting, and recovery boost fields are deterministic.
+- [x] 6.6 Exempt P0 obligations, counterevidence, unresolved contradictions, and mandatory validation from score-only pruning and frontier capacity. Evidence: mandatory/P0 actions receive an explicit exemption and remain eligible regardless of score.
+- [x] 6.7 Add tests for baseline delta zero, evidence-triggered growth, correction growth, unbounded worker suggestions, repeated evidence, drained frontier, and method switching. Evidence: `uv run pytest -q tests/test_adaptive_policy_alpha2.py tests/test_recursive_search.py` passes 16 tests; existing recursive and insight suites remain green.
 
 ## 7. Evidence-Bearing Mutual Alignment (#59)
 
