@@ -3,7 +3,7 @@ import hashlib
 
 import pytest
 
-from research_tree import AttemptLease, CoordinatorError, LeaseError, MigrationError, MigrationManager, ResearchRunCoordinator
+from research_tree import AttemptLease, CoordinatorError, LegacyRunStoreImporter, LeaseError, MigrationError, MigrationManager, ResearchRunCoordinator, RunStore, SQLiteRunLedger
 from research_tree.replay import ReplayError, ordered_events, replay_events, semantic_state_digest
 
 
@@ -80,3 +80,17 @@ def test_coordinator_reconcile_host_reads_canonical_ledger(tmp_path):
     coordinator = ResearchRunCoordinator(tmp_path)
     coordinator.create("run-1")
     assert coordinator.reconcile_host("run-1")["status"] == "no_divergence_detected"
+
+
+def test_legacy_run_store_import_is_idempotent_and_unverified(tmp_path):
+    source = tmp_path / "legacy"
+    store = RunStore(source)
+    store.create_round("run-1")
+    store.append_artifact("run-1", "brief", "working-brief", {"goal": "research"})
+    destination = tmp_path / "alpha2"
+    importer = LegacyRunStoreImporter(source, destination)
+    first = importer.import_round("run-1")
+    second = importer.import_round("run-1")
+    assert first["status"] == "imported"
+    assert second["status"] == "already_imported"
+    assert SQLiteRunLedger(destination).resolve("run-1", "brief", 1)["status"] == "legacy_unverified"

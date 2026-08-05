@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
 import shutil
 from typing import Any, Iterable
+
+from .coordinator import CoordinatorError, ResearchRunCoordinator
+from .domain import thaw_json
+from .sqlite_ledger import SQLiteLedgerError, SQLiteRunLedger
+from .storage import RunStore
 
 
 class MigrationError(ValueError):
@@ -116,3 +122,63 @@ class MigrationManager:
                 removed.append(item["destination"])
         self.manifest_path.unlink(missing_ok=True)
         return {"status": "rolled_back", "removed": removed}
+
+
+class LegacyRunStoreImporter:
+    """Idempotently import immutable alpha1 rounds without trusting closure state."""
+
+    def __init__(self, source_root: str | Path, destination_workspace: str | Path) -> None:
+        self.source_root = Path(source_root).resolve()
+        self.store = RunStore(self.source_root)
+        self.coordinator = ResearchRunCoordinator(destination_workspace)
+        self.ledger = SQLiteRunLedger(destination_workspace)
+        with self.ledger._connect() as connection:
+            connection.execute("CREATE TABLE IF NOT EXISTS legacy_imports(source_digest TEXT PRIMARY KEY,source_root TEXT NOT NULL,round_id TEXT NOT NULL,artifact_count INTEGER NOT NULL,imported_at TEXT NOT NULL)")
+
+    def _source_digest(self, round_id: str) -> str:
+        root = self.source_root / "rounds" / round_id
+        digest = hashlib.sha256()
+        for path in sorted(item for item in root.rglob("*") if item.is_file()):
+            digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(path.read_bytes())
+        return digest.hexdigest()
+
+    def import_round(self, round_id: str) -> dict[str, Any]:
+        snapshot = self.store.load_round(round_id)
+        source_digest = self._source_digest(round_id)
+        with self.ledger._connect() as connection:
+            prior = connection.execute("SELECT artifact_count FROM legacy_imports WHERE source_digest=?", (source_digest,)).fetchone()
+        if prior is not None:
+            return {"status": "already_imported", "round_id": round_id, "source_digest": source_digest, "artifact_count": prior["artifact_count"]}
+        try:
+            self.coordinator.status(round_id)
+        except CoordinatorError as exc:
+            if exc.code != "run_not_found":
+                raise
+            self.coordinator.create(round_id, task_identity={"legacy_source": str(self.source_root)}, parent_run_id=snapshot.record.parent_round_id)
+        pending = list(snapshot.artifacts)
+        imported = 0
+        while pending:
+            remaining = []
+            progressed = False
+            for artifact in pending:
+                try:
+                    self.ledger.append_artifact(run_id=round_id, artifact_id=artifact.id, kind=artifact.kind, payload=thaw_json(artifact.payload), actor_kind="migration", actor_id="alpha1-importer", status="legacy_unverified", parent_refs=[{"run_id": ref.round_id, "artifact_id": ref.artifact_id, "revision": ref.revision} for ref in artifact.parent_refs], expected_revision=artifact.revision - 1, created_at=artifact.created_at)
+                    imported += 1
+                    progressed = True
+                except SQLiteLedgerError as exc:
+                    if exc.code == "dangling_parent":
+                        remaining.append(artifact)
+                    elif exc.code in {"stale_revision", "artifact_conflict"}:
+                        resolved = self.ledger.resolve(round_id, artifact.id, artifact.revision)
+                        if resolved["status"] != "legacy_unverified":
+                            raise MigrationError("legacy import collides with canonical artifact") from exc
+                    else:
+                        raise
+            if remaining and not progressed:
+                raise MigrationError("legacy lineage cannot be resolved")
+            pending = remaining
+        with self.ledger._connect() as connection:
+            connection.execute("INSERT INTO legacy_imports VALUES(?,?,?,?,?)", (source_digest, str(self.source_root), round_id, imported, datetime.now(timezone.utc).isoformat()))
+        return {"status": "imported", "round_id": round_id, "source_digest": source_digest, "artifact_count": imported, "closure_disposition": "legacy_unverified"}

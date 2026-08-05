@@ -195,7 +195,7 @@ from .acceptance import AcceptanceError, DeliveryAcceptance, validate_semantic_d
 from .lifecycle import LifecycleError, allowed_transition, transition_table
 from .leases import AttemptLease, LeaseError
 from .replay import ReplayError, explain_run, ordered_events, replay_events, semantic_state_digest, why_not_complete
-from .migrations import MigrationEntry, MigrationError, MigrationManager
+from .migrations import LegacyRunStoreImporter, MigrationEntry, MigrationError, MigrationManager
 from .security import PermissionProfile, SecurityError, path_within, redact
 from .sandbox import SandboxGuard, SandboxViolation
 from .methods import MethodError, MethodRegistry, MethodSpec
@@ -371,6 +371,7 @@ __all__ = [
     "MigrationEntry",
     "MigrationError",
     "MigrationManager",
+    "LegacyRunStoreImporter",
     "PermissionProfile",
     "SecurityError",
     "path_within",
