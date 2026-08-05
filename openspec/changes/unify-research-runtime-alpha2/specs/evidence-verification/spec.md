@@ -93,6 +93,29 @@ condition. The token also binds the exact Decision Ledger artifact revision and
 its selected or conditional status. Worker prose and legacy validation strings
 are not accepted inputs.
 
+The coordinator SHALL bind closure to the active P0 Slot set from one exact
+Blueprint Target revision. It SHALL verify that each assessment Slot id equals the
+referenced Decision Ledger entry's Slot id and that the decision belongs to the
+bound Blueprint Target. It SHALL persist a deterministic `P0ClosureAggregate` over
+the latest assessment for every active P0 Slot. A Slot token is not a run-level
+closure token and MUST NOT directly satisfy the `p0_closure` obligation.
+
+#### Scenario: Only one of two P0 Slots passes
+- **WHEN** the active Blueprint Target has two P0 Slots and only one has a current passed assessment
+- **THEN** the aggregate remains open, identifies the missing Slot, and the run-level P0 obligation remains unsatisfied
+
+#### Scenario: Every active P0 Slot passes
+- **WHEN** every active P0 Slot has a current passed assessment bound to its exact Decision Ledger revision
+- **THEN** the core evaluator persists a passed aggregate and uses its digest as the run-level P0 closure evidence
+
+#### Scenario: Assessment names a different Slot
+- **WHEN** an assessment Slot id differs from the referenced Decision Ledger entry's Slot id
+- **THEN** ingestion fails without advancing the run revision
+
+#### Scenario: Blueprint Target is superseded
+- **WHEN** a newer exact Blueprint Target revision changes the active P0 Slot set
+- **THEN** the prior aggregate cannot satisfy completion and the new aggregate reports every newly open or changed Slot
+
 ### Requirement: Evidence history is never deleted by pruning or supersession
 The system SHALL preserve rejected, contradicted, superseded, failed, and inconclusive evidence with its original provenance and disposition.
 

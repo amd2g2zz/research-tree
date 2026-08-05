@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/p0-closure-aggregate-v1.json",
+  "title": "Alpha2 P0ClosureAggregate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "aggregate_revision", "blueprint_target_ref", "slots", "status", "assessor_version", "issued_at", "aggregate_digest"],
+  "properties": {
+    "run_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "aggregate_revision": { "type": "integer", "minimum": 1 },
+    "blueprint_target_ref": { "type": "object", "additionalProperties": false, "required": ["run_id", "artifact_id", "revision", "content_hash"], "properties": { "run_id": { "type": "string", "minLength": 1 }, "artifact_id": { "type": "string", "minLength": 1 }, "revision": { "type": "integer", "minimum": 1 }, "content_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" } } },
+    "slots": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["slot_id", "status", "assessment_revision", "decision_ref", "token_digest"], "properties": { "slot_id": { "type": "string", "minLength": 1 }, "status": { "type": "string", "enum": ["missing", "open", "passed", "failed", "stale", "revoked"] }, "assessment_revision": { "type": ["integer", "null"], "minimum": 1 }, "decision_ref": { "anyOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["run_id", "artifact_id", "revision", "content_hash"], "properties": { "run_id": { "type": "string", "minLength": 1 }, "artifact_id": { "type": "string", "minLength": 1 }, "revision": { "type": "integer", "minimum": 1 }, "content_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" } } }] }, "token_digest": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" } } } },
+    "status": { "type": "string", "enum": ["open", "passed", "stale", "revoked"] },
+    "assessor_version": { "type": "string", "minLength": 1 },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "aggregate_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

@@ -59,4 +59,4 @@ def test_arbitrary_p0_obligation_cannot_bypass_core_closure(tmp_path):
             "run-1", "p0_closure", evidence_ref="worker-says-passed",
             expected_revision=state["revision"],
         )
-    assert error.value.code == "closure_token_required"
+    assert error.value.code == "closure_aggregate_required"

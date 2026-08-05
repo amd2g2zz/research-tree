@@ -13,6 +13,37 @@ from research_tree import (
 def satisfy_p0_closure(ledger: SQLiteRunLedger, state: dict[str, object], *, suffix: str = "main") -> dict[str, object]:
     coordinator = ledger.coordinator
     run_id = str(state["run_id"])
+    slot_id = f"slot-{suffix}"
+    blueprint = ledger.append_artifact(
+        run_id=run_id,
+        artifact_id=f"blueprint-target-{suffix}",
+        kind="blueprint-target",
+        payload={
+            "slots": [
+                {
+                    "id": slot_id,
+                    "priority": "P0",
+                    "status": "open",
+                    "fallback": "Use the prior implementation.",
+                    "reversal_condition": "A failed integration test.",
+                }
+            ]
+        },
+        actor_kind="coordinator",
+        actor_id="blueprint-compiler",
+        status="active",
+        expected_revision=0,
+    )
+    state = coordinator.bind_blueprint_target(
+        run_id,
+        {
+            "run_id": run_id,
+            "artifact_id": blueprint["id"],
+            "revision": blueprint["revision"],
+            "content_hash": blueprint["content_hash"],
+        },
+        expected_revision=int(coordinator.status(run_id)["revision"]),
+    )
     spec_id = f"oracle-build-{suffix}"
     spec = OracleSpec.create(
         spec_id,
@@ -86,11 +117,25 @@ def satisfy_p0_closure(ledger: SQLiteRunLedger, state: dict[str, object], *, suf
     )
     decision = ledger.append_artifact(
         run_id=run_id, artifact_id=f"decision-{suffix}", kind="decision-ledger-entry",
-        payload={"status": "selected"}, actor_kind="coordinator", actor_id="decision-compiler",
-        status="active", expected_revision=0,
+        payload={
+            "decision_slot_id": slot_id,
+            "blueprint_target_id": blueprint["id"],
+            "status": "selected",
+            "fallback": "Use the prior implementation.",
+            "reversal_condition": "A failed integration test.",
+        }, actor_kind="coordinator", actor_id="decision-compiler",
+        status="active",
+        parent_refs=[
+            {
+                "run_id": run_id,
+                "artifact_id": blueprint["id"],
+                "revision": blueprint["revision"],
+            }
+        ],
+        expected_revision=0,
     )
     assessment = SlotClosureAssessment.assess_alpha2(
-        slot_id=f"slot-{suffix}", assessment_revision=1,
+        slot_id=slot_id, assessment_revision=1,
         decision_ref={"run_id": run_id, "artifact_id": f"decision-{suffix}", "revision": 1, "content_hash": decision["content_hash"]},
         decision_status="selected",
         evidence=[

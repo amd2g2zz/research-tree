@@ -206,7 +206,12 @@ from .evidence import (
     provenance_group_for,
 )
 from .oracles import OracleAttempt, OracleError, OracleRun, OracleSpec
-from .closure import ClosureError, SlotClosureAssessment, oracle_successor_actions
+from .closure import (
+    ClosureError,
+    P0ClosureAggregate,
+    SlotClosureAssessment,
+    oracle_successor_actions,
+)
 from .acceptance import AcceptanceError, DeliveryAcceptance, validate_semantic_deliveries
 from .lifecycle import LifecycleError, allowed_transition, transition_table
 from .leases import AttemptLease, LeaseError
@@ -381,6 +386,7 @@ __all__ = [
     "OracleRun",
     "OracleSpec",
     "ClosureError",
+    "P0ClosureAggregate",
     "SlotClosureAssessment",
     "oracle_successor_actions",
     "AcceptanceError",

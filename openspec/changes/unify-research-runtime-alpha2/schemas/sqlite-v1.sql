@@ -164,6 +164,32 @@ CREATE TABLE closures (
   PRIMARY KEY(run_id, slot_id, assessment_revision)
 );
 
+CREATE TABLE decision_slot_sets (
+  run_id TEXT NOT NULL,
+  binding_revision INTEGER NOT NULL,
+  blueprint_artifact_id TEXT NOT NULL,
+  blueprint_revision INTEGER NOT NULL,
+  blueprint_content_hash TEXT NOT NULL,
+  slots_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(run_id, binding_revision),
+  FOREIGN KEY(run_id, blueprint_artifact_id, blueprint_revision)
+    REFERENCES artifacts(run_id, artifact_id, revision)
+);
+
+CREATE TABLE p0_closure_aggregates (
+  run_id TEXT NOT NULL,
+  aggregate_revision INTEGER NOT NULL,
+  blueprint_binding_revision INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  aggregate_digest TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(run_id, aggregate_revision),
+  FOREIGN KEY(run_id, blueprint_binding_revision)
+    REFERENCES decision_slot_sets(run_id, binding_revision)
+);
+
 CREATE TABLE insights (
   run_id TEXT NOT NULL,
   digest_id TEXT NOT NULL,

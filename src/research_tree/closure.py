@@ -14,6 +14,114 @@ class ClosureError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class P0ClosureAggregate:
+    """Deterministic run-level closure over the active P0 Slot set."""
+
+    run_id: str
+    aggregate_revision: int
+    blueprint_target_ref: Mapping[str, Any]
+    slots: tuple[Mapping[str, Any], ...]
+    status: str
+    assessor_version: str
+    issued_at: str
+    aggregate_digest: str
+
+    @classmethod
+    def build(
+        cls,
+        *,
+        run_id: str,
+        aggregate_revision: int,
+        blueprint_target_ref: Mapping[str, Any],
+        active_slots: Sequence[Mapping[str, Any]],
+        latest_assessments: Mapping[str, Mapping[str, Any]],
+        assessor_version: str,
+        issued_at: str,
+    ) -> "P0ClosureAggregate":
+        if aggregate_revision < 1:
+            raise ClosureError("aggregate_revision must be positive")
+        if not isinstance(run_id, str) or not run_id.strip():
+            raise ClosureError("aggregate run_id is required")
+        if not isinstance(assessor_version, str) or not assessor_version.strip():
+            raise ClosureError("aggregate assessor_version is required")
+        target_ref = _decision_ref(blueprint_target_ref)
+        normalized_slots: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in active_slots:
+            slot_id = item.get("id", item.get("slot_id"))
+            if not isinstance(slot_id, str) or not slot_id.strip():
+                raise ClosureError("active P0 Slot id is required")
+            if slot_id in seen:
+                raise ClosureError("active P0 Slot ids must be unique")
+            seen.add(slot_id)
+            assessment = latest_assessments.get(slot_id)
+            if assessment is None:
+                normalized_slots.append(
+                    {
+                        "slot_id": slot_id,
+                        "status": "missing",
+                        "assessment_revision": None,
+                        "decision_ref": None,
+                        "token_digest": None,
+                    }
+                )
+                continue
+            token = assessment.get("token_digest")
+            status = str(assessment.get("status", "open"))
+            if status == "passed" and (not isinstance(token, str) or len(token) != 64):
+                status = "stale"
+                token = None
+            normalized_slots.append(
+                {
+                    "slot_id": slot_id,
+                    "status": status,
+                    "assessment_revision": assessment.get("assessment_revision"),
+                    "decision_ref": (
+                        dict(assessment["decision_ref"])
+                        if isinstance(assessment.get("decision_ref"), Mapping)
+                        else None
+                    ),
+                    "token_digest": token if status == "passed" else None,
+                }
+            )
+        normalized_slots.sort(key=lambda item: item["slot_id"])
+        status = "passed" if all(item["status"] == "passed" for item in normalized_slots) else "open"
+        semantic = {
+            "run_id": run_id,
+            "aggregate_revision": aggregate_revision,
+            "blueprint_target_ref": target_ref,
+            "slots": normalized_slots,
+            "status": status,
+            "assessor_version": assessor_version,
+        }
+        digest = hashlib.sha256(
+            json.dumps(semantic, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return cls(
+            run_id=run_id,
+            aggregate_revision=aggregate_revision,
+            blueprint_target_ref=target_ref,
+            slots=tuple(normalized_slots),
+            status=status,
+            assessor_version=assessor_version,
+            issued_at=issued_at,
+            aggregate_digest=digest,
+        )
+
+    def to_contract_dict(self) -> dict[str, Any]:
+        return {
+            "run_id": self.run_id,
+            "aggregate_revision": self.aggregate_revision,
+            "blueprint_target_ref": dict(self.blueprint_target_ref),
+            "slots": [dict(item) for item in self.slots],
+            "status": self.status,
+            "assessor_version": self.assessor_version,
+            "issued_at": self.issued_at,
+            "aggregate_digest": self.aggregate_digest,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class SlotClosureAssessment:
     slot_id: str
     status: str

@@ -20,7 +20,7 @@ from .replay import explain_run, why_not_complete
 from .leases import AttemptLease
 from .host_events import reconcile_host_events
 from .oracles import OracleAttempt, OracleRun, OracleSpec
-from .closure import SlotClosureAssessment
+from .closure import P0ClosureAggregate, SlotClosureAssessment
 
 
 LIFECYCLE_STATES = frozenset({
@@ -168,8 +168,24 @@ class ResearchRunCoordinator:
         );
         CREATE TABLE IF NOT EXISTS slot_closure_assessments(
           run_id TEXT NOT NULL, slot_id TEXT NOT NULL, assessment_revision INTEGER NOT NULL,
-          payload_json TEXT NOT NULL, token_digest TEXT, status TEXT NOT NULL, created_at TEXT NOT NULL,
+          blueprint_binding_revision INTEGER NOT NULL, payload_json TEXT NOT NULL,
+          token_digest TEXT, status TEXT NOT NULL, created_at TEXT NOT NULL,
           PRIMARY KEY(run_id,slot_id,assessment_revision), FOREIGN KEY(run_id) REFERENCES runs(run_id)
+        );
+        CREATE TABLE IF NOT EXISTS decision_slot_sets(
+          run_id TEXT NOT NULL, binding_revision INTEGER NOT NULL,
+          blueprint_artifact_id TEXT NOT NULL, blueprint_revision INTEGER NOT NULL,
+          blueprint_content_hash TEXT NOT NULL, slots_json TEXT NOT NULL,
+          created_at TEXT NOT NULL, PRIMARY KEY(run_id,binding_revision),
+          FOREIGN KEY(run_id) REFERENCES runs(run_id)
+        );
+        CREATE TABLE IF NOT EXISTS p0_closure_aggregates(
+          run_id TEXT NOT NULL, aggregate_revision INTEGER NOT NULL,
+          blueprint_binding_revision INTEGER NOT NULL, payload_json TEXT NOT NULL,
+          aggregate_digest TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL,
+          PRIMARY KEY(run_id,aggregate_revision),
+          FOREIGN KEY(run_id,blueprint_binding_revision)
+            REFERENCES decision_slot_sets(run_id,binding_revision)
         );
         """)
         run_columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
@@ -187,6 +203,14 @@ class ResearchRunCoordinator:
         }
         if "oracle_attempt_id" not in oracle_run_columns:
             connection.execute("ALTER TABLE oracle_runs ADD COLUMN oracle_attempt_id TEXT")
+        closure_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(slot_closure_assessments)")
+        }
+        if "blueprint_binding_revision" not in closure_columns:
+            connection.execute(
+                "ALTER TABLE slot_closure_assessments ADD COLUMN blueprint_binding_revision INTEGER"
+            )
         connection.execute(
             """INSERT OR IGNORE INTO run_revisions(
                  run_id,revision,lifecycle_state,authority_digest,state_digest,
@@ -326,21 +350,17 @@ class ResearchRunCoordinator:
     def record_obligation(self, run_id: str, obligation: str, *, evidence_ref: str, expected_revision: int) -> dict[str, Any]:
         if obligation not in COMPLETION_OBLIGATIONS or obligation in {"technical_delivery", "human_delivery", "acceptance"}:
             raise CoordinatorError("obligation must be recorded by its canonical boundary", code="invalid_obligation")
+        if obligation == "p0_closure":
+            raise CoordinatorError(
+                "P0 closure is issued only by the core aggregate evaluator",
+                code="closure_aggregate_required",
+            )
         if not isinstance(evidence_ref, str) or not evidence_ref.strip():
             raise CoordinatorError("obligation evidence is required", code="missing_evidence")
         with self._connect() as connection:
             row = self._require_run(connection, run_id)
             if int(row["revision"]) != expected_revision:
                 raise CoordinatorError("expected revision is stale", code="stale_revision")
-            if obligation == "p0_closure" and connection.execute(
-                """SELECT 1 FROM slot_closure_assessments
-                   WHERE run_id=? AND token_digest=? AND status='passed'""",
-                (run_id, evidence_ref),
-            ).fetchone() is None:
-                raise CoordinatorError(
-                    "P0 closure requires a persisted core assessment token",
-                    code="closure_token_required",
-                )
             self._ensure_obligations(connection, run_id)
             revision = expected_revision + 1
             connection.execute("UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation=?", (evidence_ref, self._now(), run_id, obligation))
@@ -661,6 +681,200 @@ class ResearchRunCoordinator:
             ).fetchall()
         return [json.loads(row["payload_json"]) for row in rows]
 
+    def bind_blueprint_target(
+        self,
+        run_id: str,
+        blueprint_target_ref: Mapping[str, Any],
+        *,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        """Bind one exact Blueprint Target as the source of active P0 Slots."""
+
+        required = {"run_id", "artifact_id", "revision", "content_hash"}
+        if not isinstance(blueprint_target_ref, Mapping) or set(blueprint_target_ref) != required:
+            raise CoordinatorError(
+                "blueprint target reference fields mismatch",
+                code="blueprint_ref_invalid",
+            )
+        if blueprint_target_ref["run_id"] != run_id:
+            raise CoordinatorError(
+                "blueprint target belongs to another run",
+                code="blueprint_scope_mismatch",
+            )
+        if (
+            not isinstance(blueprint_target_ref["revision"], int)
+            or isinstance(blueprint_target_ref["revision"], bool)
+            or blueprint_target_ref["revision"] < 1
+            or not isinstance(blueprint_target_ref["content_hash"], str)
+            or len(blueprint_target_ref["content_hash"]) != 64
+        ):
+            raise CoordinatorError("blueprint target reference is invalid", code="blueprint_ref_invalid")
+        with self._connect() as connection:
+            row = self._require_run(connection, run_id)
+            if int(row["revision"]) != expected_revision:
+                raise CoordinatorError("expected revision is stale", code="stale_revision")
+            artifact = connection.execute(
+                """SELECT kind,content_hash,payload_json FROM artifacts
+                   WHERE run_id=? AND artifact_id=? AND revision=?""",
+                (run_id, blueprint_target_ref["artifact_id"], blueprint_target_ref["revision"]),
+            ).fetchone()
+            if artifact is None:
+                raise CoordinatorError("blueprint target does not resolve", code="blueprint_not_found")
+            if artifact["kind"] != "blueprint-target" or artifact["content_hash"] != blueprint_target_ref["content_hash"]:
+                raise CoordinatorError("blueprint target reference is stale", code="stale_blueprint")
+            try:
+                slots = json.loads(artifact["payload_json"])["slots"]
+            except (KeyError, TypeError, json.JSONDecodeError) as error:
+                raise CoordinatorError("blueprint target slots are malformed", code="blueprint_slots_invalid") from error
+            if not isinstance(slots, list) or not slots:
+                raise CoordinatorError("blueprint target must contain slots", code="blueprint_slots_invalid")
+            seen: set[str] = set()
+            for slot in slots:
+                if not isinstance(slot, Mapping):
+                    raise CoordinatorError("blueprint target slot is malformed", code="blueprint_slots_invalid")
+                slot_id = slot.get("id", slot.get("slot_id"))
+                if not isinstance(slot_id, str) or not slot_id.strip() or slot_id in seen:
+                    raise CoordinatorError("blueprint target Slot ids must be unique", code="blueprint_slots_invalid")
+                seen.add(slot_id)
+                if slot.get("priority") not in {"P0", "P1", "P2"}:
+                    raise CoordinatorError("blueprint target Slot priority is invalid", code="blueprint_slots_invalid")
+            prior = connection.execute(
+                """SELECT binding_revision,blueprint_artifact_id,blueprint_revision
+                   FROM decision_slot_sets WHERE run_id=? ORDER BY binding_revision DESC LIMIT 1""",
+                (run_id,),
+            ).fetchone()
+            if prior is not None and (
+                prior["blueprint_artifact_id"] == blueprint_target_ref["artifact_id"]
+                and int(prior["blueprint_revision"]) == blueprint_target_ref["revision"]
+            ):
+                raise CoordinatorError("blueprint target is already bound", code="blueprint_binding_conflict")
+            binding_revision = int(prior["binding_revision"]) + 1 if prior else 1
+            connection.execute(
+                """INSERT INTO decision_slot_sets(
+                     run_id,binding_revision,blueprint_artifact_id,blueprint_revision,
+                     blueprint_content_hash,slots_json,created_at
+                   ) VALUES(?,?,?,?,?,?,?)""",
+                (
+                    run_id,
+                    binding_revision,
+                    blueprint_target_ref["artifact_id"],
+                    blueprint_target_ref["revision"],
+                    blueprint_target_ref["content_hash"],
+                    canonical_json_bytes(slots).decode("utf-8"),
+                    self._now(),
+                ),
+            )
+            aggregate = self._persist_p0_closure_aggregate(
+                connection,
+                run_id,
+                binding_revision=binding_revision,
+                blueprint_target_ref=blueprint_target_ref,
+            )
+            self._ensure_obligations(connection, run_id)
+            revision = expected_revision + 1
+            state = self._state_payload(row, lifecycle_state=row["lifecycle_state"], revision=revision, body={})
+            connection.execute(
+                "UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?",
+                (revision, self._digest(state), self._now(), run_id),
+            )
+            event_id = f"blueprint-bound-{binding_revision}"
+            self._event(
+                connection,
+                run_id,
+                event_id,
+                expected_revision,
+                {"blueprint_target_ref": dict(blueprint_target_ref), "aggregate": aggregate},
+                event_type="blueprint_target_bound",
+            )
+            self._snapshot_current_revision(connection, run_id, source_event_id=event_id)
+        return self.status(run_id)
+
+    def p0_closure_aggregates(self, run_id: str) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            self._require_run(connection, run_id)
+            rows = connection.execute(
+                """SELECT payload_json FROM p0_closure_aggregates
+                   WHERE run_id=? ORDER BY aggregate_revision""",
+                (run_id,),
+            ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def _persist_p0_closure_aggregate(
+        self,
+        connection: sqlite3.Connection,
+        run_id: str,
+        *,
+        binding_revision: int,
+        blueprint_target_ref: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        binding = connection.execute(
+            "SELECT slots_json FROM decision_slot_sets WHERE run_id=? AND binding_revision=?",
+            (run_id, binding_revision),
+        ).fetchone()
+        if binding is None:
+            raise CoordinatorError("blueprint binding does not resolve", code="blueprint_not_found")
+        slots = json.loads(binding["slots_json"])
+        active_p0 = [
+            slot
+            for slot in slots
+            if slot.get("priority") == "P0"
+            and slot.get("status") not in {"superseded", "removed"}
+        ]
+        latest_rows = connection.execute(
+            """SELECT closure.payload_json
+               FROM slot_closure_assessments AS closure
+               JOIN (
+                 SELECT slot_id,MAX(assessment_revision) AS assessment_revision
+                 FROM slot_closure_assessments
+                 WHERE run_id=? AND blueprint_binding_revision=?
+                 GROUP BY slot_id
+               ) AS latest
+               ON latest.slot_id=closure.slot_id
+              AND latest.assessment_revision=closure.assessment_revision
+               WHERE closure.run_id=? AND closure.blueprint_binding_revision=?""",
+            (run_id, binding_revision, run_id, binding_revision),
+        ).fetchall()
+        latest = {
+            str(json.loads(row["payload_json"])["slot_id"]): json.loads(row["payload_json"])
+            for row in latest_rows
+        }
+        prior = connection.execute(
+            "SELECT COALESCE(MAX(aggregate_revision),0) FROM p0_closure_aggregates WHERE run_id=?",
+            (run_id,),
+        ).fetchone()[0]
+        aggregate = P0ClosureAggregate.build(
+            run_id=run_id,
+            aggregate_revision=int(prior) + 1,
+            blueprint_target_ref=blueprint_target_ref,
+            active_slots=active_p0,
+            latest_assessments=latest,
+            assessor_version="core-closure-aggregate-v1",
+            issued_at=self._now(),
+        )
+        payload = aggregate.to_contract_dict()
+        connection.execute(
+            """INSERT INTO p0_closure_aggregates(
+                 run_id,aggregate_revision,blueprint_binding_revision,payload_json,
+                 aggregate_digest,status,created_at
+               ) VALUES(?,?,?,?,?,?,?)""",
+            (
+                run_id,
+                aggregate.aggregate_revision,
+                binding_revision,
+                canonical_json_bytes(payload).decode("utf-8"),
+                aggregate.aggregate_digest,
+                aggregate.status,
+                aggregate.issued_at,
+            ),
+        )
+        self._ensure_obligations(connection, run_id)
+        connection.execute(
+            """UPDATE run_obligations SET satisfied=?,evidence_ref=?,updated_at=?
+               WHERE run_id=? AND obligation='p0_closure'""",
+            (1 if aggregate.status == "passed" else 0, aggregate.aggregate_digest, self._now(), run_id),
+        )
+        return payload
+
     def record_closure_assessment(
         self,
         run_id: str,
@@ -675,9 +889,35 @@ class ResearchRunCoordinator:
             row = self._require_run(connection, run_id)
             if int(row["revision"]) != expected_revision:
                 raise CoordinatorError("expected revision is stale", code="stale_revision")
+            binding = connection.execute(
+                """SELECT binding_revision,blueprint_artifact_id,blueprint_revision,
+                          blueprint_content_hash,slots_json
+                   FROM decision_slot_sets WHERE run_id=?
+                   ORDER BY binding_revision DESC LIMIT 1""",
+                (run_id,),
+            ).fetchone()
+            if binding is None:
+                raise CoordinatorError(
+                    "closure requires a bound Blueprint Target",
+                    code="blueprint_not_bound",
+                )
+            bound_slots = json.loads(binding["slots_json"])
+            slot = next(
+                (
+                    item
+                    for item in bound_slots
+                    if item.get("id", item.get("slot_id")) == assessment.slot_id
+                ),
+                None,
+            )
+            if slot is None:
+                raise CoordinatorError(
+                    "closure references a Slot outside the bound Blueprint Target",
+                    code="closure_slot_not_found",
+                )
             decision_ref = payload["decision_ref"]
             decision = connection.execute(
-                """SELECT kind,content_hash FROM artifacts
+                """SELECT kind,content_hash,payload_json FROM artifacts
                    WHERE run_id=? AND artifact_id=? AND revision=?""",
                 (decision_ref["run_id"], decision_ref["artifact_id"], decision_ref["revision"]),
             ).fetchone() if connection.execute(
@@ -687,6 +927,46 @@ class ResearchRunCoordinator:
                 raise CoordinatorError("closure references an unresolved Decision Ledger revision", code="decision_not_found")
             if decision["kind"] != "decision-ledger-entry" or decision["content_hash"] != decision_ref["content_hash"]:
                 raise CoordinatorError("closure decision reference is stale or has the wrong kind", code="stale_decision")
+            decision_payload = json.loads(decision["payload_json"])
+            if decision_payload.get("decision_slot_id") != assessment.slot_id:
+                raise CoordinatorError(
+                    "closure Slot differs from the Decision Ledger Slot",
+                    code="closure_slot_mismatch",
+                )
+            if decision_payload.get("status") != payload["decision_status"]:
+                raise CoordinatorError(
+                    "closure decision status differs from the Decision Ledger",
+                    code="closure_decision_status_mismatch",
+                )
+            if decision_payload.get("fallback") and decision_payload["fallback"] != payload["fallback"]:
+                raise CoordinatorError(
+                    "closure fallback differs from the Decision Ledger",
+                    code="closure_fallback_mismatch",
+                )
+            if decision_payload.get("reversal_condition") and decision_payload["reversal_condition"] != payload["reversal_condition"]:
+                raise CoordinatorError(
+                    "closure reversal condition differs from the Decision Ledger",
+                    code="closure_reversal_mismatch",
+                )
+            target_bound = decision_payload.get("blueprint_target_id") == binding["blueprint_artifact_id"]
+            if not target_bound:
+                target_bound = connection.execute(
+                    """SELECT 1 FROM artifact_parents
+                       WHERE run_id=? AND artifact_id=? AND revision=?
+                         AND parent_artifact_id=? AND parent_revision=?""",
+                    (
+                        run_id,
+                        decision_ref["artifact_id"],
+                        decision_ref["revision"],
+                        binding["blueprint_artifact_id"],
+                        binding["blueprint_revision"],
+                    ),
+                ).fetchone() is not None
+            if not target_bound:
+                raise CoordinatorError(
+                    "Decision Ledger revision is not bound to the current Blueprint Target",
+                    code="decision_not_bound",
+                )
             for oracle_ref in payload["oracle_refs"]:
                 oracle = connection.execute(
                     "SELECT payload_json FROM oracle_runs WHERE run_id=? AND oracle_run_id=?",
@@ -699,15 +979,33 @@ class ResearchRunCoordinator:
                     raise CoordinatorError("closure references a nonpassing OracleRun", code="oracle_not_passing")
             try:
                 connection.execute(
-                    "INSERT INTO slot_closure_assessments VALUES(?,?,?,?,?,?,?)",
-                    (run_id, assessment.slot_id, assessment.assessment_revision, canonical_json_bytes(payload).decode("utf-8"), assessment.token_digest, "passed", self._now()),
+                    """INSERT INTO slot_closure_assessments(
+                         run_id,slot_id,assessment_revision,blueprint_binding_revision,
+                         payload_json,token_digest,status,created_at
+                       ) VALUES(?,?,?,?,?,?,?,?)""",
+                    (
+                        run_id,
+                        assessment.slot_id,
+                        assessment.assessment_revision,
+                        binding["binding_revision"],
+                        canonical_json_bytes(payload).decode("utf-8"),
+                        assessment.token_digest,
+                        "passed",
+                        self._now(),
+                    ),
                 )
             except sqlite3.IntegrityError as error:
                 raise CoordinatorError("closure assessment revision already exists", code="closure_conflict") from error
-            self._ensure_obligations(connection, run_id)
-            connection.execute(
-                "UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation='p0_closure'",
-                (assessment.token_digest, self._now(), run_id),
+            aggregate = self._persist_p0_closure_aggregate(
+                connection,
+                run_id,
+                binding_revision=binding["binding_revision"],
+                blueprint_target_ref={
+                    "run_id": run_id,
+                    "artifact_id": binding["blueprint_artifact_id"],
+                    "revision": binding["blueprint_revision"],
+                    "content_hash": binding["blueprint_content_hash"],
+                },
             )
             revision = expected_revision + 1
             state = self._state_payload(row, lifecycle_state=row["lifecycle_state"], revision=revision, body={})
@@ -716,7 +1014,14 @@ class ResearchRunCoordinator:
                 (revision, self._digest(state), self._now(), run_id),
             )
             event_id = f"slot-closure-{assessment.slot_id}-{assessment.assessment_revision}"
-            self._event(connection, run_id, event_id, expected_revision, payload, event_type="slot_closure_recorded")
+            self._event(
+                connection,
+                run_id,
+                event_id,
+                expected_revision,
+                {**payload, "p0_closure_aggregate": aggregate},
+                event_type="slot_closure_recorded",
+            )
             self._snapshot_current_revision(connection, run_id, source_event_id=event_id)
         return self.status(run_id)
 
@@ -962,13 +1267,17 @@ class ResearchRunCoordinator:
                 ]
                 connection.execute("UPDATE run_obligations SET satisfied=0,updated_at=? WHERE run_id=?", (self._now(), run_id))
                 latest_closures = connection.execute(
-                    """SELECT closure.slot_id,closure.assessment_revision,closure.payload_json,closure.token_digest
+                    """SELECT closure.slot_id,closure.assessment_revision,closure.blueprint_binding_revision,
+                              closure.payload_json,closure.token_digest
                        FROM slot_closure_assessments AS closure
                        JOIN (
-                         SELECT slot_id,MAX(assessment_revision) AS revision
-                         FROM slot_closure_assessments WHERE run_id=? GROUP BY slot_id
+                         SELECT slot_id,blueprint_binding_revision,MAX(assessment_revision) AS revision
+                         FROM slot_closure_assessments WHERE run_id=?
+                         GROUP BY slot_id,blueprint_binding_revision
                        ) AS latest
-                       ON latest.slot_id=closure.slot_id AND latest.revision=closure.assessment_revision
+                       ON latest.slot_id=closure.slot_id
+                      AND latest.blueprint_binding_revision=closure.blueprint_binding_revision
+                      AND latest.revision=closure.assessment_revision
                        WHERE closure.run_id=? AND closure.status='passed'""",
                     (run_id, run_id),
                 ).fetchall()
@@ -982,16 +1291,39 @@ class ResearchRunCoordinator:
                     }
                     revoked_closure_tokens.append(str(closure["token_digest"]))
                     connection.execute(
-                        "INSERT INTO slot_closure_assessments VALUES(?,?,?,?,?,?,?)",
+                        """INSERT INTO slot_closure_assessments(
+                             run_id,slot_id,assessment_revision,blueprint_binding_revision,
+                             payload_json,token_digest,status,created_at
+                           ) VALUES(?,?,?,?,?,?,?,?)""",
                         (
                             run_id,
                             closure["slot_id"],
                             revoked_payload["assessment_revision"],
+                            closure["blueprint_binding_revision"],
                             canonical_json_bytes(revoked_payload).decode("utf-8"),
                             None,
                             "revoked",
                             self._now(),
                         ),
+                    )
+                binding = connection.execute(
+                    """SELECT binding_revision,blueprint_artifact_id,blueprint_revision,
+                              blueprint_content_hash
+                       FROM decision_slot_sets WHERE run_id=?
+                       ORDER BY binding_revision DESC LIMIT 1""",
+                    (run_id,),
+                ).fetchone()
+                if binding is not None:
+                    self._persist_p0_closure_aggregate(
+                        connection,
+                        run_id,
+                        binding_revision=binding["binding_revision"],
+                        blueprint_target_ref={
+                            "run_id": run_id,
+                            "artifact_id": binding["blueprint_artifact_id"],
+                            "revision": binding["blueprint_revision"],
+                            "content_hash": binding["blueprint_content_hash"],
+                        },
                     )
                 for attempt in connection.execute(
                     "SELECT attempt_id,lease_json FROM action_attempts WHERE run_id=? ORDER BY attempt_id",

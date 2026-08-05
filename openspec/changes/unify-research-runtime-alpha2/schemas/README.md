@@ -22,6 +22,7 @@ tools, and release evidence.
 | oracle-attempt-v1.json | Exact OracleSpec/action-attempt execution binding | oracle runner/coordinator |
 | oracle-run-v1.json | Executed validation result | oracle runner |
 | slot-closure-assessment-v1.json | Closure token inputs and lifecycle | closure evaluator |
+| p0-closure-aggregate-v1.json | Run-level aggregation of active P0 Slot tokens | closure evaluator/coordinator |
 | host-event-v1.json | Cross-host event wire protocol | event ingestion |
 | insight-digest-v1.json | Synthesized facts, gaps, and contradictions | insight service |
 | research-run-v1.json | Canonical run state | coordinator |

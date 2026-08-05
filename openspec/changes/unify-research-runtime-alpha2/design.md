@@ -69,6 +69,14 @@ An Evidence Artifact has an immutable content reference, acquisition method, med
 
 Workers may submit observations but cannot produce an authoritative validation verdict. `OracleRun` binds the current OracleSpec and attempt to inputs, method, environment, tool events, result artifacts, evaluator, verdict, and limitations. `SlotClosureAssessment` verifies required evidence classes, independence, counterevidence, contradiction disposition, oracle status, fallback, and reversal conditions before issuing a closure token.
 
+The coordinator derives the active P0 Slot set from one exact, current Blueprint
+Target artifact. A single Slot token never satisfies the run-level `p0_closure`
+obligation. The core evaluator deterministically aggregates the latest assessment
+for every active P0 Slot into a persisted `P0ClosureAggregate`; only a passed
+aggregate digest may satisfy that obligation. Rebinding a newer Blueprint Target
+immediately opens a new aggregate and prevents tokens issued for the older Slot set
+from satisfying completion.
+
 ### 5. Alignment is an action policy with semantic readiness
 
 Each alignment planning step persists one candidate action and attempt. The policy compares:

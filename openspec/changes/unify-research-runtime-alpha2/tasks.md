@@ -45,13 +45,13 @@ fields, dependency cycles, evidence paths, and acceptance command paths.
 
 ## 4. OracleRun and Slot Closure (#56)
 
-- [ ] 4.1 Define OracleSpec, OracleAttempt, OracleRun, and SlotClosureAssessment schemas with exact revision and attempt binding. Implementation evidence: versioned OracleAttempt schema, runtime parser, SQLite persistence, and coordinator events bind a distinct oracle attempt to one persisted OracleSpec digest and action attempt; dependency evidence remains open.
-- [ ] 4.2 Implement oracle result ingestion for method, environment, inputs, tool events, result artifacts, evaluator, verdict, and limitations. Implementation evidence: `OracleRun.from_mapping` validates exact result-artifact refs and `ResearchRunCoordinator.record_oracle_run` resolves current-run artifact revisions while matching every shared OracleAttempt execution-boundary field; dependency evidence remains open.
-- [ ] 4.3 Remove authoritative meaning from worker-authored validation status strings and migrate Finding Packs to OracleRun references. Implementation evidence: Finding Pack compilation rejects `validation_result`, persists exact OracleRun/OracleAttempt/spec/action-attempt refs, policy resolution requires coordinator-provided runs, and P0 closure accepts only persisted core tokens; dependency evidence remains open.
-- [ ] 4.4 Implement closure checks for evidence classes, provenance independence, counterevidence, contradictions, oracle status, selected or conditional decision, fallback, and reversal condition. Partial implementation evidence: `SlotClosureAssessment.assess_alpha2` binds an exact persisted Decision Ledger revision and selected/conditional status; multi-slot aggregation remains open.
+- [x] 4.1 Define OracleSpec, OracleAttempt, OracleRun, and SlotClosureAssessment schemas with exact revision and attempt binding. Evidence: versioned OracleAttempt/OracleRun schemas, runtime parsers, SQLite persistence, coordinator binding checks, and group-4 acceptance output.
+- [x] 4.2 Implement oracle result ingestion for method, environment, inputs, tool events, result artifacts, evaluator, verdict, and limitations. Evidence: `OracleRun.from_mapping`, exact artifact resolution, shared OracleAttempt field checks, and `uv run pytest -q tests/test_oracle_closure.py`.
+- [x] 4.3 Remove authoritative meaning from worker-authored validation status strings and migrate Finding Packs to OracleRun references. Evidence: Finding Pack compilation rejects `validation_result`, exact OracleRun lineage is required, and forged worker verdict tests pass.
+- [x] 4.4 Implement closure checks for evidence classes, provenance independence, counterevidence, contradictions, oracle status, selected or conditional decision, fallback, and reversal condition. Evidence: exact Blueprint Target binding, deterministic `P0ClosureAggregate` across all active P0 Slots, missing-slot and rebind invalidation tests, and group-4 acceptance output.
 - [ ] 4.5 Make the core evaluator the only closure-token issuer and persist machine-readable pass, fail, and inconclusive explanations. Partial implementation evidence: deterministic token/revocation, coordinator-owned SQLite persistence, and append-only revocation after material feedback; direct parent-supersession triggers remain open.
 - [ ] 4.6 Generate independent validation, method-switch, fallback, or residual-risk work after failed or inconclusive oracles. Partial implementation evidence: `oracle_successor_actions`; scheduler integration remains open.
-- [ ] 4.7 Pass adversarial tests for nonexistent references, forged verdicts, active contradictions, and manual close-slot bypass attempts.
+- [x] 4.7 Pass adversarial tests for nonexistent references, forged verdicts, active contradictions, and manual close-slot bypass attempts. Evidence: `tests/test_oracle_closure.py` and `tests/test_alpha2_completion_gates.py`.
 
 ## 5. Single-Authority ResearchRunCoordinator (#57)
 
@@ -155,7 +155,7 @@ fields, dependency cycles, evidence paths, and acceptance command paths.
 ## 14. Canonical Schemas and Lifecycle Contract (#53, #56, #57, #60)
 
 - [ ] 14.1 Create schemas/ with versioned JSON schemas, valid/invalid examples, owner metadata, and migration notes for every canonical entity.
-- [ ] 14.2 Define the exact InputRecord, PermissionProfile, AlignmentMessage, FeedbackEvent, ResearchRun, DecisionSlot, ResearchAction, WorkItem, AttemptLease, EvidenceArtifact, EvidenceAnchor, OracleSpec, OracleAttempt, OracleRun, SlotClosureAssessment, InsightDigest, ReadinessRecord, HostEvent, DeliveryManifest, DeliveryAcceptance, and ReleaseManifest fields.
+- [ ] 14.2 Define the exact InputRecord, PermissionProfile, AlignmentMessage, FeedbackEvent, ResearchRun, DecisionSlot, ResearchAction, WorkItem, AttemptLease, EvidenceArtifact, EvidenceAnchor, OracleSpec, OracleAttempt, OracleRun, SlotClosureAssessment, P0ClosureAggregate, InsightDigest, ReadinessRecord, HostEvent, DeliveryManifest, DeliveryAcceptance, and ReleaseManifest fields.
 - [ ] 14.3 Publish the schema, protocol, package, template, and database compatibility matrix with reader/writer support, lossless migrators, deprecation, and rejection rules.
 - [ ] 14.4 Implement shared validators and contract-test generation so runtime ingestion and host emission use the same schemas.
 - [ ] 14.5 Publish the lifecycle matrix for alignment, handoff_pending, autonomous_research, synthesis, readiness, delivery_pending, awaiting_acceptance, completed, paused, blocked, superseded, authority_blocked, and failed.

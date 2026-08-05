@@ -106,6 +106,77 @@ def persist_oracle_boundary(ledger, state):
     return state, attempt
 
 
+def bind_blueprint(ledger, slot_ids, *, artifact_revision=0):
+    coordinator = ledger.coordinator
+    target = ledger.append_artifact(
+        run_id="run-oracle",
+        artifact_id="blueprint-target",
+        kind="blueprint-target",
+        payload={
+            "slots": [
+                {
+                    "id": slot_id,
+                    "priority": "P0",
+                    "status": "open",
+                    "fallback": f"Defer {slot_id}.",
+                    "reversal_condition": f"New evidence reverses {slot_id}.",
+                }
+                for slot_id in slot_ids
+            ]
+        },
+        actor_kind="coordinator",
+        actor_id="blueprint-compiler",
+        status="active",
+        expected_revision=artifact_revision,
+    )
+    state = coordinator.bind_blueprint_target(
+        "run-oracle",
+        {
+            "run_id": "run-oracle",
+            "artifact_id": "blueprint-target",
+            "revision": target["revision"],
+            "content_hash": target["content_hash"],
+        },
+        expected_revision=coordinator.status("run-oracle")["revision"],
+    )
+    return state, target
+
+
+def passing_assessment(slot_id, decision, oracle_run):
+    from research_tree import SlotClosureAssessment
+
+    return SlotClosureAssessment.assess_alpha2(
+        slot_id=slot_id,
+        assessment_revision=1,
+        decision_ref={
+            "run_id": "run-oracle",
+            "artifact_id": decision["id"],
+            "revision": decision["revision"],
+            "content_hash": decision["content_hash"],
+        },
+        decision_status="selected",
+        evidence=[
+            {
+                "evidence_id": f"evidence-{slot_id}-repository",
+                "provenance_group": "source-a",
+                "classes": ["repository"],
+            },
+            {
+                "evidence_id": f"evidence-{slot_id}-experiment",
+                "provenance_group": "source-b",
+                "classes": ["experiment"],
+            },
+        ],
+        oracle_runs=[oracle_run.to_contract_dict()],
+        contradictions=[],
+        required_classes=["repository", "experiment"],
+        counterevidence_search={"completed": True},
+        fallback=f"Defer {slot_id}.",
+        reversal_condition=f"New evidence reverses {slot_id}.",
+        assessor_version="core-v1",
+    )
+
+
 def test_canonical_oracle_spec_round_trips_exact_execution_boundary() -> None:
     from research_tree import OracleSpec
 
@@ -294,6 +365,7 @@ def test_coordinator_persists_oracle_before_satisfying_closure_obligation(tmp_pa
     ledger = SQLiteRunLedger(tmp_path)
     coordinator = ledger.coordinator
     state = coordinator.create("run-oracle")
+    state, blueprint = bind_blueprint(ledger, ["slot-a"])
     state, oracle_attempt = persist_oracle_boundary(ledger, state)
     result_artifact = ledger.append_artifact(
         run_id="run-oracle",
@@ -328,8 +400,14 @@ def test_coordinator_persists_oracle_before_satisfying_closure_obligation(tmp_pa
     )
     decision = ledger.append_artifact(
         run_id="run-oracle", artifact_id="decision-a", kind="decision-ledger-entry",
-        payload={"status": "selected"}, actor_kind="coordinator", actor_id="decision-compiler",
-        status="active", expected_revision=0,
+        payload={
+            "decision_slot_id": "slot-a",
+            "blueprint_target_id": "blueprint-target",
+            "status": "selected",
+            "fallback": "Defer slot-a.",
+            "reversal_condition": "New evidence reverses slot-a.",
+        }, actor_kind="coordinator", actor_id="decision-compiler",
+        status="active", parent_refs=[{"run_id": "run-oracle", "artifact_id": "blueprint-target", "revision": blueprint["revision"]}], expected_revision=0,
     )
     assessment = SlotClosureAssessment.assess_alpha2(
         slot_id="slot-a", assessment_revision=1,
@@ -342,12 +420,13 @@ def test_coordinator_persists_oracle_before_satisfying_closure_obligation(tmp_pa
         oracle_runs=[run.to_contract_dict()], contradictions=[],
         required_classes=["repository", "experiment"],
         counterevidence_search={"completed": True},
-        fallback="Use the current implementation.",
-        reversal_condition="A failed integration test.", assessor_version="core-v1",
+        fallback="Defer slot-a.",
+        reversal_condition="New evidence reverses slot-a.", assessor_version="core-v1",
     )
     state = coordinator.record_closure_assessment("run-oracle", assessment, expected_revision=coordinator.status("run-oracle")["revision"])
     assert coordinator.oracle_runs("run-oracle")["oracle-run-1"]["attempt_id"] == "attempt-1"
-    assert coordinator.obligations("run-oracle")["p0_closure"]["evidence_ref"] == assessment.token_digest
+    aggregate = coordinator.p0_closure_aggregates("run-oracle")[-1]
+    assert coordinator.obligations("run-oracle")["p0_closure"]["evidence_ref"] == aggregate["aggregate_digest"]
     coordinator.record_feedback(
         {
             "feedback_id": "feedback-closure", "run_id": "run-oracle", "actor": "human",
@@ -362,6 +441,243 @@ def test_coordinator_persists_oracle_before_satisfying_closure_obligation(tmp_pa
     assert history[0]["token_digest"] == assessment.token_digest
     assert history[1]["token_digest"] is None
     assert coordinator.obligations("run-oracle")["p0_closure"]["satisfied"] is False
+
+
+def test_p0_closure_aggregates_every_active_blueprint_slot(tmp_path) -> None:
+    from research_tree import OracleRun, SQLiteRunLedger
+
+    ledger = SQLiteRunLedger(tmp_path)
+    coordinator = ledger.coordinator
+    coordinator.create("run-oracle")
+    state, blueprint = bind_blueprint(ledger, ["slot-a", "slot-b"])
+    state, oracle_attempt = persist_oracle_boundary(ledger, state)
+    result_artifact = ledger.append_artifact(
+        run_id="run-oracle",
+        artifact_id="oracle-result",
+        kind="oracle-result",
+        payload={"exit_code": 0},
+        actor_kind="oracle",
+        actor_id="core-v1",
+        status="active",
+        expected_revision=0,
+    )
+    oracle_run = OracleRun.from_mapping(
+        {
+            "oracle_run_id": "oracle-run-1",
+            "oracle_attempt_id": oracle_attempt.oracle_attempt_id,
+            "oracle_spec_id": "oracle-build",
+            "oracle_spec_version": 1,
+            "attempt_id": "attempt-1",
+            "method": "integration-test",
+            "input_digests": ["a" * 64],
+            "environment_digest": "b" * 64,
+            "toolchain_digest": "c" * 64,
+            "tool_event_refs": [],
+            "verdict": "passed",
+            "exit_code": 0,
+            "timed_out": False,
+            "result_artifact_refs": [
+                result_artifact_ref(content_hash=result_artifact["content_hash"])
+            ],
+            "evaluator": "core-v1",
+            "limitations": [],
+            "reproducibility_status": "reproducible",
+        }
+    )
+    coordinator.record_oracle_run(
+        "run-oracle",
+        oracle_run,
+        expected_revision=coordinator.status("run-oracle")["revision"],
+    )
+    decisions = {}
+    for slot_id in ("slot-a", "slot-b"):
+        decisions[slot_id] = ledger.append_artifact(
+            run_id="run-oracle",
+            artifact_id=f"decision-{slot_id}",
+            kind="decision-ledger-entry",
+            payload={
+                "decision_slot_id": slot_id,
+                "blueprint_target_id": "blueprint-target",
+                "status": "selected",
+                "fallback": f"Defer {slot_id}.",
+                "reversal_condition": f"New evidence reverses {slot_id}.",
+            },
+            actor_kind="coordinator",
+            actor_id="decision-compiler",
+            status="active",
+            parent_refs=[
+                {
+                    "run_id": "run-oracle",
+                    "artifact_id": "blueprint-target",
+                    "revision": blueprint["revision"],
+                }
+            ],
+            expected_revision=0,
+        )
+
+    first = passing_assessment("slot-a", decisions["slot-a"], oracle_run)
+    coordinator.record_closure_assessment(
+        "run-oracle",
+        first,
+        expected_revision=coordinator.status("run-oracle")["revision"],
+    )
+    aggregate = coordinator.p0_closure_aggregates("run-oracle")[-1]
+    assert aggregate["status"] == "open"
+    assert [item["slot_id"] for item in aggregate["slots"]] == ["slot-a", "slot-b"]
+    assert aggregate["slots"][1]["status"] == "missing"
+    assert coordinator.obligations("run-oracle")["p0_closure"]["satisfied"] is False
+    with pytest.raises(coordinator.error_type) as bypass:
+        coordinator.record_obligation(
+            "run-oracle",
+            "p0_closure",
+            evidence_ref=first.token_digest,
+            expected_revision=coordinator.status("run-oracle")["revision"],
+        )
+    assert bypass.value.code == "closure_aggregate_required"
+
+    second = passing_assessment("slot-b", decisions["slot-b"], oracle_run)
+    coordinator.record_closure_assessment(
+        "run-oracle",
+        second,
+        expected_revision=coordinator.status("run-oracle")["revision"],
+    )
+    aggregate = coordinator.p0_closure_aggregates("run-oracle")[-1]
+    obligation = coordinator.obligations("run-oracle")["p0_closure"]
+    assert aggregate["status"] == "passed"
+    assert obligation == {
+        **obligation,
+        "satisfied": True,
+        "evidence_ref": aggregate["aggregate_digest"],
+    }
+    assert aggregate["aggregate_digest"] not in {
+        first.token_digest,
+        second.token_digest,
+    }
+
+    newer = ledger.append_artifact(
+        run_id="run-oracle",
+        artifact_id="blueprint-target",
+        kind="blueprint-target",
+        payload={
+            "slots": [
+                {
+                    "id": "slot-a",
+                    "priority": "P0",
+                    "status": "open",
+                    "fallback": "Defer slot-a.",
+                    "reversal_condition": "New evidence reverses slot-a.",
+                },
+                {
+                    "id": "slot-c",
+                    "priority": "P0",
+                    "status": "open",
+                    "fallback": "Defer slot-c.",
+                    "reversal_condition": "New evidence reverses slot-c.",
+                },
+            ]
+        },
+        actor_kind="coordinator",
+        actor_id="blueprint-compiler",
+        status="active",
+        expected_revision=1,
+    )
+    coordinator.bind_blueprint_target(
+        "run-oracle",
+        {
+            "run_id": "run-oracle",
+            "artifact_id": newer["id"],
+            "revision": newer["revision"],
+            "content_hash": newer["content_hash"],
+        },
+        expected_revision=coordinator.status("run-oracle")["revision"],
+    )
+    rebound = coordinator.p0_closure_aggregates("run-oracle")[-1]
+    assert rebound["status"] == "open"
+    assert {item["status"] for item in rebound["slots"]} == {"missing"}
+    assert rebound["blueprint_target_ref"]["revision"] == 2
+    assert coordinator.obligations("run-oracle")["p0_closure"]["satisfied"] is False
+
+
+def test_closure_rejects_decision_slot_mismatch_without_advancing(tmp_path) -> None:
+    from research_tree import OracleRun, SQLiteRunLedger
+
+    ledger = SQLiteRunLedger(tmp_path)
+    coordinator = ledger.coordinator
+    coordinator.create("run-oracle")
+    state, blueprint = bind_blueprint(ledger, ["slot-a", "slot-b"])
+    state, oracle_attempt = persist_oracle_boundary(ledger, state)
+    result_artifact = ledger.append_artifact(
+        run_id="run-oracle",
+        artifact_id="oracle-result",
+        kind="oracle-result",
+        payload={"exit_code": 0},
+        actor_kind="oracle",
+        actor_id="core-v1",
+        status="active",
+        expected_revision=0,
+    )
+    oracle_run = OracleRun.from_mapping(
+        {
+            "oracle_run_id": "oracle-run-1",
+            "oracle_attempt_id": oracle_attempt.oracle_attempt_id,
+            "oracle_spec_id": "oracle-build",
+            "oracle_spec_version": 1,
+            "attempt_id": "attempt-1",
+            "method": "integration-test",
+            "input_digests": ["a" * 64],
+            "environment_digest": "b" * 64,
+            "toolchain_digest": "c" * 64,
+            "tool_event_refs": [],
+            "verdict": "passed",
+            "exit_code": 0,
+            "timed_out": False,
+            "result_artifact_refs": [
+                result_artifact_ref(content_hash=result_artifact["content_hash"])
+            ],
+            "evaluator": "core-v1",
+            "limitations": [],
+            "reproducibility_status": "reproducible",
+        }
+    )
+    coordinator.record_oracle_run(
+        "run-oracle",
+        oracle_run,
+        expected_revision=coordinator.status("run-oracle")["revision"],
+    )
+    decision = ledger.append_artifact(
+        run_id="run-oracle",
+        artifact_id="decision-slot-a",
+        kind="decision-ledger-entry",
+        payload={
+            "decision_slot_id": "slot-a",
+            "blueprint_target_id": "blueprint-target",
+            "status": "selected",
+            "fallback": "Defer slot-a.",
+            "reversal_condition": "New evidence reverses slot-a.",
+        },
+        actor_kind="coordinator",
+        actor_id="decision-compiler",
+        status="active",
+        parent_refs=[
+            {
+                "run_id": "run-oracle",
+                "artifact_id": "blueprint-target",
+                "revision": blueprint["revision"],
+            }
+        ],
+        expected_revision=0,
+    )
+    forged = passing_assessment("slot-b", decision, oracle_run)
+    before = coordinator.status("run-oracle")["revision"]
+
+    with pytest.raises(coordinator.error_type) as error:
+        coordinator.record_closure_assessment(
+            "run-oracle", forged, expected_revision=before
+        )
+
+    assert error.value.code == "closure_slot_mismatch"
+    assert coordinator.status("run-oracle")["revision"] == before
+    assert coordinator.closure_assessments("run-oracle") == []
 
 
 @pytest.mark.parametrize(
@@ -515,10 +831,17 @@ def test_coordinator_rejects_closure_with_unpersisted_oracle(tmp_path) -> None:
     ledger = SQLiteRunLedger(tmp_path)
     coordinator = ledger.coordinator
     state = coordinator.create("run-oracle")
+    state, blueprint = bind_blueprint(ledger, ["slot-a"])
     decision = ledger.append_artifact(
         run_id="run-oracle", artifact_id="decision-a", kind="decision-ledger-entry",
-        payload={"status": "selected"}, actor_kind="coordinator", actor_id="decision-compiler",
-        status="active", expected_revision=0,
+        payload={
+            "decision_slot_id": "slot-a",
+            "blueprint_target_id": "blueprint-target",
+            "status": "selected",
+            "fallback": "Defer slot-a.",
+            "reversal_condition": "New evidence reverses slot-a.",
+        }, actor_kind="coordinator", actor_id="decision-compiler",
+        status="active", parent_refs=[{"run_id": "run-oracle", "artifact_id": "blueprint-target", "revision": blueprint["revision"]}], expected_revision=0,
     )
     assessment = SlotClosureAssessment.assess_alpha2(
         slot_id="slot-a", assessment_revision=1,
@@ -531,8 +854,8 @@ def test_coordinator_rejects_closure_with_unpersisted_oracle(tmp_path) -> None:
         oracle_runs=[{"oracle_run_id": "missing", "verdict": "passed", "reproducibility_status": "reproducible"}],
         contradictions=[], required_classes=["repository", "experiment"],
         counterevidence_search={"completed": True},
-        fallback="Use the current implementation.",
-        reversal_condition="A failed integration test.", assessor_version="core-v1",
+        fallback="Defer slot-a.",
+        reversal_condition="New evidence reverses slot-a.", assessor_version="core-v1",
     )
     with pytest.raises(coordinator.error_type) as error:
         coordinator.record_closure_assessment("run-oracle", assessment, expected_revision=coordinator.status("run-oracle")["revision"])
