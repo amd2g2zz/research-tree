@@ -36,12 +36,12 @@ fields, dependency cycles, evidence paths, and acceptance command paths.
 
 ## 3. Resolvable Evidence Artifacts (#54)
 
-- [ ] 3.1 Define EvidenceArtifact and EvidenceAnchor schemas for source snapshots, repositories, input-ledger entries, experiments, documents, and images.
-- [ ] 3.2 Implement selector validation for repository revision/path/symbol/line, source fragment, document page/section, image region, input revision, and experiment result field.
-- [ ] 3.3 Add evidence acquisition metadata, applicability, confidence, limitations, provenance origin, and independence-group normalization.
-- [ ] 3.4 Implement resolvers that verify exact artifact revisions, content digests, workspace scope, and source/repository baseline compatibility.
-- [ ] 3.5 Update FindingPackCompiler to accept only resolvable evidence anchors for consequential observations and to persist exact parent lineage.
-- [ ] 3.6 Add tests for missing, changed, out-of-scope, derivative, multimodal, and repository-revision evidence.
+- [x] 3.1 Define EvidenceArtifact and EvidenceAnchor schemas for source snapshots, repositories, input-ledger entries, experiments, documents, and images. Evidence: versioned schemas, conditional selector contracts, runtime parsers, and valid examples.
+- [x] 3.2 Implement selector validation for repository revision/path/symbol/line, source fragment, document page/section, image region, input revision, and experiment result field. Evidence: `ResolvableEvidenceAnchor`, JSON Schema selector branches, and multimodal parameterized tests.
+- [x] 3.3 Add evidence acquisition metadata, applicability, confidence, limitations, provenance origin, and independence-group normalization. Evidence: canonical `provenance_origin`, deterministic `provenance_group_for`, mismatch rejection, and derivative-source tests.
+- [x] 3.4 Implement resolvers that verify exact artifact revisions, content digests, workspace scope, and source/repository baseline compatibility. Evidence: `EvidenceResolver` plus changed digest, escaping locator, status, CAS, path, and repository revision tests.
+- [x] 3.5 Update FindingPackCompiler to accept only resolvable evidence anchors for consequential observations and to persist exact parent lineage. Evidence: strict-by-default compiler, explicit legacy migration switch, and exact persisted Evidence Artifact parent resolution.
+- [x] 3.6 Add tests for missing, changed, out-of-scope, derivative, multimodal, and repository-revision evidence. Evidence: `uv run pytest -q tests/test_alpha2_evidence.py` passes all 14 cases.
 
 ## 4. OracleRun and Slot Closure (#56)
 

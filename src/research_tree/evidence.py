@@ -121,6 +121,20 @@ class EvidenceResolver:
             raise EvidenceError("evidence anchor revision does not match artifact")
         if artifact.get("status") in {"rejected", "quarantined", "superseded"}:
             raise EvidenceError("evidence artifact is not resolvable in its current status")
+        if parsed.selector_type in {"line", "symbol"}:
+            selected_revision = parsed.selector_value.get("repository_revision")
+            source_revision = artifact.get("source_revision")
+            if not isinstance(selected_revision, str) or not selected_revision.strip():
+                raise EvidenceError("repository selector requires a repository revision")
+            if source_revision != selected_revision:
+                raise EvidenceError("repository revision does not match the inspected artifact")
+            locator = artifact.get("locator")
+            if (
+                isinstance(locator, Mapping)
+                and isinstance(locator.get("path"), str)
+                and locator["path"] != parsed.selector_value.get("path")
+            ):
+                raise EvidenceError("repository selector path does not match the artifact locator")
         if self.cas is not None:
             self.cas.verify(parsed.artifact_digest)
         locator = artifact.get("locator")
@@ -137,8 +151,8 @@ class EvidenceResolver:
 
 def _validate_selector(selector_type: str, value: Mapping[str, Any]) -> None:
     required = {
-        "line": {"path", "line"},
-        "symbol": {"path", "symbol"},
+        "line": {"repository_revision", "path", "line"},
+        "symbol": {"repository_revision", "path", "symbol"},
         "fragment": {"fragment"},
         "page_section": {"page"},
         "image_region": {"x", "y", "width", "height"},
@@ -156,6 +170,10 @@ def _validate_selector(selector_type: str, value: Mapping[str, Any]) -> None:
         for key in ("x", "y", "width", "height")
     ):
         raise EvidenceError("image_region selector coordinates must be nonnegative numbers")
+    if selector_type == "image_region" and (
+        value.get("width", 0) <= 0 or value.get("height", 0) <= 0
+    ):
+        raise EvidenceError("image_region selector dimensions must be positive")
 
 
 def _validate_locator_scope(locator: Mapping[str, Any], *, workspace: Path | None) -> None:
@@ -223,14 +241,14 @@ class EvidenceArtifact:
 
         required = {
             "evidence_id", "run_id", "revision", "media_type", "locator", "content_digest",
-            "size_bytes", "acquired_at", "acquisition_method", "provenance_group", "applicability",
+            "size_bytes", "acquired_at", "acquisition_method", "provenance_origin", "provenance_group", "applicability",
             "confidence", "limitations", "status", "extractor_version",
         }
         if set(value) - required - {"source_revision", "license_note", "anchors"}:
             raise EvidenceError("EvidenceArtifact has unexpected fields")
         if not required <= set(value):
             raise EvidenceError(f"EvidenceArtifact is missing {sorted(required - set(value))}")
-        for field in ("evidence_id", "run_id", "media_type", "acquisition_method", "provenance_group", "applicability", "extractor_version"):
+        for field in ("evidence_id", "run_id", "media_type", "acquisition_method", "provenance_origin", "provenance_group", "applicability", "extractor_version"):
             if not isinstance(value[field], str) or not value[field].strip():
                 raise EvidenceError(f"{field} must be nonempty")
         for field in ("evidence_id", "run_id"):
@@ -250,8 +268,18 @@ class EvidenceArtifact:
             raise EvidenceError("content_digest must be SHA-256")
         if not isinstance(value["locator"], Mapping) or not value["locator"]:
             raise EvidenceError("locator must be a nonempty object")
+        if value["acquisition_method"].startswith("repository") and (
+            not isinstance(value.get("source_revision"), str)
+            or not value.get("source_revision", "").strip()
+        ):
+            raise EvidenceError("repository evidence requires source_revision")
         if value["confidence"] not in CONFIDENCES:
             raise EvidenceError("unsupported evidence confidence")
+        expected_group = provenance_group_for(
+            value["provenance_origin"], value["acquisition_method"]
+        )
+        if value["provenance_group"] != expected_group:
+            raise EvidenceError("provenance_group does not match origin and acquisition method")
         if not isinstance(value["limitations"], list) or not all(isinstance(item, str) for item in value["limitations"]):
             raise EvidenceError("limitations must be a string list")
         if value["status"] not in {"active", "superseded", "rejected", "quarantined", "legacy_unverified"}:
@@ -275,6 +303,8 @@ class EvidenceArtifact:
                 "size_bytes": value["size_bytes"],
                 "acquired_at": value["acquired_at"],
                 "acquisition_method": value["acquisition_method"],
+                "provenance_origin": value["provenance_origin"],
+                "source_revision": value.get("source_revision"),
                 "applicability": value["applicability"],
                 "confidence": value["confidence"],
                 "limitations": list(value["limitations"]),
@@ -298,6 +328,8 @@ class EvidenceArtifact:
             "size_bytes": int(acquisition.get("size_bytes", 0)),
             "acquired_at": acquisition.get("acquired_at", "1970-01-01T00:00:00Z"),
             "acquisition_method": acquisition.get("acquisition_method", "legacy"),
+            "provenance_origin": acquisition.get("provenance_origin", "legacy"),
+            "source_revision": acquisition.get("source_revision"),
             "provenance_group": self.provenance_group,
             "applicability": acquisition.get("applicability", "legacy artifact"),
             "confidence": acquisition.get("confidence", "medium"),

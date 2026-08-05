@@ -740,6 +740,7 @@ def test_scheduler_persists_execution_progress_with_finding_pack_provenance(
     work_id = completed_task_id.split("@", 1)[0]
     work = next(item for item in works if item.id == work_id)
     finding = modules["FindingPackCompiler"](store).compile(
+        allow_legacy_evidence=True,
         round_id=round_record.id,
         finding_id="finding-first-phase",
         work_item=work,

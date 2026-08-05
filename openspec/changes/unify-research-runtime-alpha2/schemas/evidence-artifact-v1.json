@@ -4,7 +4,7 @@
   "title": "Alpha2 EvidenceArtifact",
   "type": "object",
   "additionalProperties": false,
-  "required": ["evidence_id", "run_id", "revision", "media_type", "locator", "content_digest", "size_bytes", "acquired_at", "acquisition_method", "provenance_group", "applicability", "confidence", "limitations", "status", "extractor_version"],
+  "required": ["evidence_id", "run_id", "revision", "media_type", "locator", "content_digest", "size_bytes", "acquired_at", "acquisition_method", "provenance_origin", "provenance_group", "applicability", "confidence", "limitations", "status", "extractor_version"],
   "properties": {
     "evidence_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
     "run_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
@@ -15,6 +15,7 @@
     "size_bytes": { "type": "integer", "minimum": 0 },
     "acquired_at": { "type": "string", "format": "date-time" },
     "acquisition_method": { "type": "string", "minLength": 1 },
+    "provenance_origin": { "type": "string", "minLength": 1 },
     "provenance_group": { "type": "string", "minLength": 1 },
     "source_revision": { "type": ["string", "null"] },
     "applicability": { "type": "string", "minLength": 1 },
@@ -23,5 +24,11 @@
     "license_note": { "type": ["string", "null"] },
     "extractor_version": { "type": "string", "minLength": 1 },
     "status": { "type": "string", "enum": ["active", "superseded", "rejected", "quarantined", "legacy_unverified"] }
-  }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "acquisition_method": { "pattern": "^repository" } } },
+      "then": { "required": ["source_revision"], "properties": { "source_revision": { "type": "string", "minLength": 1 } } }
+    }
+  ]
 }

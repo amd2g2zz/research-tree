@@ -101,6 +101,7 @@ CREATE TABLE evidence (
   evidence_id TEXT NOT NULL,
   revision INTEGER NOT NULL,
   artifact_digest TEXT NOT NULL,
+  provenance_origin TEXT NOT NULL,
   provenance_group TEXT NOT NULL,
   media_type TEXT NOT NULL,
   selector_json TEXT NOT NULL,

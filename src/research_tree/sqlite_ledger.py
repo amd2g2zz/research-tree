@@ -59,6 +59,7 @@ class SQLiteRunLedger:
             CREATE TABLE IF NOT EXISTS evidence(
               run_id TEXT NOT NULL,evidence_id TEXT NOT NULL,revision INTEGER NOT NULL,
               artifact_digest TEXT NOT NULL,provenance_group TEXT NOT NULL,
+              provenance_origin TEXT NOT NULL,
               media_type TEXT NOT NULL,selector_json TEXT NOT NULL,
               acquisition_json TEXT NOT NULL,status TEXT NOT NULL,
               PRIMARY KEY(run_id,evidence_id,revision),

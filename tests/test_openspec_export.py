@@ -38,6 +38,7 @@ def complete_package(tmp_path: Path, *, verify_readiness: bool = True):
         if artifact.id == "work-observability"
     )
     observability_finding = FindingPackCompiler(store).compile(
+        allow_legacy_evidence=True,
         round_id=round_record.id,
         finding_id="finding-observability",
         work_item=observability_work,

@@ -15,13 +15,20 @@ The system SHALL require each consequential Finding Pack observation to referenc
 - **WHEN** a Finding Pack names an unresolved or out-of-scope evidence reference
 - **THEN** ingestion fails and the observation cannot affect decision state
 
-The alpha2 runtime accepts the legacy `{kind, ref}` anchor for migration compatibility,
-but a strict alpha2 evidence anchor is only accepted when the caller supplies exactly one
-matching Evidence Artifact with the same content digest and revision. The resolver also
-rejects rejected, quarantined, or superseded artifacts and out-of-workspace locators.
+`FindingPackCompiler` uses strict evidence by default: every observation must supply exactly
+one matching, persisted Evidence Artifact with the same run, id, revision, content digest,
+and selector, and that exact Evidence Artifact revision is appended to the Finding Pack's
+parent lineage. Legacy `{kind, ref}` anchors are available only through the explicit
+`allow_legacy_evidence` migration switch. The resolver also rejects changed repository
+revisions, locator path mismatches, rejected/quarantined/superseded artifacts, and
+out-of-workspace locators.
 
 ### Requirement: Evidence independence is provenance-aware
 The system SHALL group evidence by originating provenance and acquisition method so derivative URLs or repeated snapshots of the same underlying source do not satisfy independent-evidence requirements.
+
+Canonical Evidence Artifacts carry both `provenance_origin` and the deterministic
+`provenance_group_for(origin, acquisition_method)` result. Ingestion rejects a caller-supplied
+group that does not match that computation.
 
 #### Scenario: Two articles repeat one vendor announcement
 - **WHEN** two distinct URLs derive their material claim from the same vendor source

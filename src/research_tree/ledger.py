@@ -67,6 +67,7 @@ class FindingPackCompiler:
         validation_result: Mapping[str, Any] | None = None,
         oracle_run_refs: Sequence[Mapping[str, Any]] = (),
         evidence_artifacts: Sequence[Mapping[str, Any]] = (),
+        allow_legacy_evidence: bool = False,
     ) -> ArtifactRevision:
         """Append a Finding Pack only after its claims are bounded and anchored."""
 
@@ -91,7 +92,18 @@ class FindingPackCompiler:
                 error_type=InvalidFindingPackError,
             )
             normalized_observations = _normalize_observations(observations, slot)
-            _resolve_strict_evidence(normalized_observations, evidence_artifacts, self._evidence_resolver)
+            _resolve_strict_evidence(
+                normalized_observations,
+                evidence_artifacts,
+                self._evidence_resolver,
+                allow_legacy=allow_legacy_evidence,
+            )
+            evidence_parent_refs = _resolve_evidence_parent_refs(
+                snapshot.artifacts,
+                evidence_artifacts,
+                round_id=round_id,
+                allow_legacy=allow_legacy_evidence,
+            )
             _normalize_validation_result(validation_result)
             payload = {
                 "id": finding_id,
@@ -140,7 +152,7 @@ class FindingPackCompiler:
             finding_id,
             FINDING_PACK_KIND,
             payload,
-            parent_refs=(work_ref, target_ref),
+            parent_refs=(work_ref, target_ref, *evidence_parent_refs),
         )
 
 
@@ -774,12 +786,18 @@ def _resolve_strict_evidence(
     observations: Sequence[Mapping[str, Any]],
     artifacts: Sequence[Mapping[str, Any]],
     resolver: EvidenceResolver,
+    *,
+    allow_legacy: bool = False,
 ) -> None:
     candidates = list(artifacts)
     for index, observation in enumerate(observations):
         anchor = observation.get("anchor", {})
         if anchor.get("kind") != "evidence":
-            continue
+            if allow_legacy:
+                continue
+            raise InvalidFindingPackError(
+                f"observations[{index}] requires a resolvable Evidence Artifact"
+            )
         evidence = anchor.get("evidence")
         if not isinstance(evidence, Mapping):
             raise InvalidFindingPackError(f"observations[{index}] evidence anchor is not resolvable")
@@ -798,6 +816,47 @@ def _resolve_strict_evidence(
             resolver.resolve(evidence, matching[0])
         except (TypeError, ValueError) as error:
             raise InvalidFindingPackError(str(error)) from error
+
+
+def _resolve_evidence_parent_refs(
+    artifacts: Sequence[ArtifactRevision],
+    evidence_artifacts: Sequence[Mapping[str, Any]],
+    *,
+    round_id: str,
+    allow_legacy: bool,
+) -> tuple[ArtifactRef, ...]:
+    """Resolve canonical evidence mappings to immutable RunStore parents."""
+
+    if allow_legacy:
+        return ()
+    refs: dict[tuple[str, int], ArtifactRef] = {}
+    for index, value in enumerate(evidence_artifacts):
+        if not isinstance(value, Mapping):
+            raise InvalidFindingPackError(
+                f"evidence_artifacts[{index}] must be a canonical Evidence Artifact"
+            )
+        evidence_id = value.get("evidence_id")
+        evidence_run_id = value.get("run_id")
+        revision = value.get("revision")
+        digest = value.get("content_digest") or value.get("artifact_digest")
+        matching = [
+            artifact
+            for artifact in artifacts
+            if artifact.id == evidence_id
+            and artifact.round_id == evidence_run_id == round_id
+            and artifact.revision == revision
+            and artifact.kind == "evidence-artifact"
+            and (artifact.payload.get("content_digest") or artifact.payload.get("artifact_digest")) == digest
+        ]
+        if len(matching) != 1:
+            raise InvalidFindingPackError(
+                f"evidence_artifacts[{index}] must resolve to one exact persisted Evidence Artifact"
+            )
+        stored = matching[0]
+        refs[(stored.id, stored.revision)] = ArtifactRef(
+            stored.round_id, stored.id, stored.revision
+        )
+    return tuple(refs[key] for key in sorted(refs))
 
 
 def _validate_repository_anchor(

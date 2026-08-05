@@ -205,6 +205,7 @@ def compile_finding(modules, store, round_record, work, finding_id: str, **paylo
         round_id=round_record.id,
         finding_id=finding_id,
         work_item=work,
+        allow_legacy_evidence=True,
         **payload,
     )
 

@@ -72,6 +72,7 @@ def complete_conditional_package(tmp_path: Path):
     from research_tree import FindingPackCompiler
 
     observability_finding = FindingPackCompiler(store).compile(
+        allow_legacy_evidence=True,
         round_id=round_record.id,
         finding_id="finding-observability",
         work_item=observability_work,
@@ -167,6 +168,7 @@ def greenfield_package(tmp_path: Path):
     from research_tree import FindingPackCompiler
 
     finding = FindingPackCompiler(store).compile(
+        allow_legacy_evidence=True,
         round_id=round_record.id,
         finding_id="finding-greenfield",
         work_item=work,
@@ -317,6 +319,7 @@ def multi_repository_package(tmp_path: Path):
     from research_tree import FindingPackCompiler
 
     finding = FindingPackCompiler(store).compile(
+        allow_legacy_evidence=True,
         round_id=round_record.id,
         finding_id="finding-second-repository",
         work_item=work,
