@@ -192,6 +192,10 @@ from .lifecycle import LifecycleError, allowed_transition, transition_table
 from .leases import AttemptLease, LeaseError
 from .replay import ReplayError, explain_run, ordered_events, replay_events, semantic_state_digest, why_not_complete
 from .migrations import MigrationEntry, MigrationError, MigrationManager
+from .security import PermissionProfile, SecurityError, path_within, redact
+from .sandbox import SandboxGuard, SandboxViolation
+from .methods import MethodError, MethodRegistry, MethodSpec
+from .acquisition import AcquisitionError, AcquisitionResult, authorize_acquisition, record_failure
 from .work_items import (
     InvalidWorkItemError,
     WorkItemCompiler,
@@ -349,6 +353,19 @@ __all__ = [
     "MigrationEntry",
     "MigrationError",
     "MigrationManager",
+    "PermissionProfile",
+    "SecurityError",
+    "path_within",
+    "redact",
+    "SandboxGuard",
+    "SandboxViolation",
+    "MethodError",
+    "MethodRegistry",
+    "MethodSpec",
+    "AcquisitionError",
+    "AcquisitionResult",
+    "authorize_acquisition",
+    "record_failure",
     "RuntimeStoreError",
     "VerificationError",
     "VerificationFailure",
