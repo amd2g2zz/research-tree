@@ -107,6 +107,16 @@ class ResearchRunCoordinator:
           FOREIGN KEY(run_id) REFERENCES runs(run_id)
         );
         """)
+        run_columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
+        if "schema_version" not in run_columns:
+            connection.execute("ALTER TABLE runs ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1")
+        event_columns = {row[1] for row in connection.execute("PRAGMA table_info(events)")}
+        for name, declaration in (
+            ("causation_id", "TEXT"), ("correlation_id", "TEXT"),
+            ("emitted_at", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if name not in event_columns:
+                connection.execute(f"ALTER TABLE events ADD COLUMN {name} {declaration}")
 
     @staticmethod
     def _now() -> str:
@@ -124,7 +134,7 @@ class ResearchRunCoordinator:
         state_digest = self._digest({"run_id": run_id, "lifecycle_state": "alignment", "task_identity": identity})
         with self._connect() as connection:
             try:
-                connection.execute("INSERT INTO runs VALUES(?,?,?,?,?,?,?,?,?,?)", (run_id, "alignment", 0, authority_digest, state_digest, json.dumps(identity, ensure_ascii=False, sort_keys=True), parent_run_id, None, now, now))
+                connection.execute("INSERT INTO runs(run_id,lifecycle_state,revision,authority_digest,state_digest,task_identity_json,parent_run_id,termination_reason,created_at,updated_at,schema_version) VALUES(?,?,?,?,?,?,?,?,?,?,1)", (run_id, "alignment", 0, authority_digest, state_digest, json.dumps(identity, ensure_ascii=False, sort_keys=True), parent_run_id, None, now, now))
             except sqlite3.IntegrityError as exc:
                 raise CoordinatorError("run already exists", code="duplicate_run") from exc
             self._event(connection, run_id, "run-initialized", 0, {"task_identity": identity}, event_type="run_initialized")
@@ -337,7 +347,7 @@ class ResearchRunCoordinator:
     def _event(self, connection: sqlite3.Connection, run_id: str, event_id: str, expected_revision: int, payload: Mapping[str, Any], *, event_type: str | None = None) -> None:
         sequence = int(connection.execute("SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE run_id=?", (run_id,)).fetchone()[0])
         raw = canonical_json_bytes(payload)
-        connection.execute("INSERT INTO events VALUES(?,?,?,?,?,?,?,1,NULL)", (run_id, event_id, sequence, event_type or event_id, expected_revision, raw.decode("utf-8"), hashlib.sha256(raw).hexdigest()))
+        connection.execute("INSERT INTO events(run_id,event_id,sequence,event_type,expected_revision,payload_json,payload_digest,accepted,error_code,causation_id,correlation_id,emitted_at) VALUES(?,?,?,?,?,?,?,1,NULL,NULL,NULL,?)", (run_id, event_id, sequence, event_type or event_id, expected_revision, raw.decode("utf-8"), hashlib.sha256(raw).hexdigest(), self._now()))
 
     @staticmethod
     def _require_run(connection: sqlite3.Connection, run_id: str) -> sqlite3.Row:
