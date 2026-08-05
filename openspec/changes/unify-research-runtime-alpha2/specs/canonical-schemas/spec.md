@@ -17,7 +17,7 @@ The change SHALL contain a checked-in contract registry under schemas/ (or a rat
 
 ### Requirement: Canonical entity fields and references are exact
 
-The registry SHALL define required fields, optional fields, enum values, uniqueness constraints, reference cardinality, and digest rules for InputRecord, PermissionProfile, AlignmentMessage, AlignmentHandoff, FeedbackEvent, ResearchRun, BlueprintTarget, DecisionSlot, ResearchAction, WorkItem, AttemptLease, FindingPack, DecisionLedgerEntry, EvidenceArtifact, EvidenceAnchor, OracleSpec, OracleRun, SlotClosureAssessment, InsightDigest, ReadinessRecord, HostEvent, DeliveryManifest, DeliveryAcceptance, and ReleaseManifest.
+The registry SHALL define required fields, optional fields, enum values, uniqueness constraints, reference cardinality, and digest rules for InputRecord, PermissionProfile, AlignmentMessage, AlignmentHandoff, FeedbackEvent, ResearchRun, BlueprintTarget, DecisionSlot, ResearchAction, WorkItem, AttemptLease, FindingPack, DecisionLedgerEntry, ConvergenceRecord, EvidenceArtifact, EvidenceAnchor, OracleSpec, OracleRun, SlotClosureAssessment, InsightDigest, ReadinessRecord, HostEvent, DeliveryManifest, DeliveryAcceptance, and ReleaseManifest.
 
 `DecisionLedgerEntry` SHALL bind one current Decision Slot to the exact
 Blueprint Target, accepted Finding Pack revisions, current InsightDigest,
@@ -26,6 +26,13 @@ fallback, reversal condition, implementation consequences, and optional exact
 predecessor decision. A selected or conditional decision requires a supported
 selected option and non-empty evidence basis. A deferred or blocked decision
 MUST have no selected option and MUST retain a usable fallback.
+
+`ConvergenceRecord` SHALL bind the exact current Blueprint Target,
+InsightDigest, decision revisions, and P0ClosureAggregate revision/digest to one
+of two outcomes. `all_slots_closed` has no deficits. `closure_deficit` has at
+least one stable, Slot-scoped deficit with a source ref and required successor
+action. The record is the only canonical trigger accepted by
+`successor-work`; a transition event or host queue observation is insufficient.
 
 `AlignmentHandoff` SHALL bind the exact Alignment Graph, Working Brief, and
 Intent Model refs to the objective, execution context, alignment digest,

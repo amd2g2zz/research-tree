@@ -106,15 +106,16 @@ set:
   `batch_checkpoint` transition together;
 - `converge` applies the existing Decision Ledger validator to exact Blueprint
   Target, Finding Pack, InsightDigest, and prior decision refs, commits each
-  immutable decision revision, recomputes closure consequences, and commits
-  either `all_slots_closed` or `closure_deficit` with its successor-work refs;
+  immutable decision revision, recomputes closure consequences, and commits a
+  ConvergenceRecord plus either `all_slots_closed` or `closure_deficit`;
 - `readiness` invokes the existing ReadinessVerifier over exact current
   lineage and commits the ReadinessRecord, obligation disposition, and either
   `readiness_passed` or `readiness_deficit` together; and
 - `successor-work` commits deterministic Work Items whose ids are derived from
-  the exact deficit, contradiction, failed oracle, method limitation, or
-  readiness diagnostic that triggered them. A successor never overwrites its
-  trigger or prior Work Item.
+  an exact ConvergenceRecord or ReadinessRecord deficit, contradiction, failed
+  oracle, method limitation, or readiness diagnostic. A successor never
+  overwrites its trigger or prior Work Item. A transition event, host-local
+  queue, or inline diagnostic cannot replace the exact trigger artifact.
 
 The stage transaction SHALL roll back its artifact, attempt update, lifecycle
 or obligation update, revision snapshot, and accepted event together. A retry

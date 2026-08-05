@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/convergence-record-v1.json",
+  "title": "Alpha2 ConvergenceRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "convergence_id",
+    "run_id",
+    "blueprint_target_ref",
+    "insight_digest_ref",
+    "decision_refs",
+    "p0_closure_aggregate_ref",
+    "outcome",
+    "deficits",
+    "producer_version"
+  ],
+  "properties": {
+    "convergence_id": { "$ref": "#/$defs/identifier" },
+    "run_id": { "$ref": "#/$defs/identifier" },
+    "blueprint_target_ref": { "$ref": "#/$defs/artifactRef" },
+    "insight_digest_ref": { "$ref": "#/$defs/artifactRef" },
+    "decision_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/artifactRef" }
+    },
+    "p0_closure_aggregate_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "aggregate_revision", "aggregate_digest"],
+      "properties": {
+        "run_id": { "$ref": "#/$defs/identifier" },
+        "aggregate_revision": { "type": "integer", "minimum": 1 },
+        "aggregate_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["closure_deficit", "all_slots_closed"]
+    },
+    "deficits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["deficit_id", "slot_id", "kind", "trigger", "action", "source_refs"],
+        "properties": {
+          "deficit_id": { "$ref": "#/$defs/identifier" },
+          "slot_id": { "$ref": "#/$defs/identifier" },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "uncovered",
+              "contradiction",
+              "insight_gap",
+              "closure_missing",
+              "closure_stale",
+              "validation_pending"
+            ]
+          },
+          "trigger": { "type": "string", "minLength": 1 },
+          "action": {
+            "type": "string",
+            "enum": ["landscape", "deep_dive", "adversarial", "validation", "method_switch"]
+          },
+          "source_refs": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "producer_version": { "type": "string", "minLength": 1 }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "outcome": { "const": "all_slots_closed" } },
+        "required": ["outcome"]
+      },
+      "then": { "properties": { "deficits": { "maxItems": 0 } } },
+      "else": { "properties": { "deficits": { "minItems": 1 } } }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "artifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "artifact_id", "revision", "content_hash"],
+      "properties": {
+        "run_id": { "$ref": "#/$defs/identifier" },
+        "artifact_id": { "$ref": "#/$defs/identifier" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "content_hash": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}
