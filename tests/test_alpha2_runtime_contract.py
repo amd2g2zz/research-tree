@@ -1848,6 +1848,96 @@ def test_host_event_rejects_incomplete_event_specific_payload() -> None:
     assert error.value.code == "incomplete_event_payload"
 
 
+@pytest.mark.parametrize(
+    "claim_kind",
+    [
+        "host_status",
+        "worker_status",
+        "hook_success",
+        "report_file",
+        "empty_frontier",
+        "completed_wave",
+    ],
+)
+def test_completion_proxy_claim_is_rejected_and_persisted_without_state_mutation(
+    tmp_path: Path, claim_kind: str
+) -> None:
+    from research_tree.contracts import HostEvent
+    from research_tree.coordinator import ResearchRunCoordinator
+
+    coordinator = ResearchRunCoordinator(tmp_path)
+    run_id = f"run-claim-{claim_kind.replace('_', '-')}"
+    before = coordinator.create(run_id)
+    before_obligations = coordinator.obligations(run_id)
+    claim = HostEvent.create(
+        event_id=f"claim-{claim_kind.replace('_', '-')}",
+        event_type="completion_claimed",
+        run_id=run_id,
+        round_id=run_id,
+        host="claude-code",
+        expected_revision=before["revision"],
+        payload={
+            "claim_kind": claim_kind,
+            "claimed_state": "completed",
+            "source_ref": f"adapter:{claim_kind}",
+            "local_status": "complete",
+        },
+    )
+
+    with pytest.raises(coordinator.error_type) as rejected:
+        coordinator.ingest_host_event(claim)
+
+    assert rejected.value.code == "completion_claim_rejected"
+    assert coordinator.status(run_id) == before
+    assert coordinator.obligations(run_id) == before_obligations
+    events = coordinator.events(run_id)
+    assert len(events) == 2
+    audit = events[-1]
+    assert audit["accepted"] is False
+    assert audit["event_type"] == "completion_claim_rejected"
+    assert audit["error_code"] == "completion_claim_rejected"
+    assert audit["payload"]["claim_kind"] == claim_kind
+    assert audit["payload"]["claimed_state"] == "completed"
+    assert audit["payload"]["source_ref"] == f"adapter:{claim_kind}"
+    assert set(audit["payload"]["unmet_obligations"]) == {
+        "acceptance",
+        "evaluation",
+        "human_delivery",
+        "insight_clear",
+        "p0_closure",
+        "readiness",
+        "technical_delivery",
+    }
+
+    with pytest.raises(coordinator.error_type) as repeated:
+        coordinator.ingest_host_event(claim)
+    assert repeated.value.code == "completion_claim_rejected"
+    assert coordinator.events(run_id) == events
+    assert coordinator.status(run_id) == before
+
+
+def test_completion_claim_payload_rejects_unknown_proxy_kind() -> None:
+    from research_tree.contracts import ContractError, HostEvent
+
+    with pytest.raises(ContractError) as invalid:
+        HostEvent.create(
+            event_id="claim-unknown-proxy",
+            event_type="completion_claimed",
+            run_id="run-claim",
+            round_id="run-claim",
+            host="hermes",
+            expected_revision=0,
+            payload={
+                "claim_kind": "agent_says_done",
+                "claimed_state": "completed",
+                "source_ref": "adapter:unknown",
+                "local_status": "done",
+            },
+        )
+
+    assert invalid.value.code == "invalid_completion_claim"
+
+
 def test_provider_failure_event_rejects_raw_gateway_details() -> None:
     from research_tree.contracts import ContractError, HostEvent
 

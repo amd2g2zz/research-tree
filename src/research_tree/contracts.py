@@ -26,7 +26,7 @@ EVENT_TYPES = frozenset(
     {
         "dispatch_requested", "attempt_started", "finding_submitted", "review_completed",
         "provider_failed", "attempt_unknown", "retry_requested", "worker_finished",
-        "acceptance_recorded", "reconciliation_detected",
+        "completion_claimed", "acceptance_recorded", "reconciliation_detected",
     }
 )
 EVENT_PAYLOAD_FIELDS: dict[str, frozenset[str]] = {
@@ -38,6 +38,9 @@ EVENT_PAYLOAD_FIELDS: dict[str, frozenset[str]] = {
     "attempt_unknown": frozenset({"reconciliation_reason", "last_heartbeat", "observed_host_state"}),
     "retry_requested": frozenset({"predecessor_attempt", "method_provider_change", "retry_policy"}),
     "worker_finished": frozenset({"terminal_status", "artifact_refs"}),
+    "completion_claimed": frozenset(
+        {"claim_kind", "claimed_state", "source_ref", "local_status"}
+    ),
     "acceptance_recorded": frozenset({"delivery_acceptance_ref", "displayed_digest"}),
     "reconciliation_detected": frozenset({"host_observation", "canonical_observation", "conflict_class", "next_action"}),
 }
@@ -169,6 +172,30 @@ def validate_host_event_payload(event_type: str, payload: Mapping[str, Any]) -> 
                 "provider_failed gateway_log_ref is invalid",
                 code="invalid_provider_metadata",
             )
+    if event_type == "completion_claimed":
+        if normalized["claim_kind"] not in {
+            "host_status",
+            "worker_status",
+            "hook_success",
+            "report_file",
+            "empty_frontier",
+            "completed_wave",
+        }:
+            raise ContractError(
+                "completion_claimed claim_kind is invalid",
+                code="invalid_completion_claim",
+            )
+        if normalized["claimed_state"] != "completed":
+            raise ContractError(
+                "completion_claimed may only report completed",
+                code="invalid_completion_claim",
+            )
+        for field in ("source_ref", "local_status"):
+            if not isinstance(normalized[field], str) or not normalized[field].strip():
+                raise ContractError(
+                    f"completion_claimed {field} is invalid",
+                    code="invalid_completion_claim",
+                )
     return normalized
 
 

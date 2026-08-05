@@ -3990,6 +3990,7 @@ class ResearchRunCoordinator:
     def ingest_host_event(self, event: HostEvent | Mapping[str, Any]) -> dict[str, Any]:
         host_event = event if isinstance(event, HostEvent) else HostEvent.from_dict(event)
         payload = host_event.to_dict()
+        rejection: CoordinatorError | None = None
         with self._connect() as connection:
             row = self._require_run(connection, host_event.run_id)
             raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -3997,10 +3998,67 @@ class ResearchRunCoordinator:
             if prior:
                 if prior["payload_digest"] != host_event.payload_digest:
                     raise CoordinatorError("event id reused with different payload", code="event_id_conflict")
-                return json.loads(prior["event_json"])
-            if row["revision"] != host_event.expected_revision:
+                if host_event.event_type == "completion_claimed":
+                    rejection = CoordinatorError(
+                        "host completion claim is not authoritative",
+                        code="completion_claim_rejected",
+                        next_action="continue_canonical_gates",
+                    )
+                else:
+                    return json.loads(prior["event_json"])
+            elif row["revision"] != host_event.expected_revision:
                 raise CoordinatorError("host event expected revision is stale", code="stale_revision")
-            if host_event.event_type in ATTEMPT_BOUND_EVENT_TYPES:
+            elif host_event.event_type == "completion_claimed":
+                self._ensure_obligations(connection, host_event.run_id)
+                unmet = [
+                    item["obligation"]
+                    for item in connection.execute(
+                        """SELECT obligation FROM run_obligations
+                           WHERE run_id=? AND satisfied=0 ORDER BY obligation""",
+                        (host_event.run_id,),
+                    ).fetchall()
+                ]
+                rejection_payload = {
+                    "actor": f"adapter:{host_event.host}",
+                    "actual_revision": int(row["revision"]),
+                    "attempted_event": "completion_claimed",
+                    "attempted_revision": host_event.expected_revision,
+                    "current_state": row["lifecycle_state"],
+                    "payload_digest": host_event.payload_digest,
+                    "reason_code": "completion_claim_rejected",
+                    "next_action": "continue_canonical_gates",
+                    "claim_kind": host_event.payload["claim_kind"],
+                    "claimed_state": host_event.payload["claimed_state"],
+                    "source_ref": host_event.payload["source_ref"],
+                    "local_status": host_event.payload["local_status"],
+                    "unmet_obligations": unmet,
+                }
+                self._event(
+                    connection,
+                    host_event.run_id,
+                    f"completion-claim-rejected-{host_event.event_id}",
+                    host_event.expected_revision,
+                    rejection_payload,
+                    event_type="completion_claim_rejected",
+                    accepted=False,
+                    error_code="completion_claim_rejected",
+                    idempotent=True,
+                )
+                connection.execute(
+                    "INSERT INTO host_events VALUES(?,?,?,?)",
+                    (
+                        host_event.run_id,
+                        host_event.event_id,
+                        raw,
+                        host_event.payload_digest,
+                    ),
+                )
+                rejection = CoordinatorError(
+                    "host completion claim is not authoritative",
+                    code="completion_claim_rejected",
+                    next_action="continue_canonical_gates",
+                )
+            elif host_event.event_type in ATTEMPT_BOUND_EVENT_TYPES:
                 if not host_event.attempt_id:
                     raise CoordinatorError(
                         "attempt-bound host event requires attempt_id",
@@ -4030,20 +4088,23 @@ class ResearchRunCoordinator:
                         "expired attempt cannot report success",
                         code="attempt_expired",
                     )
-            self._event(connection, host_event.run_id, host_event.event_id, host_event.expected_revision, payload, event_type=host_event.event_type)
-            revision = int(row["revision"]) + 1
-            state = self._state_payload(row, lifecycle_state=row["lifecycle_state"], revision=revision, body={})
-            connection.execute(
-                "UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?",
-                (revision, self._digest(state), self._now(), host_event.run_id),
-            )
-            connection.execute("INSERT INTO host_events VALUES(?,?,?,?)", (host_event.run_id, host_event.event_id, raw, host_event.payload_digest))
-            self._apply_host_event_effect(connection, host_event)
-            self._snapshot_current_revision(
-                connection,
-                host_event.run_id,
-                source_event_id=host_event.event_id,
-            )
+            if rejection is None:
+                self._event(connection, host_event.run_id, host_event.event_id, host_event.expected_revision, payload, event_type=host_event.event_type)
+                revision = int(row["revision"]) + 1
+                state = self._state_payload(row, lifecycle_state=row["lifecycle_state"], revision=revision, body={})
+                connection.execute(
+                    "UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?",
+                    (revision, self._digest(state), self._now(), host_event.run_id),
+                )
+                connection.execute("INSERT INTO host_events VALUES(?,?,?,?)", (host_event.run_id, host_event.event_id, raw, host_event.payload_digest))
+                self._apply_host_event_effect(connection, host_event)
+                self._snapshot_current_revision(
+                    connection,
+                    host_event.run_id,
+                    source_event_id=host_event.event_id,
+                )
+        if rejection is not None:
+            raise rejection
         return payload
 
     def _apply_host_event_effect(self, connection: sqlite3.Connection, event: HostEvent) -> None:
