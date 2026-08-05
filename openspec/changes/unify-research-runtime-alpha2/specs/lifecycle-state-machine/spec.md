@@ -16,6 +16,19 @@ actor, so cancellation does not introduce a second lifecycle vocabulary.
 - **WHEN** a host or CLI attempts a transition absent from the matrix
 - **THEN** the coordinator returns illegal_transition, appends a rejected-transition trace, and leaves the state digest unchanged
 
+The rejected-transition trace SHALL be append-only audit evidence rather than a
+run-state revision. It SHALL record the attempted event, actor, attempted and
+actual revisions, current lifecycle state, payload digest, stable error code,
+and next permissible action. Replaying the same rejected attempt SHALL be
+idempotent and SHALL NOT advance the canonical run revision or alter its state
+digest.
+
+#### Scenario: A non-coordinator surface claims completion
+
+- **WHEN** a host, worker, hook, generated report, empty frontier, or completed worker wave attempts to set completion directly
+- **THEN** the coordinator persists one rejected-transition trace with a stable reason
+- **AND** the canonical run state, revision, obligations, and state digest remain unchanged
+
 #### Scenario: Research is ready but not accepted
 
 - **WHEN** all research and readiness obligations pass but the user has not accepted exact delivery revisions

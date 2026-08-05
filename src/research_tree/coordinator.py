@@ -1130,6 +1130,15 @@ class ResearchRunCoordinator:
 
     def next_actions(self, run_id: str) -> dict[str, Any]:
         state = self.status(run_id)
+        return {
+            "run_id": run_id,
+            "lifecycle_state": state["lifecycle_state"],
+            "next_action": self._next_action_for_state(state["lifecycle_state"]),
+            "revision": state["revision"],
+        }
+
+    @staticmethod
+    def _next_action_for_state(lifecycle_state: str) -> str:
         mapping = {
             "alignment": "plan_alignment",
             "handoff_pending": "confirm_handoff",
@@ -1141,7 +1150,7 @@ class ResearchRunCoordinator:
             "paused": "resume_or_change_method",
             "blocked": "resolve_blocker_or_request_authority",
         }
-        return {"run_id": run_id, "lifecycle_state": state["lifecycle_state"], "next_action": mapping.get(state["lifecycle_state"], "export_audit"), "revision": state["revision"]}
+        return mapping.get(lifecycle_state, "export_audit")
 
     def recover(self, run_id: str) -> dict[str, Any]:
         """Return a deterministic recovery projection; unknown host events remain visible."""
@@ -1289,46 +1298,62 @@ class ResearchRunCoordinator:
     def transition(self, run_id: str, *, event: str, actor: str,
                    expected_revision: int, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
         body = dict(payload or {})
+        rejection: CoordinatorError | None = None
         with self._connect() as connection:
             row = self._require_run(connection, run_id)
-            if row["revision"] != expected_revision:
-                raise CoordinatorError("expected revision is stale", code="stale_revision")
-            for field, value in body.items():
-                if field.endswith("_digest") and isinstance(value, str):
-                    self._assert_current_in_connection(
-                        connection, run_id, value, action=event
-                    )
-            if row["lifecycle_state"] in TERMINAL_STATES:
-                if event == "delivery_accepted" and row["lifecycle_state"] == "completed":
-                    return self._row(row)
-                raise CoordinatorError("terminal state cannot transition", code="terminal_state")
-            target = TRANSITIONS.get((row["lifecycle_state"], event))
-            if target is None:
-                raise CoordinatorError("illegal transition", code="illegal_transition")
-            next_state, required_actor = target
-            if required_actor != actor and required_actor != "human_or_operator":
-                raise CoordinatorError("actor is not authorized for transition", code="authority_denied")
-            if event == "handoff_confirmed":
-                displayed = body.get("displayed_digest")
-                if not displayed or displayed != self._authority_digest(row):
-                    raise CoordinatorError("confirmation digest is stale", code="stale_digest")
-            self._guard_transition(connection, row, event, body)
-            revision = int(row["revision"]) + 1
-            now = self._now()
-            state = self._state_payload(row, lifecycle_state=next_state, revision=revision, body=body)
-            digest = self._digest(state)
-            authority_digest = body.get("strategy_digest") if event == "alignment_projection_ready" else row["authority_digest"]
-            connection.execute("UPDATE runs SET lifecycle_state=?,revision=?,state_digest=?,authority_digest=?,updated_at=?,termination_reason=? WHERE run_id=?", (next_state, revision, digest, authority_digest or row["authority_digest"], now, body.get("termination_reason"), run_id))
-            if event == "deliveries_compiled":
-                connection.execute("UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation='technical_delivery'", (body["technical_digest"], now, run_id))
-                connection.execute("UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation='human_delivery'", (body["human_digest"], now, run_id))
-            elif event == "delivery_accepted":
-                connection.execute("UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation='acceptance'", (body["displayed_digest"], now, run_id))
-            elif event == "needs_deeper_research":
-                connection.execute("UPDATE run_obligations SET satisfied=0,updated_at=? WHERE run_id=? AND obligation IN ('readiness','evaluation','technical_delivery','human_delivery','acceptance')", (now, run_id))
-            event_id = f"{event}-{revision}"
-            self._snapshot_current_revision(connection, run_id, source_event_id=event_id)
-            self._event(connection, run_id, event_id, expected_revision, body, event_type=event)
+            try:
+                if row["revision"] != expected_revision:
+                    raise CoordinatorError("expected revision is stale", code="stale_revision")
+                for field, value in body.items():
+                    if field.endswith("_digest") and isinstance(value, str):
+                        self._assert_current_in_connection(
+                            connection, run_id, value, action=event
+                        )
+                if row["lifecycle_state"] in TERMINAL_STATES:
+                    if event == "delivery_accepted" and row["lifecycle_state"] == "completed":
+                        return self._row(row)
+                    raise CoordinatorError("terminal state cannot transition", code="terminal_state")
+                target = TRANSITIONS.get((row["lifecycle_state"], event))
+                if target is None:
+                    raise CoordinatorError("illegal transition", code="illegal_transition")
+                next_state, required_actor = target
+                if required_actor != actor and required_actor != "human_or_operator":
+                    raise CoordinatorError("actor is not authorized for transition", code="authority_denied")
+                if event == "handoff_confirmed":
+                    displayed = body.get("displayed_digest")
+                    if not displayed or displayed != self._authority_digest(row):
+                        raise CoordinatorError("confirmation digest is stale", code="stale_digest")
+                self._guard_transition(connection, row, event, body)
+            except CoordinatorError as error:
+                self._record_rejected_transition(
+                    connection,
+                    row,
+                    event=event,
+                    actor=actor,
+                    attempted_revision=expected_revision,
+                    payload=body,
+                    error=error,
+                )
+                rejection = error
+            else:
+                revision = int(row["revision"]) + 1
+                now = self._now()
+                state = self._state_payload(row, lifecycle_state=next_state, revision=revision, body=body)
+                digest = self._digest(state)
+                authority_digest = body.get("strategy_digest") if event == "alignment_projection_ready" else row["authority_digest"]
+                connection.execute("UPDATE runs SET lifecycle_state=?,revision=?,state_digest=?,authority_digest=?,updated_at=?,termination_reason=? WHERE run_id=?", (next_state, revision, digest, authority_digest or row["authority_digest"], now, body.get("termination_reason"), run_id))
+                if event == "deliveries_compiled":
+                    connection.execute("UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation='technical_delivery'", (body["technical_digest"], now, run_id))
+                    connection.execute("UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation='human_delivery'", (body["human_digest"], now, run_id))
+                elif event == "delivery_accepted":
+                    connection.execute("UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation='acceptance'", (body["displayed_digest"], now, run_id))
+                elif event == "needs_deeper_research":
+                    connection.execute("UPDATE run_obligations SET satisfied=0,updated_at=? WHERE run_id=? AND obligation IN ('readiness','evaluation','technical_delivery','human_delivery','acceptance')", (now, run_id))
+                event_id = f"{event}-{revision}"
+                self._snapshot_current_revision(connection, run_id, source_event_id=event_id)
+                self._event(connection, run_id, event_id, expected_revision, body, event_type=event)
+        if rejection is not None:
+            raise rejection
         return self.status(run_id)
 
     def record_feedback(self, value: Mapping[str, Any], *, expected_revision: int) -> dict[str, Any]:
@@ -1573,10 +1598,73 @@ class ResearchRunCoordinator:
     def _state_payload(self, row: sqlite3.Row, *, lifecycle_state: str, revision: int, body: Mapping[str, Any]) -> dict[str, Any]:
         return {"run_id": row["run_id"], "revision": revision, "lifecycle_state": lifecycle_state, "task_identity": body.get("task_identity", json.loads(row["task_identity_json"])), "feedback_id": body.get("feedback_id")}
 
-    def _event(self, connection: sqlite3.Connection, run_id: str, event_id: str, expected_revision: int, payload: Mapping[str, Any], *, event_type: str | None = None) -> None:
+    def _event(
+        self,
+        connection: sqlite3.Connection,
+        run_id: str,
+        event_id: str,
+        expected_revision: int,
+        payload: Mapping[str, Any],
+        *,
+        event_type: str | None = None,
+        accepted: bool = True,
+        error_code: str | None = None,
+        idempotent: bool = False,
+    ) -> None:
         sequence = int(connection.execute("SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE run_id=?", (run_id,)).fetchone()[0])
         raw = canonical_json_bytes(payload)
-        connection.execute("INSERT INTO events(run_id,event_id,sequence,event_type,expected_revision,payload_json,payload_digest,accepted,error_code,causation_id,correlation_id,emitted_at) VALUES(?,?,?,?,?,?,?,1,NULL,NULL,NULL,?)", (run_id, event_id, sequence, event_type or event_id, expected_revision, raw.decode("utf-8"), hashlib.sha256(raw).hexdigest(), self._now()))
+        insert = "INSERT OR IGNORE" if idempotent else "INSERT"
+        connection.execute(
+            f"{insert} INTO events(run_id,event_id,sequence,event_type,expected_revision,payload_json,payload_digest,accepted,error_code,causation_id,correlation_id,emitted_at) VALUES(?,?,?,?,?,?,?,?,?,NULL,NULL,?)",
+            (
+                run_id,
+                event_id,
+                sequence,
+                event_type or event_id,
+                expected_revision,
+                raw.decode("utf-8"),
+                hashlib.sha256(raw).hexdigest(),
+                int(accepted),
+                error_code,
+                self._now(),
+            ),
+        )
+
+    def _record_rejected_transition(
+        self,
+        connection: sqlite3.Connection,
+        row: sqlite3.Row,
+        *,
+        event: str,
+        actor: str,
+        attempted_revision: int,
+        payload: Mapping[str, Any],
+        error: CoordinatorError,
+    ) -> None:
+        payload_digest = self._digest(payload)
+        rejection = {
+            "actor": actor,
+            "actual_revision": int(row["revision"]),
+            "attempted_event": event,
+            "attempted_revision": attempted_revision,
+            "current_state": row["lifecycle_state"],
+            "next_action": error.next_action
+            or self._next_action_for_state(row["lifecycle_state"]),
+            "payload_digest": payload_digest,
+            "reason_code": error.code,
+        }
+        fingerprint = self._digest({"run_id": row["run_id"], **rejection})
+        self._event(
+            connection,
+            row["run_id"],
+            f"transition-rejected-{fingerprint[:24]}",
+            attempted_revision,
+            rejection,
+            event_type="transition_rejected",
+            accepted=False,
+            error_code=error.code,
+            idempotent=True,
+        )
 
     @staticmethod
     def _require_run(connection: sqlite3.Connection, run_id: str) -> sqlite3.Row:

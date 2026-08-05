@@ -43,6 +43,33 @@ def test_coordinator_rejects_illegal_transition_without_mutation(tmp_path: Path)
         )
     assert coordinator.status("run-lifecycle")["revision"] == created["revision"]
     assert coordinator.status("run-lifecycle")["lifecycle_state"] == "alignment"
+    assert coordinator.status("run-lifecycle")["state_digest"] == created["state_digest"]
+    rejected = coordinator.events("run-lifecycle")[-1]
+    assert rejected["accepted"] is False
+    assert rejected["event_type"] == "transition_rejected"
+    assert rejected["error_code"] == "illegal_transition"
+    assert rejected["payload"] == {
+        "actor": "human",
+        "actual_revision": created["revision"],
+        "attempted_event": "delivery_accepted",
+        "attempted_revision": created["revision"],
+        "current_state": "alignment",
+        "next_action": "plan_alignment",
+        "payload_digest": coordinator._digest({}),
+        "reason_code": "illegal_transition",
+    }
+
+    # The same rejected request is audit-idempotent and remains outside the
+    # canonical run revision stream.
+    with pytest.raises(coordinator.error_type, match="illegal_transition"):
+        coordinator.transition(
+            "run-lifecycle",
+            event="delivery_accepted",
+            actor="human",
+            expected_revision=created["revision"],
+        )
+    assert len(coordinator.events("run-lifecycle")) == 2
+    assert coordinator.status("run-lifecycle") == created
 
 
 def test_material_correction_invalidates_digest_and_keeps_task_identity(tmp_path: Path) -> None:
