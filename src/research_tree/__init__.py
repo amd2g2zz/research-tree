@@ -197,7 +197,14 @@ from .worker_contracts import AttemptPolicy, CanonicalWorkItem, FindingSubmissio
 from .sqlite_ledger import SQLiteLedgerError, SQLiteRunLedger
 from .evaluation_metrics import EvaluationManifest, FROZEN_METRICS, MetricDefinition, MetricError, evaluate_metric
 from .cas import CASError, CASIntegrityError, ContentAddressedStore
-from .evidence import EvidenceAnchor, EvidenceArtifact, EvidenceError
+from .evidence import (
+    EvidenceAnchor,
+    EvidenceArtifact,
+    EvidenceError,
+    EvidenceResolver,
+    ResolvableEvidenceAnchor,
+    provenance_group_for,
+)
 from .oracles import OracleError, OracleRun, OracleSpec
 from .closure import ClosureError, SlotClosureAssessment
 from .acceptance import AcceptanceError, DeliveryAcceptance, validate_semantic_deliveries
@@ -366,6 +373,9 @@ __all__ = [
     "EvidenceAnchor",
     "EvidenceArtifact",
     "EvidenceError",
+    "EvidenceResolver",
+    "ResolvableEvidenceAnchor",
+    "provenance_group_for",
     "OracleError",
     "OracleRun",
     "OracleSpec",

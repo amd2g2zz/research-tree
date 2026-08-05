@@ -14,11 +14,12 @@ from .domain import (
 )
 from .storage import RunStore
 from .work_items import WORK_ITEM_KIND
+from .evidence import EvidenceResolver, ResolvableEvidenceAnchor
 
 
 FINDING_PACK_KIND = "finding-pack"
 DECISION_LEDGER_KIND = "decision-ledger-entry"
-ANCHOR_KINDS = {"source", "repository", "input", "experiment", "finding"}
+ANCHOR_KINDS = {"source", "repository", "input", "experiment", "finding", "evidence"}
 OBSERVATION_ANCHOR_KINDS = ANCHOR_KINDS - {"finding"}
 CONFIDENCES = {"low", "medium", "high"}
 OPTION_EFFECTS = {"supports", "contradicts", "limits"}
@@ -48,8 +49,9 @@ class InvalidDecisionLedgerError(DecisionLedgerError):
 class FindingPackCompiler:
     """Validate one work result as atomic, option-relevant observations."""
 
-    def __init__(self, store: RunStore) -> None:
+    def __init__(self, store: RunStore, *, evidence_resolver: EvidenceResolver | None = None) -> None:
         self._store = store
+        self._evidence_resolver = evidence_resolver or EvidenceResolver()
 
     def compile(
         self,
@@ -64,6 +66,7 @@ class FindingPackCompiler:
         research_node_id: str | None = None,
         research_continuations: Sequence[Mapping[str, Any]] = (),
         validation_result: Mapping[str, Any] | None = None,
+        evidence_artifacts: Sequence[Mapping[str, Any]] = (),
     ) -> ArtifactRevision:
         """Append a Finding Pack only after its claims are bounded and anchored."""
 
@@ -87,13 +90,15 @@ class FindingPackCompiler:
                 "slot alternatives",
                 error_type=InvalidFindingPackError,
             )
+            normalized_observations = _normalize_observations(observations, slot)
+            _resolve_strict_evidence(normalized_observations, evidence_artifacts, self._evidence_resolver)
             payload = {
                 "id": finding_id,
                 "round_id": round_id,
                 "work_item_id": work.id,
                 "blueprint_target_id": target.id,
                 "decision_slot_id": slot["id"],
-                "observations": _normalize_observations(observations, slot),
+                "observations": normalized_observations,
                 "option_effects": _normalize_option_effects(option_effects, options),
                 "implementation_implications": list(
                     _string_sequence(
@@ -722,14 +727,68 @@ def _normalize_anchor(
     label: str,
     allowed_kinds: set[str],
     error_type: type[RuntimeStoreError],
-) -> dict[str, str]:
+) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise error_type(f"{label}.anchor must be a mapping")
+    if set(value) == {
+        "artifact_digest", "artifact_revision", "selector_type", "selector_value",
+        "extractor_version", "applicability", "confidence", "limitations",
+    }:
+        try:
+            evidence = ResolvableEvidenceAnchor.from_mapping(value)
+        except ValueError as exc:
+            raise error_type(str(exc)) from exc
+        return {
+            "kind": "evidence",
+            "ref": evidence.artifact_digest,
+            "evidence": evidence.to_dict(),
+        }
+    if "evidence" in value:
+        _require_exact_keys(value, {"kind", "ref", "evidence"}, f"{label}.anchor", error_type)
+        try:
+            evidence = ResolvableEvidenceAnchor.from_mapping(value["evidence"])
+        except (TypeError, ValueError) as exc:
+            raise error_type(str(exc)) from exc
+        return {
+            "kind": _enum(value["kind"], f"{label}.anchor.kind", allowed_kinds, error_type),
+            "ref": _nonempty_string(value["ref"], f"{label}.anchor.ref", error_type),
+            "evidence": evidence.to_dict(),
+        }
     _require_exact_keys(value, {"kind", "ref"}, f"{label}.anchor", error_type)
     return {
         "kind": _enum(value["kind"], f"{label}.anchor.kind", allowed_kinds, error_type),
         "ref": _nonempty_string(value["ref"], f"{label}.anchor.ref", error_type),
     }
+
+
+def _resolve_strict_evidence(
+    observations: Sequence[Mapping[str, Any]],
+    artifacts: Sequence[Mapping[str, Any]],
+    resolver: EvidenceResolver,
+) -> None:
+    candidates = list(artifacts)
+    for index, observation in enumerate(observations):
+        anchor = observation.get("anchor", {})
+        if anchor.get("kind") != "evidence":
+            continue
+        evidence = anchor.get("evidence")
+        if not isinstance(evidence, Mapping):
+            raise InvalidFindingPackError(f"observations[{index}] evidence anchor is not resolvable")
+        digest = evidence.get("artifact_digest")
+        matching = [
+            artifact for artifact in candidates
+            if isinstance(artifact, Mapping)
+            and (artifact.get("content_digest") or artifact.get("artifact_digest")) == digest
+            and artifact.get("revision", 1) == evidence.get("artifact_revision")
+        ]
+        if len(matching) != 1:
+            raise InvalidFindingPackError(
+                f"observations[{index}] requires exactly one matching Evidence Artifact"
+            )
+        try:
+            resolver.resolve(evidence, matching[0])
+        except (TypeError, ValueError) as error:
+            raise InvalidFindingPackError(str(error)) from error
 
 
 def _validate_repository_anchor(

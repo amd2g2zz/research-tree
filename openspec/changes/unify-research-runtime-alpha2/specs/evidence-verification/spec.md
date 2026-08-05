@@ -15,6 +15,11 @@ The system SHALL require each consequential Finding Pack observation to referenc
 - **WHEN** a Finding Pack names an unresolved or out-of-scope evidence reference
 - **THEN** ingestion fails and the observation cannot affect decision state
 
+The alpha2 runtime accepts the legacy `{kind, ref}` anchor for migration compatibility,
+but a strict alpha2 evidence anchor is only accepted when the caller supplies exactly one
+matching Evidence Artifact with the same content digest and revision. The resolver also
+rejects rejected, quarantined, or superseded artifacts and out-of-workspace locators.
+
 ### Requirement: Evidence independence is provenance-aware
 The system SHALL group evidence by originating provenance and acquisition method so derivative URLs or repeated snapshots of the same underlying source do not satisfy independent-evidence requirements.
 

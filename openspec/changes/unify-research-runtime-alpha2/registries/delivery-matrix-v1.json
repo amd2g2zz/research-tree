@@ -83,6 +83,19 @@
       "github_issue": "#73",
       "owner": "runtime",
       "status": "in_progress"
+    },
+    {
+      "requirement_id": "evidence-verification/every-consequential-observation-references-resolvable-evidence",
+      "source_modules": ["src/research_tree/evidence.py", "src/research_tree/ledger.py"],
+      "public_surface": ["FindingPackCompiler.compile"],
+      "migration_impact": "Legacy anchors remain accepted; strict alpha2 anchors require a matching artifact registry entry.",
+      "unit_tests": ["tests/test_alpha2_evidence.py"],
+      "integration_tests": ["tests/test_deliveries.py"],
+      "black_box_cases": ["evaluation/cases/claude-glm52-v1.json"],
+      "evidence_artifact": "tests/test_alpha2_evidence.py::test_resolvable_anchor_binds_digest_revision_selector_and_cas",
+      "github_issue": "#54",
+      "owner": "evidence",
+      "status": "in_progress"
     }
   ],
   "release_rule": "A capability row is not evidence of implementation. The generated requirement rows, tests, and immutable release manifest must all resolve before status becomes verified."
