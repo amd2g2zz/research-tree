@@ -198,6 +198,17 @@ class ResearchRunCoordinator:
             rows = connection.execute("SELECT obligation,satisfied,evidence_ref,updated_at FROM run_obligations WHERE run_id=? ORDER BY obligation", (run_id,)).fetchall()
         return {row["obligation"]: {"satisfied": bool(row["satisfied"]), "evidence_ref": row["evidence_ref"], "updated_at": row["updated_at"]} for row in rows}
 
+    def attempts(self, run_id: str) -> dict[str, dict[str, Any]]:
+        """Return canonical attempt leases for diagnostics and reconciliation."""
+
+        with self._connect() as connection:
+            self._require_run(connection, run_id)
+            rows = connection.execute(
+                "SELECT attempt_id,lease_json FROM action_attempts WHERE run_id=? ORDER BY attempt_id",
+                (run_id,),
+            ).fetchall()
+        return {row["attempt_id"]: json.loads(row["lease_json"]) for row in rows}
+
     def record_obligation(self, run_id: str, obligation: str, *, evidence_ref: str, expected_revision: int) -> dict[str, Any]:
         if obligation not in COMPLETION_OBLIGATIONS or obligation in {"technical_delivery", "human_delivery", "acceptance"}:
             raise CoordinatorError("obligation must be recorded by its canonical boundary", code="invalid_obligation")

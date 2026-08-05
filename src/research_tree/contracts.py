@@ -19,6 +19,7 @@ from typing import Any, Mapping, Sequence
 
 IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 HASH_RE = re.compile(r"^[0-9a-f]{64}$")
+OPAQUE_CODE_RE = re.compile(r"^[A-Za-z0-9._:-]{1,96}$")
 HOSTS = frozenset({"codex", "claude-code", "hermes", "source", "evaluator"})
 ACTOR_KINDS = frozenset({"coordinator", "worker", "human", "oracle", "adapter", "migration"})
 EVENT_TYPES = frozenset(
@@ -114,6 +115,36 @@ def validate_host_event_payload(event_type: str, payload: Mapping[str, Any]) -> 
             f"{event_type} payload is incomplete; missing={sorted(missing)}",
             code="incomplete_event_payload",
         )
+    if event_type == "provider_failed":
+        forbidden = {
+            "raw_error", "raw_details", "traceback", "stack_trace", "response_body",
+            "provider_message", "exception", "secret", "token",
+        } & set(normalized)
+        if forbidden:
+            raise ContractError(
+                "provider_failed payload contains raw diagnostics",
+                code="raw_provider_details",
+            )
+        for field in ("provider", "model", "retry_category"):
+            if not isinstance(normalized[field], str) or not normalized[field].strip():
+                raise ContractError(
+                    f"provider_failed {field} must be a non-empty string",
+                    code="invalid_provider_metadata",
+                )
+        opaque_code = normalized["opaque_code"]
+        if not isinstance(opaque_code, str) or not OPAQUE_CODE_RE.fullmatch(opaque_code):
+            raise ContractError(
+                "provider_failed opaque_code is invalid",
+                code="invalid_provider_metadata",
+            )
+        gateway_ref = normalized["gateway_log_ref"]
+        if gateway_ref is not None and (
+            not isinstance(gateway_ref, str) or len(gateway_ref) > 256
+        ):
+            raise ContractError(
+                "provider_failed gateway_log_ref is invalid",
+                code="invalid_provider_metadata",
+            )
     return normalized
 
 

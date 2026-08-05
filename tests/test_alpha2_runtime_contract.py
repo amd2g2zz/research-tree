@@ -157,6 +157,74 @@ def test_host_event_rejects_incomplete_event_specific_payload() -> None:
     assert error.value.code == "incomplete_event_payload"
 
 
+def test_provider_failure_event_rejects_raw_gateway_details() -> None:
+    from research_tree.contracts import ContractError, HostEvent
+
+    with pytest.raises(ContractError, match="raw diagnostics") as error:
+        HostEvent.create(
+            event_id="event-provider-raw",
+            event_type="provider_failed",
+            run_id="run-provider-raw",
+            round_id="round-events",
+            host="hermes",
+            expected_revision=0,
+            attempt_id="attempt-provider-raw",
+            payload={
+                "provider": "gateway",
+                "model": "glm",
+                "retry_category": "retryable",
+                "opaque_code": "ctx-001",
+                "gateway_log_ref": "log:provider-raw",
+                "raw_error": "secret provider stack trace",
+            },
+        )
+    assert error.value.code == "raw_provider_details"
+
+
+def test_safe_provider_failure_moves_attempt_to_retryable_without_completing_run(
+    tmp_path: Path,
+) -> None:
+    from research_tree.contracts import HostEvent
+    from research_tree.coordinator import ResearchRunCoordinator
+    from research_tree.leases import AttemptLease
+
+    coordinator = ResearchRunCoordinator(tmp_path)
+    state = coordinator.create("run-provider-failure")
+    coordinator.issue_lease(
+        AttemptLease.create(
+            attempt_id="attempt-provider-failure",
+            work_item_id="work-provider-failure",
+            run_id="run-provider-failure",
+            owner="hermes-worker",
+            dispatch_digest="d" * 64,
+            started_at="2026-08-05T00:00:00+00:00",
+            lease_expires_at="2026-08-05T01:00:00+00:00",
+        ),
+        expected_revision=state["revision"],
+    )
+    state = coordinator.status("run-provider-failure")
+    event = HostEvent.create(
+        event_id="event-provider-failure",
+        event_type="provider_failed",
+        run_id="run-provider-failure",
+        round_id="round-events",
+        host="hermes",
+        expected_revision=state["revision"],
+        attempt_id="attempt-provider-failure",
+        payload={
+            "provider": "gateway",
+            "model": "glm",
+            "retry_category": "context_limit",
+            "opaque_code": "ctx-001",
+            "gateway_log_ref": "log:provider-failure",
+        },
+    )
+
+    coordinator.ingest_host_event(event)
+    assert coordinator.attempts("run-provider-failure")["attempt-provider-failure"]["status"] == "retryable"
+    assert coordinator.status("run-provider-failure")["lifecycle_state"] == "alignment"
+
+
 def test_host_event_rejects_unbound_attempt_without_mutating_ledger(tmp_path: Path) -> None:
     from research_tree.contracts import HostEvent
     from research_tree.coordinator import ResearchRunCoordinator
