@@ -1,6 +1,6 @@
 ---
 name: research-tree
-description: "Use when technical research needs evidence and alignment: turn vague or evolving questions, source material, and repositories into a recursively aligned Technical Research Package and Human Brief; test feasibility, research autonomously, and create OpenSpec only when requested."
+description: "Use when technical research needs evidence and alignment: turn vague or evolving questions, source material, and repositories into a recursively aligned Technical Research Package and Human Research Report; test feasibility, research autonomously, and create OpenSpec only when requested."
 <!-- HOST_FRONTMATTER -->
 ---
 
@@ -27,8 +27,8 @@ epistemic process:
 Produce two final outputs:
 
 1. a cited **Technical Research Package** that can drive implementation; and
-2. a professional **Human Research Report** (persisted as the Human Brief
-   artifact) explaining the current direction, important choices, evidence,
+2. a professional **Human Research Report** explaining the current direction,
+   important choices, evidence,
    uncertainty, and what actually exists. It must be deep enough to support a
    human decision, not a shallow summary.
 
@@ -94,7 +94,7 @@ otherwise label the cause `unresolved`.
   every pre-handoff question and `record` immediately after the response.
 - Use `assets/brief-template.md`, `assets/research-strategy-template.md`,
   `assets/technical-research-package-template.md`, and
-  `assets/human-brief-template.md` for their corresponding artifacts.
+  `assets/human-research-report-template.md` for the requester-facing artifact.
 - Read `references/blueprint-generation-research.md` only when forming or
   revising the Blueprint Target and Decision Map.
 - Read `references/product-contracts.md` only when exact persisted schemas or
@@ -175,7 +175,7 @@ otherwise label the cause `unresolved`.
   progress in the same round: inspected sources, repository facts, a safe
   experiment, or a scoped feasibility result. "Recommendations only" means do
   not edit the target system; it does not mean skip the research or report.
-- A Blind-Spot Packet, interim note, or Human Brief is not the final research
+- A Blind-Spot Packet, interim note, or courtesy summary is not the final research
   report. If the requester asks for a report while the Living Brief is still
   `exploring` or `reopened`, label the response as interim, state what evidence
   and intent decisions are missing, and continue bounded research. Do not
@@ -258,7 +258,7 @@ otherwise label the cause `unresolved`.
   package for human understanding.
 - Do not advance to implementation, OpenSpec conversion, or a dependent round
   until both deliverables pass their gates. The package must be actionable and
-  the requester must be satisfied with the Human Brief. Dissatisfaction,
+  the requester must be satisfied with the Human Research Report. Dissatisfaction,
   correction, or a depth objection reopens the Living Brief and requires a new
   evidence-bearing batch. Silence or "okay" is not acceptance.
 
@@ -653,7 +653,7 @@ Include, where applicable:
    honest evidence levels;
 11. risks, fallbacks, reversal conditions, Source Ledger, and traceability.
 
-### Human Research Report (Human Brief artifact)
+### Human Research Report
 
 Explain in decision-oriented language:
 

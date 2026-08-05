@@ -83,7 +83,7 @@ make the requester read or operate the Living Brief, claim ledger, Decision Map,
 or tree unless a small excerpt directly improves the next decision. Prefer
 progressive disclosure and plain-language explanations over process narration.
 
-The Human Brief and Technical Research Package are co-primary deliverables. The
+The Human Research Report and Technical Research Package are co-primary deliverables. The
 brief is concise but must let the requester judge intent fidelity, evidence
 quality, important trade-offs, feasibility, and whether continuing is justified;
 it is not a thin executive summary that can replace deep research. The package
@@ -496,7 +496,7 @@ Fail the package if any of these is true:
 - high-impact decisions lack evidence standards, fallbacks, or reversal rules;
 - cited sources do not support the claims or are only snippets;
 - a report or schema is called an executed product; or
-- the Human Brief and Technical Research Package disagree;
+- the Human Research Report and Technical Research Package disagree;
 - either co-primary deliverable is missing, shallow, or not traceable to the
   same intent, evidence, decisions, and execution status; or
 - the requester has expressed dissatisfaction, a correction, or a depth
@@ -509,7 +509,7 @@ Fail the package if any of these is true:
 
 Do not advance to implementation, OpenSpec conversion, or a dependent round
 until the Technical Research Package passes its readiness gates and the
-requester accepts the Human Brief. Silence, "okay", and generic acknowledgement
+requester accepts the Human Research Report. Silence, "okay", and generic acknowledgement
 are not acceptance. Routine research after strategy handoff remains autonomous,
 but this final human gate is mandatory before dependent work proceeds.
 

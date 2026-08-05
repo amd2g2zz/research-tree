@@ -61,7 +61,7 @@ The implementation-facing package records:
 
 ### Human Research Report
 
-The requester-facing report is persisted as the Human Brief artifact. It is a
+The requester-facing report is persisted as the Human Research Report artifact. It is a
 professional, evidence-bearing explanation of the recommended direction,
 important choices, feasibility limits, uncertainty, and what has actually been
 verified. It is not a shallow executive summary.
@@ -85,7 +85,7 @@ flowchart TD
     I -->|grow, prune, defer| P
     I -->|closure oracles pass| L[Decision Ledger and readiness gate]
     L --> T[Technical Research Package]
-    L --> B[Human Brief]
+    L --> B[Human Research Report]
 ```
 
 The Alignment Graph is a temporal heterogeneous multigraph backed by SQLite;
@@ -490,7 +490,7 @@ need persisted and validated research artifacts. Its public API includes:
 - finding and Decision Ledger compilation;
 - persisted recursive-tree selection, ingestion, and crash recovery;
 - readiness, assurance, verification, and evaluation contracts;
-- Technical Research Package and Human Brief delivery;
+- Technical Research Package and Human Research Report delivery;
 - feedback rounds and opt-in OpenSpec export.
 
 The command-line interface exposes alignment handoff compilation, round

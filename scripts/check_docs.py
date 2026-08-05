@@ -25,6 +25,23 @@ def check(root: Path) -> dict[str, object]:
         locator = entry.get("path") or entry.get("canonical_source") or entry.get("locator")
         if entry.get("lifecycle") not in {None, "historical", "superseded", "active-per-change", "active-or-superseded", "historical-unless-indexed", "rebuildable"} and locator and not ((root / str(locator)).is_file() or (root / str(locator)).is_dir()):
             errors.append(f"missing active documentation source: {locator}")
+    stale_phrases = (
+        "Technical Research Package + Human Brief",
+        "Technical Research Package and Human Brief",
+        "persisted as the Human Brief artifact",
+    )
+    for relative in ("README.md", "PRODUCT.md"):
+        path = root / relative
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            errors.append(f"cannot read active documentation {relative}: {exc}")
+            continue
+        stale = [phrase for phrase in stale_phrases if phrase in text]
+        if stale:
+            errors.append(f"{relative} uses active alpha1 delivery terminology: {stale}")
+        if relative == "PRODUCT.md" and "legacy_unverified" not in text:
+            errors.append("PRODUCT.md lacks the Human Brief legacy compatibility disposition")
     return {"schema": 1, "errors": errors, "valid": not errors}
 
 

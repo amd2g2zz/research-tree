@@ -101,7 +101,7 @@ not poll background agents. Retrieve results after the host reports completion.
 A child message is not evidence. Read its artifact, open decisive sources,
 inspect raw commands/results, distinguish fact from inference, and record
 counterevidence. The parent alone updates shared ledgers and produces the
-Technical Research Package and Human Brief.
+Technical Research Package and Human Research Report.
 
 ## Long-horizon recovery
 

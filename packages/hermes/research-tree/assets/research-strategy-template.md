@@ -110,5 +110,5 @@ claims, intent, scope, decisions, and tree. Classify the result:
 - Repository fit: {{revision, paths/symbols, tests/deployment anchors}}
 - Artifact integrity: {{required evidence and raw runs}}
 - Technical Research Package: {{path/contract}}
-- Human Brief: {{path/contract}}
+- Human Research Report: {{path/contract}}
 - OpenSpec: {{disabled unless explicitly requested}}

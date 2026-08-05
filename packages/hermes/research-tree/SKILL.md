@@ -37,7 +37,7 @@ Turn a research request into two co-primary deliverables:
 
 1. an evidence-bearing Technical Research Package detailed enough to drive
    implementation; and
-2. a professional Human Research Report (persisted as the Human Brief artifact)
+2. a professional Human Research Report (`human-brief` is legacy input only)
    that the requester can understand, challenge, and use. It is not a shallow
    summary.
 
@@ -95,7 +95,7 @@ small; never eagerly load every supporting file.
   deliverables. At that phase, use `assets/brief-template.md`,
   `assets/research-strategy-template.md`,
   `assets/technical-research-package-template.md`, and
-  `assets/human-brief-template.md` for persisted artifacts rather than pasting
+  `assets/human-research-report-template.md` for persisted artifacts rather than pasting
   their schemas into chat.
 - Read `references/hermes-native-orchestration.md` only before delegation,
   recovery, or durable scheduling.

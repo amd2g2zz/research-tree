@@ -61,8 +61,8 @@ The agent may prepare a handoff draft only when:
 - feasibility is supported rather than assumed;
 - the completion oracle is operational and observable;
 - no open disagreement can materially redirect research; and
-- the requester understands that the Human Brief artifact will contain a
-  professional Human Research Report, not a shallow summary.
+- the requester understands that the Human Research Report artifact will be
+  professional and evidence-bearing, not a shallow summary.
 
 Then show the strategy projection from the Alignment Graph and wait for explicit human
 confirmation of the outcome, scope, authority, and autonomous-research

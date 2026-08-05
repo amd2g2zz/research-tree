@@ -41,7 +41,7 @@ control handoff gives the Research Agent full autonomy for routine execution,
 replanning, delegation, and continuous intent correction within the granted
 authority and environment. The requester is not needed for routine research,
 but final delivery and any dependent implementation remain blocked until the
-requester accepts the Human Brief and has no unresolved dissatisfaction.
+requester accepts the Human Research Report and has no unresolved dissatisfaction.
 
 ## 3. Context Pack
 
@@ -98,7 +98,7 @@ Research Strategy + autonomy handoff
 Autonomous deep technical research
     |
     v
-Technical Research Package + Human Brief
+Technical Research Package + Human Research Report
     |
     +--> explicit request only --> OpenSpec conversion
 ```
@@ -318,7 +318,7 @@ The Research Strategy is the core product decision. It determines:
 | Decision value | Why each track can change the recommended design or implementation plan. |
 | Method | Repository analysis, primary documentation, implementation experiments, benchmarks, standards, or other appropriate evidence. |
 | Depth and exit criteria | How much research is needed before a design choice is actionable. |
-| Delivery boundary | Technical Research Package and Human Brief, plus optional OpenSpec conversion if explicitly requested. |
+| Delivery boundary | Technical Research Package and Human Research Report, plus optional OpenSpec conversion if explicitly requested. |
 | Autonomy policy | Assumptions the agent will carry and rare circumstances that justify a user question. |
 | Prior-material disposition | For each relevant prior item: `reuse`, `revalidate`, `downgrade`, `ignore`, or `overturn`. |
 
@@ -414,7 +414,11 @@ rediscovery for the implementation agent. A recommendation without a concrete
 repository boundary or an explicitly labeled greenfield assumption is not a
 blueprint element.
 
-### 7.2 Human Brief
+### 7.2 Human Research Report
+
+`human-brief` is an alpha1 compatibility input only. Alpha2 imports it as
+`legacy_unverified`; new delivery and acceptance paths use the
+`human-research-report` kind and cannot accept the legacy artifact directly.
 
 The human-facing output is equally important, not a courtesy summary. It
 explains what the agent understood,
@@ -431,7 +435,7 @@ dependent round until both co-primary deliverables pass their own gates:
 
 - the Technical Research Package is evidence-complete, decision-complete, and
   actionable for an implementation agent; and
-- the Human Brief is understandable, faithful to the requester's intent, and
+- the Human Research Report is understandable, faithful to the requester's intent, and
   accepted by the requester as a satisfactory basis for continuing.
 
 Human dissatisfaction, correction, or a request for more depth reopens the
@@ -507,10 +511,10 @@ The result is complete only when:
   oracle, and a reversal condition;
 - implementation work has dependencies and verification, not only headings;
 - unknowns are converted into assumptions, risks, or validation tasks;
-- the Human Brief is intelligible without reading the agent package; and
-- the requester has accepted the Human Brief as a satisfactory basis for
+- the Human Research Report is intelligible without reading the agent package; and
+- the requester has accepted the Human Research Report as a satisfactory basis for
   continuing, with no unresolved dissatisfaction or depth objection;
-- the Technical Research Package and Human Brief agree on outcome, scope,
+- the Technical Research Package and Human Research Report agree on outcome, scope,
   feasibility, important choices, and what actually exists; and
 - OpenSpec artifacts appear only when explicitly requested.
 
@@ -672,7 +676,7 @@ Intent Model / Working Brief / Strategy / Decision Map / Round Store
                          |
              +-----------+-----------+
              v                       v
-Technical Research Package       Human Brief
+Technical Research Package       Human Research Report
              |
              +--> explicit request --> OpenSpec Exporter
 ```

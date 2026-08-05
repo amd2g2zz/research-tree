@@ -29,6 +29,7 @@ PACKAGE_RELATIVES = {
 COMMON_FILES = (
     Path("assets/brief-template.md"),
     Path("assets/human-brief-template.md"),
+    Path("assets/human-research-report-template.md"),
     Path("assets/research-strategy-template.md"),
     Path("assets/technical-research-package-template.md"),
     Path("references/blueprint-generation-research.md"),

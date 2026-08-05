@@ -1,4 +1,7 @@
-# Human Brief: {{round_id}}
+# Legacy Human Brief (alpha1 migration input): {{round_id}}
+
+> Retained only to classify alpha1 artifacts as `legacy_unverified`. New
+> deliveries use `human-research-report-template.md`.
 
 ## What We Now Understand
 

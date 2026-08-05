@@ -22,7 +22,7 @@ Separate repository observation, external-source claim, experiment result,
 agent inference, and proposal. Never describe a report, generated code, or
 successful compilation as an executed production system.
 
-## Human Research Report gate (Human Brief artifact)
+## Human Research Report gate
 
 The requester-facing report is co-primary and must remain professional,
 evidence-bearing, and decision-capable rather than becoming a shallow summary.

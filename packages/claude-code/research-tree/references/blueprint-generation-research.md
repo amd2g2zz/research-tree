@@ -281,7 +281,7 @@ Input Registry / Repository Inspector
                  |
         +--------+--------+
         v                 v
-Technical Research Package  Human Brief
+Technical Research Package  Human Research Report
         |
         +--> explicit request --> OpenSpec exporter
 ```
