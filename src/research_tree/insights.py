@@ -24,6 +24,27 @@ def _finding_payload(finding: Any) -> Mapping[str, Any]:
     return payload
 
 
+def _evidence_refs(observation: Mapping[str, Any]) -> list[str]:
+    refs: set[str] = set()
+    anchor = observation.get("anchor")
+    if (
+        isinstance(anchor, Mapping)
+        and isinstance(anchor.get("ref"), str)
+        and anchor["ref"].strip()
+    ):
+        refs.add(anchor["ref"])
+    anchors = observation.get("anchors", ())
+    if isinstance(anchors, Sequence) and not isinstance(anchors, (str, bytes)):
+        for item in anchors:
+            if not isinstance(item, Mapping):
+                continue
+            digest = item.get("artifact_digest")
+            revision = item.get("artifact_revision")
+            if isinstance(digest, str) and digest and isinstance(revision, int):
+                refs.add(f"evidence:{digest}@{revision}")
+    return sorted(refs)
+
+
 def build_insight_digest(
     finding_packs: Sequence[Any], *, digest_id: str, producer_version: str,
     active_slot_ids: Sequence[str], previous_digest_ref: str | None = None,
@@ -35,7 +56,12 @@ def build_insight_digest(
     normalized: list[tuple[str, Mapping[str, Any]]] = []
     for finding in finding_packs:
         payload = _finding_payload(finding)
-        identifier = str(payload.get("id", getattr(finding, "id", ""))).strip()
+        identifier = str(
+            payload.get(
+                "id",
+                payload.get("finding_id", getattr(finding, "id", "")),
+            )
+        ).strip()
         if not identifier:
             raise InsightDigestError("finding pack id is required")
         normalized.append((identifier, payload))
@@ -56,11 +82,8 @@ def build_insight_digest(
             text = str(observation.get("claim", observation.get("text", ""))).strip()
             if not text:
                 continue
-            anchor = observation.get("anchor")
-            evidence_refs: list[str] = []
-            if isinstance(anchor, Mapping) and isinstance(anchor.get("ref"), str) and anchor["ref"].strip():
-                evidence_refs.append(anchor["ref"])
-                source_refs.add(anchor["ref"])
+            evidence_refs = _evidence_refs(observation)
+            source_refs.update(evidence_refs)
             statement_class = str(observation.get("class", "fact" if evidence_refs else "unknown"))
             if statement_class not in CANONICAL_STATEMENT_CLASSES:
                 raise InsightDigestError(f"unsupported statement class: {statement_class}")
@@ -70,15 +93,28 @@ def build_insight_digest(
                 raise InsightDigestError("inference requires assumptions and supporting evidence")
             if statement_class == "recommendation" and (not observation.get("consequence") or not observation.get("reversal_condition")):
                 raise InsightDigestError("recommendation requires consequence and reversal condition")
-            if statement_class == "unknown" and (not observation.get("reason") or not observation.get("next_acquisition_method")):
+            unknown_reason = observation.get("reason", observation.get("unknown_reason"))
+            if statement_class == "unknown" and (not unknown_reason or not observation.get("next_acquisition_method")):
                 raise InsightDigestError("unknown requires reason and next acquisition method")
             statements.append({"id": f"{finding_id}-statement-{observation_index}", "class": statement_class, "text": text, "evidence_refs": sorted(evidence_refs), "confidence": str(observation.get("confidence", "medium"))})
         for effect in payload.get("option_effects", ()):
             if isinstance(effect, Mapping) and isinstance(effect.get("option"), str) and isinstance(effect.get("effect"), str):
                 option_effects[(slot_id, effect["option"])][effect["effect"]].add(finding_id)
         for uncertainty in payload.get("remaining_uncertainties", ()):
-            if str(uncertainty).strip():
-                gaps.append({"slot_id": slot_id, "reason": str(uncertainty), "next_acquisition_method": "validation"})
+            if isinstance(uncertainty, Mapping):
+                reason = str(uncertainty.get("statement", "")).strip()
+                next_method = str(uncertainty.get("next_method", "")).strip()
+            else:
+                reason = str(uncertainty).strip()
+                next_method = "validation"
+            if reason:
+                gaps.append(
+                    {
+                        "slot_id": slot_id,
+                        "reason": reason,
+                        "next_acquisition_method": next_method or "validation",
+                    }
+                )
     for (slot_id, option), effects in sorted(option_effects.items()):
         if {"supports", "contradicts"} <= set(effects):
             contradictions.append({"slot_id": slot_id, "subject": option, "evidence_refs": sorted({ref for refs in effects.values() for ref in refs}), "resolution_action": "adversarial"})
@@ -134,12 +170,17 @@ def synthesize_insights(
         findings = by_slot.get(slot_id, [])
         claims: dict[str, list[str]] = defaultdict(list)
         effects: dict[str, set[str]] = defaultdict(set)
-        anchors: set[tuple[str, str]] = set()
+        anchors: set[str] = set()
         uncertainties: list[str] = []
         finding_ids: list[str] = []
         for finding in findings:
             payload = finding.payload if hasattr(finding, "payload") else finding
-            finding_id = str(payload.get("id", getattr(finding, "id", "unknown")))
+            finding_id = str(
+                payload.get(
+                    "id",
+                    payload.get("finding_id", getattr(finding, "id", "unknown")),
+                )
+            )
             finding_ids.append(finding_id)
             for observation in payload.get("observations", ()):
                 if not isinstance(observation, Mapping):
@@ -147,19 +188,20 @@ def synthesize_insights(
                 claim = str(observation.get("claim", "")).strip()
                 if claim:
                     claims[claim].append(finding_id)
-                anchor = observation.get("anchor")
-                if isinstance(anchor, Mapping):
-                    kind, ref = anchor.get("kind"), anchor.get("ref")
-                    if isinstance(kind, str) and isinstance(ref, str):
-                        anchors.add((kind, ref))
+                anchors.update(_evidence_refs(observation))
             for effect in payload.get("option_effects", ()):
                 if isinstance(effect, Mapping):
                     option, value = effect.get("option"), effect.get("effect")
                     if isinstance(option, str) and isinstance(value, str):
                         effects[option].add(value)
-            uncertainties.extend(
-                str(item) for item in payload.get("remaining_uncertainties", ()) if str(item).strip()
-            )
+            for item in payload.get("remaining_uncertainties", ()):
+                uncertainty = (
+                    str(item.get("statement", "")).strip()
+                    if isinstance(item, Mapping)
+                    else str(item).strip()
+                )
+                if uncertainty:
+                    uncertainties.append(uncertainty)
 
         repeated_claims = [
             {"claim": claim, "finding_ids": sorted(set(ids)), "independent_count": len(set(ids))}
