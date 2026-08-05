@@ -76,6 +76,10 @@ def measure_realized_delta(
     new_effects: set[str] = set()
     contradiction_count = 0
     continuation_count = 0
+    provenance_groups: set[str] = set()
+    oracle_ref_count = 0
+    implementation_uncertainty_count = 0
+    closure_effect_count = 0
     for finding in finding_packs:
         evidence = _fingerprints(finding)
         new_finding_ids.update(set(evidence["finding_ids"]) - set(incoming.finding_ids))
@@ -83,6 +87,18 @@ def measure_realized_delta(
         new_anchors.update(set(evidence["anchor_fingerprints"]) - set(incoming.anchor_fingerprints))
         new_effects.update(set(evidence["effect_fingerprints"]) - set(incoming.effect_fingerprints))
         payload = _payload(finding)
+        for observation in payload.get("observations", ()):
+            if isinstance(observation, Mapping):
+                group = str(observation.get("provenance_group", "")).strip()
+                if group:
+                    provenance_groups.add(group)
+        oracle_ref_count += len(payload.get("oracle_run_refs", ()))
+        implementation_uncertainty_count += len(payload.get("implementation_uncertainties", ()))
+        implementation_uncertainty_count += len(payload.get("remaining_uncertainties", ()))
+        closure_effect_count += sum(
+            1 for effect in payload.get("option_effects", ())
+            if isinstance(effect, Mapping) and effect.get("effect") in {"supports", "rejects", "contradicts"}
+        )
         contradiction_count += sum(
             1
             for effect in payload.get("option_effects", ())
@@ -102,6 +118,14 @@ def measure_realized_delta(
         + 0.10 * min(1.0, contradiction_count / 2)
         + 0.05 * min(1.0, continuation_count / 2),
     )
+    closure_components = {
+        "evidence_class": round(min(1.0, len(new_anchors) / 3), 6),
+        "independence": round(min(1.0, len(provenance_groups) / 2), 6),
+        "contradiction": round(min(1.0, contradiction_count / 2), 6),
+        "oracle": round(min(1.0, oracle_ref_count / 1), 6),
+        "implementation_uncertainty": round(min(1.0, implementation_uncertainty_count / 2), 6),
+        "decision_closure": round(min(1.0, closure_effect_count / 2), 6),
+    }
     return (
         {
             "transition_index": transition_index,
@@ -114,6 +138,7 @@ def measure_realized_delta(
             "new_continuation_count": continuation_count,
             "baseline_finding_count": len(baseline.finding_ids),
             "duplicate_only": score == 0.0 and bool(finding_packs),
+            "closure_components": closure_components,
         },
         incoming,
     )

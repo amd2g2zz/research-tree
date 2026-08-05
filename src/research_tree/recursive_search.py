@@ -69,6 +69,11 @@ def initialize_research_state(
     }
     state: dict[str, Any] = {
         "schema": 1,
+        "projection": {
+            "authority": "non_authoritative",
+            "canonical_owner": "ResearchRunCoordinator",
+            "canonical_refs": [],
+        },
         "id": tree_id,
         "round_id": round_id,
         "transition_index": 0,
@@ -77,8 +82,8 @@ def initialize_research_state(
         "decision_slots": slots,
         "execution_context": copy.deepcopy(dict(execution_context or {})),
         "deliverables": {
-            "technical_research_package": {"status": "pending"},
-            "human_research_report": {"status": "pending"},
+            "technical_research_package": {"status": "pending", "authority": "projection_only"},
+            "human_research_report": {"status": "pending", "authority": "projection_only"},
         },
         "nodes": {},
         "frontier_node_ids": [],
@@ -404,6 +409,9 @@ def finalize_research_delivery(
             human_report, kind="human_research_report"
         ),
     }
+    for manifest in result["deliverables"].values():
+        manifest["authority"] = "projection_only"
+    result["delivery_registration_authority"] = "projection_only"
     result["status"] = "delivery_pending"
     result["canonical_complete"] = False
     result["stop_reason"] = (
@@ -468,6 +476,7 @@ def _slot_state(slot_id: str, slot: Mapping[str, Any]) -> dict[str, Any]:
         "priority": priority,
         "uncertainty": _uncertainty_value(slot.get("uncertainty", "medium")),
         "status": "researching",
+        "status_authority": "projection_only",
         "finding_ids": [],
         "anchor_fingerprints": [],
         "validation_required": priority == "P0" or bool(validation),
@@ -554,7 +563,12 @@ def _grow_from_finding(
         if not isinstance(continuation, Mapping):
             continue
         question = str(continuation.get("question", "")).strip()
-        if not question:
+        trigger = str(continuation.get("trigger", "")).strip()
+        evidence_needed = str(continuation.get("evidence_needed", "")).strip()
+        oracle = str(continuation.get("oracle", "")).strip()
+        if not question or not trigger or not evidence_needed or not oracle:
+            # A worker's free-form topic suggestion is not a bounded research
+            # action. It must carry a causal trigger and closure oracle.
             continue
         _add_node(
             state,
@@ -567,10 +581,8 @@ def _grow_from_finding(
                 if baseline_event
                 else f"finding:{_finding_id(finding)}"
             ),
-            evidence_needed=str(
-                continuation.get("evidence_needed", "Decision-relevant evidence with provenance.")
-            ),
-            oracle=str(continuation.get("oracle", "The question is answered with anchored evidence.")),
+            evidence_needed=evidence_needed,
+            oracle=oracle,
             estimated_cost=_positive_float(continuation.get("estimated_cost", 1.0)),
         )
 

@@ -135,7 +135,8 @@ def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
         "penalty_history",
         "stop_reason",
     }
-    if not isinstance(value, Mapping) or set(value) != required:
+    optional = {"projection", "delivery_registration_authority"}
+    if not isinstance(value, Mapping) or not required.issubset(set(value)) or set(value) - required - optional:
         actual = set(value) if isinstance(value, Mapping) else set()
         raise ResearchTreeStateError(
             f"tree state has unexpected keys; missing={sorted(required - actual)}, "
@@ -156,6 +157,8 @@ def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
     ):
         if not isinstance(value.get(key), Mapping):
             raise ResearchTreeStateError(f"tree state {key} must be a mapping")
+    if "projection" in value and not isinstance(value.get("projection"), Mapping):
+        raise ResearchTreeStateError("tree state projection must be a mapping")
     for key in ("frontier_node_ids", "consumed_finding_ids", "delta_history", "penalty_history"):
         if isinstance(value.get(key), (str, bytes)) or not isinstance(value.get(key), Sequence):
             raise ResearchTreeStateError(f"tree state {key} must be a sequence")
