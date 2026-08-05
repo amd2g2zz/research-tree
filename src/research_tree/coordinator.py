@@ -43,6 +43,7 @@ from .convergence_records import (
 from .readiness_records import (
     ReadinessRecordContractError,
     evaluate_canonical_readiness,
+    validate_canonical_readiness_record,
 )
 from .insights import (
     InsightDigestError,
@@ -2225,6 +2226,308 @@ class ResearchRunCoordinator:
                 ),
             )
             self._fault("readiness_after_stage_record")
+        return result
+
+    def schedule_successor_work(
+        self,
+        run_id: str,
+        *,
+        stage_id: str,
+        trigger_ref: Mapping[str, Any],
+        permission_profile: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        """Atomically materialize deterministic Work Items from exact deficits."""
+
+        if not isinstance(stage_id, str) or not IDENTIFIER_RE.fullmatch(stage_id):
+            raise CoordinatorError("stage id is invalid", code="invalid_stage_id")
+        if not isinstance(permission_profile, str) or not permission_profile.strip():
+            raise CoordinatorError(
+                "permission profile is required", code="permission_profile_invalid"
+            )
+        try:
+            exact_trigger_ref = validate_exact_artifact_ref(
+                trigger_ref,
+                label="successor trigger reference",
+                run_id=run_id,
+            )
+        except (ContractError, TypeError, ValueError) as error:
+            raise CoordinatorError(
+                "successor trigger reference is invalid",
+                code="successor_trigger_invalid",
+            ) from error
+        request = {
+            "stage": "successor-work",
+            "stage_id": stage_id,
+            "run_id": run_id,
+            "trigger_ref": exact_trigger_ref,
+            "permission_profile": permission_profile,
+            "expected_revision": expected_revision,
+        }
+        input_digest = self._digest(request)
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            prior = connection.execute(
+                "SELECT input_digest,result_json FROM stage_operations WHERE run_id=? AND stage_id=?",
+                (run_id, stage_id),
+            ).fetchone()
+            if prior is not None:
+                if prior["input_digest"] != input_digest:
+                    raise CoordinatorError(
+                        "stage id was reused with different inputs",
+                        code="idempotency_conflict",
+                    )
+                return json.loads(prior["result_json"])
+
+            row = self._require_run(connection, run_id)
+            if int(row["revision"]) != expected_revision:
+                raise CoordinatorError(
+                    "expected revision is stale", code="stale_revision"
+                )
+            self._assert_current_in_connection(
+                connection,
+                run_id,
+                self._authority_digest(row),
+                action="schedule successor work",
+            )
+
+            trigger_row = connection.execute(
+                """SELECT kind,status,payload_json,content_hash FROM artifacts
+                   WHERE run_id=? AND artifact_id=? AND revision=?""",
+                self._lineage_key(exact_trigger_ref),
+            ).fetchone()
+            if (
+                trigger_row is None
+                or trigger_row["content_hash"] != exact_trigger_ref["content_hash"]
+                or trigger_row["kind"]
+                not in {"convergence-record", "readiness-record"}
+            ):
+                raise CoordinatorError(
+                    "successor trigger does not resolve to a supported artifact",
+                    code="successor_trigger_invalid",
+                )
+            if trigger_row["status"] != "active":
+                raise CoordinatorError(
+                    "successor trigger is not active",
+                    code="successor_trigger_stale",
+                )
+            latest_trigger = connection.execute(
+                """SELECT artifact_id,revision,content_hash FROM artifacts
+                   WHERE run_id=? AND kind=?
+                   ORDER BY created_at DESC,artifact_id DESC,revision DESC LIMIT 1""",
+                (run_id, trigger_row["kind"]),
+            ).fetchone()
+            if latest_trigger is None or exact_trigger_ref != {
+                "run_id": run_id,
+                "artifact_id": latest_trigger["artifact_id"],
+                "revision": int(latest_trigger["revision"]),
+                "content_hash": latest_trigger["content_hash"],
+            }:
+                raise CoordinatorError(
+                    "successor trigger is no longer current",
+                    code="successor_trigger_stale",
+                )
+
+            trigger_payload = json.loads(trigger_row["payload_json"])
+            try:
+                if trigger_row["kind"] == "convergence-record":
+                    trigger_payload = validate_convergence_record_payload(
+                        trigger_payload, run_id=run_id
+                    )
+                    if trigger_payload["outcome"] != "closure_deficit":
+                        raise CoordinatorError(
+                            "closed convergence cannot create successor work",
+                            code="successor_trigger_closed",
+                        )
+                else:
+                    trigger_payload = validate_canonical_readiness_record(
+                        trigger_payload, run_id=run_id
+                    )
+                    if trigger_payload["status"] == "ready":
+                        raise CoordinatorError(
+                            "ready record cannot create successor work",
+                            code="successor_trigger_closed",
+                        )
+            except (ConvergenceRecordContractError, ReadinessRecordContractError) as error:
+                raise CoordinatorError(
+                    "successor trigger payload is invalid",
+                    code="successor_trigger_invalid",
+                ) from error
+            deficits = trigger_payload["deficits"]
+            if not deficits:
+                raise CoordinatorError(
+                    "successor trigger contains no actionable deficit",
+                    code="successor_trigger_closed",
+                )
+            if row["lifecycle_state"] != "autonomous_research":
+                raise CoordinatorError(
+                    "successor work requires autonomous research state",
+                    code="successor_state_invalid",
+                )
+
+            now = self._now()
+            work_item_refs: list[dict[str, Any]] = []
+            for deficit in deficits:
+                semantic = {
+                    "trigger_ref": exact_trigger_ref,
+                    "deficit": deficit,
+                }
+                work_item_id = "work-" + self._digest(semantic)[:16]
+                slot_id = deficit.get("slot_id", "readiness")
+                source_values = deficit.get("source_refs", [])
+                source_inputs = [
+                    "source:"
+                    + canonical_json_bytes(source).decode("utf-8")
+                    if isinstance(source, Mapping)
+                    else f"source:{source}"
+                    for source in source_values
+                ]
+                trigger_input = (
+                    f"artifact:{run_id}/{exact_trigger_ref['artifact_id']}"
+                    f"@{exact_trigger_ref['revision']}#{exact_trigger_ref['content_hash']}"
+                )
+                try:
+                    work = CanonicalWorkItem.create(
+                        work_item_id=work_item_id,
+                        slot_id=slot_id,
+                        action_kind=deficit["action"],
+                        objective=deficit["trigger"],
+                        inputs=[trigger_input, *source_inputs],
+                        method=f"successor-{deficit['action']}",
+                        expected_output=(
+                            "A Finding Pack and Oracle evidence that resolve the exact "
+                            f"{deficit['kind']} deficit."
+                        ),
+                        success_oracle=(
+                            "The successor evidence resolves the triggering deficit or "
+                            "records a new bounded residual risk."
+                        ),
+                        permission_profile=permission_profile,
+                        completion_evidence=[trigger_input, "finding-pack", "oracle-run"],
+                    )
+                except WorkerContractError as error:
+                    raise CoordinatorError(
+                        "successor Work Item contract is invalid",
+                        code="successor_work_invalid",
+                    ) from error
+                payload = work.to_dict()
+
+                existing = connection.execute(
+                    """SELECT revision,kind,payload_json,content_hash FROM artifacts
+                       WHERE run_id=? AND artifact_id=? ORDER BY revision DESC LIMIT 1""",
+                    (run_id, work_item_id),
+                ).fetchone()
+                if existing is not None:
+                    existing_parents = {
+                        (
+                            parent["parent_run_id"],
+                            parent["parent_artifact_id"],
+                            int(parent["parent_revision"]),
+                        )
+                        for parent in connection.execute(
+                            """SELECT parent_run_id,parent_artifact_id,parent_revision
+                               FROM artifact_parents
+                               WHERE run_id=? AND artifact_id=? AND revision=?""",
+                            (run_id, work_item_id, int(existing["revision"])),
+                        ).fetchall()
+                    }
+                    if (
+                        existing["kind"] != "work-item"
+                        or json.loads(existing["payload_json"]) != payload
+                        or existing_parents != {self._lineage_key(exact_trigger_ref)}
+                    ):
+                        raise CoordinatorError(
+                            "deterministic successor id conflicts with prior artifact",
+                            code="artifact_conflict",
+                        )
+                    work_item_refs.append(
+                        {
+                            "run_id": run_id,
+                            "artifact_id": work_item_id,
+                            "revision": int(existing["revision"]),
+                            "content_hash": existing["content_hash"],
+                        }
+                    )
+                    continue
+
+                artifact = self._append_stage_artifact(
+                    connection,
+                    run_id=run_id,
+                    artifact_id=work_item_id,
+                    kind="work-item",
+                    payload=payload,
+                    actor_kind="coordinator",
+                    actor_id="successor-work-scheduler",
+                    status="pending",
+                    parent_refs=[exact_trigger_ref],
+                    created_at=now,
+                )
+                work_item_refs.append(
+                    {
+                        "run_id": run_id,
+                        "artifact_id": artifact["id"],
+                        "revision": artifact["revision"],
+                        "content_hash": artifact["content_hash"],
+                    }
+                )
+            self._fault("successor_after_work_items")
+
+            revision = expected_revision + 1
+            state_payload = self._state_payload(
+                row,
+                lifecycle_state="autonomous_research",
+                revision=revision,
+                body={
+                    "stage_id": stage_id,
+                    "trigger_ref": exact_trigger_ref,
+                    "work_item_refs": work_item_refs,
+                },
+            )
+            connection.execute(
+                "UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?",
+                (revision, self._digest(state_payload), now, run_id),
+            )
+            self._fault("successor_after_run_update")
+            event_id = f"successor-work-{stage_id}"
+            self._snapshot_current_revision(
+                connection, run_id, source_event_id=event_id
+            )
+            self._fault("successor_after_snapshot")
+            self._event(
+                connection,
+                run_id,
+                event_id,
+                expected_revision,
+                {
+                    "stage_id": stage_id,
+                    "input_digest": input_digest,
+                    "trigger_ref": exact_trigger_ref,
+                    "work_item_refs": work_item_refs,
+                },
+                event_type="successor_work_created",
+            )
+            self._fault("successor_after_event")
+            result = {
+                "run": self._row(self._require_run(connection, run_id)),
+                "stage_id": stage_id,
+                "input_digest": input_digest,
+                "trigger_ref": exact_trigger_ref,
+                "work_item_refs": work_item_refs,
+            }
+            connection.execute(
+                "INSERT INTO stage_operations VALUES(?,?,?,?,?,?,?)",
+                (
+                    run_id,
+                    stage_id,
+                    "successor-work",
+                    input_digest,
+                    revision,
+                    canonical_json_bytes(result).decode("utf-8"),
+                    now,
+                ),
+            )
+            self._fault("successor_after_stage_record")
         return result
 
     def _convergence_deficits(

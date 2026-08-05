@@ -1374,6 +1374,176 @@ def test_readiness_fault_after_artifact_rolls_back_the_stage(tmp_path: Path) -> 
         SQLiteRunLedger(tmp_path).resolve(run_id, "readiness-fault", 1)
 
 
+def _run_with_readiness_deficit(tmp_path: Path):
+    coordinator, run_id, convergence = _run_at_readiness(tmp_path)
+    readiness = coordinator.evaluate_readiness(
+        run_id,
+        stage_id="readiness-for-successor",
+        readiness_id="readiness-for-successor",
+        convergence_record_ref=convergence["convergence_record_ref"],
+        risk_tier="standard",
+        producer_version="readiness-v1",
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+    return coordinator, run_id, readiness
+
+
+def test_successor_work_is_deterministic_and_bound_to_exact_deficit(
+    tmp_path: Path,
+) -> None:
+    from research_tree.sqlite_ledger import SQLiteLedgerError, SQLiteRunLedger
+
+    coordinator, run_id, readiness = _run_with_readiness_deficit(tmp_path)
+    before = coordinator.status(run_id)
+    result = coordinator.schedule_successor_work(
+        run_id,
+        stage_id="successor-readiness-deficit",
+        trigger_ref=readiness["readiness_record_ref"],
+        permission_profile="research-read-only",
+        expected_revision=before["revision"],
+    )
+
+    assert result["run"]["lifecycle_state"] == "autonomous_research"
+    assert len(result["work_item_refs"]) == 1
+    work_ref = result["work_item_refs"][0]
+    stored = SQLiteRunLedger(tmp_path).resolve(
+        run_id, work_ref["artifact_id"], work_ref["revision"]
+    )
+    assert stored["payload"]["action_kind"] == "validation"
+    assert stored["payload"]["slot_id"] == "readiness"
+    assert stored["parent_refs"] == [
+        {
+            "run_id": run_id,
+            "artifact_id": readiness["readiness_record_ref"]["artifact_id"],
+            "revision": readiness["readiness_record_ref"]["revision"],
+        }
+    ]
+    assert coordinator.events(run_id)[-1]["event_type"] == "successor_work_created"
+
+    events = coordinator.events(run_id)
+    repeated = coordinator.schedule_successor_work(
+        run_id,
+        stage_id="successor-readiness-deficit",
+        trigger_ref=readiness["readiness_record_ref"],
+        permission_profile="research-read-only",
+        expected_revision=before["revision"],
+    )
+    assert repeated == result
+    assert coordinator.events(run_id) == events
+    with pytest.raises(SQLiteLedgerError, match="does not exist"):
+        SQLiteRunLedger(tmp_path).resolve(run_id, work_ref["artifact_id"], 2)
+
+
+def test_successor_work_rejects_a_ready_record_without_mutation(tmp_path: Path) -> None:
+    coordinator, run_id, convergence = _run_at_readiness(tmp_path)
+    coordinator.record_obligation(
+        run_id,
+        "evaluation",
+        evidence_ref="evaluation-suite-1",
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+    readiness = coordinator.evaluate_readiness(
+        run_id,
+        stage_id="readiness-no-deficit",
+        readiness_id="readiness-no-deficit",
+        convergence_record_ref=convergence["convergence_record_ref"],
+        risk_tier="standard",
+        producer_version="readiness-v1",
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+    before = coordinator.status(run_id)
+    before_events = coordinator.events(run_id)
+
+    with pytest.raises(coordinator.error_type) as rejected:
+        coordinator.schedule_successor_work(
+            run_id,
+            stage_id="successor-without-deficit",
+            trigger_ref=readiness["readiness_record_ref"],
+            permission_profile="research-read-only",
+            expected_revision=before["revision"],
+        )
+
+    assert rejected.value.code == "successor_trigger_closed"
+    assert coordinator.status(run_id) == before
+    assert coordinator.events(run_id) == before_events
+
+
+def test_successor_work_fault_rolls_back_entire_batch(tmp_path: Path) -> None:
+    from research_tree.coordinator import ResearchRunCoordinator
+    from research_tree.sqlite_ledger import SQLiteLedgerError, SQLiteRunLedger
+
+    coordinator, run_id, readiness = _run_with_readiness_deficit(tmp_path)
+    before = coordinator.status(run_id)
+    before_events = coordinator.events(run_id)
+
+    def fail(boundary: str) -> None:
+        if boundary == "successor_after_work_items":
+            raise RuntimeError(boundary)
+
+    failing = ResearchRunCoordinator(tmp_path, fault_injector=fail)
+    with pytest.raises(RuntimeError, match="successor_after_work_items"):
+        failing.schedule_successor_work(
+            run_id,
+            stage_id="successor-fault",
+            trigger_ref=readiness["readiness_record_ref"],
+            permission_profile="research-read-only",
+            expected_revision=before["revision"],
+        )
+
+    reopened = ResearchRunCoordinator(tmp_path)
+    assert reopened.status(run_id) == before
+    assert reopened.events(run_id) == before_events
+    work_id = "work-" + hashlib.sha256(
+        json.dumps(
+            {
+                "trigger_ref": readiness["readiness_record_ref"],
+                "deficit": readiness["readiness_record"]["deficits"][0],
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()[:16]
+    with pytest.raises(SQLiteLedgerError, match="does not exist"):
+        SQLiteRunLedger(tmp_path).resolve(run_id, work_id, 1)
+
+
+def test_successor_work_accepts_exact_convergence_deficit(tmp_path: Path) -> None:
+    coordinator, run_id, ingested = _ingested_finding(tmp_path)
+    insight = coordinator.synthesize_findings(
+        run_id,
+        stage_id="synthesize-for-successor",
+        finding_pack_refs=[ingested["finding_pack_ref"]],
+        digest_id="insight-for-successor",
+        producer_version="insight-v1",
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+    convergence = coordinator.converge_decisions(
+        run_id,
+        stage_id="converge-for-successor",
+        convergence_id="convergence-for-successor",
+        insight_digest_ref=insight["insight_digest_ref"],
+        decision_entries=[],
+        producer_version="convergence-v1",
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+    assert convergence["convergence_record"]["outcome"] == "closure_deficit"
+
+    result = coordinator.schedule_successor_work(
+        run_id,
+        stage_id="successor-convergence-deficit",
+        trigger_ref=convergence["convergence_record_ref"],
+        permission_profile="research-read-only",
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+
+    assert result["work_item_refs"]
+    assert all(
+        reference["artifact_id"].startswith("work-")
+        for reference in result["work_item_refs"]
+    )
+
+
 def test_human_or_operator_transition_rejects_other_actors(tmp_path: Path) -> None:
     from research_tree.coordinator import ResearchRunCoordinator
 
