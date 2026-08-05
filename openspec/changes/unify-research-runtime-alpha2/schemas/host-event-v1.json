@@ -22,5 +22,17 @@
     "payload_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "emitted_at": { "type": "string", "format": "date-time" },
     "payload": { "type": "object" }
-  }
+  },
+  "allOf": [
+    { "if": { "properties": { "event_type": { "const": "dispatch_requested" } } }, "then": { "properties": { "payload": { "required": ["work_item_id", "permission_profile", "dispatch_digest", "lease_policy"] } } } },
+    { "if": { "properties": { "event_type": { "const": "attempt_started" } } }, "then": { "properties": { "payload": { "required": ["worker_id", "lease_expires_at", "tool_capability_digest", "started_at"] } } } },
+    { "if": { "properties": { "event_type": { "const": "finding_submitted" } } }, "then": { "properties": { "payload": { "required": ["finding_pack_digest", "evidence_refs", "submission_status", "output_digest"] } } } },
+    { "if": { "properties": { "event_type": { "const": "review_completed" } } }, "then": { "properties": { "payload": { "required": ["reviewer_id", "accepted_refs", "field_diagnostics", "review_digest"] } } } },
+    { "if": { "properties": { "event_type": { "const": "provider_failed" } } }, "then": { "properties": { "payload": { "required": ["provider", "model", "retry_category", "opaque_code", "gateway_log_ref"] } } } },
+    { "if": { "properties": { "event_type": { "const": "attempt_unknown" } } }, "then": { "properties": { "payload": { "required": ["reconciliation_reason", "last_heartbeat", "observed_host_state"] } } } },
+    { "if": { "properties": { "event_type": { "const": "retry_requested" } } }, "then": { "properties": { "payload": { "required": ["predecessor_attempt", "method_provider_change", "retry_policy"] } } } },
+    { "if": { "properties": { "event_type": { "const": "worker_finished" } } }, "then": { "properties": { "payload": { "required": ["terminal_status", "artifact_refs"] } } } },
+    { "if": { "properties": { "event_type": { "const": "acceptance_recorded" } } }, "then": { "properties": { "payload": { "required": ["delivery_acceptance_ref", "displayed_digest"] } } } },
+    { "if": { "properties": { "event_type": { "const": "reconciliation_detected" } } }, "then": { "properties": { "payload": { "required": ["host_observation", "canonical_observation", "conflict_class", "next_action"] } } } }
+  ]
 }

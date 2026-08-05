@@ -110,7 +110,12 @@ def test_host_event_is_idempotent_but_payload_conflict_is_rejected(tmp_path: Pat
         host="claude-code",
         expected_revision=state["revision"],
         attempt_id="attempt-find-1",
-        payload={"finding_id": "finding-1"},
+        payload={
+            "finding_pack_digest": "a" * 64,
+            "evidence_refs": ["evidence-1"],
+            "submission_status": "submitted",
+            "output_digest": "b" * 64,
+        },
     )
     first = coordinator.ingest_host_event(event)
     second = coordinator.ingest_host_event(event)
@@ -123,10 +128,31 @@ def test_host_event_is_idempotent_but_payload_conflict_is_rejected(tmp_path: Pat
         host=event.host,
         expected_revision=event.expected_revision,
         attempt_id=event.attempt_id,
-        payload={"finding_id": "finding-2"},
+        payload={
+            "finding_pack_digest": "a" * 64,
+            "evidence_refs": ["evidence-2"],
+            "submission_status": "submitted",
+            "output_digest": "c" * 64,
+        },
     )
     with pytest.raises(coordinator.error_type, match="event_id_conflict"):
         coordinator.ingest_host_event(changed)
+
+
+def test_host_event_rejects_incomplete_event_specific_payload() -> None:
+    from research_tree.contracts import ContractError, HostEvent
+
+    with pytest.raises(ContractError, match="payload is incomplete") as error:
+        HostEvent.create(
+            event_id="event-incomplete",
+            event_type="worker_finished",
+            run_id="run-incomplete",
+            round_id="round-events",
+            host="codex",
+            expected_revision=0,
+            payload={"status": "completed"},
+        )
+    assert error.value.code == "incomplete_event_payload"
 
 
 def test_host_event_rejects_unbound_attempt_without_mutating_ledger(tmp_path: Path) -> None:
@@ -143,7 +169,7 @@ def test_host_event_rejects_unbound_attempt_without_mutating_ledger(tmp_path: Pa
         host="codex",
         expected_revision=state["revision"],
         attempt_id="attempt-does-not-exist",
-        payload={"status": "completed"},
+        payload={"terminal_status": "completed", "artifact_refs": ["finding-1"]},
     )
     with pytest.raises(coordinator.error_type, match="attempt_not_found"):
         coordinator.ingest_host_event(event)
@@ -166,7 +192,12 @@ def test_attempt_bound_host_event_requires_attempt_id(tmp_path: Path) -> None:
         round_id="round-events",
         host="hermes",
         expected_revision=state["revision"],
-        payload={"finding_id": "finding-1"},
+        payload={
+            "finding_pack_digest": "a" * 64,
+            "evidence_refs": ["evidence-1"],
+            "submission_status": "submitted",
+            "output_digest": "b" * 64,
+        },
     )
     with pytest.raises(coordinator.error_type, match="attempt_binding_required"):
         coordinator.ingest_host_event(event)
@@ -202,7 +233,7 @@ def test_expired_attempt_cannot_submit_success_event(tmp_path: Path) -> None:
         host="codex",
         expected_revision=state["revision"],
         attempt_id="attempt-expired",
-        payload={"status": "completed"},
+        payload={"terminal_status": "completed", "artifact_refs": ["finding-1"]},
     )
     with pytest.raises(coordinator.error_type, match="attempt_expired"):
         coordinator.ingest_host_event(event)

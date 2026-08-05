@@ -107,6 +107,9 @@ def build_parser() -> argparse.ArgumentParser:
     feedback.add_argument("--workspace", type=Path, required=True)
     feedback.add_argument("--event", type=Path, required=True)
     feedback.add_argument("--expected-revision", type=int, required=True)
+    ingest = run_commands.add_parser("ingest")
+    ingest.add_argument("--workspace", type=Path, required=True)
+    ingest.add_argument("--event", type=Path, required=True)
     deliver = run_commands.add_parser("deliver")
     deliver.add_argument("--workspace", type=Path, required=True)
     deliver.add_argument("--run-id", required=True)
@@ -147,6 +150,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 output = ResearchRunCoordinator(arguments.workspace).record_feedback(
                     value, expected_revision=arguments.expected_revision
                 )
+            elif arguments.run_command == "ingest":
+                value = json.loads(arguments.event.read_text(encoding="utf-8"))
+                output = ResearchRunCoordinator(arguments.workspace).ingest_host_event(value)
             elif arguments.run_command == "migrate":
                 manager = MigrationManager(arguments.workspace)
                 if arguments.mode == "inventory":

@@ -28,6 +28,18 @@ EVENT_TYPES = frozenset(
         "acceptance_recorded", "reconciliation_detected",
     }
 )
+EVENT_PAYLOAD_FIELDS: dict[str, frozenset[str]] = {
+    "dispatch_requested": frozenset({"work_item_id", "permission_profile", "dispatch_digest", "lease_policy"}),
+    "attempt_started": frozenset({"worker_id", "lease_expires_at", "tool_capability_digest", "started_at"}),
+    "finding_submitted": frozenset({"finding_pack_digest", "evidence_refs", "submission_status", "output_digest"}),
+    "review_completed": frozenset({"reviewer_id", "accepted_refs", "field_diagnostics", "review_digest"}),
+    "provider_failed": frozenset({"provider", "model", "retry_category", "opaque_code", "gateway_log_ref"}),
+    "attempt_unknown": frozenset({"reconciliation_reason", "last_heartbeat", "observed_host_state"}),
+    "retry_requested": frozenset({"predecessor_attempt", "method_provider_change", "retry_policy"}),
+    "worker_finished": frozenset({"terminal_status", "artifact_refs"}),
+    "acceptance_recorded": frozenset({"delivery_acceptance_ref", "displayed_digest"}),
+    "reconciliation_detected": frozenset({"host_observation", "canonical_observation", "conflict_class", "next_action"}),
+}
 FEEDBACK_KINDS = frozenset(
     {"correction", "priority_change", "scope_change", "authority_change", "success_change",
      "depth_request", "rejection", "approval"}
@@ -88,6 +100,21 @@ def _required_object(value: Any, label: str) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise ContractError(f"{label} must be an object", code="invalid_contract")
     return dict(value)
+
+
+def validate_host_event_payload(event_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate the required semantic fields for one host event type."""
+
+    if event_type not in EVENT_PAYLOAD_FIELDS:
+        raise ContractError("unsupported host event type", code="unsupported_event_type")
+    normalized = _required_object(payload, "host event payload")
+    missing = EVENT_PAYLOAD_FIELDS[event_type] - set(normalized)
+    if missing:
+        raise ContractError(
+            f"{event_type} payload is incomplete; missing={sorted(missing)}",
+            code="incomplete_event_payload",
+        )
+    return normalized
 
 
 def _exact(data: Mapping[str, Any], required: set[str], label: str) -> None:
@@ -193,12 +220,13 @@ class HostEvent:
             raise ContractError("unsupported host event type", code="unsupported_event_type")
         if host not in {"codex", "claude-code", "hermes"}:
             raise ContractError("unsupported host", code="invalid_host")
-        digest = hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
+        normalized_payload = validate_host_event_payload(event_type, payload)
+        digest = hashlib.sha256(canonical_json_bytes(normalized_payload)).hexdigest()
         stamp = emitted_at or datetime.now(timezone.utc).isoformat()
         return cls(1, _identifier(event_id, "event_id"), event_type,
                    _identifier(run_id, "run_id"), _identifier(round_id, "round_id"),
                    slot_id, action_id, attempt_id, host, causation_id, correlation_id,
-                   int(sequence), int(expected_revision), digest, _timestamp(stamp, "emitted_at"), dict(payload))
+                   int(sequence), int(expected_revision), digest, _timestamp(stamp, "emitted_at"), normalized_payload)
 
     def to_dict(self) -> dict[str, Any]:
         return {"protocol_version": self.protocol_version, "event_id": self.event_id,

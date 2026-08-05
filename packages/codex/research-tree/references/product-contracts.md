@@ -380,6 +380,15 @@ is rejected without mutating the ledger. An attempt whose lease is already
 event. Duplicate event IDs remain idempotent only when their payload digest is
 unchanged. Host-visible status never closes the work item or run by itself.
 
+The coordinator also validates the minimum payload for each event before
+persisting it: `finding_submitted` requires the Finding Pack and output
+digests, evidence refs, and submission status; `worker_finished` requires a
+terminal status and artifact refs; `provider_failed` requires provider/model,
+retry category, opaque code, and safe gateway-log ref; and
+`reconciliation_detected` requires host/canonical observations, conflict
+class, and next action. Other event types use their corresponding field list
+in the HostEvent protocol specification.
+
 ## Persistent recursive research state
 
 Every accepted batch appends a `research-tree-state` artifact. Revision zero

@@ -2,8 +2,9 @@ from research_tree import canonical_event_digest, emit_native_event, sanitize_pr
 
 
 def test_equivalent_codex_and_claude_events_have_same_semantic_digest():
-    codex = emit_native_event(host="codex", event_id="codex-event", event_type="worker_finished", run_id="run-1", round_id="round-1", expected_revision=2, attempt_id="attempt-1", payload={"status": "verified", "finding": "f-1"})
-    claude = emit_native_event(host="claude-code", event_id="claude-event", event_type="worker_finished", run_id="run-1", round_id="round-1", expected_revision=2, attempt_id="attempt-1", payload={"status": "verified", "finding": "f-1"})
+    payload = {"terminal_status": "verified", "artifact_refs": ["finding-f-1"]}
+    codex = emit_native_event(host="codex", event_id="codex-event", event_type="worker_finished", run_id="run-1", round_id="round-1", expected_revision=2, attempt_id="attempt-1", payload=payload)
+    claude = emit_native_event(host="claude-code", event_id="claude-event", event_type="worker_finished", run_id="run-1", round_id="round-1", expected_revision=2, attempt_id="attempt-1", payload=payload)
     assert canonical_event_digest([codex]) == canonical_event_digest([claude])
 
 

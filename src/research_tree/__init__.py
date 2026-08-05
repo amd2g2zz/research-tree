@@ -180,7 +180,13 @@ from .alignment_handoff import (
     initialize_research_from_alignment,
 )
 from .storage import RunStore
-from .contracts import ContractError, EntityEnvelope, HostEvent, validate_feedback_event
+from .contracts import (
+    ContractError,
+    EntityEnvelope,
+    HostEvent,
+    validate_feedback_event,
+    validate_host_event_payload,
+)
 from .coordinator import CoordinatorError, ResearchRunCoordinator
 from .evaluation_fixtures import assess_attribution, reported_claude_glm_fixture
 from .policy import AdaptiveResearchPolicy, DEFAULT_WEIGHTS
@@ -327,6 +333,7 @@ __all__ = [
     "EntityEnvelope",
     "HostEvent",
     "validate_feedback_event",
+    "validate_host_event_payload",
     "CoordinatorError",
     "ResearchRunCoordinator",
     "assess_attribution",
