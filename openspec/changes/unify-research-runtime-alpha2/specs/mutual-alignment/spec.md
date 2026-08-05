@@ -14,6 +14,13 @@ The system SHALL persist human statements, agent interpretations, supporting bas
 ### Requirement: Alignment actions are selected from persisted decision state
 The system SHALL choose among reconnaissance, one open question, constructive disagreement, and confirmation using the unresolved impact, human exclusivity, researchability, expected ambiguity reduction, decision consequence, cognitive load, and repetition history.
 
+Each selection SHALL persist an `AlignmentActionAttempt` containing a stable
+attempt id, action kind, target node, belief digest, belief basis, confidence,
+decision consequence, prompt, evidence refs, status, supersession lineage,
+created time, and outcome binding. Candidate scores SHALL expose impact,
+human-exclusivity, researchability, ambiguity reduction, decision consequence,
+cognitive-load penalty, and repetition penalty as separate deterministic factors.
+
 #### Scenario: Agent-verifiable ambiguity exists
 - **WHEN** a high-impact uncertainty can be reduced through repository or external reconnaissance
 - **THEN** the system records and executes a reconnaissance attempt before asking the user to supply the missing technical fact
@@ -21,6 +28,10 @@ The system SHALL choose among reconnaissance, one open question, constructive di
 #### Scenario: Human authority is required
 - **WHEN** a consequential preference or permission cannot be inferred or researched by the agent
 - **THEN** the system asks one open-ended question that explains the current understanding and decision consequence
+
+#### Scenario: Evidence conflicts with a material premise
+- **WHEN** supported reconnaissance conflicts with a high-impact human or agent belief
+- **THEN** the system selects one constructive-disagreement attempt that preserves both beliefs, their bases, confidence, and supported/refuted/not-enough-information disposition
 
 ### Requirement: User-facing alignment remains cognitively bounded
 The system SHALL present a short mirror of current understanding, at most one relevant fact or counterargument, its consequence, and no more than one open prompt in a user-facing alignment turn.
@@ -35,6 +46,10 @@ The system SHALL assign every reconnaissance, question, disagreement, and confir
 #### Scenario: Planner is called repeatedly without an outcome
 - **WHEN** the planner is invoked multiple times while a reconnaissance attempt is pending
 - **THEN** it returns the same pending attempt or a waiting state rather than creating unlimited zero-turn reconnaissance
+
+#### Scenario: A pending attempt is resolved
+- **WHEN** the matching response or reconnaissance outcome is recorded
+- **THEN** that exact attempt is completed once, its outcome binding is persisted, and only a later planner call may create a successor attempt
 
 ### Requirement: Autonomous handoff requires semantic readiness and contextual confirmation
 The system SHALL permit handoff only when outcome, intended use, scope, delivery, authority, success oracle, feasibility, strategy, and material disagreements are sufficiently resolved, and the user explicitly confirms the displayed strategy digest.

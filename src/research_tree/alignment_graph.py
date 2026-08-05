@@ -67,6 +67,7 @@ EDGE_STATUSES = frozenset({"active", "superseded", "rejected"})
 CONFIDENCES = frozenset({"low", "medium", "high"})
 SOURCES = frozenset({"human", "agent", "joint", "reconnaissance", "repository", "experiment"})
 OUTCOMES = frozenset({"answered", "changed", "unchanged", "deferred", "reopened"})
+DISAGREEMENT_DISPOSITIONS = frozenset({"supported", "refuted", "not_enough_information"})
 REQUIRED_ALIGNMENT_TYPES = (
     "outcome",
     "intended_use",
@@ -120,6 +121,19 @@ def _json(value: Any) -> str:
 
 def _digest(value: Any) -> str:
     return hashlib.sha256(_json(value).encode("utf-8")).hexdigest()
+
+
+def _strategy_graph_digest(graph: Mapping[str, Any]) -> str:
+    """Ignore planner bookkeeping so a pending attempt survives a re-plan."""
+
+    nodes = []
+    for node in graph.get("nodes", ()):
+        nodes.append({key: value for key, value in node.items() if key not in {"ask_count", "last_asked_turn", "created_at", "updated_at"}})
+    edges = [
+        {key: value for key, value in edge.items() if key not in {"created_at", "updated_at"}}
+        for edge in graph.get("edges", ())
+    ]
+    return _digest({"nodes": nodes, "edges": edges})
 
 
 def _atomic_write_json(path: Path, value: Mapping[str, Any]) -> None:
@@ -210,69 +224,90 @@ class AlignmentGraphStore:
             nodes = state["graph"]["nodes"]
             readiness = _alignment_readiness(nodes, state["graph"]["edges"])
             controller = state["controller"]
-            eligible = [
-                node
-                for node in nodes
-                if node["human_only"]
-                and node["status"] in {"candidate", "disputed"}
-                and node["ask_count"] < MAX_ASKS_PER_NODE
-                and node["last_asked_turn"] != controller["turn"]
-            ]
-            eligible.sort(key=lambda node: (-node["impact"], node["ask_count"], node["id"]))
-            if readiness["ready"]:
-                decision: dict[str, Any] = {
-                    "action": "await_human_confirmation",
-                    "reason": "the alignment graph supports a strategy handoff",
-                    "question": None,
+            decision, strategy_state = select_alignment_action(
+                nodes=nodes, readiness=readiness, turn=int(controller["turn"]), graph_digest=_strategy_graph_digest(state["graph"])
+            )
+            pending_id = controller.get("pending_action_id")
+            pending = None
+            if pending_id:
+                pending = connection.execute(
+                    "SELECT * FROM alignment_attempts WHERE attempt_id=? AND status='pending'",
+                    (pending_id,),
+                ).fetchone()
+            if pending is not None and pending["belief_digest"] == strategy_state.belief_digest:
+                prior = json.loads(pending["decision_json"])
+                return {
+                    **prior,
+                    "attempt_id": pending["attempt_id"],
+                    "waiting": True,
+                    "turn": controller["turn"],
+                    "stagnant_turns": controller["stagnant_turns"],
+                    "alignment_digest": state["graph_digest"],
+                    "readiness": readiness,
                 }
-            elif controller["stagnant_turns"] >= MAX_STAGNANT_TURNS:
+            supersedes_attempt_id = None
+            if pending is not None:
+                supersedes_attempt_id = pending["attempt_id"]
+                connection.execute(
+                    "UPDATE alignment_attempts SET status='superseded',completed_at=? WHERE attempt_id=?",
+                    (_now(), supersedes_attempt_id),
+                )
+            if controller["stagnant_turns"] >= MAX_STAGNANT_TURNS:
                 decision = {
+                    **decision,
                     "action": "reconnaissance",
-                    "reason": "two consecutive turns produced no graph change",
                     "question": None,
+                    "reason": "two consecutive turns produced no graph change; use evidence before another prompt",
                 }
             elif controller["turn"] >= MAX_TURNS:
                 decision = {
+                    **decision,
                     "action": "reconnaissance",
+                    "question": None,
                     "reason": "alignment dialogue limit reached; resolve remaining nodes with evidence",
-                    "question": None,
                 }
-            elif eligible:
-                node = eligible[0]
+            target_node_id = decision.get("node_id") or decision.get("gap_id")
+            if decision["action"] in {"ask_one", "constructive_disagreement"} and target_node_id:
                 connection.execute(
-                    "UPDATE nodes SET ask_count=ask_count+1, last_asked_turn=? WHERE node_id=?",
-                    (controller["turn"], node["id"]),
+                    "UPDATE nodes SET ask_count=ask_count+1,last_asked_turn=? WHERE node_id=?",
+                    (controller["turn"], target_node_id),
                 )
-                connection.execute(
-                    "UPDATE controller SET pending_node_id=? WHERE singleton=1", (node["id"],)
-                )
-                decision = {
-                    "action": "ask_one",
-                    "node_id": node["id"],
-                    "gap_id": node["id"],
-                    "question": f"Ask one open-ended question about: {node['statement']}",
-                    "reason": "highest-impact unresolved point that only the requester can settle",
-                }
-            else:
-                reason = "; ".join(readiness["reasons"][:3])
-                decision = {
-                    "action": "reconnaissance",
-                    "reason": reason or "remaining uncertainty is agent-verifiable",
-                    "question": None,
-                }
-            strategy_decision, _strategy_state = select_alignment_action(
-                nodes=nodes, readiness=readiness, turn=int(controller["turn"]), graph_digest=_digest({"nodes": nodes, "edges": state["graph"]["edges"]})
+            attempt_identity = {
+                "run_id": controller["run_id"],
+                "belief_digest": strategy_state.belief_digest,
+                "action": decision["action"],
+                "target_node_id": target_node_id,
+                "sequence": int(controller["plan_count"]) + 1,
+            }
+            attempt_id = "alignment-attempt-" + _digest(attempt_identity)[:16]
+            decision = {**decision, "attempt_id": attempt_id, "waiting": False}
+            connection.execute(
+                """
+                INSERT INTO alignment_attempts(
+                    attempt_id,action_kind,target_node_id,belief_digest,
+                    belief_basis_json,confidence,decision_consequence,prompt,
+                    evidence_refs_json,candidate_scores_json,status,
+                    supersedes_attempt_id,decision_json,created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    attempt_id, decision["action"], target_node_id,
+                    strategy_state.belief_digest, _json(decision.get("belief_basis", [])),
+                    decision.get("confidence", "medium"),
+                    decision.get("decision_consequence", decision["reason"]),
+                    decision.get("question"), _json(strategy_state.evidence_refs),
+                    _json(decision.get("candidate_scores", [])), "pending",
+                    supersedes_attempt_id, _json(decision), _now(),
+                ),
             )
-            # Keep the existing action contract, but persist the internal rationale
-            # and only adopt the strategy projection's open prompt when it is safer.
-            decision["strategy_state"] = strategy_decision["strategy_state"]
             connection.execute(
                 """
                 UPDATE controller
-                SET plan_count=plan_count+1, last_decision_json=?
+                SET plan_count=plan_count+1,last_decision_json=?,
+                    pending_node_id=?,pending_action_id=?
                 WHERE singleton=1
                 """,
-                (_json(decision),),
+                (_json(decision), target_node_id, attempt_id),
             )
             state = self._commit_event(connection, "plan_selected", decision)
         return {
@@ -299,6 +334,7 @@ class AlignmentGraphStore:
                 "SELECT * FROM controller WHERE singleton=1"
             ).fetchone()
             pending_node_id = controller["pending_node_id"]
+            pending_action_id = controller["pending_action_id"]
             last_decision = json.loads(controller["last_decision_json"] or "{}")
             if pending_node_id is None and last_decision.get("action") == "ask_one":
                 pending_node_id = last_decision.get("node_id") or last_decision.get("gap_id")
@@ -330,22 +366,127 @@ class AlignmentGraphStore:
             connection.execute(
                 """
                 UPDATE controller
-                SET turn=?, stagnant_turns=?, last_fingerprint=?, pending_node_id=NULL
+                SET turn=?, stagnant_turns=?, last_fingerprint=?, pending_node_id=NULL,
+                    pending_action_id=NULL
                 WHERE singleton=1
                 """,
                 (turn, stagnant, hashed),
             )
+            if pending_action_id:
+                connection.execute(
+                    """
+                    UPDATE alignment_attempts
+                    SET status='completed',outcome_json=?,completed_at=?
+                    WHERE attempt_id=? AND status='pending'
+                    """,
+                    (
+                        _json({"node_id": node_id, "outcome": outcome, "response_digest": hashed}),
+                        _now(), pending_action_id,
+                    ),
+                )
             state = self._commit_event(
                 connection,
                 "response_recorded",
-                {"node_id": node_id, "outcome": outcome, "state_changed": changed},
+                {"attempt_id": pending_action_id, "node_id": node_id, "outcome": outcome, "state_changed": changed},
             )
         return {
             "turn": state["controller"]["turn"],
             "stagnant_turns": state["controller"]["stagnant_turns"],
             "state_changed": changed,
+            "attempt_id": pending_action_id,
             "next_action": "reconnaissance" if stagnant >= MAX_STAGNANT_TURNS else "plan",
         }
+
+    def record_disagreement(
+        self,
+        node_id: str,
+        disposition: str,
+        *,
+        belief_basis: Sequence[str],
+        confidence: str = "medium",
+        expected_attempt_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Record a disagreement outcome without overwriting either belief."""
+
+        node_id = _identifier(node_id, "node id")
+        disposition = _enum(disposition, DISAGREEMENT_DISPOSITIONS, "disagreement disposition")
+        confidence = _enum(confidence, CONFIDENCES, "confidence")
+        basis = [str(item).strip() for item in belief_basis if str(item).strip()]
+        if not basis:
+            raise AlignmentGraphError("disagreement belief_basis must be nonempty")
+        with self._connect() as connection:
+            self._require_schema(connection)
+            row = connection.execute("SELECT * FROM nodes WHERE node_id=?", (node_id,)).fetchone()
+            if row is None or row["node_type"] != "disagreement":
+                raise AlignmentGraphError("disagreement outcome must target a disagreement node")
+            controller = connection.execute("SELECT * FROM controller WHERE singleton=1").fetchone()
+            pending = controller["pending_action_id"]
+            if expected_attempt_id is not None and pending != expected_attempt_id:
+                raise AlignmentGraphError("disagreement outcome does not match the pending attempt")
+            attributes = json.loads(row["attributes_json"])
+            attributes["disagreement_disposition"] = disposition
+            attributes["belief_basis"] = sorted(set(basis))
+            attributes["disposition_confidence"] = confidence
+            connection.execute(
+                "UPDATE nodes SET attributes_json=?,status=?,confidence=?,updated_at=? WHERE node_id=?",
+                (
+                    _json(attributes),
+                    "resolved" if disposition == "not_enough_information" else "disputed",
+                    confidence,
+                    _now(),
+                    node_id,
+                ),
+            )
+            connection.execute(
+                "UPDATE controller SET turn=turn+1,stagnant_turns=0,pending_node_id=NULL,pending_action_id=NULL WHERE singleton=1"
+            )
+            if pending:
+                connection.execute(
+                    "UPDATE alignment_attempts SET status='completed',outcome_json=?,completed_at=? WHERE attempt_id=? AND status='pending'",
+                    (
+                        _json({"node_id": node_id, "disposition": disposition, "belief_basis": sorted(set(basis))}),
+                        _now(),
+                        pending,
+                    ),
+                )
+            state = self._commit_event(
+                connection,
+                "disagreement_recorded",
+                {
+                    "attempt_id": pending,
+                    "node_id": node_id,
+                    "disposition": disposition,
+                    "belief_basis": sorted(set(basis)),
+                    "confidence": confidence,
+                },
+            )
+        return {"attempt_id": pending, "disposition": disposition, "state": state}
+
+    def mark_attempt_unknown(self, attempt_id: str, *, reason: str) -> dict[str, Any]:
+        """Release a lost pending attempt while preserving its durable identity."""
+
+        attempt_id = _identifier(attempt_id, "attempt id")
+        reason = _text(reason, "unknown-attempt reason")
+        with self._connect() as connection:
+            self._require_schema(connection)
+            controller = connection.execute("SELECT * FROM controller WHERE singleton=1").fetchone()
+            if controller["pending_action_id"] != attempt_id:
+                raise AlignmentGraphError("unknown recovery must target the pending alignment attempt")
+            changed = connection.execute(
+                "UPDATE alignment_attempts SET status='unknown',outcome_json=?,completed_at=? WHERE attempt_id=? AND status='pending'",
+                (_json({"reason": reason}), _now(), attempt_id),
+            ).rowcount
+            if changed != 1:
+                raise AlignmentGraphError("pending alignment attempt does not exist")
+            connection.execute(
+                "UPDATE controller SET pending_node_id=NULL,pending_action_id=NULL WHERE singleton=1"
+            )
+            state = self._commit_event(
+                connection,
+                "alignment_attempt_unknown",
+                {"attempt_id": attempt_id, "reason": reason},
+            )
+        return {"attempt_id": attempt_id, "status": "unknown", "state": state}
 
     def apply_correction(
         self, feedback: Mapping[str, Any], *, expected_revision: int,
@@ -398,8 +539,13 @@ class AlignmentGraphStore:
                     self._upsert_node(connection, node)
                 for edge in edges:
                     self._upsert_edge(connection, edge)
+            if controller["pending_action_id"]:
+                connection.execute(
+                    "UPDATE alignment_attempts SET status='superseded',completed_at=? WHERE attempt_id=? AND status='pending'",
+                    (_now(), controller["pending_action_id"]),
+                )
             connection.execute(
-                "UPDATE controller SET phase='alignment', status='alignment', pending_node_id=NULL, last_decision_json=NULL, handoff_json=NULL, invalidated_digests_json=? WHERE singleton=1",
+                "UPDATE controller SET phase='alignment', status='alignment', pending_node_id=NULL, pending_action_id=NULL, last_decision_json=NULL, handoff_json=NULL, invalidated_digests_json=? WHERE singleton=1",
                 (_json(invalidated),),
             )
             state = self._commit_event(
@@ -433,6 +579,9 @@ class AlignmentGraphStore:
             last_decision = state["controller"].get("last_decision") or {}
             if last_decision.get("action") != "await_human_confirmation":
                 raise AlignmentGraphError("cannot confirm before the handoff draft is shown")
+            pending_action_id = state["controller"].get("pending_action_id")
+            if not pending_action_id or last_decision.get("attempt_id") != pending_action_id:
+                raise AlignmentGraphError("handoff confirmation is not bound to the pending alignment attempt")
             if expected_digest is None:
                 raise AlignmentGraphError(
                     "handoff confirmation must include the alignment digest shown in the draft"
@@ -452,10 +601,22 @@ class AlignmentGraphStore:
             connection.execute(
                 """
                 UPDATE controller
-                SET status='autonomous', phase='research', handoff_json=?
+                SET status='autonomous', phase='research', handoff_json=?,
+                    pending_node_id=NULL,pending_action_id=NULL
                 WHERE singleton=1
                 """,
                 (_json(handoff),),
+            )
+            connection.execute(
+                """
+                UPDATE alignment_attempts
+                SET status='completed',outcome_json=?,completed_at=?
+                WHERE attempt_id=? AND status='pending'
+                """,
+                (
+                    _json({"confirmation_digest": handoff["confirmation_digest"], "alignment_digest": state["graph_digest"]}),
+                    _now(), pending_action_id,
+                ),
             )
             state = self._commit_event(connection, "handoff_confirmed", handoff)
         return {
@@ -628,6 +789,7 @@ class AlignmentGraphStore:
             state = json.loads(event["state_json"])
             connection.execute("DELETE FROM edges")
             connection.execute("DELETE FROM nodes")
+            connection.execute("DELETE FROM alignment_attempts")
             self._restore_state(connection, state)
         return self.status()
 
@@ -648,6 +810,7 @@ class AlignmentGraphStore:
                 revision INTEGER NOT NULL,
                 last_fingerprint TEXT,
                 pending_node_id TEXT,
+                pending_action_id TEXT,
                 last_decision_json TEXT,
                 handoff_json TEXT,
                 invalidated_digests_json TEXT NOT NULL DEFAULT '[]',
@@ -684,6 +847,24 @@ class AlignmentGraphStore:
             );
             CREATE INDEX edges_source_idx ON edges(source_id, relation, status);
             CREATE INDEX edges_target_idx ON edges(target_id, relation, status);
+            CREATE TABLE alignment_attempts(
+                attempt_id TEXT PRIMARY KEY,
+                action_kind TEXT NOT NULL,
+                target_node_id TEXT,
+                belief_digest TEXT NOT NULL,
+                belief_basis_json TEXT NOT NULL,
+                confidence TEXT NOT NULL,
+                decision_consequence TEXT NOT NULL,
+                prompt TEXT,
+                evidence_refs_json TEXT NOT NULL,
+                candidate_scores_json TEXT NOT NULL,
+                status TEXT NOT NULL,
+                supersedes_attempt_id TEXT,
+                decision_json TEXT NOT NULL,
+                outcome_json TEXT,
+                created_at TEXT NOT NULL,
+                completed_at TEXT
+            );
             CREATE TABLE events(
                 sequence INTEGER PRIMARY KEY AUTOINCREMENT,
                 event_id TEXT NOT NULL UNIQUE,
@@ -711,6 +892,30 @@ class AlignmentGraphStore:
             connection.execute(
                 "ALTER TABLE controller ADD COLUMN invalidated_digests_json TEXT NOT NULL DEFAULT '[]'"
             )
+        if "pending_action_id" not in columns:
+            connection.execute("ALTER TABLE controller ADD COLUMN pending_action_id TEXT")
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS alignment_attempts(
+                attempt_id TEXT PRIMARY KEY,
+                action_kind TEXT NOT NULL,
+                target_node_id TEXT,
+                belief_digest TEXT NOT NULL,
+                belief_basis_json TEXT NOT NULL,
+                confidence TEXT NOT NULL,
+                decision_consequence TEXT NOT NULL,
+                prompt TEXT,
+                evidence_refs_json TEXT NOT NULL,
+                candidate_scores_json TEXT NOT NULL,
+                status TEXT NOT NULL,
+                supersedes_attempt_id TEXT,
+                decision_json TEXT NOT NULL,
+                outcome_json TEXT,
+                created_at TEXT NOT NULL,
+                completed_at TEXT
+            )
+            """
+        )
 
     @staticmethod
     def _upsert_node(connection: sqlite3.Connection, node: Mapping[str, Any]) -> None:
@@ -818,6 +1023,27 @@ class AlignmentGraphStore:
             for row in connection.execute("SELECT * FROM edges ORDER BY edge_id")
         ]
         graph = {"nodes": nodes, "edges": edges}
+        attempts = [
+            {
+                "attempt_id": row["attempt_id"],
+                "action_kind": row["action_kind"],
+                "target_node_id": row["target_node_id"],
+                "belief_digest": row["belief_digest"],
+                "belief_basis": json.loads(row["belief_basis_json"]),
+                "confidence": row["confidence"],
+                "decision_consequence": row["decision_consequence"],
+                "prompt": row["prompt"],
+                "evidence_refs": json.loads(row["evidence_refs_json"]),
+                "candidate_scores": json.loads(row["candidate_scores_json"]),
+                "status": row["status"],
+                "supersedes_attempt_id": row["supersedes_attempt_id"],
+                "decision": json.loads(row["decision_json"]),
+                "outcome": json.loads(row["outcome_json"]) if row["outcome_json"] else None,
+                "created_at": row["created_at"],
+                "completed_at": row["completed_at"],
+            }
+            for row in connection.execute("SELECT * FROM alignment_attempts ORDER BY created_at, attempt_id")
+        ]
         return {
             "schema": SCHEMA,
             "controller": {
@@ -827,6 +1053,7 @@ class AlignmentGraphStore:
                 "plan_count": controller["plan_count"], "revision": controller["revision"],
                 "last_fingerprint": controller["last_fingerprint"],
                 "pending_node_id": controller["pending_node_id"],
+                "pending_action_id": controller["pending_action_id"],
                 "last_decision": json.loads(controller["last_decision_json"])
                 if controller["last_decision_json"] else None,
                 "handoff": json.loads(controller["handoff_json"])
@@ -835,6 +1062,7 @@ class AlignmentGraphStore:
                 "created_at": controller["created_at"], "updated_at": controller["updated_at"],
             },
             "graph": graph,
+            "attempts": attempts,
             "graph_digest": _digest(graph),
         }
 
@@ -844,12 +1072,13 @@ class AlignmentGraphStore:
             """
             UPDATE controller SET run_id=?,phase=?,status=?,turn=?,stagnant_turns=?,
                 plan_count=?,revision=?,last_fingerprint=?,pending_node_id=?,
-                last_decision_json=?,handoff_json=?,invalidated_digests_json=?,created_at=?,updated_at=? WHERE singleton=1
+                pending_action_id=?,last_decision_json=?,handoff_json=?,invalidated_digests_json=?,created_at=?,updated_at=? WHERE singleton=1
             """,
             (
                 controller["run_id"], controller["phase"], controller["status"], controller["turn"],
                 controller["stagnant_turns"], controller["plan_count"], controller["revision"],
                 controller["last_fingerprint"], controller["pending_node_id"],
+                controller.get("pending_action_id"),
                 _json(controller["last_decision"]) if controller["last_decision"] else None,
                 _json(controller["handoff"]) if controller["handoff"] else None,
                 _json(controller.get("invalidated_digests", [])),
@@ -867,6 +1096,26 @@ class AlignmentGraphStore:
             connection.execute(
                 "UPDATE edges SET created_at=?,updated_at=? WHERE edge_id=?",
                 (edge["created_at"], edge["updated_at"], edge["id"]),
+            )
+        for attempt in state.get("attempts", ()):
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO alignment_attempts(
+                    attempt_id,action_kind,target_node_id,belief_digest,
+                    belief_basis_json,confidence,decision_consequence,prompt,
+                    evidence_refs_json,candidate_scores_json,status,
+                    supersedes_attempt_id,decision_json,outcome_json,created_at,completed_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    attempt["attempt_id"], attempt["action_kind"], attempt.get("target_node_id"),
+                    attempt["belief_digest"], _json(attempt.get("belief_basis", [])),
+                    attempt["confidence"], attempt["decision_consequence"], attempt.get("prompt"),
+                    _json(attempt.get("evidence_refs", [])), _json(attempt.get("candidate_scores", [])),
+                    attempt["status"], attempt.get("supersedes_attempt_id"),
+                    _json(attempt["decision"]), _json(attempt["outcome"]) if attempt.get("outcome") else None,
+                    attempt["created_at"], attempt.get("completed_at"),
+                ),
             )
 
 
@@ -967,20 +1216,34 @@ def _alignment_readiness(
     nodes: Sequence[Mapping[str, Any]], edges: Sequence[Mapping[str, Any]]
 ) -> dict[str, Any]:
     reasons: list[str] = []
+    checks: dict[str, str] = {}
     active_edges = [edge for edge in edges if edge["status"] == "active"]
     superseded_ids = {
         edge["target_id"] for edge in active_edges if edge["relation"] == "supersedes"
     }
     for node_type in REQUIRED_ALIGNMENT_TYPES:
-        if not any(node["type"] == node_type and node["status"] in ACCEPTED_STATUSES for node in nodes):
+        matching = [node for node in nodes if node["type"] == node_type]
+        if any(node["status"] in ACCEPTED_STATUSES for node in matching):
+            checks[node_type] = "pass"
+        elif matching:
+            checks[node_type] = "unknown"
+            reasons.append(f"supported {node_type} is not yet confirmed")
+        else:
+            checks[node_type] = "fail"
             reasons.append(f"missing supported {node_type}")
     if any(
         node["human_only"] and node["status"] in {"candidate", "disputed"}
         for node in nodes
     ):
         reasons.append("a requester-only question remains unresolved")
+        checks["requester_authority"] = "unknown"
+    else:
+        checks["requester_authority"] = "pass"
     if any(node["status"] == "disputed" and node["impact"] >= 4 for node in nodes):
         reasons.append("a high-impact disagreement remains unresolved")
+        checks["material_disagreement"] = "unknown"
+    else:
+        checks["material_disagreement"] = "pass"
     researchable = [
         node
         for node in nodes
@@ -991,9 +1254,15 @@ def _alignment_readiness(
     ]
     if not researchable:
         reasons.append("no executable research question is represented")
+        checks["researchability"] = "fail"
+    else:
+        checks["researchability"] = "pass"
     for node in researchable:
         if not node.get("oracle"):
             reasons.append(f"research node {node['id']} has no closure oracle")
+            checks["research_oracle"] = "unknown"
+    if "research_oracle" not in checks:
+        checks["research_oracle"] = "pass"
     researchable_ids = {node["id"] for node in researchable}
     for node in nodes:
         if node["type"] != "evidence" or node["status"] not in ACCEPTED_STATUSES:
@@ -1012,7 +1281,7 @@ def _alignment_readiness(
             reasons.append(
                 f"evidence node {node['id']} needs a current research edge or alignment_only disposition"
             )
-    return {"ready": not reasons, "reasons": reasons}
+    return {"ready": not reasons and all(value == "pass" for value in checks.values()), "reasons": reasons, "checks": checks}
 
 
 def _accepted_statements(
@@ -1215,6 +1484,14 @@ def _schema_document() -> dict[str, Any]:
             ],
             "relations": sorted(EDGE_RELATIONS),
             "statuses": sorted(EDGE_STATUSES),
+        },
+        "alignment_action_attempt": {
+            "required": [
+                "attempt_id", "action_kind", "belief_digest", "belief_basis",
+                "confidence", "decision_consequence", "status",
+            ],
+            "statuses": ["pending", "completed", "unknown", "superseded"],
+            "actions": ["reconnaissance", "ask_one", "constructive_disagreement", "await_human_confirmation", "authority_blocked"],
         },
         "example_update": {
             "nodes": [
