@@ -13,11 +13,11 @@ substitute for local evidence.
 
 ## 1. Contract and Alpha1 Baseline (#55, #66)
 
-- [ ] 1.1 Add an alpha1 fixture manifest that pins tag `0.0.1-a1`, exact environment inputs, host package revisions, commands, and expected unsafe outcomes.
+- [ ] 1.1 Add an alpha1 fixture manifest that pins tag `0.0.1-a1`, exact environment inputs, host package revisions, commands, and expected unsafe outcomes. Implementation evidence: `evaluation/cases/alpha1-adversarial-v1.json` and evaluator-owned oracle map; group acceptance remains pending until the complete baseline suite is recorded.
 - [ ] 1.2 Convert forged validation status, missing evidence reference, filler report, empty frontier, and adapter-only completion into negative semantic regression tests.
 - [ ] 1.3 Add alignment fixtures for premature handoff, active disagreement, generic acknowledgement, and repeated unconsumed reconnaissance.
 - [ ] 1.4 Add provider-failure, stale event, duplicate event, and crash-boundary fixtures for native and Hermes paths.
-- [ ] 1.5 Register hidden-oracle boundaries so worker-visible fixtures cannot access eventual patches or expected answers.
+- [ ] 1.5 Register hidden-oracle boundaries so worker-visible fixtures cannot access eventual patches or expected answers. Implementation evidence: public cases carry oracle IDs only; outcomes remain in `evaluation/harness/alpha1_adversarial.py`.
 - [ ] 1.6 Link each fixture and acceptance oracle back to the corresponding alpha2 capability requirement and GitHub issue.
 
 ## 2. SQLite RunLedger and Content-Addressed Storage (#53)

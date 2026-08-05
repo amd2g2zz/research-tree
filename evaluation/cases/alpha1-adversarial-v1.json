@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "id": "alpha1-adversarial-v1",
+  "baseline": {
+    "tag": "0.0.1-a1",
+    "commit": "8ab91ea4eb55c98441b5ee6001b80922a56ecdd1",
+    "host_packages": {
+      "codex": "packages/codex/research-tree@0.0.1-a1",
+      "claude": "packages/claude-code/research-tree@0.0.1-a1",
+      "hermes": "packages/hermes/research-tree@0.0.1-a1"
+    },
+    "environment": {
+      "platform": "declared-at-run-time",
+      "python": ">=3.11",
+      "network": "recorded-or-disabled",
+      "repository": "clean-checkout-required"
+    }
+  },
+  "cases": [
+    {"id": "forged-validation", "host": "codex", "command": "uv run pytest -q tests/test_oracle_closure.py::test_forged_passed_status", "oracle_id": "alpha1-forged-validation"},
+    {"id": "missing-evidence", "host": "codex", "command": "uv run pytest -q tests/test_oracle_closure.py::test_missing_evidence_reference", "oracle_id": "alpha1-missing-evidence"},
+    {"id": "filler-report", "host": "claude", "command": "uv run pytest -q tests/test_deliveries.py::test_filler_report_is_accepted", "oracle_id": "alpha1-filler-report"},
+    {"id": "empty-frontier", "host": "codex", "command": "uv run pytest -q tests/test_recursive_search.py::test_empty_frontier_completes", "oracle_id": "alpha1-empty-frontier"},
+    {"id": "active-contradiction", "host": "claude", "command": "uv run pytest -q tests/test_decision_ledger.py::test_active_contradiction_closes", "oracle_id": "alpha1-active-contradiction"},
+    {"id": "repeated-reconnaissance", "host": "hermes", "command": "uv run pytest -q tests/test_alignment_protocol.py::test_reconnaissance_can_repeat_without_attempt", "oracle_id": "alpha1-repeated-reconnaissance"},
+    {"id": "adapter-only-completion", "host": "hermes", "command": "uv run pytest -q tests/test_completion_gates.py::test_adapter_event_completes_run", "oracle_id": "alpha1-adapter-only-completion"},
+    {"id": "provider-failure", "host": "claude", "command": "uv run pytest -q tests/test_host_events.py::test_provider_failure_stops_without_recovery", "oracle_id": "alpha1-provider-failure"},
+    {"id": "crash-recovery", "host": "codex", "command": "uv run pytest -q tests/test_sqlite_ledger.py::test_crash_boundary_loses_obligations", "oracle_id": "alpha1-crash-recovery"}
+  ]
+}
