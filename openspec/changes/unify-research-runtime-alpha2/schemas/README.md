@@ -16,6 +16,7 @@ tools, and release evidence.
 | research-action-v1.json | Policy-selected action proposal and score inputs | policy/coordinator |
 | attempt-lease-v1.json | Work attempt and lease state | scheduler/coordinator |
 | work-item-v1.json | Executable research assignment | scheduler/coordinator |
+| finding-pack-v1.json | Attempt-bound observations and continuations | evidence/coordinator |
 | evidence-artifact-v1.json | Immutable acquired evidence object | acquisition/evidence resolver |
 | evidence-anchor-v1.json | Exact evidence selector | evidence resolver |
 | oracle-spec-v1.json | Reproducible validation contract | oracle runner |

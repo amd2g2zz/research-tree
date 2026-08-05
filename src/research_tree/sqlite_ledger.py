@@ -65,6 +65,11 @@ class SQLiteRunLedger:
               PRIMARY KEY(run_id,evidence_id,revision),
               FOREIGN KEY(run_id,evidence_id,revision)
                 REFERENCES artifacts(run_id,artifact_id,revision));
+            CREATE TABLE IF NOT EXISTS stage_operations(
+              run_id TEXT NOT NULL,stage_id TEXT NOT NULL,stage TEXT NOT NULL,
+              input_digest TEXT NOT NULL,committed_revision INTEGER NOT NULL,
+              result_json TEXT NOT NULL,created_at TEXT NOT NULL,
+              PRIMARY KEY(run_id,stage_id),FOREIGN KEY(run_id) REFERENCES runs(run_id));
             """)
             schema = canonical_json_bytes({"version": 1, "tables": ["runs", "events", "artifacts", "artifact_parents"]})
             connection.execute("INSERT OR IGNORE INTO schema_migrations VALUES(1,?,?)", (datetime.now(timezone.utc).isoformat(), hashlib.sha256(schema).hexdigest()))
@@ -78,6 +83,8 @@ class SQLiteRunLedger:
             connection.execute("INSERT OR IGNORE INTO schema_migrations VALUES(5,?,?)", (datetime.now(timezone.utc).isoformat(), hashlib.sha256(schema_v5).hexdigest()))
             schema_v6 = canonical_json_bytes({"version": 6, "tables": ["content_objects", "evidence"]})
             connection.execute("INSERT OR IGNORE INTO schema_migrations VALUES(6,?,?)", (datetime.now(timezone.utc).isoformat(), hashlib.sha256(schema_v6).hexdigest()))
+            schema_v7 = canonical_json_bytes({"version": 7, "tables": ["stage_operations"]})
+            connection.execute("INSERT OR IGNORE INTO schema_migrations VALUES(7,?,?)", (datetime.now(timezone.utc).isoformat(), hashlib.sha256(schema_v7).hexdigest()))
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database, timeout=10.0)

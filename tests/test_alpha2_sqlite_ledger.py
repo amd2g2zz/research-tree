@@ -31,6 +31,35 @@ def test_sqlite_ledger_satisfies_backend_neutral_storage_protocol(tmp_path):
     assert {"artifacts", "artifact_parents", "content_objects", "evidence"} <= tables
 
 
+def test_sqlite_ledger_registers_stage_operation_schema_migration(tmp_path):
+    ledger = SQLiteRunLedger(tmp_path)
+
+    with ledger._connect() as connection:
+        versions = [
+            row[0]
+            for row in connection.execute(
+                "SELECT version FROM schema_migrations ORDER BY version"
+            ).fetchall()
+        ]
+        stage_columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info(stage_operations)"
+            ).fetchall()
+        }
+
+    assert versions == [1, 2, 3, 4, 5, 6, 7]
+    assert stage_columns == {
+        "run_id",
+        "stage_id",
+        "stage",
+        "input_digest",
+        "committed_revision",
+        "result_json",
+        "created_at",
+    }
+
+
 def test_sqlite_ledger_rejects_stale_write_and_dangling_parent(tmp_path):
     ResearchRunCoordinator(tmp_path).create("run-1")
     ledger = SQLiteRunLedger(tmp_path)

@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/finding-pack-v1.json",
+  "title": "Alpha2 FindingPack payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "finding_id", "run_id", "attempt_id", "work_item_ref",
+    "blueprint_target_ref", "decision_slot_id", "observations",
+    "option_effects", "implementation_implications",
+    "remaining_uncertainties", "research_continuations", "oracle_run_refs"
+  ],
+  "properties": {
+    "finding_id": { "$ref": "#/$defs/identifier" },
+    "run_id": { "$ref": "#/$defs/identifier" },
+    "attempt_id": { "$ref": "#/$defs/identifier" },
+    "work_item_ref": { "$ref": "#/$defs/artifactRef" },
+    "blueprint_target_ref": { "$ref": "#/$defs/artifactRef" },
+    "decision_slot_id": { "$ref": "#/$defs/identifier" },
+    "observations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "observation_id", "class", "claim", "anchors", "assumptions",
+          "consequence", "reversal_condition", "unknown_reason",
+          "next_acquisition_method", "confidence", "limitations"
+        ],
+        "properties": {
+          "observation_id": { "$ref": "#/$defs/identifier" },
+          "class": { "type": "string", "enum": ["fact", "inference", "recommendation", "unknown"] },
+          "claim": { "type": "string", "minLength": 1 },
+          "anchors": { "type": "array", "items": { "$ref": "#/$defs/evidenceAnchor" } },
+          "assumptions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "consequence": { "type": ["string", "null"], "minLength": 1 },
+          "reversal_condition": { "type": ["string", "null"], "minLength": 1 },
+          "unknown_reason": { "type": ["string", "null"], "minLength": 1 },
+          "next_acquisition_method": { "type": ["string", "null"], "minLength": 1 },
+          "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+          "limitations": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "class": { "enum": ["fact", "inference"] } } },
+            "then": { "properties": { "anchors": { "minItems": 1 } } }
+          },
+          {
+            "if": { "properties": { "class": { "const": "inference" } } },
+            "then": { "properties": { "assumptions": { "minItems": 1 } } }
+          },
+          {
+            "if": { "properties": { "class": { "const": "recommendation" } } },
+            "then": { "properties": { "consequence": { "type": "string", "minLength": 1 }, "reversal_condition": { "type": "string", "minLength": 1 } } }
+          },
+          {
+            "if": { "properties": { "class": { "const": "unknown" } } },
+            "then": { "properties": { "unknown_reason": { "type": "string", "minLength": 1 }, "next_acquisition_method": { "type": "string", "minLength": 1 } } }
+          }
+        ]
+      }
+    },
+    "option_effects": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["option", "effect", "observation_ids"],
+        "properties": {
+          "option": { "type": "string", "minLength": 1 },
+          "effect": { "type": "string", "enum": ["supports", "contradicts", "neutral"] },
+          "observation_ids": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/identifier" } }
+        }
+      }
+    },
+    "implementation_implications": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "remaining_uncertainties": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["uncertainty_id", "statement", "next_method"],
+        "properties": {
+          "uncertainty_id": { "$ref": "#/$defs/identifier" },
+          "statement": { "type": "string", "minLength": 1 },
+          "next_method": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "research_continuations": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["action_kind", "objective", "trigger_ref"],
+        "properties": {
+          "action_kind": { "type": "string", "enum": ["landscape", "deep_dive", "adversarial", "validation", "method_switch"] },
+          "objective": { "type": "string", "minLength": 1 },
+          "trigger_ref": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "oracle_run_refs": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["oracle_run_id", "payload_digest"],
+        "properties": {
+          "oracle_run_id": { "$ref": "#/$defs/identifier" },
+          "payload_digest": { "$ref": "#/$defs/digest" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "artifactRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["run_id", "artifact_id", "revision", "content_hash"],
+      "properties": {
+        "run_id": { "$ref": "#/$defs/identifier" },
+        "artifact_id": { "$ref": "#/$defs/identifier" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "content_hash": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "evidenceAnchor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artifact_digest", "artifact_revision", "selector_type", "selector_value", "extractor_version", "applicability", "confidence", "limitations"],
+      "properties": {
+        "artifact_digest": { "$ref": "#/$defs/digest" },
+        "artifact_revision": { "type": "integer", "minimum": 1 },
+        "selector_type": { "type": "string", "enum": ["line", "symbol", "fragment", "page_section", "image_region", "input_revision", "experiment_field"] },
+        "selector_value": { "type": "object", "minProperties": 1 },
+        "extractor_version": { "type": "string", "minLength": 1 },
+        "applicability": { "type": "string", "minLength": 1 },
+        "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+        "limitations": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    }
+  }
+}

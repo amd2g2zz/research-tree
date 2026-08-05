@@ -47,6 +47,20 @@ The system SHALL reconstruct the latest committed state, mark uncertain in-fligh
 - **WHEN** no authoritative completion event exists for the active attempt
 - **THEN** recovery marks the attempt unknown and requires reconciliation or a new attempt identity
 
+Every execution-stage transaction SHALL publish deterministic fault boundaries
+after semantic validation, artifact append, attempt/obligation effects, run-row
+update, revision snapshot, and accepted-event append. These boundaries are test
+controls, not additional commits. A fault at any boundary SHALL roll the entire
+stage back to the same predecessor state and leave the idempotency identity
+available for a clean retry.
+
+#### Scenario: Stage retry follows a committed response loss
+
+- **WHEN** a stage transaction committed but its response was lost
+- **THEN** retrying the identical idempotency identity returns the exact
+  committed stage result and does not repeat compiler, lifecycle, or successor
+  effects
+
 ### Requirement: Operational limits create checkpoints, not successful completion
 The system SHALL treat provider, token, concurrency, wall-clock, and local execution limits as resumable pause or method-switch conditions and SHALL NOT use monetary cost as a research completion criterion.
 

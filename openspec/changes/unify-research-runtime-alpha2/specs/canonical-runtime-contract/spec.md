@@ -79,6 +79,78 @@ Every external attempt SHALL have a unique `attempt_id`, an immutable dispatch p
 - **WHEN** an attempt lease expires without a terminal event
 - **THEN** recovery marks it `unknown`, records the lease evidence, and forbids treating the old attempt as successful
 
+### Requirement: Canonical execution stages are revision-bound transactions
+
+The coordinator SHALL expose stage commands for `dispatch`, `ingest`,
+`synthesize`, `converge`, `readiness`, and `successor-work`. Every command
+MUST receive `run_id`, `expected_revision`, an idempotency identity, and exact
+artifact references for every previously persisted input. An exact artifact
+reference contains `run_id`, `artifact_id`, positive `revision`, and
+`content_hash`; a bare id, latest-revision lookup, host-local path, or inline
+replacement payload is not sufficient.
+
+Each command SHALL validate all inputs before its first write, start one
+`BEGIN IMMEDIATE` transaction, and atomically commit the complete stage write
+set:
+
+- `dispatch` resolves one current Work Item and Blueprint Target, verifies its
+  dependencies, permission profile, executable success oracle, and current
+  strategy authority, then commits the immutable dispatch identity, Attempt
+  Lease, run revision, revision snapshot, and `action_dispatched` event;
+- `ingest` binds one Finding Pack to the exact active attempt, Work Item,
+  Blueprint Target, Evidence Artifacts, and OracleRuns, applies the existing
+  Finding Pack semantic validator, then commits the artifact, attempt
+  disposition, run revision, revision snapshot, and `finding_ingested` event;
+- `synthesize` consumes an explicit ordered set of accepted Finding Pack refs,
+  invokes the canonical InsightDigest producer, and commits the digest and
+  `batch_checkpoint` transition together;
+- `converge` applies the existing Decision Ledger validator to exact Blueprint
+  Target, Finding Pack, InsightDigest, and prior decision refs, commits each
+  immutable decision revision, recomputes closure consequences, and commits
+  either `all_slots_closed` or `closure_deficit` with its successor-work refs;
+- `readiness` invokes the existing ReadinessVerifier over exact current
+  lineage and commits the ReadinessRecord, obligation disposition, and either
+  `readiness_passed` or `readiness_deficit` together; and
+- `successor-work` commits deterministic Work Items whose ids are derived from
+  the exact deficit, contradiction, failed oracle, method limitation, or
+  readiness diagnostic that triggered them. A successor never overwrites its
+  trigger or prior Work Item.
+
+The stage transaction SHALL roll back its artifact, attempt update, lifecycle
+or obligation update, revision snapshot, and accepted event together. A retry
+with the same idempotency identity and identical input digest SHALL return the
+committed result without adding a revision or event. Reuse with different
+inputs SHALL fail as `idempotency_conflict`. A stale expected revision SHALL
+fail before semantic compilation and without mutation.
+
+#### Scenario: Dispatch loses the database race
+
+- **WHEN** two dispatch requests name the same expected run revision
+- **THEN** exactly one commits an Attempt Lease and `action_dispatched` event
+- **AND** the other fails as `stale_revision` without an orphan attempt
+
+#### Scenario: Finding ingestion crashes after artifact insertion
+
+- **WHEN** a fault is injected after the Finding Pack row but before the
+  attempt disposition, revision snapshot, or event is written
+- **THEN** reopening the ledger exposes none of that stage's writes
+- **AND** retrying the same ingestion identity commits exactly once
+
+#### Scenario: Synthesis still exposes a decision deficit
+
+- **WHEN** the InsightDigest contains an uncovered, contested, thin, or
+  qualified P0 Slot
+- **THEN** convergence returns to `autonomous_research` through
+  `closure_deficit` and commits evidence-linked successor Work Items
+- **AND** an empty host queue cannot substitute for those items
+
+#### Scenario: Readiness validator reports a deficit
+
+- **WHEN** the exact current package fails any required readiness gate
+- **THEN** the ReadinessRecord and targeted successor Work Items are retained
+  as evidence, the run returns to `autonomous_research`, and no delivery
+  obligation is satisfied
+
 ### Requirement: Coordinator APIs and CLI commands are stable
 
 The implementation SHALL expose a Python coordinator API and JSON CLI commands using the canonical form research-tree run <verb> for init, status, next, ingest, retry, recover, explain, why-action, why-not-complete, replay, reconcile-host, deliver, accept, supersede, and export-audit. Flat run-<verb> names and existing observability names may remain aliases but SHALL route to the same coordinator operation. Every command MUST document required inputs, output schema, exit codes, and whether it mutates state.

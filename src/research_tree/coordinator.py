@@ -12,6 +12,7 @@ from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
+import re
 import sqlite3
 from typing import Any, Callable, Mapping
 
@@ -29,6 +30,9 @@ from .leases import AttemptLease
 from .host_events import reconcile_host_events
 from .oracles import OracleAttempt, OracleRun, OracleSpec
 from .closure import P0ClosureAggregate, SlotClosureAssessment
+from .evidence import EvidenceArtifact, EvidenceError, EvidenceResolver
+from .finding_packs import FindingPackContractError, validate_finding_pack_payload
+from .worker_contracts import CanonicalWorkItem, WorkerContractError
 
 
 LIFECYCLE_STATES = frozenset({
@@ -66,6 +70,7 @@ ATTEMPT_BOUND_EVENT_TYPES = frozenset({
     "attempt_started", "finding_submitted", "review_completed",
     "provider_failed", "attempt_unknown", "retry_requested", "worker_finished",
 })
+IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 
 
 class CoordinatorError(RuntimeError):
@@ -204,6 +209,12 @@ class ResearchRunCoordinator:
           PRIMARY KEY(run_id,aggregate_revision),
           FOREIGN KEY(run_id,blueprint_binding_revision)
             REFERENCES decision_slot_sets(run_id,binding_revision)
+        );
+        CREATE TABLE IF NOT EXISTS stage_operations(
+          run_id TEXT NOT NULL, stage_id TEXT NOT NULL, stage TEXT NOT NULL,
+          input_digest TEXT NOT NULL, committed_revision INTEGER NOT NULL,
+          result_json TEXT NOT NULL, created_at TEXT NOT NULL,
+          PRIMARY KEY(run_id,stage_id), FOREIGN KEY(run_id) REFERENCES runs(run_id)
         );
         """)
         run_columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
@@ -607,6 +618,499 @@ class ResearchRunCoordinator:
             )
         return state
 
+    def dispatch_action(
+        self,
+        run_id: str,
+        *,
+        stage_id: str,
+        work_item_ref: Mapping[str, Any],
+        blueprint_target_ref: Mapping[str, Any],
+        attempt_id: str,
+        owner: str,
+        started_at: str,
+        lease_expires_at: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        """Atomically bind one exact Work Item to a new attempt lease."""
+
+        if not isinstance(stage_id, str) or not IDENTIFIER_RE.fullmatch(stage_id):
+            raise CoordinatorError("stage id is invalid", code="invalid_stage_id")
+        try:
+            exact_work_ref = validate_exact_artifact_ref(
+                work_item_ref, label="dispatch work item reference", run_id=run_id
+            )
+            exact_target_ref = validate_exact_artifact_ref(
+                blueprint_target_ref,
+                label="dispatch Blueprint Target reference",
+                run_id=run_id,
+            )
+        except ContractError as error:
+            raise CoordinatorError(
+                "dispatch artifact reference is invalid", code="dispatch_ref_invalid"
+            ) from error
+        request = {
+            "stage": "dispatch",
+            "stage_id": stage_id,
+            "run_id": run_id,
+            "work_item_ref": exact_work_ref,
+            "blueprint_target_ref": exact_target_ref,
+            "attempt_id": attempt_id,
+            "owner": owner,
+            "started_at": started_at,
+            "lease_expires_at": lease_expires_at,
+            "expected_revision": expected_revision,
+        }
+        input_digest = self._digest(request)
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            prior = connection.execute(
+                "SELECT input_digest,result_json FROM stage_operations WHERE run_id=? AND stage_id=?",
+                (run_id, stage_id),
+            ).fetchone()
+            if prior is not None:
+                if prior["input_digest"] != input_digest:
+                    raise CoordinatorError(
+                        "stage id was reused with different inputs",
+                        code="idempotency_conflict",
+                    )
+                return json.loads(prior["result_json"])
+
+            row = self._require_run(connection, run_id)
+            if int(row["revision"]) != expected_revision:
+                raise CoordinatorError("expected revision is stale", code="stale_revision")
+            if row["lifecycle_state"] != "autonomous_research":
+                raise CoordinatorError(
+                    "actions can only dispatch during autonomous research",
+                    code="dispatch_state_invalid",
+                )
+            self._assert_current_in_connection(
+                connection, run_id, self._authority_digest(row), action="dispatch"
+            )
+
+            binding = self._current_blueprint_target_ref(connection, run_id)
+            if binding is None or binding[1] != exact_target_ref:
+                raise CoordinatorError(
+                    "dispatch does not bind the current Blueprint Target",
+                    code="blueprint_binding_invalid",
+                )
+            target = self._resolve_initialization_artifact(
+                connection,
+                exact_target_ref,
+                expected_kind="blueprint-target",
+                stale_code="stale_blueprint",
+            )
+            if target["status"] != "active":
+                raise CoordinatorError(
+                    "dispatch Blueprint Target is not active",
+                    code="blueprint_binding_invalid",
+                )
+            work_artifact = self._resolve_initialization_artifact(
+                connection,
+                exact_work_ref,
+                expected_kind="work-item",
+                stale_code="stale_work_item",
+            )
+            if work_artifact["status"] != "pending":
+                raise CoordinatorError(
+                    "Work Item is not pending dispatch", code="work_item_not_dispatchable"
+                )
+            if self._lineage_key(exact_target_ref) not in work_artifact["parent_keys"]:
+                raise CoordinatorError(
+                    "Work Item does not descend from the current Blueprint Target",
+                    code="work_item_lineage_invalid",
+                )
+            try:
+                work = CanonicalWorkItem.create(**work_artifact["payload"])
+            except (TypeError, WorkerContractError, ValueError) as error:
+                raise CoordinatorError(
+                    "Work Item execution contract is invalid",
+                    code="unverifiable_work_item",
+                ) from error
+            if work.work_item_id != exact_work_ref["artifact_id"]:
+                raise CoordinatorError(
+                    "Work Item id does not match its artifact",
+                    code="work_item_lineage_invalid",
+                )
+
+            attempts = [
+                AttemptLease.from_dict(json.loads(item["lease_json"]))
+                for item in connection.execute(
+                    "SELECT lease_json FROM action_attempts WHERE run_id=?",
+                    (run_id,),
+                ).fetchall()
+            ]
+            for dependency in work.dependencies:
+                if not any(
+                    attempt.work_item_id == dependency
+                    and attempt.status in {"verified", "completed"}
+                    for attempt in attempts
+                ):
+                    raise CoordinatorError(
+                        f"Work Item dependency is not complete: {dependency}",
+                        code="work_dependency_open",
+                    )
+            if any(
+                attempt.work_item_id == work.work_item_id
+                and attempt.status in {"leased", "running", "submitted"}
+                for attempt in attempts
+            ):
+                raise CoordinatorError(
+                    "Work Item already has an active attempt",
+                    code="work_item_already_active",
+                )
+
+            dispatch_digest = self._digest(
+                {
+                    "authority_digest": self._authority_digest(row),
+                    "work_item_ref": exact_work_ref,
+                    "blueprint_target_ref": exact_target_ref,
+                    "attempt_id": attempt_id,
+                    "owner": owner,
+                    "retry_ordinal": 0,
+                }
+            )
+            try:
+                lease = AttemptLease.create(
+                    attempt_id=attempt_id,
+                    work_item_id=work.work_item_id,
+                    run_id=run_id,
+                    owner=owner,
+                    dispatch_digest=dispatch_digest,
+                    started_at=started_at,
+                    lease_expires_at=lease_expires_at,
+                )
+            except ValueError as error:
+                raise CoordinatorError(str(error), code="invalid_lease") from error
+            if connection.execute(
+                "SELECT 1 FROM action_attempts WHERE run_id=? AND attempt_id=?",
+                (run_id, lease.attempt_id),
+            ).fetchone():
+                raise CoordinatorError("attempt already exists", code="duplicate_attempt")
+
+            now = self._now()
+            revision = expected_revision + 1
+            connection.execute(
+                "INSERT INTO action_attempts VALUES(?,?,?,?)",
+                (run_id, lease.attempt_id, json.dumps(lease.to_dict(), sort_keys=True), now),
+            )
+            self._fault("dispatch_after_attempt")
+            state_payload = self._state_payload(
+                row,
+                lifecycle_state=row["lifecycle_state"],
+                revision=revision,
+                body={"stage_id": stage_id, "work_item_ref": exact_work_ref},
+            )
+            connection.execute(
+                "UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?",
+                (revision, self._digest(state_payload), now, run_id),
+            )
+            self._fault("dispatch_after_run_update")
+            event_id = f"action-dispatched-{stage_id}"
+            self._snapshot_current_revision(connection, run_id, source_event_id=event_id)
+            self._fault("dispatch_after_snapshot")
+            event_payload = {
+                "stage_id": stage_id,
+                "input_digest": input_digest,
+                "work_item_ref": exact_work_ref,
+                "blueprint_target_ref": exact_target_ref,
+                "attempt": lease.to_dict(),
+            }
+            self._event(
+                connection,
+                run_id,
+                event_id,
+                expected_revision,
+                event_payload,
+                event_type="action_dispatched",
+            )
+            self._fault("dispatch_after_event")
+            committed_row = self._require_run(connection, run_id)
+            result = {
+                "run": self._row(committed_row),
+                "stage_id": stage_id,
+                "input_digest": input_digest,
+                "work_item_ref": exact_work_ref,
+                "blueprint_target_ref": exact_target_ref,
+                "attempt": lease.to_dict(),
+            }
+            connection.execute(
+                "INSERT INTO stage_operations VALUES(?,?,?,?,?,?,?)",
+                (
+                    run_id,
+                    stage_id,
+                    "dispatch",
+                    input_digest,
+                    revision,
+                    canonical_json_bytes(result).decode("utf-8"),
+                    now,
+                ),
+            )
+            self._fault("dispatch_after_stage_record")
+        return result
+
+    def ingest_finding_pack(
+        self,
+        run_id: str,
+        *,
+        stage_id: str,
+        finding_pack: Mapping[str, Any],
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        """Validate and atomically ingest one attempt-bound Finding Pack."""
+
+        if not isinstance(stage_id, str) or not IDENTIFIER_RE.fullmatch(stage_id):
+            raise CoordinatorError("stage id is invalid", code="invalid_stage_id")
+        try:
+            finding = validate_finding_pack_payload(finding_pack, run_id=run_id)
+        except FindingPackContractError as error:
+            raise CoordinatorError(
+                "Finding Pack contract is invalid", code="finding_pack_invalid"
+            ) from error
+        if not IDENTIFIER_RE.fullmatch(finding["finding_id"]):
+            raise CoordinatorError(
+                "Finding Pack id is invalid", code="finding_pack_invalid"
+            )
+        request = {
+            "stage": "ingest",
+            "stage_id": stage_id,
+            "run_id": run_id,
+            "finding_pack": finding,
+            "expected_revision": expected_revision,
+        }
+        input_digest = self._digest(request)
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            prior = connection.execute(
+                "SELECT input_digest,result_json FROM stage_operations WHERE run_id=? AND stage_id=?",
+                (run_id, stage_id),
+            ).fetchone()
+            if prior is not None:
+                if prior["input_digest"] != input_digest:
+                    raise CoordinatorError(
+                        "stage id was reused with different inputs",
+                        code="idempotency_conflict",
+                    )
+                return json.loads(prior["result_json"])
+
+            row = self._require_run(connection, run_id)
+            if int(row["revision"]) != expected_revision:
+                raise CoordinatorError("expected revision is stale", code="stale_revision")
+            if row["lifecycle_state"] != "autonomous_research":
+                raise CoordinatorError(
+                    "findings can only ingest during autonomous research",
+                    code="ingest_state_invalid",
+                )
+            if connection.execute(
+                "SELECT 1 FROM attempt_invalidations WHERE run_id=? AND attempt_id=?",
+                (run_id, finding["attempt_id"]),
+            ).fetchone():
+                raise CoordinatorError(
+                    "attempt was invalidated by material feedback",
+                    code="attempt_invalidated",
+                    next_action="replan_and_create_new_attempt",
+                )
+
+            binding = self._current_blueprint_target_ref(connection, run_id)
+            if binding is None or binding[1] != finding["blueprint_target_ref"]:
+                raise CoordinatorError(
+                    "Finding Pack does not bind the current Blueprint Target",
+                    code="blueprint_binding_invalid",
+                )
+            target_artifact = self._resolve_initialization_artifact(
+                connection,
+                finding["blueprint_target_ref"],
+                expected_kind="blueprint-target",
+                stale_code="stale_blueprint",
+            )
+            work_artifact = self._resolve_initialization_artifact(
+                connection,
+                finding["work_item_ref"],
+                expected_kind="work-item",
+                stale_code="stale_work_item",
+            )
+            try:
+                work = CanonicalWorkItem.create(**work_artifact["payload"])
+            except (TypeError, WorkerContractError, ValueError) as error:
+                raise CoordinatorError(
+                    "Work Item execution contract is invalid",
+                    code="unverifiable_work_item",
+                ) from error
+            if (
+                work.work_item_id != finding["work_item_ref"]["artifact_id"]
+                or work.slot_id != finding["decision_slot_id"]
+            ):
+                raise CoordinatorError(
+                    "Finding Pack does not match its Work Item",
+                    code="finding_work_binding_invalid",
+                )
+            slots = {
+                slot.get("slot_id"): slot
+                for slot in target_artifact["payload"].get("slots", [])
+                if isinstance(slot, Mapping) and isinstance(slot.get("slot_id"), str)
+            }
+            slot = slots.get(finding["decision_slot_id"])
+            if slot is None or slot.get("status") in {"closed", "superseded"}:
+                raise CoordinatorError(
+                    "Finding Pack Decision Slot is not active",
+                    code="finding_slot_invalid",
+                )
+            options = set(slot.get("options", []))
+            if any(effect["option"] not in options for effect in finding["option_effects"]):
+                raise CoordinatorError(
+                    "Finding Pack option effect is outside the Decision Slot",
+                    code="finding_option_invalid",
+                )
+
+            attempt_row = connection.execute(
+                "SELECT lease_json FROM action_attempts WHERE run_id=? AND attempt_id=?",
+                (run_id, finding["attempt_id"]),
+            ).fetchone()
+            if attempt_row is None:
+                raise CoordinatorError("attempt does not exist", code="attempt_not_found")
+            lease = AttemptLease.from_dict(json.loads(attempt_row["lease_json"]))
+            if lease.work_item_id != work.work_item_id:
+                raise CoordinatorError(
+                    "Finding Pack attempt belongs to another Work Item",
+                    code="attempt_binding_invalid",
+                )
+            if lease.status not in {"leased", "running", "submitted"}:
+                raise CoordinatorError(
+                    "attempt cannot submit a Finding Pack",
+                    code="attempt_not_submittable",
+                )
+
+            evidence_parents: dict[tuple[str, str, int], dict[str, Any]] = {}
+            resolver = EvidenceResolver(workspace=self.database.parents[1])
+            for observation in finding["observations"]:
+                for anchor in observation["anchors"]:
+                    evidence = self._resolve_evidence_anchor_in_connection(
+                        connection, run_id, anchor
+                    )
+                    try:
+                        resolver.resolve(anchor, evidence["payload"])
+                    except EvidenceError as error:
+                        raise CoordinatorError(
+                            "Evidence Anchor does not resolve",
+                            code="evidence_anchor_unresolved",
+                        ) from error
+                    key = (run_id, evidence["artifact_id"], evidence["revision"])
+                    evidence_parents[key] = {
+                        "run_id": run_id,
+                        "artifact_id": evidence["artifact_id"],
+                        "revision": evidence["revision"],
+                    }
+            for oracle_ref in finding["oracle_run_refs"]:
+                oracle = connection.execute(
+                    "SELECT attempt_id,payload_digest FROM oracle_runs WHERE run_id=? AND oracle_run_id=?",
+                    (run_id, oracle_ref["oracle_run_id"]),
+                ).fetchone()
+                if (
+                    oracle is None
+                    or oracle["payload_digest"] != oracle_ref["payload_digest"]
+                    or oracle["attempt_id"] != finding["attempt_id"]
+                ):
+                    raise CoordinatorError(
+                        "Finding Pack OracleRun reference does not resolve",
+                        code="oracle_run_ref_invalid",
+                    )
+
+            parent_refs = [
+                {
+                    "run_id": run_id,
+                    "artifact_id": finding["work_item_ref"]["artifact_id"],
+                    "revision": finding["work_item_ref"]["revision"],
+                },
+                {
+                    "run_id": run_id,
+                    "artifact_id": finding["blueprint_target_ref"]["artifact_id"],
+                    "revision": finding["blueprint_target_ref"]["revision"],
+                },
+                *evidence_parents.values(),
+            ]
+            now = self._now()
+            artifact = self._append_stage_artifact(
+                connection,
+                run_id=run_id,
+                artifact_id=finding["finding_id"],
+                kind="finding-pack",
+                payload=finding,
+                actor_kind="coordinator",
+                actor_id="finding-ingestion",
+                status="accepted",
+                parent_refs=parent_refs,
+                created_at=now,
+            )
+            self._fault("ingest_after_artifact")
+            submitted = replace(lease, status="submitted", last_seen_at=now)
+            connection.execute(
+                "UPDATE action_attempts SET lease_json=?,updated_at=? WHERE run_id=? AND attempt_id=?",
+                (
+                    json.dumps(submitted.to_dict(), sort_keys=True),
+                    now,
+                    run_id,
+                    submitted.attempt_id,
+                ),
+            )
+            self._fault("ingest_after_attempt")
+            revision = expected_revision + 1
+            state_payload = self._state_payload(
+                row,
+                lifecycle_state=row["lifecycle_state"],
+                revision=revision,
+                body={"stage_id": stage_id, "finding_id": finding["finding_id"]},
+            )
+            connection.execute(
+                "UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?",
+                (revision, self._digest(state_payload), now, run_id),
+            )
+            self._fault("ingest_after_run_update")
+            event_id = f"finding-ingested-{stage_id}"
+            self._snapshot_current_revision(connection, run_id, source_event_id=event_id)
+            self._fault("ingest_after_snapshot")
+            finding_ref = {
+                "run_id": run_id,
+                "artifact_id": artifact["id"],
+                "revision": artifact["revision"],
+                "content_hash": artifact["content_hash"],
+            }
+            self._event(
+                connection,
+                run_id,
+                event_id,
+                expected_revision,
+                {
+                    "stage_id": stage_id,
+                    "input_digest": input_digest,
+                    "attempt_id": submitted.attempt_id,
+                    "finding_pack_ref": finding_ref,
+                },
+                event_type="finding_ingested",
+            )
+            self._fault("ingest_after_event")
+            result = {
+                "run": self._row(self._require_run(connection, run_id)),
+                "stage_id": stage_id,
+                "input_digest": input_digest,
+                "finding_pack_ref": finding_ref,
+                "attempt": submitted.to_dict(),
+            }
+            connection.execute(
+                "INSERT INTO stage_operations VALUES(?,?,?,?,?,?,?)",
+                (
+                    run_id,
+                    stage_id,
+                    "ingest",
+                    input_digest,
+                    revision,
+                    canonical_json_bytes(result).decode("utf-8"),
+                    now,
+                ),
+            )
+            self._fault("ingest_after_stage_record")
+        return result
+
     @staticmethod
     def _lineage_key(reference: Mapping[str, Any]) -> tuple[str, str, int]:
         return (
@@ -614,6 +1118,148 @@ class ResearchRunCoordinator:
             str(reference["artifact_id"]),
             int(reference["revision"]),
         )
+
+    def _append_stage_artifact(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        run_id: str,
+        artifact_id: str,
+        kind: str,
+        payload: Mapping[str, Any],
+        actor_kind: str,
+        actor_id: str,
+        status: str,
+        parent_refs: list[Mapping[str, Any]],
+        created_at: str,
+    ) -> dict[str, Any]:
+        """Append an artifact inside an already-open coordinator transaction."""
+
+        if not IDENTIFIER_RE.fullmatch(artifact_id):
+            raise CoordinatorError("artifact id is invalid", code="artifact_id_invalid")
+        current = int(
+            connection.execute(
+                "SELECT COALESCE(MAX(revision),0) FROM artifacts WHERE run_id=? AND artifact_id=?",
+                (run_id, artifact_id),
+            ).fetchone()[0]
+        )
+        revision = current + 1
+        parents = sorted(
+            (
+                {
+                    "run_id": str(parent["run_id"]),
+                    "artifact_id": str(parent["artifact_id"]),
+                    "revision": int(parent["revision"]),
+                }
+                for parent in parent_refs
+            ),
+            key=lambda parent: (
+                parent["run_id"], parent["artifact_id"], parent["revision"]
+            ),
+        )
+        if len({self._lineage_key(parent) for parent in parents}) != len(parents):
+            raise CoordinatorError(
+                "artifact parent lineage contains duplicates",
+                code="artifact_lineage_invalid",
+            )
+        for parent in parents:
+            if connection.execute(
+                "SELECT 1 FROM artifacts WHERE run_id=? AND artifact_id=? AND revision=?",
+                self._lineage_key(parent),
+            ).fetchone() is None:
+                raise CoordinatorError(
+                    "artifact parent does not resolve", code="artifact_lineage_invalid"
+                )
+        body = {
+            "schema_version": 1,
+            "kind": kind,
+            "id": artifact_id,
+            "run_id": run_id,
+            "revision": revision,
+            "created_at": created_at,
+            "actor": {"kind": actor_kind, "id": actor_id},
+            "status": status,
+            "payload": dict(payload),
+            "parent_refs": parents,
+        }
+        content_hash = hashlib.sha256(canonical_json_bytes(body)).hexdigest()
+        try:
+            connection.execute(
+                """INSERT INTO artifacts(
+                     run_id,artifact_id,revision,kind,schema_version,created_at,
+                     actor_kind,actor_id,status,payload_json,content_hash
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    run_id,
+                    artifact_id,
+                    revision,
+                    kind,
+                    1,
+                    created_at,
+                    actor_kind,
+                    actor_id,
+                    status,
+                    canonical_json_bytes(payload).decode("utf-8"),
+                    content_hash,
+                ),
+            )
+        except sqlite3.IntegrityError as error:
+            raise CoordinatorError(
+                "artifact conflicts with immutable ledger", code="artifact_conflict"
+            ) from error
+        for parent in parents:
+            connection.execute(
+                "INSERT INTO artifact_parents VALUES(?,?,?,?,?,?)",
+                (
+                    run_id,
+                    artifact_id,
+                    revision,
+                    parent["run_id"],
+                    parent["artifact_id"],
+                    parent["revision"],
+                ),
+            )
+        return {**body, "content_hash": content_hash}
+
+    def _resolve_evidence_anchor_in_connection(
+        self,
+        connection: sqlite3.Connection,
+        run_id: str,
+        anchor: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        rows = connection.execute(
+            """SELECT artifact_id,revision,status,payload_json
+               FROM artifacts
+               WHERE run_id=? AND kind='evidence-artifact' AND revision=?""",
+            (run_id, int(anchor["artifact_revision"])),
+        ).fetchall()
+        matches: list[dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(row["payload_json"])
+            if payload.get("content_digest") != anchor["artifact_digest"]:
+                continue
+            try:
+                parsed = EvidenceArtifact.from_mapping(payload)
+            except EvidenceError as error:
+                raise CoordinatorError(
+                    "Evidence Artifact contract is invalid",
+                    code="evidence_anchor_unresolved",
+                ) from error
+            if row["status"] != "active" or parsed.status != "active":
+                continue
+            matches.append(
+                {
+                    "artifact_id": row["artifact_id"],
+                    "revision": int(row["revision"]),
+                    "payload": payload,
+                }
+            )
+        if len(matches) != 1:
+            raise CoordinatorError(
+                "Evidence Anchor must resolve to exactly one active artifact",
+                code="evidence_anchor_unresolved",
+            )
+        return matches[0]
 
     def _resolve_initialization_artifact(
         self,

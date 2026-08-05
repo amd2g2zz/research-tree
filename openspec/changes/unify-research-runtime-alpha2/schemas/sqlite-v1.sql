@@ -273,3 +273,14 @@ CREATE TABLE audit_exports (
   output_locator TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE stage_operations (
+  run_id TEXT NOT NULL REFERENCES runs(run_id),
+  stage_id TEXT NOT NULL,
+  stage TEXT NOT NULL,
+  input_digest TEXT NOT NULL,
+  committed_revision INTEGER NOT NULL,
+  result_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(run_id, stage_id)
+);

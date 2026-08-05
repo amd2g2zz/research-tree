@@ -117,6 +117,44 @@ The existing DeliveryCompiler remains the canonical renderer. It produces a Tech
 
 The Human Research Report is not a courtesy summary. It must explain the understood problem, evidence, recommended direction, alternatives, consequences, risks, applicability, unknowns, and implementation meaning at professional depth. A `DeliveryAcceptance` artifact binds explicit user acceptance to exact delivery revisions. Rejection creates evidence-bearing follow-up work or a successor round.
 
+### 8a. Execution uses stage transactions, not service-to-service side effects
+
+The coordinator composes the existing scheduler, Finding Pack, InsightDigest,
+Decision Ledger, closure, and readiness semantics through six revision-bound
+commands: dispatch, ingest, synthesize, converge, readiness, and
+successor-work. Domain validators remain responsible for their own payload
+rules; the coordinator owns exact-ref resolution, actor/state authorization,
+the SQLite transaction, idempotency, lifecycle effects, and audit event.
+
+Each command has one persisted stage identity and one input digest. The stage
+identity is unique per run. Replaying the same identity and digest is a read;
+reusing the identity with a different digest is an integrity error. This is
+separate from HostEvent idempotency because a host observation may precede or
+follow the coordinator's semantic ingestion command.
+
+```mermaid
+flowchart LR
+  WI[Exact Work Item] --> D[dispatch transaction]
+  D --> A[Attempt Lease]
+  A --> F[ingest transaction]
+  EV[Evidence and Oracle refs] --> F
+  F --> FP[Finding Pack]
+  FP --> S[synthesize transaction]
+  S --> ID[InsightDigest]
+  ID --> C[converge transaction]
+  C -->|deficit| SW[successor-work transaction]
+  SW --> D
+  C -->|all P0 closed| R[readiness transaction]
+  R -->|deficit| SW
+  R -->|pass| DP[delivery_pending]
+```
+
+The write order inside a transaction is an implementation detail; the atomic
+commit set is not. It includes newly compiled artifacts, attempt/obligation
+effects, the run row, immutable run snapshot, and accepted event. Fault
+injection after any internal write must expose the predecessor or the complete
+success, never an intermediate state.
+
 ### 9. Completion is a conjunction of independently checkable facts
 
 A run completes only when:

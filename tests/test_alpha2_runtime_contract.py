@@ -325,6 +325,373 @@ def test_run_init_cli_consumes_exact_persisted_refs(tmp_path: Path, capsys) -> N
     assert output["lifecycle_state"] == "autonomous_research"
 
 
+def _dispatchable_work_item(coordinator, state, target):
+    from research_tree.sqlite_ledger import SQLiteRunLedger
+    from research_tree.worker_contracts import CanonicalWorkItem
+
+    run_id = state["run_id"]
+    target_ref = {
+        "run_id": run_id,
+        "artifact_id": target["id"],
+        "revision": target["revision"],
+        "content_hash": target["content_hash"],
+    }
+    work = CanonicalWorkItem.create(
+        work_item_id="work-dispatch",
+        slot_id="slot-p0",
+        action_kind="deep_dive",
+        objective="Resolve the architecture decision.",
+        inputs=("blueprint-target:blueprint-target@1",),
+        method="repository-analysis",
+        expected_output="A schema-valid Finding Pack.",
+        success_oracle="The Finding Pack has exact evidence and target lineage.",
+        permission_profile="research-read-only",
+        completion_evidence=("finding-pack",),
+    )
+    ledger = SQLiteRunLedger(coordinator.database.parents[1])
+    artifact = ledger.append_artifact(
+        run_id=run_id,
+        artifact_id=work.work_item_id,
+        kind="work-item",
+        payload=work.to_dict(),
+        actor_kind="coordinator",
+        actor_id="scheduler",
+        status="pending",
+        parent_refs=[
+            {
+                "run_id": run_id,
+                "artifact_id": target["id"],
+                "revision": target["revision"],
+            }
+        ],
+        expected_run_revision=coordinator.status(run_id)["revision"],
+    )
+    return {
+        "run_id": run_id,
+        "artifact_id": artifact["id"],
+        "revision": artifact["revision"],
+        "content_hash": artifact["content_hash"],
+    }, target_ref
+
+
+def test_dispatch_commits_exact_work_lease_revision_and_event_once(tmp_path: Path) -> None:
+    coordinator, state, handoff, target = _confirmed_initialization_fixture(tmp_path)
+    initialized = coordinator.initialize_from_alignment(
+        state["run_id"],
+        handoff_ref={"run_id": state["run_id"], "artifact_id": handoff["id"], "revision": handoff["revision"], "content_hash": handoff["content_hash"]},
+        blueprint_target_ref={"run_id": state["run_id"], "artifact_id": target["id"], "revision": target["revision"], "content_hash": target["content_hash"]},
+        expected_revision=coordinator.status(state["run_id"])["revision"],
+    )
+    work_ref, target_ref = _dispatchable_work_item(coordinator, initialized, target)
+    before = coordinator.status(state["run_id"])
+
+    dispatched = coordinator.dispatch_action(
+        state["run_id"],
+        stage_id="dispatch-work-dispatch-1",
+        work_item_ref=work_ref,
+        blueprint_target_ref=target_ref,
+        attempt_id="attempt-work-dispatch-1",
+        owner="worker-a",
+        started_at="2026-08-06T00:00:00Z",
+        lease_expires_at="2026-08-06T00:15:00Z",
+        expected_revision=before["revision"],
+    )
+
+    assert dispatched["run"]["revision"] == before["revision"] + 1
+    assert dispatched["attempt"]["work_item_id"] == "work-dispatch"
+    assert dispatched["attempt"]["status"] == "leased"
+    assert dispatched["work_item_ref"] == work_ref
+    assert coordinator.attempts(state["run_id"])["attempt-work-dispatch-1"] == dispatched["attempt"]
+    assert coordinator.events(state["run_id"])[-1]["event_type"] == "action_dispatched"
+
+    events = coordinator.events(state["run_id"])
+    repeated = coordinator.dispatch_action(
+        state["run_id"],
+        stage_id="dispatch-work-dispatch-1",
+        work_item_ref=work_ref,
+        blueprint_target_ref=target_ref,
+        attempt_id="attempt-work-dispatch-1",
+        owner="worker-a",
+        started_at="2026-08-06T00:00:00Z",
+        lease_expires_at="2026-08-06T00:15:00Z",
+        expected_revision=before["revision"],
+    )
+    assert repeated == dispatched
+    assert coordinator.events(state["run_id"]) == events
+
+    with pytest.raises(coordinator.error_type) as conflict:
+        coordinator.dispatch_action(
+            state["run_id"],
+            stage_id="dispatch-work-dispatch-1",
+            work_item_ref=work_ref,
+            blueprint_target_ref=target_ref,
+            attempt_id="attempt-work-dispatch-2",
+            owner="worker-b",
+            started_at="2026-08-06T00:00:00Z",
+            lease_expires_at="2026-08-06T00:15:00Z",
+            expected_revision=before["revision"],
+        )
+    assert conflict.value.code == "idempotency_conflict"
+    assert coordinator.events(state["run_id"]) == events
+
+
+def test_dispatch_fault_rolls_back_attempt_revision_and_stage_identity(tmp_path: Path) -> None:
+    from research_tree.coordinator import ResearchRunCoordinator
+
+    coordinator, state, handoff, target = _confirmed_initialization_fixture(tmp_path)
+    initialized = coordinator.initialize_from_alignment(
+        state["run_id"],
+        handoff_ref={"run_id": state["run_id"], "artifact_id": handoff["id"], "revision": handoff["revision"], "content_hash": handoff["content_hash"]},
+        blueprint_target_ref={"run_id": state["run_id"], "artifact_id": target["id"], "revision": target["revision"], "content_hash": target["content_hash"]},
+        expected_revision=coordinator.status(state["run_id"])["revision"],
+    )
+    work_ref, target_ref = _dispatchable_work_item(coordinator, initialized, target)
+    before = coordinator.status(state["run_id"])
+    before_events = coordinator.events(state["run_id"])
+
+    def fail(boundary: str) -> None:
+        if boundary == "dispatch_after_attempt":
+            raise RuntimeError(boundary)
+
+    failing = ResearchRunCoordinator(tmp_path, fault_injector=fail)
+    with pytest.raises(RuntimeError, match="dispatch_after_attempt"):
+        failing.dispatch_action(
+            state["run_id"],
+            stage_id="dispatch-work-dispatch-fault",
+            work_item_ref=work_ref,
+            blueprint_target_ref=target_ref,
+            attempt_id="attempt-work-dispatch-fault",
+            owner="worker-a",
+            started_at="2026-08-06T00:00:00Z",
+            lease_expires_at="2026-08-06T00:15:00Z",
+            expected_revision=before["revision"],
+        )
+
+    reopened = ResearchRunCoordinator(tmp_path)
+    assert reopened.status(state["run_id"]) == before
+    assert reopened.events(state["run_id"]) == before_events
+    assert "attempt-work-dispatch-fault" not in reopened.attempts(state["run_id"])
+    committed = reopened.dispatch_action(
+        state["run_id"],
+        stage_id="dispatch-work-dispatch-fault",
+        work_item_ref=work_ref,
+        blueprint_target_ref=target_ref,
+        attempt_id="attempt-work-dispatch-fault",
+        owner="worker-a",
+        started_at="2026-08-06T00:00:00Z",
+        lease_expires_at="2026-08-06T00:15:00Z",
+        expected_revision=before["revision"],
+    )
+    assert committed["run"]["revision"] == before["revision"] + 1
+
+
+def _finding_payload(coordinator, run_id: str, work_ref, target_ref):
+    from research_tree.evidence import provenance_group_for
+    from research_tree.sqlite_ledger import SQLiteRunLedger
+
+    ledger = SQLiteRunLedger(coordinator.database.parents[1])
+    evidence = ledger.append_artifact(
+        run_id=run_id,
+        artifact_id="evidence-dispatch",
+        kind="evidence-artifact",
+        payload={
+            "evidence_id": "evidence-dispatch",
+            "run_id": run_id,
+            "revision": 1,
+            "media_type": "text/plain",
+            "locator": {"kind": "source", "ref": "fixture:dispatch"},
+            "content_digest": "e" * 64,
+            "size_bytes": 8,
+            "acquired_at": "2026-08-06T00:01:00Z",
+            "acquisition_method": "fixture",
+            "provenance_origin": "fixture:dispatch",
+            "provenance_group": provenance_group_for("fixture:dispatch", "fixture"),
+            "source_revision": None,
+            "applicability": "The active Blueprint Target.",
+            "confidence": "high",
+            "limitations": [],
+            "license_note": None,
+            "extractor_version": "fixture-1",
+            "status": "active",
+        },
+        actor_kind="worker",
+        actor_id="worker-a",
+        status="active",
+        expected_run_revision=coordinator.status(run_id)["revision"],
+    )
+    payload = {
+        "finding_id": "finding-dispatch",
+        "run_id": run_id,
+        "attempt_id": "attempt-work-dispatch-1",
+        "work_item_ref": work_ref,
+        "blueprint_target_ref": target_ref,
+        "decision_slot_id": "slot-p0",
+        "observations": [
+            {
+                "observation_id": "observation-dispatch",
+                "class": "fact",
+                "claim": "The runtime boundary exists.",
+                "anchors": [
+                    {
+                        "artifact_digest": "e" * 64,
+                        "artifact_revision": evidence["revision"],
+                        "selector_type": "fragment",
+                        "selector_value": {"fragment": "boundary"},
+                        "extractor_version": "fixture-1",
+                        "applicability": "The active Blueprint Target.",
+                        "confidence": "high",
+                        "limitations": [],
+                    }
+                ],
+                "assumptions": [],
+                "consequence": None,
+                "reversal_condition": None,
+                "unknown_reason": None,
+                "next_acquisition_method": None,
+                "confidence": "high",
+                "limitations": [],
+            }
+        ],
+        "option_effects": [
+            {
+                "option": "a",
+                "effect": "supports",
+                "observation_ids": ["observation-dispatch"],
+            }
+        ],
+        "implementation_implications": ["Keep the runtime boundary."],
+        "remaining_uncertainties": [],
+        "research_continuations": [],
+        "oracle_run_refs": [],
+    }
+    return payload, evidence
+
+
+def _initialized_dispatch(tmp_path: Path):
+    coordinator, state, handoff, target = _confirmed_initialization_fixture(tmp_path)
+    initialized = coordinator.initialize_from_alignment(
+        state["run_id"],
+        handoff_ref={"run_id": state["run_id"], "artifact_id": handoff["id"], "revision": handoff["revision"], "content_hash": handoff["content_hash"]},
+        blueprint_target_ref={"run_id": state["run_id"], "artifact_id": target["id"], "revision": target["revision"], "content_hash": target["content_hash"]},
+        expected_revision=coordinator.status(state["run_id"])["revision"],
+    )
+    work_ref, target_ref = _dispatchable_work_item(coordinator, initialized, target)
+    dispatched = coordinator.dispatch_action(
+        state["run_id"],
+        stage_id="dispatch-work-dispatch-ingest",
+        work_item_ref=work_ref,
+        blueprint_target_ref=target_ref,
+        attempt_id="attempt-work-dispatch-1",
+        owner="worker-a",
+        started_at="2026-08-06T00:00:00Z",
+        lease_expires_at="2026-08-06T00:15:00Z",
+        expected_revision=coordinator.status(state["run_id"])["revision"],
+    )
+    payload, evidence = _finding_payload(
+        coordinator, state["run_id"], work_ref, target_ref
+    )
+    return coordinator, state["run_id"], dispatched, payload, evidence
+
+
+def test_ingest_finding_pack_commits_exact_lineage_and_attempt_disposition(
+    tmp_path: Path,
+) -> None:
+    from research_tree.sqlite_ledger import SQLiteRunLedger
+
+    coordinator, run_id, _dispatched, payload, evidence = _initialized_dispatch(tmp_path)
+    before = coordinator.status(run_id)
+    ingested = coordinator.ingest_finding_pack(
+        run_id,
+        stage_id="ingest-finding-dispatch",
+        finding_pack=payload,
+        expected_revision=before["revision"],
+    )
+
+    assert ingested["run"]["revision"] == before["revision"] + 1
+    assert ingested["attempt"]["status"] == "submitted"
+    assert coordinator.events(run_id)[-1]["event_type"] == "finding_ingested"
+    stored = SQLiteRunLedger(tmp_path).resolve(
+        run_id,
+        ingested["finding_pack_ref"]["artifact_id"],
+        ingested["finding_pack_ref"]["revision"],
+    )
+    parent_ids = {parent["artifact_id"] for parent in stored["parent_refs"]}
+    assert parent_ids == {"work-dispatch", "blueprint-target", evidence["id"]}
+    assert stored["content_hash"] == ingested["finding_pack_ref"]["content_hash"]
+
+    events = coordinator.events(run_id)
+    repeated = coordinator.ingest_finding_pack(
+        run_id,
+        stage_id="ingest-finding-dispatch",
+        finding_pack=payload,
+        expected_revision=before["revision"],
+    )
+    assert repeated == ingested
+    assert coordinator.events(run_id) == events
+
+
+def test_ingest_rejects_unresolved_anchor_and_rolls_back_faulted_artifact(
+    tmp_path: Path,
+) -> None:
+    from copy import deepcopy
+    from research_tree.coordinator import ResearchRunCoordinator
+    from research_tree.sqlite_ledger import SQLiteLedgerError, SQLiteRunLedger
+
+    coordinator, run_id, _dispatched, payload, _evidence = _initialized_dispatch(tmp_path)
+    before = coordinator.status(run_id)
+    before_events = coordinator.events(run_id)
+    invalid = deepcopy(payload)
+    invalid["finding_id"] = "finding-invalid-anchor"
+    invalid["observations"][0]["anchors"][0]["artifact_digest"] = "f" * 64
+    with pytest.raises(coordinator.error_type) as unresolved:
+        coordinator.ingest_finding_pack(
+            run_id,
+            stage_id="ingest-invalid-anchor",
+            finding_pack=invalid,
+            expected_revision=before["revision"],
+        )
+    assert unresolved.value.code == "evidence_anchor_unresolved"
+    assert coordinator.status(run_id) == before
+    assert coordinator.events(run_id) == before_events
+
+    def fail(boundary: str) -> None:
+        if boundary == "ingest_after_artifact":
+            raise RuntimeError(boundary)
+
+    failing = ResearchRunCoordinator(tmp_path, fault_injector=fail)
+    with pytest.raises(RuntimeError, match="ingest_after_artifact"):
+        failing.ingest_finding_pack(
+            run_id,
+            stage_id="ingest-fault",
+            finding_pack=payload,
+            expected_revision=before["revision"],
+        )
+    reopened = ResearchRunCoordinator(tmp_path)
+    assert reopened.status(run_id) == before
+    assert reopened.events(run_id) == before_events
+    with pytest.raises(SQLiteLedgerError, match="does not exist"):
+        SQLiteRunLedger(tmp_path).resolve(run_id, payload["finding_id"], 1)
+
+
+def test_ingest_uses_the_schema_identifier_contract_for_nested_ids(tmp_path: Path) -> None:
+    from copy import deepcopy
+
+    coordinator, run_id, _dispatched, payload, _evidence = _initialized_dispatch(tmp_path)
+    invalid = deepcopy(payload)
+    invalid["observations"][0]["observation_id"] = "INVALID_OBSERVATION"
+    invalid["option_effects"][0]["observation_ids"] = ["INVALID_OBSERVATION"]
+
+    with pytest.raises(coordinator.error_type) as rejected:
+        coordinator.ingest_finding_pack(
+            run_id,
+            stage_id="ingest-invalid-observation-id",
+            finding_pack=invalid,
+            expected_revision=coordinator.status(run_id)["revision"],
+        )
+
+    assert rejected.value.code == "finding_pack_invalid"
+
+
 def test_human_or_operator_transition_rejects_other_actors(tmp_path: Path) -> None:
     from research_tree.coordinator import ResearchRunCoordinator
 
