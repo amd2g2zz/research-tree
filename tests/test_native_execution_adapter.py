@@ -472,6 +472,7 @@ def test_adapter_rejects_invalid_finding_and_detects_tampering(tmp_path: Path) -
         "--result",
         "submitted",
     ).returncode == 0
+
     assert run_adapter(
         tmp_path,
         "codex",
@@ -492,6 +493,115 @@ def test_adapter_rejects_invalid_finding_and_detects_tampering(tmp_path: Path) -
     )
     assert final["ready"] == ["task-2"]
     assert final["integrity_errors"] == []
+
+
+def test_adapter_rejects_worker_verdict_and_requires_exact_oracle_refs(
+    tmp_path: Path,
+) -> None:
+    run_id = "oracle-ref-run"
+    run_adapter(
+        tmp_path,
+        "codex",
+        "init",
+        "--run-id",
+        run_id,
+        "--handoff",
+        str(write_handoff(tmp_path)),
+    )
+    run_adapter(
+        tmp_path,
+        "codex",
+        "add-task",
+        "--run-id",
+        run_id,
+        "--task-id",
+        "task-oracle",
+        "--decision-slot",
+        "slot-a",
+        "--phase",
+        "validation",
+        "--artifact",
+        "finding-oracle.json",
+    )
+    started = run_adapter(
+        tmp_path,
+        "codex",
+        "start",
+        "--run-id",
+        run_id,
+        "--task-id",
+        "task-oracle",
+    )
+    attempt_id = json.loads(started.stdout)["attempt_id"]
+    artifact = tmp_path / "finding-oracle.json"
+    payload = finding("task-oracle", "slot-a", "validation", attempt_id)
+    payload["validation_result"] = {
+        "status": "passed",
+        "oracle": "worker-assertion",
+        "evidence_ref": "unresolved-result",
+    }
+    artifact.write_text(json.dumps(payload), encoding="utf-8")
+
+    legacy = run_adapter(
+        tmp_path,
+        "codex",
+        "finish",
+        "--run-id",
+        run_id,
+        "--task-id",
+        "task-oracle",
+        "--result",
+        "submitted",
+    )
+    assert legacy.returncode == 1
+    assert "not authoritative" in legacy.stderr
+
+    payload.pop("validation_result")
+    payload["oracle_run_refs"] = [
+        {
+            "oracle_run_id": "oracle-run-1",
+            "oracle_spec_id": "oracle-spec-1",
+            "oracle_spec_version": 2,
+            "attempt_id": attempt_id,
+            "verdict": "passed",
+        }
+    ]
+    artifact.write_text(json.dumps(payload), encoding="utf-8")
+    malformed = run_adapter(
+        tmp_path,
+        "codex",
+        "finish",
+        "--run-id",
+        run_id,
+        "--task-id",
+        "task-oracle",
+        "--result",
+        "submitted",
+    )
+    assert malformed.returncode == 1
+    assert "fields are invalid" in malformed.stderr
+
+    payload["oracle_run_refs"] = [
+        {
+            "oracle_run_id": "oracle-run-1",
+            "oracle_spec_id": "oracle-spec-1",
+            "oracle_spec_version": 2,
+            "attempt_id": attempt_id,
+        }
+    ]
+    artifact.write_text(json.dumps(payload), encoding="utf-8")
+    accepted = run_adapter(
+        tmp_path,
+        "codex",
+        "finish",
+        "--run-id",
+        run_id,
+        "--task-id",
+        "task-oracle",
+        "--result",
+        "submitted",
+    )
+    assert accepted.returncode == 0, accepted.stderr
 
 
 def test_adapter_rejects_artifacts_outside_workspace(tmp_path: Path) -> None:

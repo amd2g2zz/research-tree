@@ -110,6 +110,8 @@ def initialize_research_state(
 def apply_research_results(
     state: Mapping[str, Any],
     finding_packs: Sequence[Any],
+    *,
+    oracle_runs: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Apply one evidence batch and recursively create successor actions."""
 
@@ -146,6 +148,7 @@ def apply_research_results(
         parent["terminal_reason"] = "Finding Pack ingested"
         _update_slot_evidence(slot, finding)
         _grow_from_finding(result, parent, finding, baseline_event=False)
+        _apply_finding_oracles(slot, payload, oracle_runs or {})
         if delta["duplicate_only"]:
             parent["stagnation_count"] = int(parent.get("stagnation_count", 0)) + 1
             slot["stagnation_count"] = int(slot.get("stagnation_count", 0)) + 1
@@ -573,12 +576,34 @@ def _grow_from_finding(
             oracle=str(continuation.get("oracle", "The question is answered with anchored evidence.")),
             estimated_cost=_positive_float(continuation.get("estimated_cost", 1.0)),
         )
-    validation = payload.get("validation_result")
-    if isinstance(validation, Mapping):
-        status = str(validation.get("status", "inconclusive"))
+
+
+def _apply_finding_oracles(
+    slot: dict[str, Any],
+    payload: Mapping[str, Any],
+    oracle_runs: Mapping[str, Mapping[str, Any]],
+) -> None:
+    refs = payload.get("oracle_run_refs", ())
+    if isinstance(refs, (str, bytes)) or not isinstance(refs, Sequence):
+        raise ValueError("oracle_run_refs must be a sequence")
+    for ref in refs:
+        if not isinstance(ref, Mapping):
+            raise ValueError("oracle_run_ref must be a mapping")
+        run_id = str(ref.get("oracle_run_id", ""))
+        run = oracle_runs.get(run_id)
+        if not isinstance(run, Mapping):
+            raise ValueError(f"OracleRun does not resolve: {run_id}")
+        for field in ("oracle_spec_id", "oracle_spec_version", "attempt_id"):
+            if run.get(field) != ref.get(field):
+                raise ValueError(f"OracleRun binding mismatch: {run_id}.{field}")
+        status = str(run.get("verdict", "inconclusive"))
+        if status not in {"passed", "failed", "inconclusive", "blocked", "not_applicable"}:
+            raise ValueError(f"OracleRun verdict is unsupported: {status}")
         slot["validation_status"] = status
         slot["validation_attempts"] = int(slot.get("validation_attempts", 0)) + 1
-        slot["validation_passed"] = status == "passed"
+        slot["validation_passed"] = (
+            status == "passed" and run.get("reproducibility_status") == "reproducible"
+        )
         if status == "failed":
             slot["validation_failures"] = int(slot.get("validation_failures", 0)) + 1
 

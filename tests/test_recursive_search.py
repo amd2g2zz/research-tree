@@ -31,7 +31,14 @@ def finding(
         "option_effects": [{"option": "persistent-tree", "effect": "supports"}],
         "remaining_uncertainties": [] if uncertainty is None else [uncertainty],
         "research_continuations": [] if continuation is None else [continuation],
-        "validation_result": validation,
+        "oracle_run_refs": [] if validation is None else [
+            {
+                "oracle_run_id": validation["evidence_ref"],
+                "oracle_spec_id": validation["oracle"],
+                "oracle_spec_version": 1,
+                "attempt_id": f"attempt-{finding_id}",
+            }
+        ],
     }
 
 
@@ -174,6 +181,14 @@ def test_stop_requires_independent_evidence_and_validation(tmp_path: Path) -> No
     )
     triangulation_node_id = first["frontier_node_ids"][0]
 
+    second_run = {
+        "oracle_run_id": "runs/restart-replay/result.json",
+        "oracle_spec_id": "restart and replay preserves the active frontier",
+        "oracle_spec_version": 1,
+        "attempt_id": "attempt-finding-two",
+        "verdict": "passed",
+        "reproducibility_status": "reproducible",
+    }
     second = apply_research_results(
         first,
         (
@@ -188,6 +203,7 @@ def test_stop_requires_independent_evidence_and_validation(tmp_path: Path) -> No
                 },
             ),
         ),
+        oracle_runs={second_run["oracle_run_id"]: second_run},
     )
     assert second["status"] == "delivery_pending"
     assert second["stop_reason"] == (
@@ -252,6 +268,14 @@ def test_failed_validation_boosts_residual_and_grows_independent_retry() -> None
         tree_id="research-tree",
         decision_slots=slots(),
     )
+    first_run = {
+        "oracle_run_id": "runs/failed-one.json",
+        "oracle_spec_id": "restart and replay preserves the active frontier",
+        "oracle_spec_version": 1,
+        "attempt_id": "attempt-finding-validation-failed-one",
+        "verdict": "failed",
+        "reproducibility_status": "reproducible",
+    }
     first = apply_research_results(
         state,
         (
@@ -266,11 +290,20 @@ def test_failed_validation_boosts_residual_and_grows_independent_retry() -> None
                 },
             ),
         ),
+        oracle_runs={first_run["oracle_run_id"]: first_run},
     )
     slot = first["decision_slots"]["slot-architecture"]
     assert slot["validation_failures"] == 1
     assert slot["residual_risk"] == 1.4
 
+    second_run = {
+        "oracle_run_id": "runs/failed-two.json",
+        "oracle_spec_id": "restart and replay preserves the active frontier",
+        "oracle_spec_version": 1,
+        "attempt_id": "attempt-finding-validation-failed-two",
+        "verdict": "failed",
+        "reproducibility_status": "reproducible",
+    }
     second = apply_research_results(
         first,
         (
@@ -285,6 +318,7 @@ def test_failed_validation_boosts_residual_and_grows_independent_retry() -> None
                 },
             ),
         ),
+        oracle_runs={second_run["oracle_run_id"]: second_run},
     )
     retry = second["nodes"][second["frontier_node_ids"][0]]
     assert second["decision_slots"]["slot-architecture"]["residual_risk"] == 1.8
@@ -377,7 +411,19 @@ def test_tree_state_persists_and_replays_unconsumed_finding_after_restart(
     assert checkpoint == first
     assert unconsumed == (pending,)
 
-    next_state = apply_research_results(checkpoint.payload, unconsumed)
+    replay_run = {
+        "oracle_run_id": "runs/restart-replay/result.json",
+        "oracle_spec_id": "restart and replay preserves the active frontier",
+        "oracle_spec_version": 1,
+        "attempt_id": "attempt-finding-pending",
+        "verdict": "passed",
+        "reproducibility_status": "reproducible",
+    }
+    next_state = apply_research_results(
+        checkpoint.payload,
+        unconsumed,
+        oracle_runs={replay_run["oracle_run_id"]: replay_run},
+    )
     second = rehydrated_service.transition(
         round_id=round_record.id,
         previous=checkpoint,

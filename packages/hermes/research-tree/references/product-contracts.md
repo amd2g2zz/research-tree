@@ -348,11 +348,12 @@ a mandatory pre-research questionnaire.
     "oracle": "observable condition that closes the child",
     "estimated_cost": 1
   }],
-  "validation_result": {
-    "status": "passed|failed|inconclusive",
-    "oracle": "the oracle that was evaluated",
-    "evidence_ref": "source or executed artifact reference"
-  }
+  "oracle_run_refs": [{
+    "oracle_run_id": "persisted OracleRun id",
+    "oracle_spec_id": "persisted OracleSpec id",
+    "oracle_spec_version": 2,
+    "attempt_id": "the exact coordinator-issued attempt id"
+  }]
 }
 ```
 
@@ -361,6 +362,11 @@ bundled native host adapter. The coordinator maps the verified pack into the
 immutable round artifact rather than treating schema validation as evidence
 review. A retry receives a new `attempt_id`; a pack from an older attempt must
 not close the current work item.
+
+`validation_result` is a rejected alpha1 field: a worker cannot make its own
+validation verdict authoritative. `oracle_run_refs` carry identity and lineage
+only. The coordinator resolves each exact reference against persisted OracleRun
+data before a verdict can affect adaptive policy or closure.
 
 Workers return Finding Packs, not standalone report chapters. A source list
 without atomic observations and decision effects is not a Finding Pack.

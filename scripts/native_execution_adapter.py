@@ -341,16 +341,37 @@ def validate_finding(path: Path) -> dict[str, Any]:
             raise AdapterError(
                 f"Finding Pack continuation {index} estimated_cost must be positive"
             )
-    validation_result = pack.get("validation_result")
-    if validation_result is not None:
-        if not isinstance(validation_result, dict):
-            raise AdapterError("Finding Pack validation_result must be an object")
-        if validation_result.get("status") not in ("passed", "failed", "inconclusive"):
-            raise AdapterError("Finding Pack validation_result status is invalid")
-        _require_string(validation_result.get("oracle"), "validation_result oracle")
-        _require_string(
-            validation_result.get("evidence_ref"), "validation_result evidence_ref"
+    if "validation_result" in pack:
+        raise AdapterError(
+            "Finding Pack validation_result is not authoritative; use oracle_run_refs"
         )
+    oracle_run_refs = _require_list(pack.get("oracle_run_refs", []), "oracle_run_refs")
+    seen_oracle_runs: set[str] = set()
+    required_ref_fields = {
+        "oracle_run_id",
+        "oracle_spec_id",
+        "oracle_spec_version",
+        "attempt_id",
+    }
+    for index, oracle_ref in enumerate(oracle_run_refs):
+        label = f"oracle_run_refs[{index}]"
+        if not isinstance(oracle_ref, dict) or set(oracle_ref) != required_ref_fields:
+            raise AdapterError(f"Finding Pack {label} fields are invalid")
+        oracle_run_id = _require_string(
+            oracle_ref.get("oracle_run_id"), f"{label} oracle_run_id"
+        )
+        _require_string(
+            oracle_ref.get("oracle_spec_id"), f"{label} oracle_spec_id"
+        )
+        _require_string(oracle_ref.get("attempt_id"), f"{label} attempt_id")
+        version = oracle_ref.get("oracle_spec_version")
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            raise AdapterError(
+                f"Finding Pack {label} oracle_spec_version must be positive"
+            )
+        if oracle_run_id in seen_oracle_runs:
+            raise AdapterError("Finding Pack oracle_run_refs must not contain duplicates")
+        seen_oracle_runs.add(oracle_run_id)
     return pack
 
 

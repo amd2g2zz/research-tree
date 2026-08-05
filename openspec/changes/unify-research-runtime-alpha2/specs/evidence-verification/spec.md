@@ -45,6 +45,11 @@ The coordinator rejects direct `p0_closure` obligation writes unless the evidenc
 reference resolves to a persisted passed assessment token. A worker-authored status,
 arbitrary string, report field, or host event cannot satisfy this obligation.
 
+Finding Packs persist only exact `oracle_run_refs` containing the OracleRun id,
+OracleSpec id and version, and attempt id. Supplying the alpha1
+`validation_result` field fails compilation. The adaptive policy resolves every ref
+against coordinator-provided OracleRun data before applying failure reweighting.
+
 #### Scenario: Oracle execution fails
 - **WHEN** the recorded oracle result is failed or inconclusive
 - **THEN** the result remains visible and triggers an independent validation, method switch, fallback, or bounded residual-risk decision

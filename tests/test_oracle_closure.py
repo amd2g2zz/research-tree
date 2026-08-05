@@ -66,6 +66,30 @@ def test_oracle_contract_rejects_unbounded_or_unknown_policy() -> None:
         OracleSpec.from_mapping(value)
 
 
+def test_finding_pack_rejects_worker_verdict_and_accepts_exact_oracle_ref() -> None:
+    from research_tree.ledger import (
+        InvalidFindingPackError,
+        _normalize_oracle_run_refs,
+        _normalize_validation_result,
+    )
+
+    with pytest.raises(InvalidFindingPackError, match="not authoritative"):
+        _normalize_validation_result(
+            {"status": "passed", "oracle": "worker", "evidence_ref": "missing"}
+        )
+    refs = _normalize_oracle_run_refs(
+        [
+            {
+                "oracle_run_id": "oracle-run-1",
+                "oracle_spec_id": "oracle-build",
+                "oracle_spec_version": 2,
+                "attempt_id": "attempt-1",
+            }
+        ]
+    )
+    assert refs[0]["oracle_spec_version"] == 2
+
+
 def test_alpha2_closure_rejects_forged_verdict_and_active_contradiction() -> None:
     from research_tree import SlotClosureAssessment
 

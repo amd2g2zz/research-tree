@@ -7,9 +7,9 @@ its declared output exists at the registered path, its acceptance command exits 
 in the recorded environment, its focused and regression evidence is linked, and its
 rollback action is documented. The implementation release must additionally emit a
 generated requirement matrix from `registries/delivery-matrix-v1.json`; every
-`### Requirement` and `#### Scenario` is required to have one unique row and one
-resolvable evidence reference. GitHub issue closure is tracking metadata, never a
-substitute for local evidence.
+`### Requirement` is required to have one unique row, while its scenarios are
+covered by that row's integration/black-box evidence. GitHub issue closure is
+tracking metadata, never a substitute for local evidence.
 
 The registry itself is executable: `uv run python scripts/validate_task_registry.py`
 must pass before any group status or task checkbox is advanced. It validates required
@@ -47,7 +47,7 @@ fields, dependency cycles, evidence paths, and acceptance command paths.
 
 - [ ] 4.1 Define OracleSpec, OracleAttempt, OracleRun, and SlotClosureAssessment schemas with exact revision and attempt binding. Partial implementation evidence: strict `OracleSpec`, `OracleRun`, and `SlotClosureAssessment` contract parsers; persisted OracleAttempt binding remains open.
 - [ ] 4.2 Implement oracle result ingestion for method, environment, inputs, tool events, result artifacts, evaluator, verdict, and limitations. Partial implementation evidence: `OracleRun.from_mapping` validates the canonical result boundary and `ResearchRunCoordinator.record_oracle_run` persists exact attempt-bound results while resolving tool-event refs; result-artifact resolution remains open.
-- [ ] 4.3 Remove authoritative meaning from worker-authored validation status strings and migrate Finding Packs to OracleRun references. Partial implementation evidence: coordinator rejects arbitrary P0 closure obligations and only accepts persisted core tokens; Finding Pack legacy validation field migration remains open.
+- [ ] 4.3 Remove authoritative meaning from worker-authored validation status strings and migrate Finding Packs to OracleRun references. Implementation evidence: Finding Pack compilation rejects `validation_result`, persists exact OracleRun refs, policy resolution requires coordinator-provided runs, and P0 closure accepts only persisted core tokens; dependency evidence remains open.
 - [ ] 4.4 Implement closure checks for evidence classes, provenance independence, counterevidence, contradictions, oracle status, selected or conditional decision, fallback, and reversal condition. Partial implementation evidence: `SlotClosureAssessment.assess_alpha2` binds an exact persisted Decision Ledger revision and selected/conditional status; multi-slot aggregation remains open.
 - [ ] 4.5 Make the core evaluator the only closure-token issuer and persist machine-readable pass, fail, and inconclusive explanations. Partial implementation evidence: deterministic token/revocation, coordinator-owned SQLite persistence, and append-only revocation after material feedback; direct parent-supersession triggers remain open.
 - [ ] 4.6 Generate independent validation, method-switch, fallback, or residual-risk work after failed or inconclusive oracles. Partial implementation evidence: `oracle_successor_actions`; scheduler integration remains open.

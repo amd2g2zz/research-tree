@@ -539,7 +539,7 @@ class AlignmentGraphStore:
                     "option_effects": [],
                     "remaining_uncertainties": [],
                     "research_continuations": [],
-                    "validation_result": None,
+                    "oracle_run_refs": [],
                 }
             )
         dropped_evidence = []

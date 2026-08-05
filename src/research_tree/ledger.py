@@ -27,7 +27,6 @@ DECISION_STATUSES = {"selected", "conditional", "deferred", "blocked"}
 ALTERNATIVE_DISPOSITIONS = {"rejected", "deferred", "unresolved"}
 VALIDATION_KINDS = {"test", "spike", "metric", "review"}
 CONTINUATION_KINDS = {"deep_dive", "adversarial", "validation", "method_switch"}
-VALIDATION_RESULTS = {"passed", "failed", "inconclusive"}
 
 
 class FindingPackError(RuntimeStoreError):
@@ -66,6 +65,7 @@ class FindingPackCompiler:
         research_node_id: str | None = None,
         research_continuations: Sequence[Mapping[str, Any]] = (),
         validation_result: Mapping[str, Any] | None = None,
+        oracle_run_refs: Sequence[Mapping[str, Any]] = (),
         evidence_artifacts: Sequence[Mapping[str, Any]] = (),
     ) -> ArtifactRevision:
         """Append a Finding Pack only after its claims are bounded and anchored."""
@@ -92,6 +92,7 @@ class FindingPackCompiler:
             )
             normalized_observations = _normalize_observations(observations, slot)
             _resolve_strict_evidence(normalized_observations, evidence_artifacts, self._evidence_resolver)
+            _normalize_validation_result(validation_result)
             payload = {
                 "id": finding_id,
                 "round_id": round_id,
@@ -127,7 +128,7 @@ class FindingPackCompiler:
                 "research_continuations": _normalize_research_continuations(
                     research_continuations
                 ),
-                "validation_result": _normalize_validation_result(validation_result),
+                "oracle_run_refs": _normalize_oracle_run_refs(oracle_run_refs),
             }
         except (InvalidIdentifierError, TypeError, ValueError) as error:
             raise InvalidFindingPackError(str(error)) from error
@@ -475,32 +476,39 @@ def _normalize_research_continuations(value: Any) -> list[dict[str, Any]]:
 def _normalize_validation_result(value: Any) -> dict[str, str] | None:
     if value is None:
         return None
-    if not isinstance(value, Mapping):
-        raise InvalidFindingPackError("validation_result must be a mapping or null")
-    _require_exact_keys(
-        value,
-        {"status", "oracle", "evidence_ref"},
-        "validation_result",
-        InvalidFindingPackError,
+    raise InvalidFindingPackError(
+        "worker-authored validation_result is not authoritative; use oracle_run_refs"
     )
-    return {
-        "status": _enum(
-            value["status"],
-            "validation_result.status",
-            VALIDATION_RESULTS,
+
+
+def _normalize_oracle_run_refs(value: Any) -> list[dict[str, Any]]:
+    refs = _mapping_sequence(value, "oracle_run_refs", InvalidFindingPackError)
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, ref in enumerate(refs):
+        label = f"oracle_run_refs[{index}]"
+        _require_exact_keys(
+            ref,
+            {"oracle_run_id", "oracle_spec_id", "oracle_spec_version", "attempt_id"},
+            label,
             InvalidFindingPackError,
-        ),
-        "oracle": _nonempty_string(
-            value["oracle"],
-            "validation_result.oracle",
-            InvalidFindingPackError,
-        ),
-        "evidence_ref": _nonempty_string(
-            value["evidence_ref"],
-            "validation_result.evidence_ref",
-            InvalidFindingPackError,
-        ),
-    }
+        )
+        oracle_run_id = _nonempty_string(ref["oracle_run_id"], f"{label}.oracle_run_id", InvalidFindingPackError)
+        if oracle_run_id in seen:
+            raise InvalidFindingPackError("oracle_run_refs must not contain duplicates")
+        version = ref["oracle_spec_version"]
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            raise InvalidFindingPackError(f"{label}.oracle_spec_version must be positive")
+        normalized.append(
+            {
+                "oracle_run_id": oracle_run_id,
+                "oracle_spec_id": _nonempty_string(ref["oracle_spec_id"], f"{label}.oracle_spec_id", InvalidFindingPackError),
+                "oracle_spec_version": version,
+                "attempt_id": _nonempty_string(ref["attempt_id"], f"{label}.attempt_id", InvalidFindingPackError),
+            }
+        )
+        seen.add(oracle_run_id)
+    return normalized
 
 
 def _resolve_findings(
