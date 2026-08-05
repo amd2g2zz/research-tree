@@ -339,6 +339,15 @@ class ResearchRunCoordinator:
                 (run_id, parsed.attempt_id),
             ).fetchone() is None:
                 raise CoordinatorError("oracle references an unknown attempt", code="attempt_not_found")
+            for tool_event_ref in payload["tool_event_refs"]:
+                if connection.execute(
+                    "SELECT 1 FROM events WHERE run_id=? AND event_id=?",
+                    (run_id, tool_event_ref),
+                ).fetchone() is None:
+                    raise CoordinatorError(
+                        "oracle references an unresolved tool event",
+                        code="tool_event_not_found",
+                    )
             raw = canonical_json_bytes(payload)
             try:
                 connection.execute(

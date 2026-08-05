@@ -38,10 +38,13 @@ def test_canonical_oracle_run_binds_attempt_inputs_and_reproducibility() -> None
     value = {
         "oracle_run_id": "oracle-run-1",
         "oracle_spec_id": "oracle-build",
+        "oracle_spec_version": 2,
         "attempt_id": "attempt-1",
+        "method": "python-compileall",
         "input_digests": ["c" * 64],
         "environment_digest": "d" * 64,
         "toolchain_digest": "e" * 64,
+        "tool_event_refs": ["tool-event-1"],
         "verdict": "inconclusive",
         "exit_code": None,
         "timed_out": True,
@@ -121,8 +124,10 @@ def test_coordinator_persists_oracle_before_satisfying_closure_obligation(tmp_pa
     run = OracleRun.from_mapping(
         {
             "oracle_run_id": "oracle-run-1", "oracle_spec_id": "oracle-build",
-            "attempt_id": "attempt-1", "input_digests": ["a" * 64],
+            "oracle_spec_version": 1, "attempt_id": "attempt-1", "method": "integration-test",
+            "input_digests": ["a" * 64],
             "environment_digest": "b" * 64, "toolchain_digest": "c" * 64,
+            "tool_event_refs": [],
             "verdict": "passed", "exit_code": 0, "timed_out": False,
             "result_artifact_refs": ["artifact-result"], "evaluator": "core-v1",
             "limitations": [], "reproducibility_status": "reproducible",

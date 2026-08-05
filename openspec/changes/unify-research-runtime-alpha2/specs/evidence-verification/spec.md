@@ -36,7 +36,8 @@ The system SHALL bind each validation verdict to the current OracleSpec, attempt
 
 The alpha2 contract path uses `OracleSpec.from_mapping` and `OracleRun.from_mapping`
 to retain exact execution permissions, limits, attempts, input and toolchain digests,
-timeout state, result artifacts, evaluator, limitations, and reproducibility. The
+OracleSpec version, execution method, tool-event references, timeout state, result
+artifacts, evaluator, limitations, and reproducibility. The
 legacy `create` API remains a compatibility constructor and does not itself authorize
 alpha2 closure.
 

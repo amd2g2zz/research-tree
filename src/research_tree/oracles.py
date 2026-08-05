@@ -101,8 +101,11 @@ class OracleRun:
     verdict: str
     environment_digest: str
     result: Mapping[str, Any]
+    oracle_spec_version: int = 1
+    method: str = "legacy"
     input_digests: tuple[str, ...] = ()
     toolchain_digest: str = ""
+    tool_event_refs: tuple[str, ...] = ()
     exit_code: int | None = None
     timed_out: bool = False
     result_artifact_refs: tuple[str, ...] = ()
@@ -118,8 +121,11 @@ class OracleRun:
             raise OracleError("environment_digest is required")
         input_values = tuple(dict(ref) for ref in input_refs)
         defaults = {
+            "oracle_spec_version": spec.version,
+            "method": spec.kind,
             "input_digests": tuple(str(ref.get("digest", ref.get("artifact_digest"))) for ref in input_values if ref.get("digest", ref.get("artifact_digest"))),
             "toolchain_digest": environment_digest,
+            "tool_event_refs": (),
             "exit_code": 0 if verdict == "pass" else None,
             "timed_out": False,
             "result_artifact_refs": (),
@@ -140,10 +146,13 @@ class OracleRun:
         return {
             "oracle_run_id": self.oracle_run_id,
             "oracle_spec_id": self.oracle_spec_id,
+            "oracle_spec_version": self.oracle_spec_version,
             "attempt_id": self.attempt_id,
+            "method": self.method,
             "input_digests": list(self.input_digests),
             "environment_digest": self.environment_digest,
             "toolchain_digest": self.toolchain_digest,
+            "tool_event_refs": list(self.tool_event_refs),
             "verdict": verdict,
             "exit_code": self.exit_code,
             "timed_out": self.timed_out,
@@ -155,20 +164,24 @@ class OracleRun:
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "OracleRun":
-        required = {"oracle_run_id", "oracle_spec_id", "attempt_id", "input_digests", "environment_digest", "toolchain_digest", "verdict", "exit_code", "timed_out", "result_artifact_refs", "evaluator", "limitations", "reproducibility_status"}
+        required = {"oracle_run_id", "oracle_spec_id", "oracle_spec_version", "attempt_id", "method", "input_digests", "environment_digest", "toolchain_digest", "tool_event_refs", "verdict", "exit_code", "timed_out", "result_artifact_refs", "evaluator", "limitations", "reproducibility_status"}
         if set(value) != required:
             raise OracleError("OracleRun contract fields mismatch")
         if value["verdict"] not in {"passed", "failed", "inconclusive", "not_applicable", "blocked"}:
             raise OracleError("unsupported oracle contract verdict")
         if value["reproducibility_status"] not in {"reproducible", "flaky", "unavailable", "not_reproducible"}:
             raise OracleError("unsupported reproducibility status")
-        if not isinstance(value["timed_out"], bool) or not isinstance(value["input_digests"], list) or not isinstance(value["result_artifact_refs"], list):
+        if not isinstance(value["timed_out"], bool) or not isinstance(value["input_digests"], list) or not isinstance(value["result_artifact_refs"], list) or not isinstance(value["tool_event_refs"], list):
             raise OracleError("OracleRun collection fields are invalid")
+        if isinstance(value["oracle_spec_version"], bool) or not isinstance(value["oracle_spec_version"], int) or value["oracle_spec_version"] < 1:
+            raise OracleError("oracle_spec_version must be positive")
+        if not isinstance(value["method"], str) or not value["method"].strip():
+            raise OracleError("oracle method is required")
         return cls(
             str(value["oracle_run_id"]), str(value["oracle_spec_id"]), str(value["attempt_id"]), tuple({"digest": digest} for digest in value["input_digests"]),
             {"passed": "pass", "failed": "fail", "blocked": "unavailable"}.get(value["verdict"], value["verdict"]),
             str(value["environment_digest"]), {"status": value["verdict"]},
-            tuple(value["input_digests"]), str(value["toolchain_digest"]), value["exit_code"], value["timed_out"], tuple(value["result_artifact_refs"]), str(value["evaluator"]), tuple(value["limitations"]), str(value["reproducibility_status"]),
+            value["oracle_spec_version"], str(value["method"]), tuple(value["input_digests"]), str(value["toolchain_digest"]), tuple(value["tool_event_refs"]), value["exit_code"], value["timed_out"], tuple(value["result_artifact_refs"]), str(value["evaluator"]), tuple(value["limitations"]), str(value["reproducibility_status"]),
         )
 
 
