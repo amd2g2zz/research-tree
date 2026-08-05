@@ -108,6 +108,36 @@ def test_material_correction_invalidates_digest_and_keeps_task_identity(tmp_path
     assert coordinator.attempts("run-correction") == {}
 
 
+def test_feedback_event_validates_invalidation_lineage_and_terminal_impact() -> None:
+    from research_tree.contracts import ContractError, validate_feedback_event
+
+    event = validate_feedback_event(
+        {
+            "feedback_id": "feedback-terminal",
+            "run_id": "run-feedback",
+            "actor": "human",
+            "kind": "correction",
+            "message": "The objective is infeasible under the confirmed authority.",
+            "target_refs": ["strategy:" + "a" * 64],
+            "materiality": "terminal",
+            "created_at": "2026-08-05T00:00:00+00:00",
+            "affected_fields": ["authority"],
+            "invalidated_refs": ["strategy:" + "a" * 64],
+            "successor_refs": ["run:run-successor"],
+            "task_identity_disposition": "superseded",
+        }
+    )
+    assert event["impact_class"] == "terminal"
+    assert event["contradicted_refs"] == ["strategy:" + "a" * 64]
+    with pytest.raises(ContractError, match="successor_task_identity"):
+        validate_feedback_event(
+            {
+                **event,
+                "task_identity_disposition": "rederived",
+            }
+        )
+
+
 def test_host_event_is_idempotent_but_payload_conflict_is_rejected(tmp_path: Path) -> None:
     from research_tree.contracts import HostEvent
     from research_tree.coordinator import ResearchRunCoordinator

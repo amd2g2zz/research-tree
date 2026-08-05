@@ -88,6 +88,10 @@ that identifies the contradicted belief or field, preserves the prior revision,
 creates a successor interpretation, and marks every dependent pending action,
 strategy digest, handoff, closure, readiness, delivery, and acceptance artifact
 stale before another question, dispatch, or completion decision is allowed.
+The event records `contradicted_refs`, `affected_fields`, `invalidated_refs`,
+`successor_refs`, `impact_class`, and `task_identity_disposition`; task identity
+marked `rederived` also carries the successor identity. Terminal feedback has a
+terminal impact by default rather than being treated as informational.
 
 #### Scenario: Correction invalidates a pending handoff
 - **WHEN** the requester corrects the outcome or scope after a strategy digest is displayed

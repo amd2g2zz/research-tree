@@ -45,6 +45,12 @@ FEEDBACK_KINDS = frozenset(
     {"correction", "priority_change", "scope_change", "authority_change", "success_change",
      "depth_request", "rejection", "approval"}
 )
+FEEDBACK_IMPACT_CLASSES = frozenset(
+    {"none", "alignment", "strategy", "attempt", "delivery", "terminal"}
+)
+TASK_IDENTITY_DISPOSITIONS = frozenset(
+    {"unchanged", "rederived", "superseded", "unknown"}
+)
 
 
 class ContractError(ValueError):
@@ -293,16 +299,60 @@ def validate_feedback_event(value: Mapping[str, Any]) -> dict[str, Any]:
     _identifier(data["run_id"], "run_id")
     if data["kind"] not in FEEDBACK_KINDS or data["materiality"] not in {"informational", "material", "terminal"}:
         raise ContractError("unsupported feedback kind or materiality")
+    if not isinstance(data["actor"], str) or not data["actor"].strip():
+        raise ContractError("feedback actor must be nonempty")
     if not isinstance(data["message"], str) or not data["message"].strip():
         raise ContractError("feedback message must be nonempty")
     if not isinstance(data["target_refs"], list) or not all(isinstance(ref, str) for ref in data["target_refs"]):
         raise ContractError("feedback target_refs must be a string list")
     _timestamp(data["created_at"], "created_at")
+    for field in (
+        "contradicted_refs",
+        "affected_fields",
+        "invalidated_refs",
+        "successor_refs",
+    ):
+        if field in data and (
+            not isinstance(data[field], list)
+            or not all(isinstance(item, str) and item.strip() for item in data[field])
+        ):
+            raise ContractError(f"feedback {field} must be a nonempty string list")
+    if "impact_class" in data and data["impact_class"] not in FEEDBACK_IMPACT_CLASSES:
+        raise ContractError("unsupported feedback impact_class")
+    if (
+        "task_identity_disposition" in data
+        and data["task_identity_disposition"] not in TASK_IDENTITY_DISPOSITIONS
+    ):
+        raise ContractError("unsupported feedback task_identity_disposition")
+    if "expected_revision" in data and (
+        isinstance(data["expected_revision"], bool)
+        or not isinstance(data["expected_revision"], int)
+        or data["expected_revision"] < 0
+    ):
+        raise ContractError("feedback expected_revision must be a nonnegative integer")
+    if "successor_task_identity" in data and not isinstance(
+        data["successor_task_identity"], Mapping
+    ):
+        raise ContractError("feedback successor_task_identity must be an object")
     normalized = _normalize(data)
     normalized.setdefault("contradicted_refs", list(normalized.get("target_refs", [])))
     normalized.setdefault("affected_fields", [])
     normalized.setdefault("invalidated_refs", [])
     normalized.setdefault("successor_refs", [])
-    normalized.setdefault("impact_class", "alignment" if normalized["materiality"] == "material" else "none")
+    normalized.setdefault(
+        "impact_class",
+        {
+            "informational": "none",
+            "material": "alignment",
+            "terminal": "terminal",
+        }[normalized["materiality"]],
+    )
     normalized.setdefault("task_identity_disposition", "rederived" if "successor_task_identity" in normalized else "unchanged")
+    if (
+        normalized["task_identity_disposition"] == "rederived"
+        and "successor_task_identity" not in normalized
+    ):
+        raise ContractError(
+            "rederived task identity requires successor_task_identity"
+        )
     return normalized

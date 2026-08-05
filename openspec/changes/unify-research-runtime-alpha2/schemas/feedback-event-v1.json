@@ -13,12 +13,14 @@
     "message": { "type": "string", "minLength": 1 },
     "target_refs": { "type": "array", "items": { "type": "string" } },
     "materiality": { "type": "string", "enum": ["informational", "material", "terminal"] },
-    "created_at": { "type": "string", "format": "date-time" }
-    ,"contradicted_refs": { "type": "array", "items": { "type": "string" } }
-    ,"affected_fields": { "type": "array", "items": { "type": "string" } }
-    ,"invalidated_refs": { "type": "array", "items": { "type": "string" } }
-    ,"successor_refs": { "type": "array", "items": { "type": "string" } }
-    ,"impact_class": { "type": "string", "enum": ["none", "alignment", "strategy", "attempt", "delivery", "terminal"] }
-    ,"task_identity_disposition": { "type": "string", "enum": ["unchanged", "rederived", "superseded", "unknown"] }
+    "created_at": { "type": "string", "format": "date-time" },
+    "contradicted_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "affected_fields": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "invalidated_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "successor_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "impact_class": { "type": "string", "enum": ["none", "alignment", "strategy", "attempt", "delivery", "terminal"] },
+    "task_identity_disposition": { "type": "string", "enum": ["unchanged", "rederived", "superseded", "unknown"] },
+    "successor_task_identity": { "type": "object" },
+    "expected_revision": { "type": "integer", "minimum": 0 }
   }
 }
