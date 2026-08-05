@@ -20,6 +20,8 @@ class SlotClosureAssessment:
     checks: Mapping[str, Any]
     token_digest: str | None
     assessment_revision: int = 1
+    decision_ref: Mapping[str, Any] | None = None
+    decision_status: str = "deferred"
     required_evidence_results: tuple[Mapping[str, Any], ...] = ()
     independence_groups: tuple[str, ...] = ()
     counterevidence_search: Mapping[str, Any] | None = None
@@ -48,6 +50,8 @@ class SlotClosureAssessment:
         *,
         slot_id: str,
         assessment_revision: int,
+        decision_ref: Mapping[str, Any],
+        decision_status: str,
         evidence: Sequence[Mapping[str, Any]],
         oracle_runs: Sequence[Mapping[str, Any]],
         contradictions: Sequence[Mapping[str, Any]],
@@ -59,6 +63,9 @@ class SlotClosureAssessment:
     ) -> "SlotClosureAssessment":
         if assessment_revision < 1:
             raise ClosureError("assessment_revision must be positive")
+        normalized_decision_ref = _decision_ref(decision_ref)
+        if decision_status not in {"selected", "conditional", "deferred", "blocked"}:
+            raise ClosureError("unsupported decision status")
         if not all(isinstance(item, str) and item.strip() for item in (slot_id, fallback, reversal_condition, assessor_version)):
             raise ClosureError("alpha2 closure identity, fallback, reversal, and assessor are required")
         groups = tuple(sorted({str(item["provenance_group"]) for item in evidence if item.get("provenance_group")}))
@@ -88,6 +95,7 @@ class SlotClosureAssessment:
             "contradictions_disposed": not unresolved,
             "fallback_present": True,
             "reversal_condition_present": True,
+            "decision_selected_or_conditional": decision_status in {"selected", "conditional"},
         }
         status = "passed" if all(checks.values()) else "open"
         oracle_refs = tuple(sorted(str(item.get("oracle_run_id")) for item in normalized_oracles if item.get("oracle_run_id")))
@@ -97,6 +105,8 @@ class SlotClosureAssessment:
             body = {
                 "slot_id": slot_id,
                 "assessment_revision": assessment_revision,
+                "decision_ref": normalized_decision_ref,
+                "decision_status": decision_status,
                 "required_evidence_results": evidence_results,
                 "independence_groups": groups,
                 "counterevidence_search": dict(counterevidence_search),
@@ -108,7 +118,7 @@ class SlotClosureAssessment:
             }
             token = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
         return cls(
-            slot_id, status, checks, token, assessment_revision, evidence_results, groups,
+            slot_id, status, checks, token, assessment_revision, normalized_decision_ref, decision_status, evidence_results, groups,
             dict(counterevidence_search), contradiction_disposition, oracle_refs, fallback,
             reversal_condition, assessor_version,
         )
@@ -125,6 +135,8 @@ class SlotClosureAssessment:
         return {
             "slot_id": self.slot_id,
             "assessment_revision": self.assessment_revision,
+            "decision_ref": dict(self.decision_ref or {}),
+            "decision_status": self.decision_status,
             "required_evidence_results": [dict(item) for item in self.required_evidence_results],
             "independence_groups": list(self.independence_groups),
             "counterevidence_search": dict(self.counterevidence_search or {}),
@@ -153,3 +165,16 @@ def oracle_successor_actions(oracle_runs: Sequence[Mapping[str, Any]]) -> list[d
             "reason": f"oracle verdict is {verdict}",
         })
     return actions
+
+
+def _decision_ref(value: Mapping[str, Any]) -> dict[str, Any]:
+    required = {"run_id", "artifact_id", "revision", "content_hash"}
+    if not isinstance(value, Mapping) or set(value) != required:
+        raise ClosureError("decision_ref fields mismatch")
+    if not all(isinstance(value[field], str) and value[field].strip() for field in ("run_id", "artifact_id")):
+        raise ClosureError("decision_ref identity is required")
+    if isinstance(value["revision"], bool) or not isinstance(value["revision"], int) or value["revision"] < 1:
+        raise ClosureError("decision_ref revision must be positive")
+    if not isinstance(value["content_hash"], str) or len(value["content_hash"]) != 64:
+        raise ClosureError("decision_ref content_hash must be SHA-256")
+    return dict(value)

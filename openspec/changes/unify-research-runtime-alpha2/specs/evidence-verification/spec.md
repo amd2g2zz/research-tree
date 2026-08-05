@@ -58,7 +58,9 @@ The system SHALL issue a closure token only after evaluating required evidence c
 `SlotClosureAssessment.assess_alpha2` is the evaluator-owned path. It requires
 counterevidence completion, two provenance groups, every declared evidence class,
 a reproducible passing OracleRun, disposed contradictions, fallback, and reversal
-condition. Worker prose and legacy validation strings are not accepted inputs.
+condition. The token also binds the exact Decision Ledger artifact revision and
+its selected or conditional status. Worker prose and legacy validation strings
+are not accepted inputs.
 
 ### Requirement: Evidence history is never deleted by pruning or supersession
 The system SHALL preserve rejected, contradicted, superseded, failed, and inconclusive evidence with its original provenance and disposition.

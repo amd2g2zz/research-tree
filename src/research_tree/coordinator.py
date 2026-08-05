@@ -381,6 +381,18 @@ class ResearchRunCoordinator:
             row = self._require_run(connection, run_id)
             if int(row["revision"]) != expected_revision:
                 raise CoordinatorError("expected revision is stale", code="stale_revision")
+            decision_ref = payload["decision_ref"]
+            decision = connection.execute(
+                """SELECT kind,content_hash FROM artifacts
+                   WHERE run_id=? AND artifact_id=? AND revision=?""",
+                (decision_ref["run_id"], decision_ref["artifact_id"], decision_ref["revision"]),
+            ).fetchone() if connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='artifacts'"
+            ).fetchone() else None
+            if decision is None:
+                raise CoordinatorError("closure references an unresolved Decision Ledger revision", code="decision_not_found")
+            if decision["kind"] != "decision-ledger-entry" or decision["content_hash"] != decision_ref["content_hash"]:
+                raise CoordinatorError("closure decision reference is stale or has the wrong kind", code="stale_decision")
             for oracle_ref in payload["oracle_refs"]:
                 oracle = connection.execute(
                     "SELECT payload_json FROM oracle_runs WHERE run_id=? AND oracle_run_id=?",

@@ -21,6 +21,10 @@ def canonical_spec() -> dict[str, object]:
     }
 
 
+def decision_ref() -> dict[str, object]:
+    return {"run_id": "run-oracle", "artifact_id": "decision-a", "revision": 1, "content_hash": "9" * 64}
+
+
 def test_canonical_oracle_spec_round_trips_exact_execution_boundary() -> None:
     from research_tree import OracleSpec
 
@@ -67,7 +71,7 @@ def test_alpha2_closure_rejects_forged_verdict_and_active_contradiction() -> Non
         {"evidence_id": "e2", "provenance_group": "source-b", "classes": ["experiment"]},
     ]
     assessment = SlotClosureAssessment.assess_alpha2(
-        slot_id="slot-a", assessment_revision=1, evidence=evidence,
+        slot_id="slot-a", assessment_revision=1, decision_ref=decision_ref(), decision_status="selected", evidence=evidence,
         oracle_runs=[], contradictions=[{"id": "c1", "status": "active"}],
         required_classes=["repository", "experiment"],
         counterevidence_search={"completed": True, "query": "counterexample"},
@@ -84,7 +88,7 @@ def test_alpha2_closure_token_is_replayable_and_revocable() -> None:
     from research_tree import SlotClosureAssessment, oracle_successor_actions
 
     assessment = SlotClosureAssessment.assess_alpha2(
-        slot_id="slot-a", assessment_revision=2,
+        slot_id="slot-a", assessment_revision=2, decision_ref=decision_ref(), decision_status="selected",
         evidence=[
             {"evidence_id": "e1", "provenance_group": "source-a", "classes": ["repository"]},
             {"evidence_id": "e2", "provenance_group": "source-b", "classes": ["experiment"]},
@@ -103,9 +107,10 @@ def test_alpha2_closure_token_is_replayable_and_revocable() -> None:
 
 
 def test_coordinator_persists_oracle_before_satisfying_closure_obligation(tmp_path) -> None:
-    from research_tree import AttemptLease, OracleRun, ResearchRunCoordinator, SlotClosureAssessment
+    from research_tree import AttemptLease, OracleRun, SQLiteRunLedger, SlotClosureAssessment
 
-    coordinator = ResearchRunCoordinator(tmp_path)
+    ledger = SQLiteRunLedger(tmp_path)
+    coordinator = ledger.coordinator
     state = coordinator.create("run-oracle")
     lease = AttemptLease.create(
         attempt_id="attempt-1", work_item_id="work-1", run_id="run-oracle",
@@ -124,8 +129,15 @@ def test_coordinator_persists_oracle_before_satisfying_closure_obligation(tmp_pa
         }
     )
     state = coordinator.record_oracle_run("run-oracle", run, expected_revision=state["revision"])
+    decision = ledger.append_artifact(
+        run_id="run-oracle", artifact_id="decision-a", kind="decision-ledger-entry",
+        payload={"status": "selected"}, actor_kind="coordinator", actor_id="decision-compiler",
+        status="active", expected_revision=0,
+    )
     assessment = SlotClosureAssessment.assess_alpha2(
         slot_id="slot-a", assessment_revision=1,
+        decision_ref={"run_id": "run-oracle", "artifact_id": "decision-a", "revision": 1, "content_hash": decision["content_hash"]},
+        decision_status="selected",
         evidence=[
             {"evidence_id": "e1", "provenance_group": "source-a", "classes": ["repository"]},
             {"evidence_id": "e2", "provenance_group": "source-b", "classes": ["experiment"]},
@@ -136,18 +148,26 @@ def test_coordinator_persists_oracle_before_satisfying_closure_obligation(tmp_pa
         fallback="Use the current implementation.",
         reversal_condition="A failed integration test.", assessor_version="core-v1",
     )
-    coordinator.record_closure_assessment("run-oracle", assessment, expected_revision=state["revision"])
+    coordinator.record_closure_assessment("run-oracle", assessment, expected_revision=coordinator.status("run-oracle")["revision"])
     assert coordinator.oracle_runs("run-oracle")["oracle-run-1"]["attempt_id"] == "attempt-1"
     assert coordinator.obligations("run-oracle")["p0_closure"]["evidence_ref"] == assessment.token_digest
 
 
 def test_coordinator_rejects_closure_with_unpersisted_oracle(tmp_path) -> None:
-    from research_tree import ResearchRunCoordinator, SlotClosureAssessment
+    from research_tree import SQLiteRunLedger, SlotClosureAssessment
 
-    coordinator = ResearchRunCoordinator(tmp_path)
+    ledger = SQLiteRunLedger(tmp_path)
+    coordinator = ledger.coordinator
     state = coordinator.create("run-oracle")
+    decision = ledger.append_artifact(
+        run_id="run-oracle", artifact_id="decision-a", kind="decision-ledger-entry",
+        payload={"status": "selected"}, actor_kind="coordinator", actor_id="decision-compiler",
+        status="active", expected_revision=0,
+    )
     assessment = SlotClosureAssessment.assess_alpha2(
         slot_id="slot-a", assessment_revision=1,
+        decision_ref={"run_id": "run-oracle", "artifact_id": "decision-a", "revision": 1, "content_hash": decision["content_hash"]},
+        decision_status="selected",
         evidence=[
             {"evidence_id": "e1", "provenance_group": "source-a", "classes": ["repository"]},
             {"evidence_id": "e2", "provenance_group": "source-b", "classes": ["experiment"]},
@@ -159,5 +179,5 @@ def test_coordinator_rejects_closure_with_unpersisted_oracle(tmp_path) -> None:
         reversal_condition="A failed integration test.", assessor_version="core-v1",
     )
     with pytest.raises(coordinator.error_type) as error:
-        coordinator.record_closure_assessment("run-oracle", assessment, expected_revision=state["revision"])
+        coordinator.record_closure_assessment("run-oracle", assessment, expected_revision=coordinator.status("run-oracle")["revision"])
     assert error.value.code == "oracle_not_found"

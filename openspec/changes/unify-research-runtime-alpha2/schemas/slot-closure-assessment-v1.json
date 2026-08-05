@@ -4,10 +4,12 @@
   "title": "Alpha2 SlotClosureAssessment",
   "type": "object",
   "additionalProperties": false,
-  "required": ["slot_id", "assessment_revision", "required_evidence_results", "independence_groups", "counterevidence_search", "contradiction_disposition", "oracle_refs", "fallback", "reversal_condition", "assessor_version", "status", "token_digest"],
+  "required": ["slot_id", "assessment_revision", "decision_ref", "decision_status", "required_evidence_results", "independence_groups", "counterevidence_search", "contradiction_disposition", "oracle_refs", "fallback", "reversal_condition", "assessor_version", "status", "token_digest"],
   "properties": {
     "slot_id": { "type": "string", "minLength": 1 },
     "assessment_revision": { "type": "integer", "minimum": 1 },
+    "decision_ref": { "type": "object", "additionalProperties": false, "required": ["run_id", "artifact_id", "revision", "content_hash"], "properties": { "run_id": { "type": "string", "minLength": 1 }, "artifact_id": { "type": "string", "minLength": 1 }, "revision": { "type": "integer", "minimum": 1 }, "content_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" } } },
+    "decision_status": { "type": "string", "enum": ["selected", "conditional", "deferred", "blocked"] },
     "required_evidence_results": { "type": "array", "items": { "type": "object" } },
     "independence_groups": { "type": "array", "items": { "type": "string", "minLength": 1 } },
     "counterevidence_search": { "type": "object" },
