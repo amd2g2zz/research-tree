@@ -11,6 +11,10 @@ generated requirement matrix from `registries/delivery-matrix-v1.json`; every
 resolvable evidence reference. GitHub issue closure is tracking metadata, never a
 substitute for local evidence.
 
+The registry itself is executable: `uv run python scripts/validate_task_registry.py`
+must pass before any group status or task checkbox is advanced. It validates required
+fields, dependency cycles, evidence paths, and acceptance command paths.
+
 ## 1. Contract and Alpha1 Baseline (#55, #66)
 
 - [ ] 1.1 Add an alpha1 fixture manifest that pins tag `0.0.1-a1`, exact environment inputs, host package revisions, commands, and expected unsafe outcomes. Implementation evidence: `evaluation/cases/alpha1-adversarial-v1.json` and evaluator-owned oracle map; group acceptance remains pending until the complete baseline suite is recorded.
