@@ -64,16 +64,27 @@ TRANSITIONS = {
     ("alignment", "authority_impossible"): ("authority_blocked", "coordinator"),
     ("handoff_pending", "handoff_confirmed"): ("autonomous_research", "human"),
     ("handoff_pending", "alignment_feedback"): ("alignment", "human"),
+    ("handoff_pending", "intent_correction"): ("superseded", "coordinator"),
     ("autonomous_research", "batch_checkpoint"): ("synthesis", "coordinator"),
     ("autonomous_research", "operational_limit"): ("paused", "coordinator"),
+    ("autonomous_research", "same_round_replan"): ("autonomous_research", "coordinator"),
+    ("autonomous_research", "intent_correction"): ("superseded", "coordinator"),
     ("synthesis", "closure_deficit"): ("autonomous_research", "coordinator"),
     ("synthesis", "all_slots_closed"): ("readiness", "coordinator"),
+    ("synthesis", "same_round_replan"): ("autonomous_research", "coordinator"),
+    ("synthesis", "intent_correction"): ("superseded", "coordinator"),
     ("readiness", "readiness_passed"): ("delivery_pending", "coordinator"),
     ("readiness", "readiness_deficit"): ("autonomous_research", "coordinator"),
+    ("readiness", "same_round_replan"): ("autonomous_research", "coordinator"),
+    ("readiness", "intent_correction"): ("superseded", "coordinator"),
     ("delivery_pending", "deliveries_compiled"): ("awaiting_acceptance", "coordinator"),
+    ("delivery_pending", "same_round_replan"): ("autonomous_research", "coordinator"),
+    ("delivery_pending", "intent_correction"): ("superseded", "coordinator"),
     ("awaiting_acceptance", "delivery_accepted"): ("completed", "human"),
     ("awaiting_acceptance", "needs_deeper_research"): ("autonomous_research", "human"),
+    ("awaiting_acceptance", "same_round_replan"): ("autonomous_research", "coordinator"),
     ("awaiting_acceptance", "intent_correction"): ("superseded", "coordinator"),
+    ("completed", "intent_correction"): ("superseded", "coordinator"),
     ("paused", "resume"): ("autonomous_research", "coordinator"),
     ("blocked", "blocker_resolved"): ("autonomous_research", "coordinator"),
     ("alignment", "supersede"): ("superseded", "coordinator"),
@@ -3855,15 +3866,83 @@ class ResearchRunCoordinator:
     def record_feedback(self, value: Mapping[str, Any], *, expected_revision: int) -> dict[str, Any]:
         feedback = validate_feedback_event(value)
         run_id = feedback["run_id"]
+        target_fields = {
+            "objective",
+            "target",
+            "scope",
+            "priority",
+            "authority",
+            "success",
+            "success_definition",
+            "task_identity",
+        }
+        target_kinds = {
+            "scope_change",
+            "priority_change",
+            "authority_change",
+            "success_change",
+        }
+        target_changing = bool(
+            feedback["kind"] in target_kinds
+            or target_fields.intersection(feedback.get("affected_fields", []))
+            or feedback.get("task_identity_disposition")
+            in {"rederived", "superseded"}
+        )
+        successor_run_id: str | None = None
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             row = self._require_run(connection, run_id)
             if row["revision"] != expected_revision:
                 raise CoordinatorError("expected revision is stale", code="stale_revision")
-            self._snapshot_current_revision(
-                connection,
-                run_id,
-                source_event_id="feedback-predecessor-" + feedback["feedback_id"],
-            )
+            if target_changing and row["lifecycle_state"] == "alignment":
+                target_changing = False
+            if target_changing:
+                if feedback["materiality"] not in {"material", "terminal"}:
+                    raise CoordinatorError(
+                        "target-changing feedback must be material",
+                        code="feedback_materiality_invalid",
+                    )
+                successor_refs = [
+                    item.split(":", 1)[1]
+                    for item in feedback.get("successor_refs", [])
+                    if isinstance(item, str) and item.startswith("run:")
+                ]
+                if len(successor_refs) != 1:
+                    raise CoordinatorError(
+                        "target-changing feedback requires exactly one successor run",
+                        code="successor_lineage_required",
+                    )
+                successor_run_id = successor_refs[0]
+                if (
+                    not IDENTIFIER_RE.fullmatch(successor_run_id)
+                    or successor_run_id == run_id
+                ):
+                    raise CoordinatorError(
+                        "successor run identity is invalid",
+                        code="successor_lineage_required",
+                    )
+                if (
+                    feedback.get("task_identity_disposition") == "rederived"
+                    and not isinstance(
+                        feedback.get("successor_task_identity"), Mapping
+                    )
+                ):
+                    raise CoordinatorError(
+                        "rederived task identity requires successor_task_identity",
+                        code="successor_lineage_required",
+                    )
+                edge = TRANSITIONS.get((row["lifecycle_state"], "intent_correction"))
+                if edge != ("superseded", "coordinator"):
+                    raise CoordinatorError(
+                        "current lifecycle cannot create a successor run",
+                        code="illegal_transition",
+                    )
+                if connection.execute(
+                    "SELECT 1 FROM runs WHERE run_id=?", (successor_run_id,)
+                ).fetchone():
+                    raise CoordinatorError(
+                        "successor run already exists", code="successor_run_conflict"
+                    )
             revision = int(row["revision"]) + 1
             invalidation_refs = list(feedback["target_refs"]) + list(
                 feedback.get("invalidated_refs", [])
@@ -3920,7 +3999,7 @@ class ResearchRunCoordinator:
                     (run_id,),
                 ).fetchall():
                     lease = AttemptLease.from_dict(json.loads(attempt["lease_json"]))
-                    if lease.dispatch_digest not in invalidated:
+                    if not target_changing and lease.dispatch_digest not in invalidated:
                         continue
                     invalidated_attempt_ids.append(lease.attempt_id)
                     connection.execute(
@@ -3937,11 +4016,108 @@ class ResearchRunCoordinator:
                             self._now(),
                         ),
                     )
-            identity = feedback.get("successor_task_identity") or json.loads(row["task_identity_json"])
-            next_state = "alignment" if feedback["materiality"] == "material" else row["lifecycle_state"]
-            state = self._state_payload(row, lifecycle_state=next_state, revision=revision, body={"task_identity": identity, "feedback_id": feedback["feedback_id"]})
+            predecessor_identity = json.loads(row["task_identity_json"])
+            successor: dict[str, Any] | None = None
+            if target_changing:
+                successor_identity = dict(
+                    feedback.get("successor_task_identity") or predecessor_identity
+                )
+                now = self._now()
+                successor_authority_digest = self._digest({})
+                successor_state = {
+                    "run_id": successor_run_id,
+                    "revision": 0,
+                    "lifecycle_state": "alignment",
+                    "task_identity": successor_identity,
+                    "feedback_id": feedback["feedback_id"],
+                }
+                successor_state_digest = self._digest(successor_state)
+                connection.execute(
+                    """INSERT INTO runs(
+                         run_id,lifecycle_state,revision,authority_digest,state_digest,
+                         task_identity_json,parent_run_id,termination_reason,created_at,
+                         updated_at,schema_version
+                       ) VALUES(?,?,?,?,?,?,?,?,?,?,1)""",
+                    (
+                        successor_run_id,
+                        "alignment",
+                        0,
+                        successor_authority_digest,
+                        successor_state_digest,
+                        json.dumps(successor_identity, ensure_ascii=False, sort_keys=True),
+                        run_id,
+                        None,
+                        now,
+                        now,
+                    ),
+                )
+                self._ensure_obligations(connection, successor_run_id)
+                self._event(
+                    connection,
+                    successor_run_id,
+                    "run-initialized",
+                    0,
+                    {
+                        "task_identity": successor_identity,
+                        "parent_run_id": run_id,
+                        "feedback_id": feedback["feedback_id"],
+                    },
+                    event_type="run_initialized",
+                )
+                self._snapshot_current_revision(
+                    connection,
+                    successor_run_id,
+                    source_event_id="run-initialized",
+                )
+                self._fault("feedback_after_successor_insert")
+                next_state = "superseded"
+                lifecycle_event = "intent_correction"
+            elif feedback["materiality"] == "material":
+                if row["lifecycle_state"] == "handoff_pending":
+                    next_state = "alignment"
+                    lifecycle_event = "alignment_feedback"
+                elif row["lifecycle_state"] == "alignment":
+                    next_state = "alignment"
+                    lifecycle_event = "feedback_recorded"
+                else:
+                    edge = TRANSITIONS.get(
+                        (row["lifecycle_state"], "same_round_replan")
+                    )
+                    if edge != ("autonomous_research", "coordinator"):
+                        raise CoordinatorError(
+                            "current lifecycle cannot replan in the same run",
+                            code="illegal_transition",
+                        )
+                    next_state = "autonomous_research"
+                    lifecycle_event = "same_round_replan"
+            else:
+                next_state = row["lifecycle_state"]
+                lifecycle_event = "feedback_recorded"
+            state = self._state_payload(
+                row,
+                lifecycle_state=next_state,
+                revision=revision,
+                body={
+                    "task_identity": predecessor_identity,
+                    "feedback_id": feedback["feedback_id"],
+                },
+            )
             digest = self._digest(state)
-            connection.execute("UPDATE runs SET lifecycle_state=?,revision=?,state_digest=?,task_identity_json=?,updated_at=? WHERE run_id=?", (next_state, revision, digest, json.dumps(identity, ensure_ascii=False, sort_keys=True), self._now(), run_id))
+            connection.execute(
+                """UPDATE runs SET lifecycle_state=?,revision=?,state_digest=?,
+                          task_identity_json=?,updated_at=?,termination_reason=?
+                   WHERE run_id=?""",
+                (
+                    next_state,
+                    revision,
+                    digest,
+                    json.dumps(predecessor_identity, ensure_ascii=False, sort_keys=True),
+                    self._now(),
+                    f"superseded_by:{successor_run_id}" if target_changing else None,
+                    run_id,
+                ),
+            )
+            self._fault("feedback_after_predecessor_update")
             event_id = "feedback-" + feedback["feedback_id"]
             self._snapshot_current_revision(
                 connection, run_id, source_event_id=event_id
@@ -3957,11 +4133,32 @@ class ResearchRunCoordinator:
                     "invalidated_attempt_ids": invalidated_attempt_ids,
                     "invalidated_obligations": invalidated_obligations,
                     "revoked_closure_tokens": revoked_closure_tokens,
+                    "lineage_disposition": (
+                        "successor_run" if target_changing else "same_round_replan"
+                    ),
+                    "successor_run_id": successor_run_id,
                 }
             )
-            self._event(connection, run_id, event_id, expected_revision, event_payload, event_type="feedback_recorded")
+            self._event(
+                connection,
+                run_id,
+                event_id,
+                expected_revision,
+                event_payload,
+                event_type=lifecycle_event,
+            )
+            self._fault("feedback_after_event")
+            if target_changing:
+                successor = self._row(
+                    self._require_run(connection, str(successor_run_id))
+                )
         result = self.status(run_id)
         result["invalidated_digests"] = sorted(invalidated)
+        result["lineage_disposition"] = (
+            "successor_run" if target_changing else "same_round_replan"
+        )
+        if successor is not None:
+            result["successor_run"] = successor
         return result
 
     def assert_current(self, run_id: str, digest: str, *, action: str) -> None:

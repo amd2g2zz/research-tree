@@ -106,7 +106,7 @@ def test_material_feedback_preserves_revision_and_quarantines_dependent_state(
             "created_at": "2026-08-05T00:30:00+00:00",
             "affected_fields": ["task_identity.subject", "strategy", "handoff"],
             "invalidated_refs": [f"strategy:{strategy_digest}"],
-            "successor_refs": ["task-identity:autonomous-agent"],
+            "successor_refs": ["run:run-correction-successor"],
             "impact_class": "strategy",
             "task_identity_disposition": "rederived",
             "successor_task_identity": {
@@ -117,11 +117,18 @@ def test_material_feedback_preserves_revision_and_quarantines_dependent_state(
         expected_revision=state["revision"],
     )
 
+    successor_run = successor["successor_run"]
     revisions = coordinator.revisions(state["run_id"])
     assert sorted(revisions) == list(range(successor["revision"] + 1))
     assert revisions[predecessor["revision"]]["state_digest"] == predecessor["state_digest"]
     assert revisions[predecessor["revision"]]["lifecycle_state"] == "completed"
-    assert revisions[successor["revision"]]["task_identity"]["subject"] == "autonomous-agent"
+    assert revisions[successor["revision"]]["lifecycle_state"] == "superseded"
+    assert (
+        revisions[successor["revision"]]["task_identity"]["subject"]
+        == "diagnostic-repository"
+    )
+    assert successor_run["parent_run_id"] == state["run_id"]
+    assert successor_run["task_identity"]["subject"] == "autonomous-agent"
     assert all(not item["satisfied"] for item in coordinator.obligations(state["run_id"]).values())
     quarantine = coordinator.attempt_invalidations(state["run_id"])
     assert quarantine["attempt-old-strategy"]["feedback_id"] == "feedback-correct-target"
@@ -129,7 +136,10 @@ def test_material_feedback_preserves_revision_and_quarantines_dependent_state(
     feedback_event = coordinator.events(state["run_id"])[-1]
     assert feedback_event["payload"]["predecessor_revision"] == predecessor["revision"]
     assert feedback_event["payload"]["successor_revision"] == successor["revision"]
-    assert feedback_event["payload"]["invalidated_attempt_ids"] == ["attempt-old-strategy"]
+    assert feedback_event["payload"]["invalidated_attempt_ids"] == [
+        "attempt-closure-correction",
+        "attempt-old-strategy",
+    ]
     stale_result = HostEvent.create(
         event_id="event-stale-attempt-finished",
         event_type="worker_finished",
@@ -160,8 +170,8 @@ def test_material_feedback_preserves_revision_and_quarantines_dependent_state(
         "predecessor_lifecycle_state": revisions[predecessor["revision"]][
             "lifecycle_state"
         ],
-        "successor_lifecycle_state": successor["lifecycle_state"],
-        "successor_task_subject": successor["task_identity"]["subject"],
+        "successor_lifecycle_state": successor_run["lifecycle_state"],
+        "successor_task_subject": successor_run["task_identity"]["subject"],
         "invalidated_attempt_ids": feedback_event["payload"][
             "invalidated_attempt_ids"
         ],

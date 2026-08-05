@@ -1680,7 +1680,7 @@ def test_coordinator_rejects_illegal_transition_without_mutation(tmp_path: Path)
     assert coordinator.status("run-lifecycle") == created
 
 
-def test_material_correction_invalidates_digest_and_keeps_task_identity(tmp_path: Path) -> None:
+def test_target_changing_feedback_creates_canonical_successor_run(tmp_path: Path) -> None:
     from research_tree.coordinator import ResearchRunCoordinator
     from research_tree.leases import AttemptLease
 
@@ -1707,13 +1707,20 @@ def test_material_correction_invalidates_digest_and_keeps_task_identity(tmp_path
             "target_refs": ["task:subject", "strategy:a" + "a" * 63],
             "materiality": "material",
             "created_at": "2026-08-05T00:00:00+00:00",
+            "affected_fields": ["task_identity"],
+            "successor_refs": ["run:run-correction-next"],
+            "task_identity_disposition": "rederived",
             "successor_task_identity": {"subject": "autonomous-agent", "domain": "research"},
         },
         expected_revision=handoff["revision"],
     )
-    assert result["lifecycle_state"] == "alignment"
+    assert result["lifecycle_state"] == "superseded"
     assert result["invalidated_digests"] == ["a" * 64]
-    assert result["task_identity"]["subject"] == "autonomous-agent"
+    assert result["task_identity"]["subject"] == "research-tree"
+    assert result["successor_run"]["run_id"] == "run-correction-next"
+    assert result["successor_run"]["lifecycle_state"] == "alignment"
+    assert result["successor_run"]["parent_run_id"] == "run-correction"
+    assert result["successor_run"]["task_identity"]["subject"] == "autonomous-agent"
     with pytest.raises(coordinator.error_type, match="stale_digest"):
         coordinator.assert_current("run-correction", "a" * 64, action="dispatch")
     with pytest.raises(coordinator.error_type, match="stale_digest") as stale:
@@ -1741,6 +1748,139 @@ def test_material_correction_invalidates_digest_and_keeps_task_identity(tmp_path
             expected_revision=result["revision"],
         )
     assert coordinator.attempts("run-correction") == {}
+
+
+def test_material_depth_feedback_replans_same_run_without_successor(
+    tmp_path: Path,
+) -> None:
+    from research_tree.coordinator import ResearchRunCoordinator
+
+    coordinator = ResearchRunCoordinator(tmp_path)
+    created = coordinator.create(
+        "run-same-replan", task_identity={"subject": "research-tree"}
+    )
+    handoff = coordinator.transition(
+        created["run_id"],
+        event="alignment_projection_ready",
+        actor="coordinator",
+        expected_revision=created["revision"],
+        payload={"strategy_digest": created["authority_digest"]},
+    )
+    active = coordinator.transition(
+        created["run_id"],
+        event="handoff_confirmed",
+        actor="human",
+        expected_revision=handoff["revision"],
+        payload={"displayed_digest": handoff["authority_digest"]},
+    )
+
+    result = coordinator.record_feedback(
+        {
+            "feedback_id": "feedback-depth",
+            "run_id": created["run_id"],
+            "actor": "human",
+            "kind": "depth_request",
+            "message": "Add independent counterevidence without changing the target.",
+            "target_refs": ["slot:slot-p0"],
+            "materiality": "material",
+            "created_at": "2026-08-05T00:00:00+00:00",
+            "affected_fields": ["research_depth"],
+            "task_identity_disposition": "unchanged",
+        },
+        expected_revision=active["revision"],
+    )
+
+    assert result["run_id"] == created["run_id"]
+    assert result["lifecycle_state"] == "autonomous_research"
+    assert result["task_identity"] == created["task_identity"]
+    assert result["lineage_disposition"] == "same_round_replan"
+    assert coordinator.events(created["run_id"])[-1]["event_type"] == "same_round_replan"
+    with pytest.raises(coordinator.error_type, match="run_not_found"):
+        coordinator.status("run-same-replan-next")
+
+
+def test_target_change_without_successor_ref_is_rejected_before_mutation(
+    tmp_path: Path,
+) -> None:
+    from research_tree.coordinator import ResearchRunCoordinator
+
+    coordinator = ResearchRunCoordinator(tmp_path)
+    created = coordinator.create("run-missing-successor")
+    before = coordinator.transition(
+        created["run_id"],
+        event="alignment_projection_ready",
+        actor="coordinator",
+        expected_revision=created["revision"],
+        payload={"strategy_digest": created["authority_digest"]},
+    )
+    before_events = coordinator.events(before["run_id"])
+
+    with pytest.raises(coordinator.error_type) as rejected:
+        coordinator.record_feedback(
+            {
+                "feedback_id": "feedback-scope-no-successor",
+                "run_id": before["run_id"],
+                "actor": "human",
+                "kind": "scope_change",
+                "message": "Change the target scope.",
+                "target_refs": ["task:scope"],
+                "materiality": "material",
+                "created_at": "2026-08-05T00:00:00+00:00",
+                "affected_fields": ["scope"],
+                "task_identity_disposition": "rederived",
+                "successor_task_identity": {"subject": "new-target"},
+            },
+            expected_revision=before["revision"],
+        )
+
+    assert rejected.value.code == "successor_lineage_required"
+    assert coordinator.status(before["run_id"]) == before
+    assert coordinator.events(before["run_id"]) == before_events
+
+
+def test_successor_feedback_fault_rolls_back_both_runs(tmp_path: Path) -> None:
+    from research_tree.coordinator import ResearchRunCoordinator
+
+    coordinator = ResearchRunCoordinator(tmp_path)
+    created = coordinator.create("run-feedback-fault")
+    before = coordinator.transition(
+        created["run_id"],
+        event="alignment_projection_ready",
+        actor="coordinator",
+        expected_revision=created["revision"],
+        payload={"strategy_digest": created["authority_digest"]},
+    )
+    before_events = coordinator.events(before["run_id"])
+
+    def fail(boundary: str) -> None:
+        if boundary == "feedback_after_successor_insert":
+            raise RuntimeError(boundary)
+
+    failing = ResearchRunCoordinator(tmp_path, fault_injector=fail)
+    with pytest.raises(RuntimeError, match="feedback_after_successor_insert"):
+        failing.record_feedback(
+            {
+                "feedback_id": "feedback-fault",
+                "run_id": before["run_id"],
+                "actor": "human",
+                "kind": "success_change",
+                "message": "Change the required success outcome.",
+                "target_refs": ["task:success"],
+                "materiality": "material",
+                "created_at": "2026-08-05T00:00:00+00:00",
+                "affected_fields": ["success_definition"],
+                "successor_refs": ["run:run-feedback-fault-next"],
+                "task_identity_disposition": "rederived",
+                "successor_task_identity": {"subject": "revised-outcome"},
+            },
+            expected_revision=before["revision"],
+        )
+
+    reopened = ResearchRunCoordinator(tmp_path)
+    assert reopened.status(before["run_id"]) == before
+    assert reopened.events(before["run_id"]) == before_events
+    with pytest.raises(reopened.error_type, match="run_not_found"):
+        reopened.status("run-feedback-fault-next")
 
 
 def test_feedback_event_validates_invalidation_lineage_and_terminal_impact() -> None:

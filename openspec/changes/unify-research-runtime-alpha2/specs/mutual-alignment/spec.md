@@ -92,9 +92,44 @@ Every user-facing alignment turn SHALL persist a message id, run id, displayed b
 ### Requirement: Material post-handoff feedback creates traceable replanning
 The system SHALL handle normal research corrections autonomously, but SHALL create a successor round when user feedback changes the target, priority, authority, or success definition.
 
+Feedback classification SHALL be semantic and deterministic. `scope_change`,
+`priority_change`, `authority_change`, and `success_change`; an `affected_fields`
+entry naming objective, target, scope, priority, authority, success definition,
+or task identity; and a `task_identity_disposition` of `rederived` or
+`superseded` are target-changing. They require exactly one `run:<id>` successor
+reference and, when identity is rederived, a successor task identity. A depth
+request, method correction, or evidence correction that preserves those fields
+is a same-round replan. Materiality alone MUST NOT choose the lineage branch.
+
+The predecessor supersession, successor run creation, feedback event,
+obligation/attempt invalidation, both run snapshots, and lineage link SHALL
+commit in one SQLite transaction. Same-round replanning SHALL commit its
+feedback, invalidations, lifecycle revision, snapshot, and event in one
+transaction without changing run identity or rewriting prior artifacts.
+
 #### Scenario: User changes the required outcome during autonomous research
 - **WHEN** feedback materially changes the confirmed success definition
 - **THEN** the active round is superseded with explicit lineage and the new round re-enters alignment
+
+#### Scenario: Accepted delivery is later corrected
+
+- **WHEN** target-changing feedback arrives after exact delivery acceptance
+- **THEN** the completed revision remains an immutable historical snapshot,
+  the predecessor appends a superseded revision, and a new alignment run owns
+  the corrected target
+
+#### Scenario: User requests deeper evidence without changing the target
+
+- **WHEN** material feedback asks for deeper research but preserves objective,
+  scope, priority, authority, success definition, and task identity
+- **THEN** the current run records `same_round_replan` and returns to
+  `autonomous_research` without creating a successor run
+
+#### Scenario: Target-changing feedback omits successor identity
+
+- **WHEN** feedback changes a target-defining field but does not provide one
+  canonical successor run reference and required successor task identity
+- **THEN** the coordinator rejects it before mutation with a stable lineage error
 
 ### Requirement: Corrections transactionally invalidate dependent state
 The system SHALL treat a material requester correction as a typed FeedbackEvent
