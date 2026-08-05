@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Host events use one versioned semantic envelope
-The system SHALL represent dispatch, attempt start, finding submission, review completion, provider failure, unknown outcome, retry request, and worker completion with a versioned envelope containing run, round, Decision Slot, action, attempt, host, event identity, and expected ledger revision.
+The system SHALL represent dispatch, attempt start, finding submission, review completion, provider failure, unknown outcome, retry request, worker completion, and non-authoritative run-completion claims with a versioned envelope containing run, round, Decision Slot, action, attempt, host, event identity, and expected ledger revision.
 
 The wire object validated by `schemas/host-event-v1.json` is embedded as the
 canonical entity envelope payload. Storage adds the common entity fields and
@@ -92,6 +92,9 @@ The protocol SHALL define and validate the payload and canonical state effect fo
 - attempt_unknown: reconciliation reason, last heartbeat, and observed host state;
 - retry_requested: predecessor attempt, method/provider change, and retry policy;
 - worker_finished: terminal worker status and all produced artifact refs;
+- completion_claimed: claim kind, claimed canonical state, safe source ref, and
+  adapter-local status. Claim kind is one of `host_status`, `worker_status`,
+  `hook_success`, `report_file`, `empty_frontier`, or `completed_wave`;
 - acceptance_recorded: DeliveryAcceptance ref and displayed digest;
 - reconciliation_detected: host observation, canonical observation, conflict class, and next action.
 
@@ -104,6 +107,14 @@ The protocol SHALL define and validate the payload and canonical state effect fo
 
 - **WHEN** an event uses an unsupported protocol version
 - **THEN** the adapter records it as quarantined evidence and returns unsupported_protocol_version without guessing a translation
+
+#### Scenario: A local proxy claims run completion
+
+- **WHEN** a host emits `completion_claimed` from local status, worker status,
+  hook success, report existence, an empty frontier, or a completed wave
+- **THEN** the coordinator stores the host observation and one idempotent
+  `accepted=false` rejection with reason `completion_claim_rejected`
+- **AND** the run revision, lifecycle state, state digest, and obligations remain unchanged
 
 ### Requirement: Causation and ordering are explicit
 

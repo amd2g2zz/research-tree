@@ -24,7 +24,8 @@
     { "code": "failed_oracle", "category": "verification", "retryability": "method_switch", "exit_code": 4, "state_effect": "slot_contested" },
     { "code": "unsupported_schema_version", "category": "compatibility", "retryability": "migration_required", "exit_code": 8, "state_effect": "none" },
     { "code": "canonical_store_unavailable", "category": "runtime", "retryability": "resume", "exit_code": 9, "state_effect": "paused" },
-    { "code": "authority_blocked", "category": "authority", "retryability": "human_decision", "exit_code": 10, "state_effect": "authority_blocked" }
+    { "code": "authority_blocked", "category": "authority", "retryability": "human_decision", "exit_code": 10, "state_effect": "authority_blocked" },
+    { "code": "completion_claim_rejected", "category": "authority", "retryability": "after_canonical_gates", "exit_code": 4, "state_effect": "audit_only" }
   ],
   "result_fields": ["code", "category", "retryability", "run_id", "attempt_id", "safe_message", "unmet_obligations", "evidence_refs", "next_action"]
 }

@@ -8,7 +8,7 @@
   "properties": {
     "protocol_version": { "const": 1 },
     "event_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
-    "event_type": { "type": "string", "enum": ["dispatch_requested", "attempt_started", "finding_submitted", "review_completed", "provider_failed", "attempt_unknown", "retry_requested", "worker_finished", "acceptance_recorded", "reconciliation_detected"] },
+    "event_type": { "type": "string", "enum": ["dispatch_requested", "attempt_started", "finding_submitted", "review_completed", "provider_failed", "attempt_unknown", "retry_requested", "worker_finished", "completion_claimed", "acceptance_recorded", "reconciliation_detected"] },
     "run_id": { "type": "string", "minLength": 1 },
     "round_id": { "type": "string", "minLength": 1 },
     "slot_id": { "type": ["string", "null"] },
@@ -32,6 +32,7 @@
     { "if": { "properties": { "event_type": { "const": "attempt_unknown" } } }, "then": { "properties": { "payload": { "required": ["reconciliation_reason", "last_heartbeat", "observed_host_state"] } } } },
     { "if": { "properties": { "event_type": { "const": "retry_requested" } } }, "then": { "properties": { "payload": { "required": ["predecessor_attempt", "method_provider_change", "retry_policy"] } } } },
     { "if": { "properties": { "event_type": { "const": "worker_finished" } } }, "then": { "properties": { "payload": { "required": ["terminal_status", "artifact_refs"] } } } },
+    { "if": { "properties": { "event_type": { "const": "completion_claimed" } } }, "then": { "properties": { "payload": { "required": ["claim_kind", "claimed_state", "source_ref", "local_status"], "properties": { "claim_kind": { "enum": ["host_status", "worker_status", "hook_success", "report_file", "empty_frontier", "completed_wave"] }, "claimed_state": { "const": "completed" }, "source_ref": { "type": "string", "minLength": 1 }, "local_status": { "type": "string", "minLength": 1 } } } } } },
     { "if": { "properties": { "event_type": { "const": "acceptance_recorded" } } }, "then": { "properties": { "payload": { "required": ["delivery_acceptance_ref", "displayed_digest"] } } } },
     { "if": { "properties": { "event_type": { "const": "reconciliation_detected" } } }, "then": { "properties": { "payload": { "required": ["host_observation", "canonical_observation", "conflict_class", "next_action"] } } } }
   ]
