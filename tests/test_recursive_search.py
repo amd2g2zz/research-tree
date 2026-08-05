@@ -221,8 +221,9 @@ def test_stop_requires_independent_evidence_and_validation(tmp_path: Path) -> No
         technical_report=technical,
         human_report=human,
     )
-    assert delivered["status"] == "complete"
-    assert delivered["deliverables"]["technical_research_package"]["status"] == "verified"
+    assert delivered["status"] == "delivery_pending"
+    assert delivered["deliverables"]["technical_research_package"]["status"] == "candidate"
+    assert delivered["canonical_complete"] is False
 
 
 def test_branch_complexity_suppresses_unconstrained_sibling_growth() -> None:

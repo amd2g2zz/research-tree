@@ -239,9 +239,9 @@ evaluation.
   diagnosis, gateway-log diagnosis, hook rendering, or staging.
 - After handoff, use `scripts/hermes_execution_adapter.py` to initialize from
   the persisted handoff, record each verified `delegate_task` wave, recover
-  in-flight waves as `unknown`, and register both deep reports before marking
-  the run complete. Hermes still owns delegation; this adapter owns durable
-  state and does not invent Hermes tool calls.
+  in-flight waves as `unknown`, and register both reports as delivery
+  candidates. Hermes still owns delegation; this adapter owns a durable host
+  projection, never canonical completion, and does not invent Hermes tool calls.
 
 ## Completion standard
 

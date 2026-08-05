@@ -25,6 +25,6 @@
   re-check external side effects before retrying unknown work.
 - After handoff, use `scripts/native_execution_adapter.py` with host argument
   `codex` for atomic task attempts, crash recovery, Finding Pack validation, and
-  completion checks when Python is available. This executable state is
-  authoritative over the visible plan; never mark a run complete when its
-  integrity check fails.
+  delivery-candidate preparation when Python is available. This executable
+  state is authoritative over the visible plan only for host task execution;
+  it never owns canonical run completion.

@@ -115,11 +115,13 @@ python scripts/hermes_execution_adapter.py --workspace . record-batch \
   --run-id <run-id> --batch-id wave-001 --status verified \
   --delegation-id <delegation-id> --finding findings/wave-001.json
 python scripts/hermes_execution_adapter.py --workspace . recover --run-id <run-id>
-python scripts/hermes_execution_adapter.py --workspace . complete \
+python scripts/hermes_execution_adapter.py --workspace . prepare-delivery \
   --run-id <run-id> --technical-report technical-research-package.md \
   --human-report human-research-report.md
 ```
 
-The adapter consumes Hermes completion events supplied by the parent; it does
-not call `delegate_task`. A run cannot complete with an unverified batch or
-without both report artifacts.
+The adapter consumes Hermes worker-finished events supplied by the parent; it
+does not call `delegate_task`. A verified wave and both report candidates can
+move the host projection only to `delivery_pending`. The legacy `complete`
+command is rejected; the canonical coordinator alone evaluates readiness,
+acceptance, and completion.

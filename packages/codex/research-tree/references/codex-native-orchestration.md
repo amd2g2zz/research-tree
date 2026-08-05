@@ -68,6 +68,7 @@ python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspac
 python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . finish --run-id <run-id> --task-id <task-id> --result submitted
 python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . verify --run-id <run-id> --task-id <task-id> --reviewer-id coordinator --checked-anchor <opened-ref> --review-note <evidence-check>
 python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . status --run-id <run-id>
+python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . prepare-delivery --run-id <run-id> --technical-report technical-research-package.md --human-report human-research-report.md
 ```
 
 Resolve `<skill-dir>` from the host-supplied Skill path, never from the task
@@ -82,7 +83,10 @@ reopens executed dependents, so corrupt evidence cannot release more work.
 `finish` only records a schema-valid submission. The parent calls
 `verify` only after checking evidence, which then releases dependent tasks.
 Repeat `--checked-anchor` for every observation anchor actually inspected.
-`complete` also verifies artifact hashes, so later edits reopen the run.
+`prepare-delivery` records digest-bound candidates after every local task is
+verified. It never marks the canonical run complete. The legacy `complete`
+command fails with a migration message; exact delivery acceptance belongs to
+the canonical coordinator.
 The coordinator serializes mutating adapter commands; do not update one state
 file from parallel tool calls.
 

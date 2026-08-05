@@ -43,7 +43,9 @@ def write_fixture(workspace: Path) -> tuple[Path, Path, Path]:
     return handoff, finding, (technical, human)
 
 
-def test_hermes_adapter_persists_waves_recovers_and_requires_reports(tmp_path: Path) -> None:
+def test_hermes_adapter_persists_waves_and_prepares_non_authoritative_delivery(
+    tmp_path: Path,
+) -> None:
     handoff, finding, reports = write_fixture(tmp_path)
     initialized = run_adapter(
         tmp_path,
@@ -86,7 +88,7 @@ def test_hermes_adapter_persists_waves_recovers_and_requires_reports(tmp_path: P
     assert verified.returncode == 0, verified.stderr
     blocked = run_adapter(
         tmp_path,
-        "complete",
+        "prepare-delivery",
         "--run-id",
         "hermes-run",
         "--technical-report",
@@ -95,7 +97,7 @@ def test_hermes_adapter_persists_waves_recovers_and_requires_reports(tmp_path: P
         str(reports[1]),
     )
     assert blocked.returncode == 1
-    assert "verified" in blocked.stdout
+    assert "verified" in blocked.stderr
 
     # A fresh run proves the terminal gate accepts only verified waves and both reports.
     run_id = "hermes-complete"
@@ -114,7 +116,23 @@ def test_hermes_adapter_persists_waves_recovers_and_requires_reports(tmp_path: P
         "--finding",
         str(finding),
     ).returncode == 0
-    complete = run_adapter(
+    prepared = run_adapter(
+        tmp_path,
+        "prepare-delivery",
+        "--run-id",
+        run_id,
+        "--technical-report",
+        str(reports[0]),
+        "--human-report",
+        str(reports[1]),
+    )
+    assert prepared.returncode == 0, prepared.stdout + prepared.stderr
+    prepared_state = json.loads(prepared.stdout)
+    assert prepared_state["status"] == "delivery_pending"
+    assert prepared_state["all_batches_verified"] is True
+    assert prepared_state["canonical_complete"] is False
+
+    legacy_complete = run_adapter(
         tmp_path,
         "complete",
         "--run-id",
@@ -124,5 +142,5 @@ def test_hermes_adapter_persists_waves_recovers_and_requires_reports(tmp_path: P
         "--human-report",
         str(reports[1]),
     )
-    assert complete.returncode == 0, complete.stdout + complete.stderr
-    assert json.loads(complete.stdout)["status"] == "complete"
+    assert legacy_complete.returncode == 1
+    assert "canonical coordinator" in legacy_complete.stderr

@@ -98,7 +98,9 @@ def finding(
 
 
 @pytest.mark.parametrize("host", ["codex", "claude"])
-def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -> None:
+def test_adapter_runs_dependency_wave_and_prepares_delivery_without_completing(
+    tmp_path: Path, host: str
+) -> None:
     run_id = f"{host}-run"
     technical, human = write_reports(tmp_path)
     assert run_adapter(
@@ -142,6 +144,8 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
 
     initial = json.loads(run_adapter(tmp_path, host, "status", "--run-id", run_id).stdout)
     assert initial["ready"] == ["landscape-1"]
+    assert initial["all_tasks_verified"] is False
+    assert initial["canonical_complete"] is False
     assert initial["complete"] is False
 
     started = run_adapter(
@@ -223,11 +227,12 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
     )
     assert submitted["counts"]["submitted"] == 1
     assert submitted["ready"] == []
-    assert submitted["complete"] is False
+    assert submitted["all_tasks_verified"] is False
+    assert submitted["canonical_complete"] is False
     assert run_adapter(
         tmp_path,
         host,
-        "complete",
+        "prepare-delivery",
         "--run-id",
         run_id,
         "--technical-report",
@@ -312,7 +317,25 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
         "--checked-anchor",
         "https://example.test/source",
     ).returncode == 0
-    completed = run_adapter(
+    prepared = run_adapter(
+        tmp_path,
+        host,
+        "prepare-delivery",
+        "--run-id",
+        run_id,
+        "--technical-report",
+        str(technical),
+        "--human-report",
+        str(human),
+    )
+    assert prepared.returncode == 0, prepared.stderr
+    prepared_state = json.loads(prepared.stdout)
+    assert prepared_state["status"] == "delivery_pending"
+    assert prepared_state["all_tasks_verified"] is True
+    assert prepared_state["canonical_complete"] is False
+    assert prepared_state["complete"] is False
+
+    legacy_complete = run_adapter(
         tmp_path,
         host,
         "complete",
@@ -323,8 +346,8 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
         "--human-report",
         str(human),
     )
-    assert completed.returncode == 0, completed.stderr
-    assert json.loads(completed.stdout)["complete"] is True
+    assert legacy_complete.returncode == 1
+    assert "canonical coordinator" in legacy_complete.stderr
 
     artifact.write_text(artifact.read_text(encoding="utf-8") + "\n", encoding="utf-8")
     cascaded = json.loads(

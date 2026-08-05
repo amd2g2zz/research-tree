@@ -523,8 +523,11 @@ def status(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
         integrity_error = _artifact_integrity_error(task)
         if integrity_error is not None:
             integrity_errors.append(f"{task_id}: {integrity_error}")
-    complete = bool(state["tasks"]) and counts["completed"] == len(state["tasks"])
-    complete = complete and not integrity_errors
+    all_tasks_verified = (
+        bool(state["tasks"])
+        and counts["completed"] == len(state["tasks"])
+        and not integrity_errors
+    )
     return {
         "run_id": run_id,
         "host": host,
@@ -532,7 +535,10 @@ def status(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
         "revision": state["revision"],
         "counts": counts,
         "ready": sorted(ready),
-        "complete": complete,
+        "all_tasks_verified": all_tasks_verified,
+        "canonical_complete": False,
+        # Compatibility field: this adapter can no longer claim run completion.
+        "complete": False,
         "integrity_errors": integrity_errors,
         "recovery_required": [
             error.split(":", 1)[0] for error in integrity_errors
@@ -540,38 +546,29 @@ def status(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
     }
 
 
-def _verify_report(
+def _report_candidate(
     workspace: Path,
     path: Path,
     kind: str,
-    minimum_bytes: int,
-    minimum_headings: int,
 ) -> dict[str, Any]:
     resolved = _inside(workspace, path, f"{kind} path")
     raw = resolved.read_bytes()
     if raw.startswith(b"\xef\xbb\xbf"):
         raise AdapterError(f"{kind} must be UTF-8 without BOM")
     try:
-        text = raw.decode("utf-8")
+        raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise AdapterError(f"{kind} must be UTF-8") from exc
-    headings = len(re.findall(r"(?m)^#{1,6}\s+\S", text))
-    if len(raw) < minimum_bytes or headings < minimum_headings:
-        raise AdapterError(
-            f"{kind} is too shallow; requires at least {minimum_bytes} bytes and "
-            f"{minimum_headings} headings"
-        )
     return {
-        "status": "verified",
+        "status": "candidate",
         "kind": kind,
         "path": str(resolved),
         "bytes": len(raw),
         "sha256": hashlib.sha256(raw).hexdigest(),
-        "heading_count": headings,
     }
 
 
-def complete_run(
+def prepare_delivery(
     workspace: Path,
     run_id: str,
     host: str,
@@ -579,20 +576,31 @@ def complete_run(
     human_report: Path,
 ) -> dict[str, Any]:
     summary = status(workspace, run_id, host)
-    if not summary["complete"]:
-        raise AdapterError("run cannot complete while tasks or integrity checks remain")
+    if not summary["all_tasks_verified"]:
+        raise AdapterError(
+            "delivery cannot be prepared while tasks or integrity checks remain"
+        )
     state = _load_state(workspace, run_id, host)
     state["deliverables"] = {
-        "technical_research_package": _verify_report(
-            workspace, technical_report, "technical_research_package", 1024, 3
+        "technical_research_package": _report_candidate(
+            workspace, technical_report, "technical_research_package"
         ),
-        "human_research_report": _verify_report(
-            workspace, human_report, "human_research_report", 512, 2
+        "human_research_report": _report_candidate(
+            workspace, human_report, "human_research_report"
         ),
     }
-    state["status"] = "complete"
+    state["status"] = "delivery_pending"
     _save_state(workspace, state)
     return status(workspace, run_id, host)
+
+
+def complete_run(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+    """Reject the alpha1 adapter-local completion authority."""
+
+    raise AdapterError(
+        "adapter completion authority was removed; submit delivery candidates "
+        "with prepare-delivery, then use the canonical coordinator"
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -644,6 +652,11 @@ def _parser() -> argparse.ArgumentParser:
     complete_parser.add_argument("--run-id", required=True)
     complete_parser.add_argument("--technical-report", type=Path, required=True)
     complete_parser.add_argument("--human-report", type=Path, required=True)
+
+    prepare_parser = subparsers.add_parser("prepare-delivery")
+    prepare_parser.add_argument("--run-id", required=True)
+    prepare_parser.add_argument("--technical-report", type=Path, required=True)
+    prepare_parser.add_argument("--human-report", type=Path, required=True)
 
     validate_parser = subparsers.add_parser("validate-finding")
     validate_parser.add_argument("path", type=Path)
@@ -698,10 +711,17 @@ def main() -> int:
             result = recover(workspace, args.run_id, args.host)
         elif args.command == "status":
             result = status(workspace, args.run_id, args.host)
-        elif args.command == "complete":
+        elif args.command in {"complete", "prepare-delivery"}:
             technical = args.technical_report if args.technical_report.is_absolute() else workspace / args.technical_report
             human = args.human_report if args.human_report.is_absolute() else workspace / args.human_report
-            result = complete_run(workspace, args.run_id, args.host, technical, human)
+            if args.command == "complete":
+                result = complete_run(
+                    workspace, args.run_id, args.host, technical, human
+                )
+            else:
+                result = prepare_delivery(
+                    workspace, args.run_id, args.host, technical, human
+                )
         else:
             result = validate_finding(args.path.resolve())
     except (AdapterError, OSError) as exc:

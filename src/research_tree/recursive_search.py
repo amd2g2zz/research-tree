@@ -389,7 +389,7 @@ def finalize_research_delivery(
     technical_report: Path,
     human_report: Path,
 ) -> dict[str, Any]:
-    """Register both deep report artifacts before allowing tree completion."""
+    """Register non-authoritative delivery candidates for the coordinator."""
 
     result = _mutable_state(state)
     if not result["decision_slots"] or not all(
@@ -398,14 +398,17 @@ def finalize_research_delivery(
         raise ValueError("decision-slot closure must pass before delivery registration")
     result["deliverables"] = {
         "technical_research_package": _report_manifest(
-            technical_report, kind="technical_research_package", minimum_bytes=1024, minimum_headings=3
+            technical_report, kind="technical_research_package"
         ),
         "human_research_report": _report_manifest(
-            human_report, kind="human_research_report", minimum_bytes=512, minimum_headings=2
+            human_report, kind="human_research_report"
         ),
     }
-    result["status"] = "complete"
-    result["stop_reason"] = "decision-slot closure and both research deliverables verified"
+    result["status"] = "delivery_pending"
+    result["canonical_complete"] = False
+    result["stop_reason"] = (
+        "delivery candidates registered; canonical readiness and acceptance remain"
+    )
     return result
 
 
@@ -436,8 +439,11 @@ def evaluate_research_stop(state: Mapping[str, Any]) -> dict[str, Any]:
         slot["status"] == "closed" for slot in result["decision_slots"].values()
     ):
         if _deliverables_ready(result["deliverables"]):
-            result["status"] = "complete"
-            result["stop_reason"] = "decision-slot closure and both research deliverables verified"
+            result["status"] = "delivery_pending"
+            result["canonical_complete"] = False
+            result["stop_reason"] = (
+                "delivery candidates registered; canonical readiness and acceptance remain"
+            )
         else:
             result["status"] = "delivery_pending"
             result["stop_reason"] = "decision slots closed; both research deliverables are still pending"
@@ -479,36 +485,27 @@ def _report_manifest(
     path: Path,
     *,
     kind: str,
-    minimum_bytes: int,
-    minimum_headings: int,
 ) -> dict[str, Any]:
     resolved = Path(path).resolve()
     raw = resolved.read_bytes()
     if raw.startswith(b"\xef\xbb\xbf"):
         raise ValueError(f"{kind} must be UTF-8 without BOM")
     try:
-        text = raw.decode("utf-8")
+        raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ValueError(f"{kind} must be UTF-8") from exc
-    headings = len(re.findall(r"(?m)^#{1,6}\s+\S", text))
-    if len(raw) < minimum_bytes or headings < minimum_headings:
-        raise ValueError(
-            f"{kind} is too shallow: requires at least {minimum_bytes} bytes and "
-            f"{minimum_headings} headings"
-        )
     return {
-        "status": "verified",
+        "status": "candidate",
         "kind": kind,
         "path": str(resolved),
         "bytes": len(raw),
         "sha256": hashlib.sha256(raw).hexdigest(),
-        "heading_count": headings,
     }
 
 
 def _deliverables_ready(value: Mapping[str, Any]) -> bool:
     return all(
-        isinstance(value.get(key), Mapping) and value[key].get("status") == "verified"
+        isinstance(value.get(key), Mapping) and value[key].get("status") == "candidate"
         for key in ("technical_research_package", "human_research_report")
     )
 

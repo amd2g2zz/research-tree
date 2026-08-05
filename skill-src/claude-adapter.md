@@ -42,8 +42,9 @@ another host merely because they appear in examples.
   the workspace checkpoint is authoritative after compaction or restart.
 - After handoff, use `scripts/native_execution_adapter.py` with host argument
   `claude` for atomic task attempts, crash recovery, Finding Pack validation,
-  and completion checks when Python is available. The native task list mirrors
-  this state; it does not replace it.
+  and delivery-candidate preparation when Python is available. The native task
+  list mirrors this host execution state; neither surface owns canonical run
+  completion.
 - The installed package contains `SKILL.md`, bundled references/assets, and the
   dependency-free native execution adapter. It does not contain the repository
   Python runtime, lifecycle hooks, builder, or evaluation corpus.

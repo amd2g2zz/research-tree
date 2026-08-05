@@ -417,8 +417,10 @@ residual and grows an independent-method retry; passed validation removes that
 closure deficit. Recovery loads the latest revision and replays
 persisted Finding Packs absent from `consumed_finding_ids`. It also stores the
 exact execution context and a two-entry `deliverables` manifest. Once all
-Decision Slots close, the state becomes `delivery_pending` until `tree-deliver`
-verifies both report artifacts; only then may it become `complete`.
+Decision Slots close, the state becomes `delivery_pending`. `tree-deliver` may
+register digest-bound report candidates, but recursive-search state never
+becomes canonical `complete`; readiness, both delivery revisions, and exact
+user acceptance are evaluated only by `ResearchRunCoordinator`.
 
 ## Decision Ledger Entry
 

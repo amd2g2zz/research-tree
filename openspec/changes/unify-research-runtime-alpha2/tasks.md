@@ -62,7 +62,7 @@ fields, dependency cycles, evidence paths, and acceptance command paths.
 - [ ] 5.5 Reject host, worker, hook, report-file, empty-frontier, and completed-wave completion attempts with persisted reasons.
 - [ ] 5.6 Implement supersession and same-round replanning rules without mutating prior round artifacts.
 - [ ] 5.7 Add coordinator recovery tests at every transition boundary and prove repeated event ingestion is idempotent.
-- [ ] 5.8 Add an authority-bypass audit that proves recursive_search.py, native_execution_adapter.py, Hermes adapters, and hooks cannot set canonical completion from local status, report size, heading count, or worker count.
+- [x] 5.8 Add an authority-bypass audit that proves recursive_search.py, native_execution_adapter.py, Hermes adapters, and hooks cannot set canonical completion from local status, report size, heading count, or worker count. Evidence: `scripts/audit_completion_authority.py`, `tests/test_alpha2_completion_authority.py`, and generated package parity checks cover canonical source, adapters, hooks, and all three host packages.
 
 ## 6. Local AdaptiveResearchPolicy (#58)
 

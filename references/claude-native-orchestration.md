@@ -73,6 +73,7 @@ python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspa
 python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . finish --run-id <run-id> --task-id <task-id> --result submitted
 python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . verify --run-id <run-id> --task-id <task-id> --reviewer-id coordinator --checked-anchor <opened-ref> --review-note <evidence-check>
 python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . status --run-id <run-id>
+python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . prepare-delivery --run-id <run-id> --technical-report technical-research-package.md --human-report human-research-report.md
 ```
 
 Resolve `<skill-dir>` from `${CLAUDE_SKILL_DIR}` when present or the injected
@@ -86,9 +87,11 @@ their executed dependents so invalid evidence cannot release new work. `finish`
 records a schema-valid submission; only the
 parent's evidence review followed by `verify` releases dependent work. The
 parent repeats `--checked-anchor` for every observation anchor it inspected. The
-adapter hashes accepted artifacts, and `complete` fails while any task or
-integrity check remains open. Mirror these transitions into the native task
-list rather than updating two independent truths.
+adapter hashes accepted artifacts. `prepare-delivery` fails while any task or
+integrity check remains open and emits only a non-authoritative candidate. The
+legacy `complete` command is rejected; canonical readiness and exact user
+acceptance remain coordinator decisions. Mirror these transitions into the
+native task list rather than updating two independent truths.
 The parent serializes mutating adapter commands; parallel agents write only
 their separate Finding Pack paths.
 

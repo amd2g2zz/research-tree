@@ -15,12 +15,13 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 import tempfile
 from typing import Any
 
 
 SCHEMA = 1
-STATUSES = {"aligned", "researching", "unknown", "delivery_pending", "complete"}
+STATUSES = {"aligned", "researching", "unknown", "delivery_pending"}
 BATCH_STATUSES = {"running", "verified", "failed", "unknown"}
 IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
@@ -185,36 +186,52 @@ def recover_run(workspace: Path, run_id: str) -> dict[str, Any]:
     return {"recovered_batches": recovered, "state": state}
 
 
-def _verify_report(workspace: Path, path: Path, kind: str, minimum_bytes: int, minimum_headings: int) -> dict[str, Any]:
+def _report_candidate(workspace: Path, path: Path, kind: str) -> dict[str, Any]:
     resolved = _inside(workspace, path, f"{kind} path")
     raw = resolved.read_bytes()
     if raw.startswith(b"\xef\xbb\xbf"):
         raise HermesExecutionError(f"{kind} must be UTF-8 without BOM")
     try:
-        text = raw.decode("utf-8")
+        raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise HermesExecutionError(f"{kind} must be UTF-8") from exc
-    headings = len(re.findall(r"(?m)^#{1,6}\s+\S", text))
-    if len(raw) < minimum_bytes or headings < minimum_headings:
-        raise HermesExecutionError(f"{kind} is too shallow")
     return {
-        "status": "verified", "kind": kind, "path": str(resolved),
+        "status": "candidate", "kind": kind, "path": str(resolved),
         "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest(),
-        "heading_count": headings,
     }
 
 
-def complete_run(workspace: Path, run_id: str, technical: Path, human: Path) -> dict[str, Any]:
+def _status_projection(state: dict[str, Any]) -> dict[str, Any]:
+    all_batches_verified = bool(state["batches"]) and all(
+        batch["status"] == "verified" for batch in state["batches"].values()
+    )
+    return {
+        **state,
+        "all_batches_verified": all_batches_verified,
+        "canonical_complete": False,
+    }
+
+
+def prepare_delivery(workspace: Path, run_id: str, technical: Path, human: Path) -> dict[str, Any]:
     state = _load_state(workspace, run_id)
     if not state["batches"] or any(batch["status"] != "verified" for batch in state["batches"].values()):
-        raise HermesExecutionError("all delegation batches must be verified before completion")
+        raise HermesExecutionError("all delegation batches must be verified before delivery preparation")
     state["deliverables"] = {
-        "technical_research_package": _verify_report(workspace, technical, "technical_research_package", 1024, 3),
-        "human_research_report": _verify_report(workspace, human, "human_research_report", 512, 2),
+        "technical_research_package": _report_candidate(workspace, technical, "technical_research_package"),
+        "human_research_report": _report_candidate(workspace, human, "human_research_report"),
     }
-    state["status"] = "complete"
+    state["status"] = "delivery_pending"
     _save_state(workspace, state)
-    return state
+    return _status_projection(state)
+
+
+def complete_run(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+    """Reject the alpha1 Hermes-local completion authority."""
+
+    raise HermesExecutionError(
+        "adapter completion authority was removed; submit delivery candidates "
+        "with prepare-delivery, then use the canonical coordinator"
+    )
 
 
 def main() -> int:
@@ -238,6 +255,10 @@ def main() -> int:
     complete.add_argument("--run-id", required=True)
     complete.add_argument("--technical-report", type=Path, required=True)
     complete.add_argument("--human-report", type=Path, required=True)
+    prepare = commands.add_parser("prepare-delivery")
+    prepare.add_argument("--run-id", required=True)
+    prepare.add_argument("--technical-report", type=Path, required=True)
+    prepare.add_argument("--human-report", type=Path, required=True)
     args = parser.parse_args()
     workspace = args.workspace.resolve()
     try:
@@ -250,14 +271,17 @@ def main() -> int:
             ])
         elif args.command == "recover":
             result = recover_run(workspace, args.run_id)
-        elif args.command == "complete":
+        elif args.command in {"complete", "prepare-delivery"}:
             technical = args.technical_report if args.technical_report.is_absolute() else workspace / args.technical_report
             human = args.human_report if args.human_report.is_absolute() else workspace / args.human_report
-            result = complete_run(workspace, args.run_id, technical, human)
+            if args.command == "complete":
+                result = complete_run(workspace, args.run_id, technical, human)
+            else:
+                result = prepare_delivery(workspace, args.run_id, technical, human)
         else:
-            result = _load_state(workspace, args.run_id)
+            result = _status_projection(_load_state(workspace, args.run_id))
     except (HermesExecutionError, OSError) as exc:
-        print(str(exc))
+        print(str(exc), file=sys.stderr)
         return 1
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
