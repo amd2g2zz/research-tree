@@ -35,6 +35,36 @@ def test_documented_first_use_and_recovery_path(tmp_path: Path) -> None:
     assert json.loads(recovered.stdout)["record"]["id"] == "round-first"
 
 
+def test_source_checkout_launcher_works_without_pythonpath(tmp_path: Path) -> None:
+    launcher = Path(__file__).parents[1] / "scripts" / "run_research_tree.py"
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [sys.executable, str(launcher), "create-round", "--store", str(tmp_path), "--round-id", "launcher-round"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["id"] == "launcher-round"
+
+
+def test_source_checkout_launcher_works_under_uv(tmp_path: Path) -> None:
+    launcher = Path(__file__).parents[1] / "scripts" / "run_research_tree.py"
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        ["uv", "run", "python", str(launcher), "create-round", "--store", str(tmp_path), "--round-id", "uv-launcher-round"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["id"] == "uv-launcher-round"
+
+
 def test_readme_and_cli_help_make_runtime_scope_discoverable() -> None:
     readme = Path(__file__).parents[1] / "README.md"
     content = readme.read_text(encoding="utf-8")

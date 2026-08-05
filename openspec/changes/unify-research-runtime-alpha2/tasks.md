@@ -189,7 +189,7 @@ substitute for local evidence.
 
 - [x] 18.1 Create a machine-readable requirement-to-delivery matrix mapping every requirement to source owner, public surface, migration impact, focused tests, black-box case, evidence artifact, and GitHub issue.
 - [ ] 18.2 Define public Python API, CLI JSON schemas, configuration precedence, supported Python/OS matrix, package manifests, and first-success smoke commands for all three hosts.
-- [ ] 18.10 Define the source-checkout launcher contract so documented test and subprocess commands resolve research_tree without an accidental PYTHONPATH dependency; test both direct interpreter and uv-managed invocation.
+- [x] 18.10 Define the source-checkout launcher contract so documented test and subprocess commands resolve research_tree without an accidental PYTHONPATH dependency; test both direct interpreter and uv-managed invocation. Evidence: `scripts/run_research_tree.py`, `tests/test_runtime_discoverability.py::test_source_checkout_launcher_works_without_pythonpath`, and `uv run pytest -q tests/test_runtime_discoverability.py`.
 - [ ] 18.3 Implement migration inventory, dry-run, apply, verify, rollback, and status commands with source digests, collision reports, operator confirmations, and non-destructive untracked-data handling.
 - [ ] 18.4 Define and emit an immutable release manifest containing source revision, host package hashes, schema versions, test/evaluation commands, baselines, environments, verifier identity, limitations, and gate results.
 - [ ] 18.5 Freeze evaluation cases, baselines, metric aggregation, missing-data handling, expert rubric, and thresholds before candidate runs and reject post-hoc changes.

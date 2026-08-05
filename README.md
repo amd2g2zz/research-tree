@@ -542,6 +542,18 @@ uv run python -m research_tree tree-deliver \
   --human-report ./human-research-report.md
 ```
 
+For a direct source checkout without an installed package, use the repository
+launcher. It resolves `src/` locally and does not require `PYTHONPATH`:
+
+```powershell
+python scripts/run_research_tree.py create-round --store .\workspace --round-id demo
+uv run python scripts/run_research_tree.py show-round --store .\workspace --round-id demo
+```
+
+After installation, prefer the `research-tree` console command. A direct
+`python -m research_tree` invocation is supported only when the package is
+installed or the interpreter is otherwise configured with the package source.
+
 Use the same `--store` path to reconstruct a round after restarting the
 process. Creating an existing round ID is rejected instead of overwriting its
 state.
