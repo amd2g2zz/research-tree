@@ -70,6 +70,11 @@ from .readiness import (
     readiness_for_delivery,
     validate_readiness_record_payload,
 )
+from .readiness_records import (
+    ReadinessRecordContractError,
+    evaluate_canonical_readiness,
+    validate_canonical_readiness_record,
+)
 from .verification import (
     EXECUTION_CHECKS,
     FAILURE_CATEGORIES,
@@ -352,6 +357,9 @@ __all__ = [
     "READINESS_RECORD_KIND",
     "ReadinessError",
     "ReadinessVerifier",
+    "ReadinessRecordContractError",
+    "evaluate_canonical_readiness",
+    "validate_canonical_readiness_record",
     "RESEARCH_STRATEGY_KIND",
     "ROUND_SUPERSESSION_KIND",
     "RunStore",

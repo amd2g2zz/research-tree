@@ -40,6 +40,10 @@ from .convergence_records import (
     ConvergenceRecordContractError,
     validate_convergence_record_payload,
 )
+from .readiness_records import (
+    ReadinessRecordContractError,
+    evaluate_canonical_readiness,
+)
 from .insights import (
     InsightDigestError,
     build_insight_digest,
@@ -1872,6 +1876,355 @@ class ResearchRunCoordinator:
                 ),
             )
             self._fault("converge_after_stage_record")
+        return result
+
+    def evaluate_readiness(
+        self,
+        run_id: str,
+        *,
+        stage_id: str,
+        readiness_id: str,
+        convergence_record_ref: Mapping[str, Any],
+        risk_tier: str,
+        producer_version: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        """Atomically evaluate exact canonical lineage for delivery readiness."""
+
+        for value, label in (
+            (stage_id, "stage id"),
+            (readiness_id, "readiness id"),
+        ):
+            if not isinstance(value, str) or not IDENTIFIER_RE.fullmatch(value):
+                raise CoordinatorError(f"{label} is invalid", code="invalid_stage_id")
+        if not isinstance(producer_version, str) or not producer_version.strip():
+            raise CoordinatorError(
+                "readiness producer version is required",
+                code="invalid_producer_version",
+            )
+        try:
+            exact_convergence_ref = validate_exact_artifact_ref(
+                convergence_record_ref,
+                label="ConvergenceRecord reference",
+                run_id=run_id,
+            )
+        except (ContractError, TypeError, ValueError) as error:
+            raise CoordinatorError(
+                "ConvergenceRecord reference is invalid",
+                code="convergence_ref_invalid",
+            ) from error
+        request = {
+            "stage": "readiness",
+            "stage_id": stage_id,
+            "readiness_id": readiness_id,
+            "run_id": run_id,
+            "convergence_record_ref": exact_convergence_ref,
+            "risk_tier": risk_tier,
+            "producer_version": producer_version,
+            "expected_revision": expected_revision,
+        }
+        input_digest = self._digest(request)
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            prior = connection.execute(
+                "SELECT input_digest,result_json FROM stage_operations WHERE run_id=? AND stage_id=?",
+                (run_id, stage_id),
+            ).fetchone()
+            if prior is not None:
+                if prior["input_digest"] != input_digest:
+                    raise CoordinatorError(
+                        "stage id was reused with different inputs",
+                        code="idempotency_conflict",
+                    )
+                return json.loads(prior["result_json"])
+
+            row = self._require_run(connection, run_id)
+            if int(row["revision"]) != expected_revision:
+                raise CoordinatorError(
+                    "expected revision is stale", code="stale_revision"
+                )
+            if row["lifecycle_state"] != "readiness":
+                raise CoordinatorError(
+                    "readiness evaluation requires readiness state",
+                    code="readiness_state_invalid",
+                )
+            self._assert_current_in_connection(
+                connection,
+                run_id,
+                self._authority_digest(row),
+                action="evaluate readiness",
+            )
+
+            convergence_artifact = self._resolve_initialization_artifact(
+                connection,
+                exact_convergence_ref,
+                expected_kind="convergence-record",
+                stale_code="stale_convergence_record",
+            )
+            if convergence_artifact["status"] != "active":
+                raise CoordinatorError(
+                    "ConvergenceRecord is not active",
+                    code="stale_convergence_record",
+                )
+            latest_convergence = connection.execute(
+                """SELECT artifact_id,revision,content_hash FROM artifacts
+                   WHERE run_id=? AND kind='convergence-record'
+                   ORDER BY created_at DESC,artifact_id DESC,revision DESC LIMIT 1""",
+                (run_id,),
+            ).fetchone()
+            if latest_convergence is None or exact_convergence_ref != {
+                "run_id": run_id,
+                "artifact_id": latest_convergence["artifact_id"],
+                "revision": int(latest_convergence["revision"]),
+                "content_hash": latest_convergence["content_hash"],
+            }:
+                raise CoordinatorError(
+                    "readiness requires the latest ConvergenceRecord",
+                    code="stale_convergence_record",
+                )
+            try:
+                convergence = validate_convergence_record_payload(
+                    convergence_artifact["payload"], run_id=run_id
+                )
+            except ConvergenceRecordContractError as error:
+                raise CoordinatorError(
+                    "persisted ConvergenceRecord is invalid",
+                    code="convergence_record_invalid",
+                ) from error
+
+            binding = self._current_blueprint_target_ref(connection, run_id)
+            if binding is None or binding[1] != convergence["blueprint_target_ref"]:
+                raise CoordinatorError(
+                    "ConvergenceRecord does not bind the current Blueprint Target",
+                    code="stale_blueprint",
+                )
+            target_ref = binding[1]
+            target_artifact = self._resolve_initialization_artifact(
+                connection,
+                target_ref,
+                expected_kind="blueprint-target",
+                stale_code="stale_blueprint",
+            )
+            if target_artifact["status"] not in {"active", "accepted"}:
+                raise CoordinatorError(
+                    "Blueprint Target is not active", code="stale_blueprint"
+                )
+
+            insight_ref = convergence["insight_digest_ref"]
+            insight_artifact = self._resolve_initialization_artifact(
+                connection,
+                insight_ref,
+                expected_kind="insight-digest",
+                stale_code="stale_insight_digest",
+            )
+            latest_insight = connection.execute(
+                """SELECT artifact_id,revision,content_hash FROM artifacts
+                   WHERE run_id=? AND kind='insight-digest'
+                   ORDER BY created_at DESC,artifact_id DESC,revision DESC LIMIT 1""",
+                (run_id,),
+            ).fetchone()
+            if latest_insight is None or insight_ref != {
+                "run_id": run_id,
+                "artifact_id": latest_insight["artifact_id"],
+                "revision": int(latest_insight["revision"]),
+                "content_hash": latest_insight["content_hash"],
+            }:
+                raise CoordinatorError(
+                    "readiness requires the latest InsightDigest",
+                    code="stale_insight_digest",
+                )
+            try:
+                validate_canonical_insight_digest(insight_artifact["payload"])
+            except InsightDigestError as error:
+                raise CoordinatorError(
+                    "persisted InsightDigest is invalid",
+                    code="insight_digest_invalid",
+                ) from error
+
+            decision_payloads: list[dict[str, Any]] = []
+            decision_refs = convergence["decision_refs"]
+            for decision_ref in decision_refs:
+                decision_artifact = self._resolve_initialization_artifact(
+                    connection,
+                    decision_ref,
+                    expected_kind="decision-ledger-entry",
+                    stale_code="stale_decision",
+                )
+                latest_decision = connection.execute(
+                    """SELECT revision,content_hash FROM artifacts
+                       WHERE run_id=? AND artifact_id=? AND kind='decision-ledger-entry'
+                       ORDER BY revision DESC LIMIT 1""",
+                    (run_id, decision_ref["artifact_id"]),
+                ).fetchone()
+                if latest_decision is None or (
+                    int(latest_decision["revision"]) != decision_ref["revision"]
+                    or latest_decision["content_hash"] != decision_ref["content_hash"]
+                ):
+                    raise CoordinatorError(
+                        "readiness requires current Decision Ledger entries",
+                        code="stale_decision",
+                    )
+                decision_payloads.append(decision_artifact["payload"])
+
+            aggregate_ref = convergence["p0_closure_aggregate_ref"]
+            aggregate_row = connection.execute(
+                """SELECT payload_json,aggregate_digest FROM p0_closure_aggregates
+                   WHERE run_id=? AND aggregate_revision=?""",
+                (run_id, aggregate_ref["aggregate_revision"]),
+            ).fetchone()
+            latest_aggregate = connection.execute(
+                """SELECT aggregate_revision,aggregate_digest FROM p0_closure_aggregates
+                   WHERE run_id=? ORDER BY aggregate_revision DESC LIMIT 1""",
+                (run_id,),
+            ).fetchone()
+            if (
+                aggregate_row is None
+                or latest_aggregate is None
+                or aggregate_row["aggregate_digest"] != aggregate_ref["aggregate_digest"]
+                or int(latest_aggregate["aggregate_revision"])
+                != aggregate_ref["aggregate_revision"]
+                or latest_aggregate["aggregate_digest"]
+                != aggregate_ref["aggregate_digest"]
+            ):
+                raise CoordinatorError(
+                    "readiness requires the latest P0 closure aggregate",
+                    code="stale_closure_aggregate",
+                )
+            aggregate = json.loads(aggregate_row["payload_json"])
+
+            self._ensure_obligations(connection, run_id)
+            evaluation_row = connection.execute(
+                """SELECT satisfied,evidence_ref FROM run_obligations
+                   WHERE run_id=? AND obligation='evaluation'""",
+                (run_id,),
+            ).fetchone()
+            evaluation_obligation = {
+                "obligation": "evaluation",
+                "satisfied": bool(evaluation_row["satisfied"]),
+                "evidence_ref": evaluation_row["evidence_ref"],
+            }
+            try:
+                readiness = evaluate_canonical_readiness(
+                    readiness_id=readiness_id,
+                    run_id=run_id,
+                    blueprint_target_ref=target_ref,
+                    convergence_record_ref=exact_convergence_ref,
+                    convergence_record=convergence,
+                    insight_digest_ref=insight_ref,
+                    insight_digest=insight_artifact["payload"],
+                    decision_refs=decision_refs,
+                    decisions=decision_payloads,
+                    p0_closure_aggregate_ref=aggregate_ref,
+                    p0_closure_aggregate=aggregate,
+                    evaluation_obligation=evaluation_obligation,
+                    risk_tier=risk_tier,
+                    producer_version=producer_version,
+                )
+            except ReadinessRecordContractError as error:
+                raise CoordinatorError(
+                    "canonical readiness evaluation failed",
+                    code="readiness_record_invalid",
+                ) from error
+
+            now = self._now()
+            readiness_artifact = self._append_stage_artifact(
+                connection,
+                run_id=run_id,
+                artifact_id=readiness_id,
+                kind="readiness-record",
+                payload=readiness,
+                actor_kind="coordinator",
+                actor_id="readiness-evaluator",
+                status="active",
+                parent_refs=[
+                    target_ref,
+                    exact_convergence_ref,
+                    insight_ref,
+                    *decision_refs,
+                ],
+                created_at=now,
+            )
+            readiness_ref = {
+                "run_id": run_id,
+                "artifact_id": readiness_artifact["id"],
+                "revision": readiness_artifact["revision"],
+                "content_hash": readiness_artifact["content_hash"],
+            }
+            self._fault("readiness_after_record")
+
+            ready = readiness["status"] == "ready"
+            connection.execute(
+                """UPDATE run_obligations SET satisfied=?,evidence_ref=?,updated_at=?
+                   WHERE run_id=? AND obligation='readiness'""",
+                (int(ready), readiness_ref["content_hash"], now, run_id),
+            )
+            self._fault("readiness_after_obligation")
+            event_type = "readiness_passed" if ready else "readiness_deficit"
+            next_state = "delivery_pending" if ready else "autonomous_research"
+            self._guard_transition(
+                connection,
+                row,
+                event_type,
+                {"readiness_record_ref": readiness_ref},
+            )
+            revision = expected_revision + 1
+            state_payload = self._state_payload(
+                row,
+                lifecycle_state=next_state,
+                revision=revision,
+                body={
+                    "stage_id": stage_id,
+                    "readiness_record_ref": readiness_ref,
+                    "status": readiness["status"],
+                },
+            )
+            connection.execute(
+                """UPDATE runs SET lifecycle_state=?,revision=?,state_digest=?,updated_at=?
+                   WHERE run_id=?""",
+                (next_state, revision, self._digest(state_payload), now, run_id),
+            )
+            self._fault("readiness_after_run_update")
+            event_id = f"{event_type}-{stage_id}"
+            self._snapshot_current_revision(
+                connection, run_id, source_event_id=event_id
+            )
+            self._fault("readiness_after_snapshot")
+            self._event(
+                connection,
+                run_id,
+                event_id,
+                expected_revision,
+                {
+                    "stage_id": stage_id,
+                    "input_digest": input_digest,
+                    "readiness_record_ref": readiness_ref,
+                    "status": readiness["status"],
+                    "deficits": readiness["deficits"],
+                },
+                event_type=event_type,
+            )
+            self._fault("readiness_after_event")
+            result = {
+                "run": self._row(self._require_run(connection, run_id)),
+                "stage_id": stage_id,
+                "input_digest": input_digest,
+                "readiness_record_ref": readiness_ref,
+                "readiness_record": readiness,
+            }
+            connection.execute(
+                "INSERT INTO stage_operations VALUES(?,?,?,?,?,?,?)",
+                (
+                    run_id,
+                    stage_id,
+                    "readiness",
+                    input_digest,
+                    revision,
+                    canonical_json_bytes(result).decode("utf-8"),
+                    now,
+                ),
+            )
+            self._fault("readiness_after_stage_record")
         return result
 
     def _convergence_deficits(

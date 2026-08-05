@@ -56,7 +56,10 @@
         "required": ["deficit_id", "check_id", "kind", "trigger", "action", "source_refs"],
         "properties": {
           "deficit_id": { "$ref": "#/$defs/identifier" },
-          "check_id": { "$ref": "#/$defs/identifier" },
+          "check_id": {
+            "type": "string",
+            "enum": ["target_lineage", "convergence_closure", "decision_closure", "insight_clear", "evaluation_complete", "risk_disposition"]
+          },
           "kind": {
             "type": "string",
             "enum": ["lineage_stale", "closure_incomplete", "decision_invalid", "insight_blocked", "evaluation_missing", "risk_blocked"]

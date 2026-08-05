@@ -1144,7 +1144,7 @@ def _persist_oracle_for_convergence(coordinator, tmp_path: Path, run_id: str):
     return oracle, payload_digest
 
 
-def test_convergence_enters_readiness_only_after_current_p0_closure(tmp_path: Path) -> None:
+def _run_at_readiness(tmp_path: Path):
     from research_tree import SlotClosureAssessment
     from research_tree.sqlite_ledger import SQLiteRunLedger
 
@@ -1256,6 +1256,122 @@ def test_convergence_enters_readiness_only_after_current_p0_closure(tmp_path: Pa
         parent["artifact_id"] for parent in stored_convergence["parent_refs"]
     }
     assert coordinator.events(run_id)[-1]["event_type"] == "all_slots_closed"
+    return coordinator, run_id, final
+
+
+def test_convergence_enters_readiness_only_after_current_p0_closure(tmp_path: Path) -> None:
+    _run_at_readiness(tmp_path)
+
+
+def test_readiness_deficit_is_persisted_and_replay_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    from research_tree.sqlite_ledger import SQLiteRunLedger
+
+    coordinator, run_id, convergence = _run_at_readiness(tmp_path)
+    before = coordinator.status(run_id)
+    result = coordinator.evaluate_readiness(
+        run_id,
+        stage_id="readiness-missing-evaluation",
+        readiness_id="readiness-missing-evaluation",
+        convergence_record_ref=convergence["convergence_record_ref"],
+        risk_tier="standard",
+        producer_version="readiness-v1",
+        expected_revision=before["revision"],
+    )
+
+    assert result["run"]["lifecycle_state"] == "autonomous_research"
+    assert result["readiness_record"]["status"] == "not_ready"
+    assert result["readiness_record"]["deficits"][0]["kind"] == "evaluation_missing"
+    assert coordinator.obligations(run_id)["readiness"]["satisfied"] is False
+    assert coordinator.events(run_id)[-1]["event_type"] == "readiness_deficit"
+    stored = SQLiteRunLedger(tmp_path).resolve(
+        run_id, "readiness-missing-evaluation", 1
+    )
+    parent_ids = {item["artifact_id"] for item in stored["parent_refs"]}
+    assert {
+        "blueprint-target",
+        "convergence-after-closure",
+        "insight-after-closure",
+        "decision-slot-p0",
+    } <= parent_ids
+
+    events = coordinator.events(run_id)
+    repeated = coordinator.evaluate_readiness(
+        run_id,
+        stage_id="readiness-missing-evaluation",
+        readiness_id="readiness-missing-evaluation",
+        convergence_record_ref=convergence["convergence_record_ref"],
+        risk_tier="standard",
+        producer_version="readiness-v1",
+        expected_revision=before["revision"],
+    )
+    assert repeated == result
+    assert coordinator.events(run_id) == events
+
+
+def test_readiness_passes_only_with_current_evaluation_obligation(
+    tmp_path: Path,
+) -> None:
+    coordinator, run_id, convergence = _run_at_readiness(tmp_path)
+    coordinator.record_obligation(
+        run_id,
+        "evaluation",
+        evidence_ref="evaluation-suite-1",
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+
+    result = coordinator.evaluate_readiness(
+        run_id,
+        stage_id="readiness-passed",
+        readiness_id="readiness-passed",
+        convergence_record_ref=convergence["convergence_record_ref"],
+        risk_tier="standard",
+        producer_version="readiness-v1",
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+
+    assert result["run"]["lifecycle_state"] == "delivery_pending"
+    assert result["readiness_record"]["status"] == "ready"
+    readiness_obligation = coordinator.obligations(run_id)["readiness"]
+    assert readiness_obligation["satisfied"] is True
+    assert (
+        readiness_obligation["evidence_ref"]
+        == result["readiness_record_ref"]["content_hash"]
+    )
+    assert coordinator.events(run_id)[-1]["event_type"] == "readiness_passed"
+
+
+def test_readiness_fault_after_artifact_rolls_back_the_stage(tmp_path: Path) -> None:
+    from research_tree.coordinator import ResearchRunCoordinator
+    from research_tree.sqlite_ledger import SQLiteLedgerError, SQLiteRunLedger
+
+    coordinator, run_id, convergence = _run_at_readiness(tmp_path)
+    before = coordinator.status(run_id)
+    before_events = coordinator.events(run_id)
+
+    def fail(boundary: str) -> None:
+        if boundary == "readiness_after_record":
+            raise RuntimeError(boundary)
+
+    failing = ResearchRunCoordinator(tmp_path, fault_injector=fail)
+    with pytest.raises(RuntimeError, match="readiness_after_record"):
+        failing.evaluate_readiness(
+            run_id,
+            stage_id="readiness-fault",
+            readiness_id="readiness-fault",
+            convergence_record_ref=convergence["convergence_record_ref"],
+            risk_tier="standard",
+            producer_version="readiness-v1",
+            expected_revision=before["revision"],
+        )
+
+    reopened = ResearchRunCoordinator(tmp_path)
+    assert reopened.status(run_id) == before
+    assert reopened.events(run_id) == before_events
+    assert reopened.obligations(run_id)["readiness"]["satisfied"] is False
+    with pytest.raises(SQLiteLedgerError, match="does not exist"):
+        SQLiteRunLedger(tmp_path).resolve(run_id, "readiness-fault", 1)
 
 
 def test_human_or_operator_transition_rejects_other_actors(tmp_path: Path) -> None:
