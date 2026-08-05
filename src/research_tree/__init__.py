@@ -187,6 +187,10 @@ from .contracts import (
     validate_feedback_event,
     validate_host_event_payload,
 )
+from .decision_entries import (
+    DecisionEntryContractError,
+    validate_decision_entry_payload,
+)
 from .coordinator import CoordinatorError, ResearchRunCoordinator
 from .evaluation_fixtures import assess_attribution, reported_claude_glm_fixture
 from .policy import AdaptiveResearchPolicy, DEFAULT_WEIGHTS
@@ -235,6 +239,8 @@ __all__ = [
     "ArtifactNotFoundError",
     "ArtifactRef",
     "ArtifactRevision",
+    "DecisionEntryContractError",
+    "validate_decision_entry_payload",
     "ASSURANCE_ADAPTER_SELECTION_KIND",
     "ASSURANCE_EVIDENCE_KIND",
     "ASSURANCE_FOLLOW_UP_KIND",
