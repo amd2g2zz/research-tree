@@ -18,7 +18,20 @@
     "verdict": { "type": "string", "enum": ["passed", "failed", "inconclusive", "not_applicable", "blocked"] },
     "exit_code": { "type": ["integer", "null"] },
     "timed_out": { "type": "boolean" },
-    "result_artifact_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "result_artifact_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["run_id", "artifact_id", "revision", "content_hash"],
+        "properties": {
+          "run_id": { "type": "string", "minLength": 1 },
+          "artifact_id": { "type": "string", "minLength": 1 },
+          "revision": { "type": "integer", "minimum": 1 },
+          "content_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
     "evaluator": { "type": "string", "minLength": 1 },
     "limitations": { "type": "array", "items": { "type": "string" } },
     "reproducibility_status": { "type": "string", "enum": ["reproducible", "flaky", "unavailable", "not_reproducible"] }

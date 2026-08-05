@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import re
 from typing import Any, Mapping, Sequence
 
 
@@ -108,7 +109,7 @@ class OracleRun:
     tool_event_refs: tuple[str, ...] = ()
     exit_code: int | None = None
     timed_out: bool = False
-    result_artifact_refs: tuple[str, ...] = ()
+    result_artifact_refs: tuple[Mapping[str, Any], ...] = ()
     evaluator: str = "core-oracle"
     limitations: tuple[str, ...] = ()
     reproducibility_status: str = "reproducible"
@@ -136,6 +137,9 @@ class OracleRun:
         defaults.update(contract)
         if not isinstance(defaults["timed_out"], bool) or defaults["reproducibility_status"] not in {"reproducible", "flaky", "unavailable", "not_reproducible"}:
             raise OracleError("invalid OracleRun contract metadata")
+        defaults["result_artifact_refs"] = _normalize_artifact_refs(
+            defaults["result_artifact_refs"]
+        )
         return cls(oracle_run_id, spec.oracle_id, attempt_id, input_values, verdict, environment_digest, dict(result), **defaults)
 
     def to_dict(self) -> dict[str, Any]:
@@ -156,7 +160,7 @@ class OracleRun:
             "verdict": verdict,
             "exit_code": self.exit_code,
             "timed_out": self.timed_out,
-            "result_artifact_refs": list(self.result_artifact_refs),
+            "result_artifact_refs": [dict(ref) for ref in self.result_artifact_refs],
             "evaluator": self.evaluator,
             "limitations": list(self.limitations),
             "reproducibility_status": self.reproducibility_status,
@@ -177,16 +181,63 @@ class OracleRun:
             raise OracleError("oracle_spec_version must be positive")
         if not isinstance(value["method"], str) or not value["method"].strip():
             raise OracleError("oracle method is required")
+        result_artifact_refs = _normalize_artifact_refs(value["result_artifact_refs"])
         return cls(
             str(value["oracle_run_id"]), str(value["oracle_spec_id"]), str(value["attempt_id"]), tuple({"digest": digest} for digest in value["input_digests"]),
             {"passed": "pass", "failed": "fail", "blocked": "unavailable"}.get(value["verdict"], value["verdict"]),
             str(value["environment_digest"]), {"status": value["verdict"]},
-            value["oracle_spec_version"], str(value["method"]), tuple(value["input_digests"]), str(value["toolchain_digest"]), tuple(value["tool_event_refs"]), value["exit_code"], value["timed_out"], tuple(value["result_artifact_refs"]), str(value["evaluator"]), tuple(value["limitations"]), str(value["reproducibility_status"]),
+            value["oracle_spec_version"], str(value["method"]), tuple(value["input_digests"]), str(value["toolchain_digest"]), tuple(value["tool_event_refs"]), value["exit_code"], value["timed_out"], result_artifact_refs, str(value["evaluator"]), tuple(value["limitations"]), str(value["reproducibility_status"]),
         )
 
 
 def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _normalize_artifact_refs(value: Any) -> tuple[dict[str, Any], ...]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise OracleError("result_artifact_refs must be a sequence")
+    required = {"run_id", "artifact_id", "revision", "content_hash"}
+    normalized: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, int, str]] = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, Mapping) or set(item) != required:
+            raise OracleError(
+                f"result_artifact_refs[{index}] contract fields mismatch"
+            )
+        run_id = item["run_id"]
+        artifact_id = item["artifact_id"]
+        revision = item["revision"]
+        content_hash = item["content_hash"]
+        if not isinstance(run_id, str) or not run_id.strip():
+            raise OracleError(f"result_artifact_refs[{index}].run_id is required")
+        if not isinstance(artifact_id, str) or not artifact_id.strip():
+            raise OracleError(
+                f"result_artifact_refs[{index}].artifact_id is required"
+            )
+        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+            raise OracleError(
+                f"result_artifact_refs[{index}].revision must be positive"
+            )
+        if not isinstance(content_hash, str) or re.fullmatch(
+            r"[0-9a-f]{64}", content_hash
+        ) is None:
+            raise OracleError(
+                f"result_artifact_refs[{index}].content_hash must be lowercase SHA-256"
+            )
+        identity = (run_id, artifact_id, revision, content_hash)
+        if identity in seen:
+            raise OracleError("result_artifact_refs must not contain duplicates")
+        seen.add(identity)
+        normalized.append(
+            {
+                "run_id": run_id,
+                "artifact_id": artifact_id,
+                "revision": revision,
+                "content_hash": content_hash,
+            }
+        )
+    return tuple(normalized)
 
 
 def _validate_spec_contract(value: Mapping[str, Any]) -> None:

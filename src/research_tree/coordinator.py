@@ -357,6 +357,36 @@ class ResearchRunCoordinator:
                         "oracle references an unresolved tool event",
                         code="tool_event_not_found",
                     )
+            artifacts_available = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='artifacts'"
+            ).fetchone()
+            for artifact_ref in payload["result_artifact_refs"]:
+                if artifact_ref["run_id"] != run_id:
+                    raise CoordinatorError(
+                        "oracle result artifact must belong to the current run",
+                        code="result_artifact_scope_mismatch",
+                    )
+                artifact = None
+                if artifacts_available is not None:
+                    artifact = connection.execute(
+                        """SELECT content_hash FROM artifacts
+                           WHERE run_id=? AND artifact_id=? AND revision=?""",
+                        (
+                            artifact_ref["run_id"],
+                            artifact_ref["artifact_id"],
+                            artifact_ref["revision"],
+                        ),
+                    ).fetchone()
+                if artifact is None:
+                    raise CoordinatorError(
+                        "oracle references an unresolved result artifact",
+                        code="result_artifact_not_found",
+                    )
+                if artifact["content_hash"] != artifact_ref["content_hash"]:
+                    raise CoordinatorError(
+                        "oracle result artifact digest is stale",
+                        code="stale_result_artifact",
+                    )
             raw = canonical_json_bytes(payload)
             try:
                 connection.execute(

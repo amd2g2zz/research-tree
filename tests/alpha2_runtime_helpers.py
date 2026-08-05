@@ -12,17 +12,37 @@ def satisfy_p0_closure(ledger: SQLiteRunLedger, state: dict[str, object], *, suf
         started_at="2026-08-05T00:00:00Z", lease_expires_at="2026-08-05T01:00:00Z",
     )
     state = coordinator.issue_lease(lease, expected_revision=int(state["revision"]))
+    result_artifact = ledger.append_artifact(
+        run_id=run_id,
+        artifact_id=f"oracle-result-{suffix}",
+        kind="oracle-result",
+        payload={"status": "passed"},
+        actor_kind="oracle",
+        actor_id="core-v1",
+        status="active",
+        expected_revision=0,
+    )
     run = OracleRun.from_mapping(
         {
             "oracle_run_id": f"oracle-run-{suffix}", "oracle_spec_id": "oracle-build",
             "oracle_spec_version": 1, "attempt_id": lease.attempt_id, "method": "integration-test",
             "input_digests": ["a" * 64], "environment_digest": "b" * 64,
             "toolchain_digest": "c" * 64, "tool_event_refs": [], "verdict": "passed",
-            "exit_code": 0, "timed_out": False, "result_artifact_refs": ["artifact-result"],
+            "exit_code": 0, "timed_out": False,
+            "result_artifact_refs": [{
+                "run_id": run_id,
+                "artifact_id": f"oracle-result-{suffix}",
+                "revision": 1,
+                "content_hash": result_artifact["content_hash"],
+            }],
             "evaluator": "core-v1", "limitations": [], "reproducibility_status": "reproducible",
         }
     )
-    state = coordinator.record_oracle_run(run_id, run, expected_revision=int(state["revision"]))
+    state = coordinator.record_oracle_run(
+        run_id,
+        run,
+        expected_revision=int(coordinator.status(run_id)["revision"]),
+    )
     decision = ledger.append_artifact(
         run_id=run_id, artifact_id=f"decision-{suffix}", kind="decision-ledger-entry",
         payload={"status": "selected"}, actor_kind="coordinator", actor_id="decision-compiler",

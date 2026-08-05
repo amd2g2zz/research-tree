@@ -50,9 +50,19 @@ OracleSpec id and version, and attempt id. Supplying the alpha1
 `validation_result` field fails compilation. The adaptive policy resolves every ref
 against coordinator-provided OracleRun data before applying failure reweighting.
 
+Every `OracleRun.result_artifact_refs` entry is an exact artifact reference with
+`run_id`, `artifact_id`, positive `revision`, and `content_hash`. The coordinator
+accepts only references that resolve to the current run and whose persisted digest
+matches exactly. A path, bare artifact id, cross-run ref, missing revision, or stale
+digest cannot enter the OracleRun ledger.
+
 #### Scenario: Oracle execution fails
 - **WHEN** the recorded oracle result is failed or inconclusive
 - **THEN** the result remains visible and triggers an independent validation, method switch, fallback, or bounded residual-risk decision
+
+#### Scenario: Oracle result artifact cannot be replayed
+- **WHEN** an OracleRun references a missing, cross-run, or digest-mismatched result artifact
+- **THEN** the coordinator rejects the OracleRun without advancing the run revision
 
 ### Requirement: Decision Slot closure is an auditable assessment
 The system SHALL issue a closure token only after evaluating required evidence classes, provenance independence, counterevidence search, contradictions, oracle outcomes, selected or conditional decision status, fallback, and reversal condition.
