@@ -3,7 +3,108 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import hashlib
+import json
 from typing import Any, Mapping, Sequence
+
+from .contracts import canonical_json_bytes
+
+
+CANONICAL_STATEMENT_CLASSES = frozenset({"fact", "inference", "recommendation", "unknown"})
+
+
+class InsightDigestError(ValueError):
+    pass
+
+
+def _finding_payload(finding: Any) -> Mapping[str, Any]:
+    payload = finding.payload if hasattr(finding, "payload") else finding
+    if not isinstance(payload, Mapping):
+        raise InsightDigestError("finding pack payload must be an object")
+    return payload
+
+
+def build_insight_digest(
+    finding_packs: Sequence[Any], *, digest_id: str, producer_version: str,
+    active_slot_ids: Sequence[str], previous_digest_ref: str | None = None,
+    change_reason: str = "new_finding_batch",
+) -> dict[str, Any]:
+    """Build the canonical, deterministic InsightDigest from immutable findings."""
+    if not digest_id or not producer_version:
+        raise InsightDigestError("digest_id and producer_version are required")
+    normalized: list[tuple[str, Mapping[str, Any]]] = []
+    for finding in finding_packs:
+        payload = _finding_payload(finding)
+        identifier = str(payload.get("id", getattr(finding, "id", ""))).strip()
+        if not identifier:
+            raise InsightDigestError("finding pack id is required")
+        normalized.append((identifier, payload))
+    normalized.sort(key=lambda item: item[0])
+    statements: list[dict[str, Any]] = []
+    contradictions: list[dict[str, Any]] = []
+    gaps: list[dict[str, Any]] = []
+    source_refs: set[str] = set()
+    slot_refs = sorted(set(str(item) for item in active_slot_ids))
+    option_effects: dict[tuple[str, str], dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
+    for finding_id, payload in normalized:
+        slot_id = str(payload.get("decision_slot_id", ""))
+        if slot_id and slot_id not in slot_refs:
+            continue
+        for observation_index, observation in enumerate(payload.get("observations", ())):
+            if not isinstance(observation, Mapping):
+                continue
+            text = str(observation.get("claim", observation.get("text", ""))).strip()
+            if not text:
+                continue
+            anchor = observation.get("anchor")
+            evidence_refs: list[str] = []
+            if isinstance(anchor, Mapping) and isinstance(anchor.get("ref"), str) and anchor["ref"].strip():
+                evidence_refs.append(anchor["ref"])
+                source_refs.add(anchor["ref"])
+            statement_class = str(observation.get("class", "fact" if evidence_refs else "unknown"))
+            if statement_class not in CANONICAL_STATEMENT_CLASSES:
+                raise InsightDigestError(f"unsupported statement class: {statement_class}")
+            if statement_class == "fact" and not evidence_refs:
+                raise InsightDigestError("fact requires a resolvable evidence anchor")
+            if statement_class == "inference" and (not observation.get("assumptions") or not evidence_refs):
+                raise InsightDigestError("inference requires assumptions and supporting evidence")
+            if statement_class == "recommendation" and (not observation.get("consequence") or not observation.get("reversal_condition")):
+                raise InsightDigestError("recommendation requires consequence and reversal condition")
+            if statement_class == "unknown" and (not observation.get("reason") or not observation.get("next_acquisition_method")):
+                raise InsightDigestError("unknown requires reason and next acquisition method")
+            statements.append({"id": f"{finding_id}-statement-{observation_index}", "class": statement_class, "text": text, "evidence_refs": sorted(evidence_refs), "confidence": str(observation.get("confidence", "medium"))})
+        for effect in payload.get("option_effects", ()):
+            if isinstance(effect, Mapping) and isinstance(effect.get("option"), str) and isinstance(effect.get("effect"), str):
+                option_effects[(slot_id, effect["option"])][effect["effect"]].add(finding_id)
+        for uncertainty in payload.get("remaining_uncertainties", ()):
+            if str(uncertainty).strip():
+                gaps.append({"slot_id": slot_id, "reason": str(uncertainty), "next_acquisition_method": "validation"})
+    for (slot_id, option), effects in sorted(option_effects.items()):
+        if {"supports", "contradicts"} <= set(effects):
+            contradictions.append({"slot_id": slot_id, "subject": option, "evidence_refs": sorted({ref for refs in effects.values() for ref in refs}), "resolution_action": "adversarial"})
+    recommended_actions = []
+    for gap in gaps:
+        recommended_actions.append({"slot_id": gap["slot_id"], "action": gap["next_acquisition_method"], "trigger": gap["reason"]})
+    for contradiction in contradictions:
+        recommended_actions.append({"slot_id": contradiction["slot_id"], "action": contradiction["resolution_action"], "trigger": "contradictory option effects"})
+    body = {"digest_id": digest_id, "producer_version": producer_version, "source_refs": sorted(source_refs), "slot_refs": slot_refs, "statements": sorted(statements, key=lambda item: item["id"]), "contradictions": contradictions, "gaps": gaps, "recommended_actions": recommended_actions, "limitations": [], "previous_digest_ref": previous_digest_ref, "changed_fields": sorted({"statements" if statements else "", "contradictions" if contradictions else "", "gaps" if gaps else ""} - {""}), "change_reason": change_reason, "invalidates": []}
+    body["digest"] = hashlib.sha256(canonical_json_bytes(body)).hexdigest()
+    return body
+
+
+def validate_canonical_insight_digest(value: Mapping[str, Any]) -> None:
+    required = {"digest_id", "producer_version", "source_refs", "slot_refs", "statements", "contradictions", "gaps", "recommended_actions", "limitations", "previous_digest_ref"}
+    if not required <= set(value):
+        raise InsightDigestError(f"canonical InsightDigest is missing {sorted(required - set(value))}")
+    if not isinstance(value["statements"], list):
+        raise InsightDigestError("statements must be an array")
+    for statement in value["statements"]:
+        if not isinstance(statement, Mapping) or not {"id", "class", "text", "evidence_refs", "confidence"} <= set(statement):
+            raise InsightDigestError("statement fields are incomplete")
+        if statement["class"] not in CANONICAL_STATEMENT_CLASSES:
+            raise InsightDigestError("unsupported statement class")
+        if statement["class"] == "fact" and not statement["evidence_refs"]:
+            raise InsightDigestError("fact cannot be evidence-free")
 
 
 def synthesize_insights(

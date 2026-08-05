@@ -29,6 +29,10 @@
     "gaps": { "type": "array", "items": { "type": "object" } },
     "recommended_actions": { "type": "array", "items": { "type": "object" } },
     "limitations": { "type": "array", "items": { "type": "string" } },
-    "previous_digest_ref": { "type": ["string", "null"] }
+    "previous_digest_ref": { "type": ["string", "null"] },
+    "changed_fields": { "type": "array", "items": { "type": "string" } },
+    "change_reason": { "type": "string", "minLength": 1 },
+    "invalidates": { "type": "array", "items": { "type": "string" } },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
   }
 }

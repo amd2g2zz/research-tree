@@ -148,7 +148,7 @@ from .orchestration import (
     compile_orchestration_plan,
     validate_orchestration_plan,
 )
-from .insights import synthesize_insights, validate_insight_digest
+from .insights import build_insight_digest, synthesize_insights, validate_canonical_insight_digest, validate_insight_digest
 from .evidence_delta import (
     EvidenceBaseline,
     baseline_from_finding_packs,
@@ -220,6 +220,8 @@ __all__ = [
     "compile_orchestration_plan",
     "validate_orchestration_plan",
     "synthesize_insights",
+    "build_insight_digest",
+    "validate_canonical_insight_digest",
     "validate_insight_digest",
     "EvidenceBaseline",
     "baseline_from_finding_packs",
