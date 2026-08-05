@@ -1,4 +1,5 @@
 import pytest
+from concurrent.futures import ThreadPoolExecutor
 
 from research_tree import CASError, ContentAddressedStore, ResearchRunCoordinator, SQLiteLedgerError, SQLiteRunLedger
 
@@ -11,6 +12,23 @@ def test_sqlite_ledger_appends_exact_lineage_and_replays_digest(tmp_path):
     assert ledger.resolve("run-1", "strategy", 1)["parent_refs"][0]["artifact_id"] == "brief"
     assert ledger.reconstruct("run-1")["semantic_digest"] == ledger.reconstruct("run-1")["semantic_digest"]
     assert first["content_hash"] != second["content_hash"]
+
+
+def test_sqlite_ledger_satisfies_backend_neutral_storage_protocol(tmp_path):
+    from research_tree import RunLedgerProtocol
+
+    ledger = SQLiteRunLedger(tmp_path)
+    assert isinstance(ledger, RunLedgerProtocol)
+    ledger.create_run("run-protocol")
+    assert ledger.events("run-protocol")[0]["event_type"] == "run_initialized"
+    with ledger._connect() as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+    assert {"artifacts", "artifact_parents", "content_objects", "evidence"} <= tables
 
 
 def test_sqlite_ledger_rejects_stale_write_and_dangling_parent(tmp_path):
@@ -109,3 +127,58 @@ def test_artifact_append_rolls_back_at_each_registered_write_boundary(tmp_path):
         with pytest.raises(SQLiteLedgerError, match="does not exist"):
             ledger.resolve("run-crash", f"artifact-{boundary}", 1)
     assert ResearchRunCoordinator(tmp_path).status("run-crash")["revision"] == 0
+
+
+def test_concurrent_writers_commit_one_revision_and_reject_the_stale_peer(tmp_path):
+    ResearchRunCoordinator(tmp_path).create("run-concurrent")
+
+    def append(actor_id):
+        ledger = SQLiteRunLedger(tmp_path)
+        try:
+            artifact = ledger.append_artifact(
+                run_id="run-concurrent",
+                artifact_id="brief",
+                kind="working-brief",
+                payload={"actor": actor_id},
+                actor_kind="coordinator",
+                actor_id=actor_id,
+                status="candidate",
+                expected_revision=0,
+            )
+            return ("committed", artifact["content_hash"])
+        except SQLiteLedgerError as error:
+            return (error.code, None)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(append, ("writer-a", "writer-b")))
+
+    assert sorted(item[0] for item in outcomes) == ["committed", "stale_revision"]
+    restarted = SQLiteRunLedger(tmp_path)
+    assert len(restarted.reconstruct("run-concurrent")["artifacts"]) == 1
+    assert ResearchRunCoordinator(tmp_path).status("run-concurrent")["revision"] == 1
+
+
+def test_cas_metadata_is_reconstructed_from_sqlite_after_restart(tmp_path):
+    ResearchRunCoordinator(tmp_path).create("run-content")
+    ledger = SQLiteRunLedger(tmp_path)
+    committed = ledger.put_content(
+        run_id="run-content",
+        data=b"binary evidence",
+        media_type="application/octet-stream",
+        metadata={"source": "fixture"},
+        expected_revision=0,
+    )
+
+    restarted = SQLiteRunLedger(tmp_path)
+    reconstruction = restarted.reconstruct("run-content")
+    assert reconstruction["content_objects"] == [committed]
+    assert restarted.cas.read(committed["digest"]) == b"binary evidence"
+    replayed = restarted.put_content(
+        run_id="run-content",
+        data=b"binary evidence",
+        media_type="application/octet-stream",
+        metadata={"source": "fixture"},
+        expected_revision=1,
+    )
+    assert replayed == committed
+    assert ResearchRunCoordinator(tmp_path).status("run-content")["revision"] == 1

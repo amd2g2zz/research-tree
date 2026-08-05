@@ -121,6 +121,19 @@ CREATE TABLE oracle_specs (
   FOREIGN KEY(run_id) REFERENCES runs(run_id)
 );
 
+CREATE TABLE content_objects (
+  run_id TEXT NOT NULL REFERENCES runs(run_id),
+  digest TEXT NOT NULL,
+  media_type TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  locator TEXT NOT NULL,
+  status TEXT NOT NULL,
+  metadata_json TEXT NOT NULL,
+  record_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(run_id, digest)
+);
+
 CREATE TABLE oracle_attempts (
   run_id TEXT NOT NULL,
   oracle_attempt_id TEXT NOT NULL,

@@ -12,6 +12,7 @@ from typing import Any, Callable, Mapping, Sequence
 from .contracts import canonical_json_bytes
 from .coordinator import ResearchRunCoordinator
 from .closure import oracle_successor_actions
+from .cas import ContentAddressedStore
 from .worker_contracts import CanonicalWorkItem
 
 
@@ -30,6 +31,8 @@ class SQLiteRunLedger:
         *,
         fault_injector: Callable[[str], None] | None = None,
     ) -> None:
+        self.workspace = Path(workspace).resolve()
+        self.cas = ContentAddressedStore(self.workspace)
         coordinator = ResearchRunCoordinator(workspace)
         self.coordinator = coordinator
         self._fault_injector = fault_injector
@@ -48,6 +51,19 @@ class SQLiteRunLedger:
               PRIMARY KEY(run_id,artifact_id,revision,parent_run_id,parent_artifact_id,parent_revision),
               FOREIGN KEY(run_id,artifact_id,revision) REFERENCES artifacts(run_id,artifact_id,revision),
               FOREIGN KEY(parent_run_id,parent_artifact_id,parent_revision) REFERENCES artifacts(run_id,artifact_id,revision));
+            CREATE TABLE IF NOT EXISTS content_objects(
+              run_id TEXT NOT NULL REFERENCES runs(run_id),digest TEXT NOT NULL,
+              media_type TEXT NOT NULL,size_bytes INTEGER NOT NULL,locator TEXT NOT NULL,
+              status TEXT NOT NULL,metadata_json TEXT NOT NULL,record_json TEXT NOT NULL,
+              created_at TEXT NOT NULL,PRIMARY KEY(run_id,digest));
+            CREATE TABLE IF NOT EXISTS evidence(
+              run_id TEXT NOT NULL,evidence_id TEXT NOT NULL,revision INTEGER NOT NULL,
+              artifact_digest TEXT NOT NULL,provenance_group TEXT NOT NULL,
+              media_type TEXT NOT NULL,selector_json TEXT NOT NULL,
+              acquisition_json TEXT NOT NULL,status TEXT NOT NULL,
+              PRIMARY KEY(run_id,evidence_id,revision),
+              FOREIGN KEY(run_id,evidence_id,revision)
+                REFERENCES artifacts(run_id,artifact_id,revision));
             """)
             schema = canonical_json_bytes({"version": 1, "tables": ["runs", "events", "artifacts", "artifact_parents"]})
             connection.execute("INSERT OR IGNORE INTO schema_migrations VALUES(1,?,?)", (datetime.now(timezone.utc).isoformat(), hashlib.sha256(schema).hexdigest()))
@@ -59,6 +75,8 @@ class SQLiteRunLedger:
             connection.execute("INSERT OR IGNORE INTO schema_migrations VALUES(4,?,?)", (datetime.now(timezone.utc).isoformat(), hashlib.sha256(schema_v4).hexdigest()))
             schema_v5 = canonical_json_bytes({"version": 5, "tables": ["decision_slot_sets", "p0_closure_aggregates", "slot_closure_assessments.blueprint_binding_revision"]})
             connection.execute("INSERT OR IGNORE INTO schema_migrations VALUES(5,?,?)", (datetime.now(timezone.utc).isoformat(), hashlib.sha256(schema_v5).hexdigest()))
+            schema_v6 = canonical_json_bytes({"version": 6, "tables": ["content_objects", "evidence"]})
+            connection.execute("INSERT OR IGNORE INTO schema_migrations VALUES(6,?,?)", (datetime.now(timezone.utc).isoformat(), hashlib.sha256(schema_v6).hexdigest()))
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database, timeout=10.0)
@@ -72,6 +90,24 @@ class SQLiteRunLedger:
     def _fault(self, boundary: str) -> None:
         if self._fault_injector is not None:
             self._fault_injector(boundary)
+
+    def create_run(
+        self,
+        run_id: str,
+        *,
+        task_identity: Mapping[str, Any] | None = None,
+        authority: Mapping[str, Any] | None = None,
+        parent_run_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.coordinator.create(
+            run_id,
+            task_identity=task_identity,
+            authority=authority,
+            parent_run_id=parent_run_id,
+        )
+
+    def events(self, run_id: str) -> list[dict[str, Any]]:
+        return self.coordinator.events(run_id)
 
     def append_artifact(self, *, run_id: str, artifact_id: str, kind: str, payload: Mapping[str, Any], actor_kind: str, actor_id: str, status: str, parent_refs: Sequence[Mapping[str, Any]] = (), expected_revision: int | None = None, expected_run_revision: int | None = None, created_at: str | None = None) -> dict[str, Any]:
         with self._connect() as connection:
@@ -265,6 +301,114 @@ class SQLiteRunLedger:
             work_items.append(artifact)
         return {"run_id": run_id, "revision": current["revision"], "work_items": work_items, "actions": actions}
 
+    def put_content(
+        self,
+        *,
+        run_id: str,
+        data: bytes,
+        media_type: str,
+        metadata: Mapping[str, Any] | None = None,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        """Commit a CAS object and its SQLite metadata as canonical run state."""
+
+        digest = self.cas.digest(data)
+        with self._connect() as connection:
+            run_row = connection.execute(
+                "SELECT revision FROM runs WHERE run_id=?", (run_id,)
+            ).fetchone()
+            if run_row is None:
+                raise SQLiteLedgerError("run does not exist", code="run_not_found")
+            if int(run_row["revision"]) != expected_revision:
+                raise SQLiteLedgerError(
+                    "run expected revision is stale", code="stale_run_revision"
+                )
+            existing = connection.execute(
+                "SELECT record_json FROM content_objects WHERE run_id=? AND digest=?",
+                (run_id, digest),
+            ).fetchone()
+        if existing is not None:
+            record = json.loads(existing["record_json"])
+            requested_metadata = {} if metadata is None else dict(metadata)
+            if record.get("media_type") != media_type or record.get("metadata") != requested_metadata:
+                raise SQLiteLedgerError(
+                    "content digest is already registered with different metadata",
+                    code="content_metadata_conflict",
+                )
+            self.cas.verify(digest)
+            return record
+        staged = self.cas.stage_bytes(
+            data,
+            media_type=media_type,
+            metadata=None if metadata is None else dict(metadata),
+        )
+        preexisting = self.cas.path_for(digest).is_file()
+        promoted = self.cas.promote(digest)
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                run_row = connection.execute(
+                    "SELECT * FROM runs WHERE run_id=?", (run_id,)
+                ).fetchone()
+                if run_row is None:
+                    raise SQLiteLedgerError("run does not exist", code="run_not_found")
+                if int(run_row["revision"]) != expected_revision:
+                    raise SQLiteLedgerError(
+                        "run expected revision is stale", code="stale_run_revision"
+                    )
+                encoded = canonical_json_bytes(promoted).decode("utf-8")
+                connection.execute(
+                    """INSERT INTO content_objects(
+                         run_id,digest,media_type,size_bytes,locator,status,
+                         metadata_json,record_json,created_at
+                       ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (
+                        run_id,
+                        digest,
+                        promoted["media_type"],
+                        promoted["size"],
+                        promoted["locator"],
+                        "committed",
+                        canonical_json_bytes(promoted.get("metadata", {})).decode("utf-8"),
+                        encoded,
+                        datetime.now(timezone.utc).isoformat(),
+                    ),
+                )
+                revision = expected_revision + 1
+                state = {
+                    "run_id": run_id,
+                    "revision": revision,
+                    "lifecycle_state": run_row["lifecycle_state"],
+                    "task_identity": json.loads(run_row["task_identity_json"]),
+                    "feedback_id": None,
+                }
+                state_digest = hashlib.sha256(canonical_json_bytes(state)).hexdigest()
+                connection.execute(
+                    "UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?",
+                    (revision, state_digest, datetime.now(timezone.utc).isoformat(), run_id),
+                )
+                event_id = f"content-committed-{digest}"
+                self.coordinator._event(
+                    connection,
+                    run_id,
+                    event_id,
+                    expected_revision,
+                    {
+                        "digest": digest,
+                        "media_type": promoted["media_type"],
+                        "size_bytes": promoted["size"],
+                    },
+                    event_type="content_committed",
+                )
+                self.coordinator._snapshot_current_revision(
+                    connection, run_id, source_event_id=event_id
+                )
+        except Exception:
+            if not preexisting:
+                self.cas.quarantine(digest, reason="SQLite content metadata commit failed")
+            raise
+        return dict(promoted)
+
     def _latest_artifact(self, run_id: str, artifact_id: str) -> dict[str, Any] | None:
         with self._connect() as connection:
             row = connection.execute(
@@ -291,6 +435,18 @@ class SQLiteRunLedger:
             if connection.execute("SELECT 1 FROM runs WHERE run_id=?", (run_id,)).fetchone() is None:
                 raise SQLiteLedgerError("run does not exist", code="run_not_found")
             refs = connection.execute("SELECT artifact_id,revision FROM artifacts WHERE run_id=? ORDER BY artifact_id,revision", (run_id,)).fetchall()
+            content_rows = connection.execute(
+                "SELECT record_json FROM content_objects WHERE run_id=? ORDER BY digest",
+                (run_id,),
+            ).fetchall()
         artifacts = [self.resolve(run_id, row["artifact_id"], row["revision"]) for row in refs]
-        digest = hashlib.sha256(canonical_json_bytes(artifacts)).hexdigest()
-        return {"run_id": run_id, "artifacts": artifacts, "semantic_digest": digest}
+        content_objects = [json.loads(row["record_json"]) for row in content_rows]
+        digest = hashlib.sha256(
+            canonical_json_bytes({"artifacts": artifacts, "content_objects": content_objects})
+        ).hexdigest()
+        return {
+            "run_id": run_id,
+            "artifacts": artifacts,
+            "content_objects": content_objects,
+            "semantic_digest": digest,
+        }

@@ -26,13 +26,13 @@ fields, dependency cycles, evidence paths, and acceptance command paths.
 
 ## 2. SQLite RunLedger and Content-Addressed Storage (#53)
 
-- [ ] 2.1 Introduce a storage protocol that preserves the existing ArtifactRevision, parent-reference, round, and event operations without coupling domain services to filesystem paths.
-- [ ] 2.2 Define and migrate SQLite schema version 1 for runs, artifact revisions, artifact parents, events, action attempts, evidence metadata, oracle runs, and host events.
-- [ ] 2.3 Configure foreign keys, WAL, full synchronization, busy timeout, short transactions, and expected-revision conflict handling on every connection.
-- [ ] 2.4 Implement immutable artifact append, exact revision resolution, round reconstruction, event append, and lineage integrity checks in the SQLite backend.
-- [ ] 2.5 Implement the SHA-256 content-addressed store with atomic writes, digest verification, media metadata, and workspace-boundary enforcement.
-- [ ] 2.6 Add concurrency, stale-write, dangling-parent, tamper, restart, and deterministic-replay tests for SQLite and the CAS.
-- [ ] 2.7 Add an idempotent importer for filesystem RunStore rounds and verify repeated import produces no duplicate revisions or events.
+- [x] 2.1 Introduce a storage protocol that preserves the existing ArtifactRevision, parent-reference, round, and event operations without coupling domain services to filesystem paths. Evidence: runtime-checkable `RunLedgerProtocol` and the backend-neutral SQLite protocol test.
+- [x] 2.2 Define and migrate SQLite schema version 1 for runs, artifact revisions, artifact parents, events, action attempts, evidence metadata, oracle runs, and host events. Evidence: workspace schema migrations through v6, canonical `sqlite-v1.sql`, and run-scoped `content_objects` metadata.
+- [x] 2.3 Configure foreign keys, WAL, full synchronization, busy timeout, short transactions, and expected-revision conflict handling on every connection. Evidence: `SQLiteRunLedger._connect`, `BEGIN IMMEDIATE`, artifact/run revision guards, and concurrent writer test.
+- [x] 2.4 Implement immutable artifact append, exact revision resolution, round reconstruction, event append, and lineage integrity checks in the SQLite backend. Evidence: append/resolve/reconstruct implementation plus canonical event/revision and crash-boundary tests.
+- [x] 2.5 Implement the SHA-256 content-addressed store with atomic writes, digest verification, media metadata, and workspace-boundary enforcement. Evidence: staged/promoted/quarantined CAS, SQLite `put_content`, restart reconstruction, tamper and workspace-boundary tests.
+- [x] 2.6 Add concurrency, stale-write, dangling-parent, tamper, restart, and deterministic-replay tests for SQLite and the CAS. Evidence: `tests/test_alpha2_sqlite_ledger.py` and `tests/test_alpha2_replay_lease_migration.py`; group-2 acceptance passes 17 tests.
+- [x] 2.7 Add an idempotent importer for filesystem RunStore rounds and verify repeated import produces no duplicate revisions or events. Evidence: `LegacyRunStoreImporter` and repeated-import `legacy_unverified` regression test.
 
 ## 3. Resolvable Evidence Artifacts (#54)
 
