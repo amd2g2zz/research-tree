@@ -19,6 +19,8 @@ from .contracts import HostEvent, canonical_json_bytes, validate_feedback_event
 from .replay import explain_run, why_not_complete
 from .leases import AttemptLease
 from .host_events import reconcile_host_events
+from .oracles import OracleRun
+from .closure import SlotClosureAssessment
 
 
 LIFECYCLE_STATES = frozenset({
@@ -139,6 +141,17 @@ class ResearchRunCoordinator:
           prior_status TEXT NOT NULL, revision INTEGER NOT NULL, reason TEXT NOT NULL,
           created_at TEXT NOT NULL, PRIMARY KEY(run_id,attempt_id,feedback_id),
           FOREIGN KEY(run_id,attempt_id) REFERENCES action_attempts(run_id,attempt_id)
+        );
+        CREATE TABLE IF NOT EXISTS oracle_runs(
+          run_id TEXT NOT NULL, oracle_run_id TEXT NOT NULL, oracle_spec_id TEXT NOT NULL,
+          attempt_id TEXT NOT NULL, payload_json TEXT NOT NULL, payload_digest TEXT NOT NULL,
+          created_at TEXT NOT NULL, PRIMARY KEY(run_id,oracle_run_id),
+          FOREIGN KEY(run_id,attempt_id) REFERENCES action_attempts(run_id,attempt_id)
+        );
+        CREATE TABLE IF NOT EXISTS slot_closure_assessments(
+          run_id TEXT NOT NULL, slot_id TEXT NOT NULL, assessment_revision INTEGER NOT NULL,
+          payload_json TEXT NOT NULL, token_digest TEXT, status TEXT NOT NULL, created_at TEXT NOT NULL,
+          PRIMARY KEY(run_id,slot_id,assessment_revision), FOREIGN KEY(run_id) REFERENCES runs(run_id)
         );
         """)
         run_columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
@@ -304,6 +317,101 @@ class ResearchRunCoordinator:
             event_id = f"obligation-{obligation}-{revision}"
             self._snapshot_current_revision(connection, run_id, source_event_id=event_id)
             self._event(connection, run_id, event_id, expected_revision, {"obligation": obligation, "evidence_ref": evidence_ref}, event_type="obligation_satisfied")
+        return self.status(run_id)
+
+    def record_oracle_run(
+        self,
+        run_id: str,
+        oracle_run: OracleRun | Mapping[str, Any],
+        *,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        parsed = oracle_run if isinstance(oracle_run, OracleRun) else OracleRun.from_mapping(oracle_run)
+        payload = parsed.to_contract_dict()
+        if payload["attempt_id"] != parsed.attempt_id:
+            raise CoordinatorError("oracle attempt binding is inconsistent", code="attempt_binding_required")
+        with self._connect() as connection:
+            row = self._require_run(connection, run_id)
+            if int(row["revision"]) != expected_revision:
+                raise CoordinatorError("expected revision is stale", code="stale_revision")
+            if connection.execute(
+                "SELECT 1 FROM action_attempts WHERE run_id=? AND attempt_id=?",
+                (run_id, parsed.attempt_id),
+            ).fetchone() is None:
+                raise CoordinatorError("oracle references an unknown attempt", code="attempt_not_found")
+            raw = canonical_json_bytes(payload)
+            try:
+                connection.execute(
+                    "INSERT INTO oracle_runs VALUES(?,?,?,?,?,?,?)",
+                    (run_id, parsed.oracle_run_id, parsed.oracle_spec_id, parsed.attempt_id, raw.decode("utf-8"), hashlib.sha256(raw).hexdigest(), self._now()),
+                )
+            except sqlite3.IntegrityError as error:
+                raise CoordinatorError("oracle run is not immutable and unique", code="oracle_conflict") from error
+            revision = expected_revision + 1
+            state = self._state_payload(row, lifecycle_state=row["lifecycle_state"], revision=revision, body={})
+            connection.execute(
+                "UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?",
+                (revision, self._digest(state), self._now(), run_id),
+            )
+            event_id = f"oracle-run-{parsed.oracle_run_id}"
+            self._event(connection, run_id, event_id, expected_revision, payload, event_type="oracle_run_recorded")
+            self._snapshot_current_revision(connection, run_id, source_event_id=event_id)
+        return self.status(run_id)
+
+    def oracle_runs(self, run_id: str) -> dict[str, dict[str, Any]]:
+        with self._connect() as connection:
+            self._require_run(connection, run_id)
+            rows = connection.execute(
+                "SELECT oracle_run_id,payload_json FROM oracle_runs WHERE run_id=? ORDER BY oracle_run_id",
+                (run_id,),
+            ).fetchall()
+        return {row["oracle_run_id"]: json.loads(row["payload_json"]) for row in rows}
+
+    def record_closure_assessment(
+        self,
+        run_id: str,
+        assessment: SlotClosureAssessment,
+        *,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        payload = assessment.to_contract_dict()
+        if payload["status"] != "passed" or not payload["token_digest"]:
+            raise CoordinatorError("only a passed core assessment can close a slot", code="closure_not_passed")
+        with self._connect() as connection:
+            row = self._require_run(connection, run_id)
+            if int(row["revision"]) != expected_revision:
+                raise CoordinatorError("expected revision is stale", code="stale_revision")
+            for oracle_ref in payload["oracle_refs"]:
+                oracle = connection.execute(
+                    "SELECT payload_json FROM oracle_runs WHERE run_id=? AND oracle_run_id=?",
+                    (run_id, oracle_ref),
+                ).fetchone()
+                if oracle is None:
+                    raise CoordinatorError("closure references an unresolved OracleRun", code="oracle_not_found")
+                oracle_payload = json.loads(oracle["payload_json"])
+                if oracle_payload.get("verdict") != "passed" or oracle_payload.get("reproducibility_status") != "reproducible":
+                    raise CoordinatorError("closure references a nonpassing OracleRun", code="oracle_not_passing")
+            try:
+                connection.execute(
+                    "INSERT INTO slot_closure_assessments VALUES(?,?,?,?,?,?,?)",
+                    (run_id, assessment.slot_id, assessment.assessment_revision, canonical_json_bytes(payload).decode("utf-8"), assessment.token_digest, "passed", self._now()),
+                )
+            except sqlite3.IntegrityError as error:
+                raise CoordinatorError("closure assessment revision already exists", code="closure_conflict") from error
+            self._ensure_obligations(connection, run_id)
+            connection.execute(
+                "UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation='p0_closure'",
+                (assessment.token_digest, self._now(), run_id),
+            )
+            revision = expected_revision + 1
+            state = self._state_payload(row, lifecycle_state=row["lifecycle_state"], revision=revision, body={})
+            connection.execute(
+                "UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?",
+                (revision, self._digest(state), self._now(), run_id),
+            )
+            event_id = f"slot-closure-{assessment.slot_id}-{assessment.assessment_revision}"
+            self._event(connection, run_id, event_id, expected_revision, payload, event_type="slot_closure_recorded")
+            self._snapshot_current_revision(connection, run_id, source_event_id=event_id)
         return self.status(run_id)
 
     def next_actions(self, run_id: str) -> dict[str, Any]:

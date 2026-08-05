@@ -51,6 +51,8 @@ class SQLiteRunLedger:
             connection.execute("INSERT OR IGNORE INTO schema_migrations VALUES(1,?,?)", (datetime.now(timezone.utc).isoformat(), hashlib.sha256(schema).hexdigest()))
             schema_v2 = canonical_json_bytes({"version": 2, "tables": ["runs", "events", "artifacts", "artifact_parents", "action_attempts", "run_obligations", "run_revisions", "host_events"]})
             connection.execute("INSERT OR IGNORE INTO schema_migrations VALUES(2,?,?)", (datetime.now(timezone.utc).isoformat(), hashlib.sha256(schema_v2).hexdigest()))
+            schema_v3 = canonical_json_bytes({"version": 3, "tables": ["oracle_runs", "slot_closure_assessments"]})
+            connection.execute("INSERT OR IGNORE INTO schema_migrations VALUES(3,?,?)", (datetime.now(timezone.utc).isoformat(), hashlib.sha256(schema_v3).hexdigest()))
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database, timeout=10.0)
