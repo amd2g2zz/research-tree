@@ -167,6 +167,11 @@ class ResearchRunCoordinator:
           run_id TEXT NOT NULL, event_id TEXT NOT NULL, event_json TEXT NOT NULL,
           payload_digest TEXT NOT NULL, PRIMARY KEY(run_id,event_id)
         );
+        CREATE TABLE IF NOT EXISTS quarantined_host_events(
+          run_id TEXT NOT NULL, event_id TEXT NOT NULL, reason_code TEXT NOT NULL,
+          safe_event_json TEXT NOT NULL, payload_digest TEXT NOT NULL,
+          created_at TEXT NOT NULL, PRIMARY KEY(run_id,event_id,reason_code)
+        );
         CREATE TABLE IF NOT EXISTS invalidations(
           run_id TEXT NOT NULL, digest TEXT NOT NULL, reason TEXT NOT NULL,
           revision INTEGER NOT NULL, PRIMARY KEY(run_id,digest)
@@ -342,6 +347,26 @@ class ResearchRunCoordinator:
             ).fetchall()
         return [
             {"event_id": row["event_id"], "sequence": row["sequence"], "event_type": row["event_type"], "expected_revision": row["expected_revision"], "payload": json.loads(row["payload_json"]), "payload_digest": row["payload_digest"], "accepted": bool(row["accepted"]), "error_code": row["error_code"]}
+            for row in rows
+        ]
+
+    def quarantined_host_events(self, run_id: str) -> list[dict[str, Any]]:
+        """Return bounded protocol diagnostics without raw host payloads."""
+
+        with self._connect() as connection:
+            self._require_run(connection, run_id)
+            rows = connection.execute(
+                "SELECT event_id,reason_code,safe_event_json,payload_digest,created_at FROM quarantined_host_events WHERE run_id=? ORDER BY created_at,event_id",
+                (run_id,),
+            ).fetchall()
+        return [
+            {
+                "event_id": row["event_id"],
+                "reason_code": row["reason_code"],
+                "safe_event": json.loads(row["safe_event_json"]),
+                "payload_digest": row["payload_digest"],
+                "created_at": row["created_at"],
+            }
             for row in rows
         ]
 
@@ -4185,7 +4210,35 @@ class ResearchRunCoordinator:
             )
 
     def ingest_host_event(self, event: HostEvent | Mapping[str, Any]) -> dict[str, Any]:
-        host_event = event if isinstance(event, HostEvent) else HostEvent.from_dict(event)
+        if isinstance(event, HostEvent):
+            host_event = event
+        else:
+            try:
+                host_event = HostEvent.from_dict(event)
+            except ContractError as error:
+                if error.code != "unsupported_protocol_version":
+                    raise
+                raw_event = dict(event)
+                run_id = raw_event.get("run_id")
+                event_id = raw_event.get("event_id")
+                if not isinstance(run_id, str) or not IDENTIFIER_RE.fullmatch(run_id):
+                    raise CoordinatorError("unsupported event has invalid run identity", code=error.code) from error
+                if not isinstance(event_id, str) or not IDENTIFIER_RE.fullmatch(event_id):
+                    raise CoordinatorError("unsupported event has invalid event identity", code=error.code) from error
+                with self._connect() as connection:
+                    self._require_run(connection, run_id)
+                    self._quarantine_host_event(
+                        connection,
+                        run_id=run_id,
+                        event_id=event_id,
+                        reason_code=error.code,
+                        value=raw_event,
+                    )
+                raise CoordinatorError(
+                    "host event protocol version is unsupported",
+                    code=error.code,
+                    next_action="upgrade_adapter_or_apply_registered_migration",
+                ) from error
         payload = host_event.to_dict()
         rejection: CoordinatorError | None = None
         with self._connect() as connection:
@@ -4205,6 +4258,19 @@ class ResearchRunCoordinator:
                     return json.loads(prior["event_json"])
             elif row["revision"] != host_event.expected_revision:
                 raise CoordinatorError("host event expected revision is stale", code="stale_revision")
+            elif self._host_sequence_is_out_of_order(connection, host_event):
+                self._quarantine_host_event(
+                    connection,
+                    run_id=host_event.run_id,
+                    event_id=host_event.event_id,
+                    reason_code="out_of_order_event",
+                    value=payload,
+                )
+                rejection = CoordinatorError(
+                    "host event sequence is out of order",
+                    code="out_of_order_event",
+                    next_action="reconcile_host_sequence",
+                )
             elif host_event.event_type == "completion_claimed":
                 self._ensure_obligations(connection, host_event.run_id)
                 unmet = [
@@ -4266,11 +4332,19 @@ class ResearchRunCoordinator:
                     (host_event.run_id, host_event.attempt_id),
                 ).fetchone()
                 if attempt is None:
-                    raise CoordinatorError(
+                    self._quarantine_host_event(
+                        connection,
+                        run_id=host_event.run_id,
+                        event_id=host_event.event_id,
+                        reason_code="attempt_not_found",
+                        value=payload,
+                    )
+                    rejection = CoordinatorError(
                         "host event references an unknown attempt",
                         code="attempt_not_found",
+                        next_action="reconcile_orphan_event",
                     )
-                if connection.execute(
+                elif connection.execute(
                     "SELECT 1 FROM attempt_invalidations WHERE run_id=? AND attempt_id=?",
                     (host_event.run_id, host_event.attempt_id),
                 ).fetchone():
@@ -4279,8 +4353,8 @@ class ResearchRunCoordinator:
                         code="attempt_invalidated",
                         next_action="replan_and_create_new_attempt",
                     )
-                lease_status = json.loads(attempt["lease_json"]).get("status")
-                if lease_status == "unknown" and host_event.event_type != "attempt_unknown":
+                lease_status = json.loads(attempt["lease_json"]).get("status") if attempt is not None else None
+                if rejection is None and lease_status == "unknown" and host_event.event_type != "attempt_unknown":
                     raise CoordinatorError(
                         "expired attempt cannot report success",
                         code="attempt_expired",
@@ -4303,6 +4377,65 @@ class ResearchRunCoordinator:
         if rejection is not None:
             raise rejection
         return payload
+
+    def _quarantine_host_event(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        run_id: str,
+        event_id: str,
+        reason_code: str,
+        value: Mapping[str, Any],
+    ) -> None:
+        safe_keys = {
+            "protocol_version", "event_id", "event_type", "run_id", "round_id",
+            "host", "causation_id", "correlation_id", "sequence",
+            "expected_revision", "payload_digest", "emitted_at",
+        }
+        safe_event = {key: value.get(key) for key in sorted(safe_keys) if key in value}
+        supplied_digest = value.get("payload_digest")
+        if isinstance(supplied_digest, str) and re.fullmatch(r"[0-9a-f]{64}", supplied_digest):
+            payload_digest = supplied_digest
+        else:
+            try:
+                payload_digest = hashlib.sha256(
+                    canonical_json_bytes(value.get("payload", {}))
+                ).hexdigest()
+            except ContractError:
+                payload_digest = hashlib.sha256(b"invalid-host-payload").hexdigest()
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO quarantined_host_events(
+                run_id,event_id,reason_code,safe_event_json,payload_digest,created_at
+            ) VALUES(?,?,?,?,?,?)
+            """,
+            (
+                run_id,
+                event_id,
+                reason_code,
+                canonical_json_bytes(safe_event).decode("utf-8"),
+                payload_digest,
+                self._now(),
+            ),
+        )
+
+    @staticmethod
+    def _host_sequence_is_out_of_order(
+        connection: sqlite3.Connection, event: HostEvent
+    ) -> bool:
+        maximum = 0
+        for row in connection.execute(
+            "SELECT event_json FROM host_events WHERE run_id=?", (event.run_id,)
+        ).fetchall():
+            try:
+                prior = json.loads(row["event_json"])
+            except json.JSONDecodeError:
+                continue
+            if prior.get("host") == event.host:
+                sequence = prior.get("sequence", 0)
+                if isinstance(sequence, int) and not isinstance(sequence, bool):
+                    maximum = max(maximum, sequence)
+        return maximum > 0 and event.sequence <= maximum
 
     def _apply_host_event_effect(self, connection: sqlite3.Connection, event: HostEvent) -> None:
         """Project an accepted host observation onto its canonical attempt lease.

@@ -87,8 +87,8 @@ fields, dependency cycles, evidence paths, and acceptance command paths.
 
 ## 8. Host Event Protocol and Native Adapters (#60)
 
-- [ ] 8.1 Define the versioned HostEvent envelope and validators for dispatch, attempt, submission, review, provider failure, unknown outcome, retry, and worker completion.
-- [ ] 8.2 Implement expected-revision, attempt-binding, duplicate-event, stale-event, and unsupported-version handling in the coordinator ingestion boundary.
+- [x] 8.1 Define the versioned HostEvent envelope and validators for dispatch, attempt, submission, review, provider failure, unknown outcome, retry, and worker completion. Evidence: strict HostEvent envelope/schema validation now rejects invalid sequence, revision, and optional lineage identifiers before ingestion.
+- [x] 8.2 Implement expected-revision, attempt-binding, duplicate-event, stale-event, and unsupported-version handling in the coordinator ingestion boundary. Evidence: unsupported protocol versions, out-of-order sequences, unknown attempts, and orphan host observations are quarantined without run mutation; duplicate and payload-conflict behavior remains idempotent; `tests/test_alpha2_host_event_ordering.py` and full regression pass.
 - [ ] 8.3 Refactor the Codex adapter to dispatch native subagents and submit HostEvents without maintaining closure, readiness, report, or completion state.
 - [ ] 8.4 Refactor the Claude Code adapter independently for its package format and native tools while using the same HostEvent contract.
 - [ ] 8.5 Preserve open conversational alignment when a native question tool cannot express an unconstrained prompt.
