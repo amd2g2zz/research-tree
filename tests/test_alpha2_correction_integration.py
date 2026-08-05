@@ -84,7 +84,9 @@ def test_material_feedback_preserves_revision_and_quarantines_dependent_state(
     state = coordinator.accept(
         state["run_id"],
         expected_revision=state["revision"],
-        displayed_digest="d" * 64,
+        displayed_digest=coordinator.delivery_pair_digest(
+            state["run_id"], "b" * 64, "c" * 64
+        ),
         technical_revision="b" * 64,
         human_revision="c" * 64,
         feedback="The delivered artifacts answer the confirmed research objective.",

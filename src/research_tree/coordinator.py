@@ -229,6 +229,27 @@ class ResearchRunCoordinator:
     def _digest(value: Any) -> str:
         return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
 
+    @staticmethod
+    def delivery_pair_digest(
+        run_id: str, technical_revision: str, human_revision: str
+    ) -> str:
+        """Return the presentation digest for one exact delivery pair."""
+
+        values = (run_id, technical_revision, human_revision)
+        if not all(isinstance(value, str) and value.strip() for value in values):
+            raise CoordinatorError(
+                "delivery pair fields are required", code="missing_delivery"
+            )
+        return hashlib.sha256(
+            canonical_json_bytes(
+                {
+                    "run_id": run_id,
+                    "technical_revision": technical_revision,
+                    "human_revision": human_revision,
+                }
+            )
+        ).hexdigest()
+
     def create(self, run_id: str, *, task_identity: Mapping[str, Any] | None = None,
                authority: Mapping[str, Any] | None = None, parent_run_id: str | None = None) -> dict[str, Any]:
         now = self._now()
@@ -1290,7 +1311,21 @@ class ResearchRunCoordinator:
         return {"run_id": run_id, "selected_action": self.next_actions(run_id)["next_action"], "inputs": {"lifecycle_state": state["lifecycle_state"], "revision": state["revision"], "state_digest": state["state_digest"]}, "rejected_alternatives": [], "evidence_refs": []}
 
     def deliver(self, run_id: str, *, expected_revision: int, technical_digest: str, human_digest: str) -> dict[str, Any]:
-        return self.transition(run_id, event="deliveries_compiled", actor="coordinator", expected_revision=expected_revision, payload={"technical_digest": technical_digest, "human_digest": human_digest})
+        displayed_digest = self.delivery_pair_digest(
+            run_id, technical_digest, human_digest
+        )
+        state = self.transition(
+            run_id,
+            event="deliveries_compiled",
+            actor="coordinator",
+            expected_revision=expected_revision,
+            payload={
+                "technical_digest": technical_digest,
+                "human_digest": human_digest,
+                "displayed_digest": displayed_digest,
+            },
+        )
+        return {**state, "displayed_digest": displayed_digest}
 
     def accept(self, run_id: str, *, expected_revision: int, displayed_digest: str, technical_revision: str | None = None, human_revision: str | None = None, feedback: str | None = None) -> dict[str, Any]:
         return self.transition(run_id, event="delivery_accepted", actor="human", expected_revision=expected_revision, payload={"displayed_digest": displayed_digest, "technical_revision": technical_revision, "human_revision": human_revision, "feedback": feedback})
@@ -1723,12 +1758,28 @@ class ResearchRunCoordinator:
             require(("p0_closure", "insight_clear", "readiness", "evaluation"))
             if not body.get("technical_digest") or not body.get("human_digest"):
                 raise CoordinatorError("both delivery revisions are required", code="missing_delivery")
+            expected_display = self.delivery_pair_digest(
+                row["run_id"], body["technical_digest"], body["human_digest"]
+            )
+            if body.get("displayed_digest") != expected_display:
+                raise CoordinatorError(
+                    "delivery display digest does not bind the exact pair",
+                    code="stale_delivery_digest",
+                )
         elif event == "delivery_accepted":
             require(("p0_closure", "insight_clear", "readiness", "evaluation", "technical_delivery", "human_delivery"))
             technical = body.get("technical_revision")
             human = body.get("human_revision")
             if technical != records["technical_delivery"]["evidence_ref"] or human != records["human_delivery"]["evidence_ref"]:
                 raise CoordinatorError("acceptance does not bind exact delivery revisions", code="stale_acceptance")
+            expected_display = self.delivery_pair_digest(
+                row["run_id"], technical, human
+            )
+            if body.get("displayed_digest") != expected_display:
+                raise CoordinatorError(
+                    "acceptance display digest does not bind the exact delivery pair",
+                    code="stale_acceptance",
+                )
             if not isinstance(body.get("feedback"), str) or body["feedback"].strip().casefold() in {"", "ok", "okay", "yes", "continue", "go ahead"}:
                 raise CoordinatorError("generic acknowledgement cannot accept delivery", code="invalid_acceptance")
         elif event == "cancel_requested":

@@ -31,6 +31,13 @@ The system SHALL apply intent alignment, Decision Slot closure, traceability, re
 ### Requirement: Final acceptance binds exact delivery revisions
 The system SHALL require contextual user acceptance of both exact delivery revisions and SHALL preserve rejection, requested depth, and intent correction as feedback lineage.
 
+The displayed delivery-pair digest SHALL be SHA-256 of canonical UTF-8 JSON
+containing exactly `run_id`, `technical_revision`, and `human_revision` with
+lexicographically sorted keys. Delivery compilation SHALL persist that digest
+in its transition event and return it to the presentation layer. Acceptance
+SHALL reject a caller-supplied digest that cannot be recomputed from the exact
+currently registered pair, even when both revision strings individually match.
+
 #### Scenario: User rejects report depth
 - **WHEN** the user states that the report is shallow or does not answer the intended problem
 - **THEN** the run remains non-complete and creates a revised brief, successor round, or evidence-bearing follow-up according to the feedback impact
@@ -38,6 +45,11 @@ The system SHALL require contextual user acceptance of both exact delivery revis
 #### Scenario: User gives generic acknowledgement
 - **WHEN** the user responds without accepting the displayed conclusions and trade-offs
 - **THEN** no DeliveryAcceptance artifact is issued
+
+#### Scenario: Exact revisions are paired with a different displayed digest
+
+- **WHEN** acceptance names the current technical and human revisions but the displayed digest belongs to another run or delivery pair
+- **THEN** acceptance fails as stale and the canonical run remains awaiting_acceptance
 
 ### Requirement: Legacy Human Brief artifacts migrate explicitly
 The system SHALL recognize alpha1 Human Brief artifacts as legacy inputs while naming all new human-facing deliveries Human Research Report and requiring current semantic gates before acceptance.

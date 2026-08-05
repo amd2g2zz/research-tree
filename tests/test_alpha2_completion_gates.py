@@ -34,10 +34,18 @@ def test_exact_delivery_pair_is_required_for_completion(tmp_path):
         state = coordinator.record_obligation("run-1", name, evidence_ref=name + "-evidence", expected_revision=state["revision"])
     state = coordinator.transition("run-1", event="readiness_passed", actor="coordinator", expected_revision=state["revision"])
     state = coordinator.deliver("run-1", expected_revision=state["revision"], technical_digest="tech-1", human_digest="human-1")
+    displayed_digest = coordinator.delivery_pair_digest(
+        "run-1", "tech-1", "human-1"
+    )
+    assert state["displayed_digest"] == displayed_digest
+    assert coordinator.events("run-1")[-1]["payload"]["displayed_digest"] == displayed_digest
     with pytest.raises(coordinator.error_type) as error:
-        coordinator.accept("run-1", expected_revision=state["revision"], displayed_digest="shown", technical_revision="tech-old", human_revision="human-1", feedback="I accept the exact reports.")
+        coordinator.accept("run-1", expected_revision=state["revision"], displayed_digest=displayed_digest, technical_revision="tech-old", human_revision="human-1", feedback="I accept the exact reports.")
     assert error.value.code == "stale_acceptance"
-    done = coordinator.accept("run-1", expected_revision=state["revision"], displayed_digest="shown", technical_revision="tech-1", human_revision="human-1", feedback="I accept the exact reports.")
+    with pytest.raises(coordinator.error_type) as digest_error:
+        coordinator.accept("run-1", expected_revision=state["revision"], displayed_digest="f" * 64, technical_revision="tech-1", human_revision="human-1", feedback="I accept the exact reports.")
+    assert digest_error.value.code == "stale_acceptance"
+    done = coordinator.accept("run-1", expected_revision=state["revision"], displayed_digest=displayed_digest, technical_revision="tech-1", human_revision="human-1", feedback="I accept the exact reports.")
     assert done["lifecycle_state"] == "completed"
 
 

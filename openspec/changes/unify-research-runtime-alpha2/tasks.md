@@ -58,7 +58,7 @@ fields, dependency cycles, evidence paths, and acceptance command paths.
 - [x] 5.1 Define the canonical lifecycle states and allowed transitions from alignment through autonomous research, synthesis, readiness, delivery, acceptance, completion, supersession, and authority blocking. Evidence: `registries/lifecycle-matrix-v1.json`, runtime parity and actor-boundary tests in `tests/test_alpha2_runtime_contract.py`.
 - [ ] 5.2 Implement coordinator initialization from an explicitly confirmed alignment artifact and exact Blueprint Target lineage.
 - [ ] 5.3 Implement transactional action dispatch, attempt leasing, Finding Pack ingestion, insight synthesis, decision convergence, readiness, and successor-work transitions.
-- [ ] 5.4 Implement completion as the conjunction of P0 closure tokens, non-blocking insight state, readiness, required evaluation, both deliveries, and revision-bound user acceptance.
+- [x] 5.4 Implement completion as the conjunction of P0 closure tokens, non-blocking insight state, readiness, required evaluation, both deliveries, and revision-bound user acceptance. Evidence: `tests/test_alpha2_completion_gates.py` proves every obligation, the exact delivery pair, canonical displayed digest, and contextual acceptance are required.
 - [ ] 5.5 Reject host, worker, hook, report-file, empty-frontier, and completed-wave completion attempts with persisted reasons.
 - [ ] 5.6 Implement supersession and same-round replanning rules without mutating prior round artifacts.
 - [ ] 5.7 Add coordinator recovery tests at every transition boundary and prove repeated event ingestion is idempotent.
