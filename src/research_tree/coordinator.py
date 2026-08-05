@@ -7,7 +7,7 @@ one durable authority here.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from dataclasses import replace
 import hashlib
 import json
@@ -295,6 +295,71 @@ class ResearchRunCoordinator:
                     connection.execute("UPDATE action_attempts SET lease_json=?,updated_at=? WHERE run_id=? AND attempt_id=?", (json.dumps(lease.to_dict(), sort_keys=True), self._now(), run_id, row["attempt_id"]))
                     expired.append(lease.to_dict())
         return expired
+
+    def retry_attempt(
+        self,
+        run_id: str,
+        attempt_id: str,
+        *,
+        dispatch_digest: str,
+        expected_revision: int,
+        lease_seconds: int = 900,
+    ) -> dict[str, Any]:
+        """Create a distinct retry attempt after a retryable/unknown outcome."""
+
+        if lease_seconds <= 0:
+            raise CoordinatorError("lease_seconds must be positive", code="invalid_lease")
+        now = datetime.now(timezone.utc)
+        with self._connect() as connection:
+            row = self._require_run(connection, run_id)
+            if int(row["revision"]) != expected_revision:
+                raise CoordinatorError("expected revision is stale", code="stale_revision")
+            prior_row = connection.execute(
+                "SELECT lease_json FROM action_attempts WHERE run_id=? AND attempt_id=?",
+                (run_id, attempt_id),
+            ).fetchone()
+            if prior_row is None:
+                raise CoordinatorError("attempt does not exist", code="attempt_not_found")
+            prior = AttemptLease.from_dict(json.loads(prior_row["lease_json"]))
+            if prior.status not in {"retryable", "unknown"}:
+                raise CoordinatorError(
+                    "only retryable or unknown attempts can retry",
+                    code="attempt_not_retryable",
+                )
+            try:
+                retry = prior.retry(dispatch_digest=dispatch_digest)
+            except ValueError as exc:
+                raise CoordinatorError(str(exc), code="invalid_retry") from exc
+            retry = replace(
+                retry,
+                started_at=now.isoformat(),
+                lease_expires_at=(now + timedelta(seconds=lease_seconds)).isoformat(),
+                last_seen_at=None,
+            )
+            if connection.execute(
+                "SELECT 1 FROM action_attempts WHERE run_id=? AND attempt_id=?",
+                (run_id, retry.attempt_id),
+            ).fetchone():
+                raise CoordinatorError("retry attempt already exists", code="duplicate_attempt")
+            revision = expected_revision + 1
+            state = self._state_payload(row, lifecycle_state=row["lifecycle_state"], revision=revision, body={})
+            connection.execute(
+                "INSERT INTO action_attempts VALUES(?,?,?,?)",
+                (run_id, retry.attempt_id, json.dumps(retry.to_dict(), sort_keys=True), self._now()),
+            )
+            connection.execute(
+                "UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?",
+                (revision, self._digest(state), self._now(), run_id),
+            )
+            self._event(
+                connection,
+                run_id,
+                f"retry-requested-{retry.attempt_id}",
+                expected_revision,
+                {"predecessor_attempt": attempt_id, "retry": retry.to_dict()},
+                event_type="retry_requested",
+            )
+        return {"run": self.status(run_id), "predecessor": prior.to_dict(), "retry": retry.to_dict()}
 
     def why_action(self, run_id: str) -> dict[str, Any]:
         state = self.status(run_id)

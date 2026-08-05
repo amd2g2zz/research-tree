@@ -81,7 +81,7 @@ Every external attempt SHALL have a unique `attempt_id`, an immutable dispatch p
 
 ### Requirement: Coordinator APIs and CLI commands are stable
 
-The implementation SHALL expose a Python coordinator API and JSON CLI commands using the canonical form research-tree run <verb> for init, status, next, ingest, recover, explain, why-action, why-not-complete, replay, reconcile-host, deliver, accept, supersede, and export-audit. Flat run-<verb> names and existing observability names may remain aliases but SHALL route to the same coordinator operation. Every command MUST document required inputs, output schema, exit codes, and whether it mutates state.
+The implementation SHALL expose a Python coordinator API and JSON CLI commands using the canonical form research-tree run <verb> for init, status, next, ingest, retry, recover, explain, why-action, why-not-complete, replay, reconcile-host, deliver, accept, supersede, and export-audit. Flat run-<verb> names and existing observability names may remain aliases but SHALL route to the same coordinator operation. Every command MUST document required inputs, output schema, exit codes, and whether it mutates state.
 
 Existing `create-round`, `show-round`, and `tree-*` commands SHALL either become thin compatibility aliases to the coordinator or fail with an explicit migration message; they SHALL not maintain an alternate completion authority.
 

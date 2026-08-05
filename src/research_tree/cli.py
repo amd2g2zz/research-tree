@@ -110,6 +110,13 @@ def build_parser() -> argparse.ArgumentParser:
     ingest = run_commands.add_parser("ingest")
     ingest.add_argument("--workspace", type=Path, required=True)
     ingest.add_argument("--event", type=Path, required=True)
+    retry = run_commands.add_parser("retry")
+    retry.add_argument("--workspace", type=Path, required=True)
+    retry.add_argument("--run-id", required=True)
+    retry.add_argument("--attempt-id", required=True)
+    retry.add_argument("--dispatch-digest", required=True)
+    retry.add_argument("--expected-revision", type=int, required=True)
+    retry.add_argument("--lease-seconds", type=int, default=900)
     deliver = run_commands.add_parser("deliver")
     deliver.add_argument("--workspace", type=Path, required=True)
     deliver.add_argument("--run-id", required=True)
@@ -153,6 +160,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             elif arguments.run_command == "ingest":
                 value = json.loads(arguments.event.read_text(encoding="utf-8"))
                 output = ResearchRunCoordinator(arguments.workspace).ingest_host_event(value)
+            elif arguments.run_command == "retry":
+                output = ResearchRunCoordinator(arguments.workspace).retry_attempt(
+                    arguments.run_id,
+                    arguments.attempt_id,
+                    dispatch_digest=arguments.dispatch_digest,
+                    expected_revision=arguments.expected_revision,
+                    lease_seconds=arguments.lease_seconds,
+                )
             elif arguments.run_command == "migrate":
                 manager = MigrationManager(arguments.workspace)
                 if arguments.mode == "inventory":

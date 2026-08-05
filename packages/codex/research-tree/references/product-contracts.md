@@ -393,6 +393,9 @@ Accepted attempt events may project a lease to `running`, `submitted`,
 `verified`, `retryable`, `unknown`, or `rejected` according to the event and
 its payload. This projection is an observation for reconciliation; it never
 issues a closure token or changes the run lifecycle to `completed`.
+When an attempt is `retryable` or `unknown`, `ResearchRunCoordinator.retry_attempt`
+creates a new attempt identity and lease, preserves the predecessor as
+evidence, and records the method/provider dispatch digest used by the retry.
 
 ## Persistent recursive research state
 

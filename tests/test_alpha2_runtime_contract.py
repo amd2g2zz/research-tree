@@ -223,6 +223,18 @@ def test_safe_provider_failure_moves_attempt_to_retryable_without_completing_run
     coordinator.ingest_host_event(event)
     assert coordinator.attempts("run-provider-failure")["attempt-provider-failure"]["status"] == "retryable"
     assert coordinator.status("run-provider-failure")["lifecycle_state"] == "alignment"
+    state = coordinator.status("run-provider-failure")
+    retry = coordinator.retry_attempt(
+        "run-provider-failure",
+        "attempt-provider-failure",
+        dispatch_digest="e" * 64,
+        expected_revision=state["revision"],
+        lease_seconds=60,
+    )
+    assert retry["predecessor"]["status"] == "retryable"
+    assert retry["retry"]["attempt_id"] == "work-provider-failure-retry-1"
+    assert retry["retry"]["status"] == "leased"
+    assert coordinator.attempts("run-provider-failure")["attempt-provider-failure"]["status"] == "retryable"
 
 
 def test_host_event_rejects_unbound_attempt_without_mutating_ledger(tmp_path: Path) -> None:
