@@ -908,6 +908,356 @@ def test_synthesis_requires_and_preserves_previous_digest_lineage(tmp_path: Path
     assert original["content_hash"] == first["insight_digest_ref"]["content_hash"]
 
 
+def _decision_entry_for(ingested, synthesized, target_ref):
+    finding_ref = ingested["finding_pack_ref"]
+    return {
+        "decision_id": "decision-slot-p0",
+        "run_id": finding_ref["run_id"],
+        "blueprint_target_ref": target_ref,
+        "decision_slot_id": "slot-p0",
+        "finding_pack_refs": [finding_ref],
+        "insight_digest_ref": synthesized["insight_digest_ref"],
+        "status": "selected",
+        "selected_option": "a",
+        "alternatives": [
+            {
+                "option": "b",
+                "disposition": "rejected",
+                "reason": "The accepted observation supports option A instead.",
+            }
+        ],
+        "evidence_basis": [
+            {
+                "finding_pack_ref": finding_ref,
+                "observation_ids": ["observation-dispatch"],
+            }
+        ],
+        "rationale": "The accepted Finding Pack supports option A.",
+        "design_consequence": "Keep the canonical runtime boundary.",
+        "repository_touchpoints": [],
+        "validation": {
+            "oracle_run_refs": [],
+            "status": "pending",
+            "limitations": ["The required oracle remains pending."],
+        },
+        "change_tasks": [],
+        "assumptions": [],
+        "fallback": "Block the transition and retain the current boundary.",
+        "reversal_condition": "Independent evidence contradicts option A.",
+        "revision_reason": "Initial evidence-backed decision.",
+        "previous_decision_ref": None,
+        "producer_version": "decision-v1",
+        "limitations": ["The required oracle remains pending."],
+    }
+
+
+def test_convergence_commits_decision_record_deficit_and_event_once(tmp_path: Path) -> None:
+    from research_tree.sqlite_ledger import SQLiteRunLedger
+
+    coordinator, run_id, ingested = _ingested_finding(tmp_path)
+    synthesized = coordinator.synthesize_findings(
+        run_id,
+        stage_id="synthesize-for-convergence",
+        finding_pack_refs=[ingested["finding_pack_ref"]],
+        digest_id="insight-for-convergence",
+        producer_version="insight-v1",
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+    finding_artifact = SQLiteRunLedger(tmp_path).resolve(
+        run_id,
+        ingested["finding_pack_ref"]["artifact_id"],
+        ingested["finding_pack_ref"]["revision"],
+    )
+    decision = _decision_entry_for(
+        ingested, synthesized, finding_artifact["payload"]["blueprint_target_ref"]
+    )
+    before = coordinator.status(run_id)
+
+    converged = coordinator.converge_decisions(
+        run_id,
+        stage_id="converge-batch-1",
+        convergence_id="convergence-batch-1",
+        insight_digest_ref=synthesized["insight_digest_ref"],
+        decision_entries=[decision],
+        producer_version="convergence-v1",
+        expected_revision=before["revision"],
+    )
+
+    assert converged["run"]["revision"] == before["revision"] + 1
+    assert converged["run"]["lifecycle_state"] == "autonomous_research"
+    assert converged["convergence_record"]["outcome"] == "closure_deficit"
+    assert any(
+        item["slot_id"] == "slot-p0" and item["kind"] == "closure_missing"
+        for item in converged["convergence_record"]["deficits"]
+    )
+    ledger = SQLiteRunLedger(tmp_path)
+    decision_artifact = ledger.resolve(run_id, "decision-slot-p0", 1)
+    convergence_artifact = ledger.resolve(run_id, "convergence-batch-1", 1)
+    assert decision_artifact["payload"] == decision
+    assert convergence_artifact["payload"] == converged["convergence_record"]
+    assert coordinator.events(run_id)[-1]["event_type"] == "closure_deficit"
+
+    events = coordinator.events(run_id)
+    repeated = coordinator.converge_decisions(
+        run_id,
+        stage_id="converge-batch-1",
+        convergence_id="convergence-batch-1",
+        insight_digest_ref=synthesized["insight_digest_ref"],
+        decision_entries=[decision],
+        producer_version="convergence-v1",
+        expected_revision=before["revision"],
+    )
+    assert repeated == converged
+    assert coordinator.events(run_id) == events
+
+
+def test_convergence_fault_rolls_back_decisions_record_and_transition(tmp_path: Path) -> None:
+    from research_tree.coordinator import ResearchRunCoordinator
+    from research_tree.sqlite_ledger import SQLiteLedgerError, SQLiteRunLedger
+
+    coordinator, run_id, ingested = _ingested_finding(tmp_path)
+    synthesized = coordinator.synthesize_findings(
+        run_id,
+        stage_id="synthesize-for-convergence-fault",
+        finding_pack_refs=[ingested["finding_pack_ref"]],
+        digest_id="insight-for-convergence-fault",
+        producer_version="insight-v1",
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+    finding_artifact = SQLiteRunLedger(tmp_path).resolve(
+        run_id,
+        ingested["finding_pack_ref"]["artifact_id"],
+        ingested["finding_pack_ref"]["revision"],
+    )
+    decision = _decision_entry_for(
+        ingested, synthesized, finding_artifact["payload"]["blueprint_target_ref"]
+    )
+    decision["decision_id"] = "decision-convergence-fault"
+    before = coordinator.status(run_id)
+    before_events = coordinator.events(run_id)
+
+    def fail(boundary: str) -> None:
+        if boundary == "converge_after_decisions":
+            raise RuntimeError(boundary)
+
+    failing = ResearchRunCoordinator(tmp_path, fault_injector=fail)
+    with pytest.raises(RuntimeError, match="converge_after_decisions"):
+        failing.converge_decisions(
+            run_id,
+            stage_id="converge-fault",
+            convergence_id="convergence-fault",
+            insight_digest_ref=synthesized["insight_digest_ref"],
+            decision_entries=[decision],
+            producer_version="convergence-v1",
+            expected_revision=before["revision"],
+        )
+
+    reopened = ResearchRunCoordinator(tmp_path)
+    assert reopened.status(run_id) == before
+    assert reopened.events(run_id) == before_events
+    with pytest.raises(SQLiteLedgerError, match="does not exist"):
+        SQLiteRunLedger(tmp_path).resolve(run_id, "decision-convergence-fault", 1)
+    with pytest.raises(SQLiteLedgerError, match="does not exist"):
+        SQLiteRunLedger(tmp_path).resolve(run_id, "convergence-fault", 1)
+
+
+def _persist_oracle_for_convergence(coordinator, tmp_path: Path, run_id: str):
+    from research_tree import OracleAttempt, OracleRun, OracleSpec, SQLiteRunLedger
+    from research_tree.contracts import canonical_json_bytes
+
+    spec = OracleSpec.create(
+        "oracle-1",
+        "integration-test",
+        "integration-test",
+        expected="The canonical boundary passes integration validation.",
+    )
+    coordinator.record_oracle_spec(
+        run_id, spec, expected_revision=coordinator.status(run_id)["revision"]
+    )
+    spec_digest = coordinator.oracle_specs(run_id)["oracle-1@1"]["contract_digest"]
+    attempt = OracleAttempt.from_mapping(
+        {
+            "oracle_attempt_id": "oracle-attempt-convergence",
+            "run_id": run_id,
+            "action_attempt_id": "attempt-work-dispatch-1",
+            "oracle_spec_id": "oracle-1",
+            "oracle_spec_version": 1,
+            "oracle_spec_digest": spec_digest,
+            "method": "integration-test",
+            "input_digests": ["a" * 64],
+            "environment_digest": "b" * 64,
+            "toolchain_digest": "c" * 64,
+            "started_at": "2026-08-06T01:00:00+00:00",
+        }
+    )
+    coordinator.record_oracle_attempt(
+        run_id,
+        attempt,
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+    ledger = SQLiteRunLedger(tmp_path)
+    result_artifact = ledger.append_artifact(
+        run_id=run_id,
+        artifact_id="oracle-result-convergence",
+        kind="oracle-result",
+        payload={"status": "passed"},
+        actor_kind="oracle",
+        actor_id="core-v1",
+        status="active",
+        expected_run_revision=coordinator.status(run_id)["revision"],
+    )
+    oracle = OracleRun.from_mapping(
+        {
+            "oracle_run_id": "oracle-run-convergence",
+            "oracle_attempt_id": attempt.oracle_attempt_id,
+            "oracle_spec_id": "oracle-1",
+            "oracle_spec_version": 1,
+            "attempt_id": "attempt-work-dispatch-1",
+            "method": "integration-test",
+            "input_digests": ["a" * 64],
+            "environment_digest": "b" * 64,
+            "toolchain_digest": "c" * 64,
+            "tool_event_refs": [],
+            "verdict": "passed",
+            "exit_code": 0,
+            "timed_out": False,
+            "result_artifact_refs": [
+                {
+                    "run_id": run_id,
+                    "artifact_id": result_artifact["id"],
+                    "revision": result_artifact["revision"],
+                    "content_hash": result_artifact["content_hash"],
+                }
+            ],
+            "evaluator": "core-v1",
+            "limitations": [],
+            "reproducibility_status": "reproducible",
+        }
+    )
+    coordinator.record_oracle_run(
+        run_id,
+        oracle,
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+    payload = oracle.to_contract_dict()
+    payload_digest = hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
+    return oracle, payload_digest
+
+
+def test_convergence_enters_readiness_only_after_current_p0_closure(tmp_path: Path) -> None:
+    from research_tree import SlotClosureAssessment
+    from research_tree.sqlite_ledger import SQLiteRunLedger
+
+    coordinator, run_id, ingested = _ingested_finding(tmp_path)
+    first_insight = coordinator.synthesize_findings(
+        run_id,
+        stage_id="synthesize-before-closure",
+        finding_pack_refs=[ingested["finding_pack_ref"]],
+        digest_id="insight-before-closure",
+        producer_version="insight-v1",
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+    oracle, oracle_digest = _persist_oracle_for_convergence(
+        coordinator, tmp_path, run_id
+    )
+    finding_artifact = SQLiteRunLedger(tmp_path).resolve(
+        run_id,
+        ingested["finding_pack_ref"]["artifact_id"],
+        ingested["finding_pack_ref"]["revision"],
+    )
+    decision = _decision_entry_for(
+        ingested,
+        first_insight,
+        finding_artifact["payload"]["blueprint_target_ref"],
+    )
+    decision["validation"] = {
+        "oracle_run_refs": [
+            {
+                "oracle_run_id": oracle.oracle_run_id,
+                "payload_digest": oracle_digest,
+            }
+        ],
+        "status": "passed",
+        "limitations": [],
+    }
+    decision["limitations"] = []
+    first_convergence = coordinator.converge_decisions(
+        run_id,
+        stage_id="converge-before-closure",
+        convergence_id="convergence-before-closure",
+        insight_digest_ref=first_insight["insight_digest_ref"],
+        decision_entries=[decision],
+        producer_version="convergence-v1",
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+    assert first_convergence["run"]["lifecycle_state"] == "autonomous_research"
+
+    decision_ref = first_convergence["decision_refs"][0]
+    assessment = SlotClosureAssessment.assess_alpha2(
+        slot_id="slot-p0",
+        assessment_revision=1,
+        decision_ref=decision_ref,
+        decision_status="selected",
+        evidence=[
+            {
+                "evidence_id": "evidence-a",
+                "provenance_group": "source-a",
+                "classes": ["repository"],
+            },
+            {
+                "evidence_id": "evidence-b",
+                "provenance_group": "source-b",
+                "classes": ["repository"],
+            },
+        ],
+        oracle_runs=[oracle.to_contract_dict()],
+        contradictions=[],
+        required_classes=["repository"],
+        counterevidence_search={"completed": True},
+        fallback=decision["fallback"],
+        reversal_condition=decision["reversal_condition"],
+        assessor_version="core-v1",
+    )
+    assert assessment.status == "passed"
+    coordinator.record_closure_assessment(
+        run_id,
+        assessment,
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+    assert coordinator.obligations(run_id)["p0_closure"]["satisfied"] is True
+
+    second_insight = coordinator.synthesize_findings(
+        run_id,
+        stage_id="synthesize-after-closure",
+        finding_pack_refs=[ingested["finding_pack_ref"]],
+        digest_id="insight-after-closure",
+        producer_version="insight-v1",
+        previous_digest_ref=first_insight["insight_digest_ref"],
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+    final = coordinator.converge_decisions(
+        run_id,
+        stage_id="converge-after-closure",
+        convergence_id="convergence-after-closure",
+        insight_digest_ref=second_insight["insight_digest_ref"],
+        decision_entries=[],
+        producer_version="convergence-v1",
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+
+    assert final["run"]["lifecycle_state"] == "readiness"
+    assert final["convergence_record"]["outcome"] == "all_slots_closed"
+    assert final["convergence_record"]["deficits"] == []
+    assert final["convergence_record"]["decision_refs"] == [decision_ref]
+    stored_convergence = SQLiteRunLedger(tmp_path).resolve(
+        run_id, "convergence-after-closure", 1
+    )
+    assert decision_ref["artifact_id"] in {
+        parent["artifact_id"] for parent in stored_convergence["parent_refs"]
+    }
+    assert coordinator.events(run_id)[-1]["event_type"] == "all_slots_closed"
+
+
 def test_human_or_operator_transition_rejects_other_actors(tmp_path: Path) -> None:
     from research_tree.coordinator import ResearchRunCoordinator
 

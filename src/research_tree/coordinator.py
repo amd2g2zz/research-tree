@@ -32,6 +32,14 @@ from .oracles import OracleAttempt, OracleRun, OracleSpec
 from .closure import P0ClosureAggregate, SlotClosureAssessment
 from .evidence import EvidenceArtifact, EvidenceError, EvidenceResolver
 from .finding_packs import FindingPackContractError, validate_finding_pack_payload
+from .decision_entries import (
+    DecisionEntryContractError,
+    validate_decision_entry_payload,
+)
+from .convergence_records import (
+    ConvergenceRecordContractError,
+    validate_convergence_record_payload,
+)
 from .insights import (
     InsightDigestError,
     build_insight_digest,
@@ -1424,6 +1432,564 @@ class ResearchRunCoordinator:
                 ),
             )
             self._fault("synthesize_after_stage_record")
+        return result
+
+    def converge_decisions(
+        self,
+        run_id: str,
+        *,
+        stage_id: str,
+        convergence_id: str,
+        insight_digest_ref: Mapping[str, Any],
+        decision_entries: Sequence[Mapping[str, Any]],
+        producer_version: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        """Commit validated decisions and one revision-bound convergence result."""
+
+        for value, label in (
+            (stage_id, "stage id"),
+            (convergence_id, "convergence id"),
+        ):
+            if not isinstance(value, str) or not IDENTIFIER_RE.fullmatch(value):
+                raise CoordinatorError(f"{label} is invalid", code="invalid_stage_id")
+        if not isinstance(producer_version, str) or not producer_version.strip():
+            raise CoordinatorError(
+                "convergence producer version is required",
+                code="invalid_producer_version",
+            )
+        if isinstance(decision_entries, (str, bytes)) or not isinstance(
+            decision_entries, Sequence
+        ):
+            raise CoordinatorError(
+                "decision entries must be an array", code="decision_entries_invalid"
+            )
+        if not all(isinstance(item, Mapping) for item in decision_entries):
+            raise CoordinatorError(
+                "decision entries must be objects", code="decision_entries_invalid"
+            )
+        try:
+            exact_insight_ref = validate_exact_artifact_ref(
+                insight_digest_ref,
+                label="InsightDigest reference",
+                run_id=run_id,
+            )
+        except (ContractError, TypeError) as error:
+            raise CoordinatorError(
+                "InsightDigest reference is invalid", code="synthesis_ref_invalid"
+            ) from error
+        entries = [dict(item) for item in decision_entries]
+        decision_ids = [item.get("decision_id") for item in entries]
+        if len(set(decision_ids)) != len(decision_ids):
+            raise CoordinatorError(
+                "decision ids must be unique within convergence",
+                code="decision_entries_invalid",
+            )
+        request = {
+            "stage": "converge",
+            "stage_id": stage_id,
+            "convergence_id": convergence_id,
+            "run_id": run_id,
+            "insight_digest_ref": exact_insight_ref,
+            "decision_entries": entries,
+            "producer_version": producer_version,
+            "expected_revision": expected_revision,
+        }
+        input_digest = self._digest(request)
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            prior = connection.execute(
+                "SELECT input_digest,result_json FROM stage_operations WHERE run_id=? AND stage_id=?",
+                (run_id, stage_id),
+            ).fetchone()
+            if prior is not None:
+                if prior["input_digest"] != input_digest:
+                    raise CoordinatorError(
+                        "stage id was reused with different inputs",
+                        code="idempotency_conflict",
+                    )
+                return json.loads(prior["result_json"])
+
+            row = self._require_run(connection, run_id)
+            if int(row["revision"]) != expected_revision:
+                raise CoordinatorError("expected revision is stale", code="stale_revision")
+            if row["lifecycle_state"] != "synthesis":
+                raise CoordinatorError(
+                    "decision convergence requires synthesis state",
+                    code="convergence_state_invalid",
+                )
+            self._assert_current_in_connection(
+                connection, run_id, self._authority_digest(row), action="converge"
+            )
+
+            binding = self._current_blueprint_target_ref(connection, run_id)
+            if binding is None:
+                raise CoordinatorError(
+                    "convergence requires a bound Blueprint Target",
+                    code="blueprint_not_bound",
+                )
+            target_ref = binding[1]
+            target_artifact = self._resolve_initialization_artifact(
+                connection,
+                target_ref,
+                expected_kind="blueprint-target",
+                stale_code="stale_blueprint",
+            )
+            insight_artifact = self._resolve_initialization_artifact(
+                connection,
+                exact_insight_ref,
+                expected_kind="insight-digest",
+                stale_code="stale_insight_digest",
+            )
+            if insight_artifact["status"] != "active":
+                raise CoordinatorError(
+                    "InsightDigest is not active", code="stale_insight_digest"
+                )
+            latest_insight = connection.execute(
+                """SELECT artifact_id,revision,content_hash FROM artifacts
+                   WHERE run_id=? AND kind='insight-digest'
+                   ORDER BY created_at DESC,artifact_id DESC,revision DESC LIMIT 1""",
+                (run_id,),
+            ).fetchone()
+            if latest_insight is None or exact_insight_ref != {
+                "run_id": run_id,
+                "artifact_id": latest_insight["artifact_id"],
+                "revision": int(latest_insight["revision"]),
+                "content_hash": latest_insight["content_hash"],
+            }:
+                raise CoordinatorError(
+                    "convergence requires the latest InsightDigest",
+                    code="stale_insight_digest",
+                )
+            try:
+                validate_canonical_insight_digest(insight_artifact["payload"])
+            except InsightDigestError as error:
+                raise CoordinatorError(
+                    "persisted InsightDigest is invalid",
+                    code="insight_digest_invalid",
+                ) from error
+
+            normalized_entries: list[dict[str, Any]] = []
+            entry_contexts: list[
+                tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any] | None]
+            ] = []
+            for entry in entries:
+                if entry.get("blueprint_target_ref") != target_ref:
+                    raise CoordinatorError(
+                        "decision does not bind the current Blueprint Target",
+                        code="blueprint_binding_invalid",
+                    )
+                if entry.get("insight_digest_ref") != exact_insight_ref:
+                    raise CoordinatorError(
+                        "decision does not bind the current InsightDigest",
+                        code="stale_insight_digest",
+                    )
+                finding_payloads: dict[str, Mapping[str, Any]] = {}
+                finding_refs: list[dict[str, Any]] = []
+                for reference_value in entry.get("finding_pack_refs", []):
+                    try:
+                        reference = validate_exact_artifact_ref(
+                            reference_value,
+                            label="decision Finding Pack reference",
+                            run_id=run_id,
+                        )
+                    except (ContractError, TypeError) as error:
+                        raise CoordinatorError(
+                            "decision Finding Pack reference is invalid",
+                            code="decision_entry_invalid",
+                        ) from error
+                    artifact = self._resolve_initialization_artifact(
+                        connection,
+                        reference,
+                        expected_kind="finding-pack",
+                        stale_code="stale_finding_pack",
+                    )
+                    if artifact["status"] != "accepted":
+                        raise CoordinatorError(
+                            "decision requires accepted Finding Packs",
+                            code="finding_pack_not_accepted",
+                        )
+                    finding_payloads[reference["artifact_id"]] = artifact["payload"]
+                    finding_refs.append(reference)
+
+                decision_id = entry.get("decision_id")
+                latest_decision = (
+                    connection.execute(
+                        """SELECT revision,content_hash,payload_json FROM artifacts
+                           WHERE run_id=? AND artifact_id=? AND kind='decision-ledger-entry'
+                           ORDER BY revision DESC LIMIT 1""",
+                        (run_id, decision_id),
+                    ).fetchone()
+                    if isinstance(decision_id, str)
+                    else None
+                )
+                previous_ref = None
+                if latest_decision is not None:
+                    previous_ref = {
+                        "run_id": run_id,
+                        "artifact_id": decision_id,
+                        "revision": int(latest_decision["revision"]),
+                        "content_hash": latest_decision["content_hash"],
+                    }
+                if entry.get("previous_decision_ref") != previous_ref:
+                    raise CoordinatorError(
+                        "decision must bind its exact latest predecessor",
+                        code="previous_decision_required",
+                    )
+                try:
+                    normalized = validate_decision_entry_payload(
+                        entry,
+                        run_id=run_id,
+                        blueprint_target=target_artifact["payload"],
+                        finding_packs=finding_payloads,
+                        insight_digest=insight_artifact["payload"],
+                    )
+                except DecisionEntryContractError as error:
+                    raise CoordinatorError(
+                        "DecisionLedgerEntry contract is invalid",
+                        code="decision_entry_invalid",
+                    ) from error
+                for oracle_ref in normalized["validation"]["oracle_run_refs"]:
+                    oracle = connection.execute(
+                        "SELECT payload_digest FROM oracle_runs WHERE run_id=? AND oracle_run_id=?",
+                        (run_id, oracle_ref["oracle_run_id"]),
+                    ).fetchone()
+                    if oracle is None or oracle["payload_digest"] != oracle_ref["payload_digest"]:
+                        raise CoordinatorError(
+                            "decision OracleRun reference does not resolve",
+                            code="oracle_run_ref_invalid",
+                        )
+                normalized_entries.append(normalized)
+                entry_contexts.append((normalized, finding_refs, previous_ref))
+
+            now = self._now()
+            decision_refs: list[dict[str, Any]] = []
+            for entry, finding_refs, previous_ref in entry_contexts:
+                parents: list[Mapping[str, Any]] = [
+                    target_ref,
+                    exact_insight_ref,
+                    *finding_refs,
+                ]
+                if previous_ref is not None:
+                    parents.append(previous_ref)
+                decision_artifact = self._append_stage_artifact(
+                    connection,
+                    run_id=run_id,
+                    artifact_id=entry["decision_id"],
+                    kind="decision-ledger-entry",
+                    payload=entry,
+                    actor_kind="coordinator",
+                    actor_id="decision-convergence",
+                    status="active",
+                    parent_refs=parents,
+                    created_at=now,
+                )
+                decision_ref = {
+                    "run_id": run_id,
+                    "artifact_id": decision_artifact["id"],
+                    "revision": decision_artifact["revision"],
+                    "content_hash": decision_artifact["content_hash"],
+                }
+                decision_refs.append(decision_ref)
+                if previous_ref is not None:
+                    self._revoke_latest_closures(
+                        connection,
+                        run_id,
+                        reason="Decision Ledger revision was superseded by convergence",
+                        event_expected_revision=expected_revision,
+                        binding_revision=binding[0],
+                        decision_artifact_id=entry["decision_id"],
+                        decision_revision=decision_artifact["revision"],
+                    )
+            self._fault("converge_after_decisions")
+
+            aggregate = self._persist_p0_closure_aggregate(
+                connection,
+                run_id,
+                binding_revision=binding[0],
+                blueprint_target_ref=target_ref,
+            )
+            aggregate_ref = {
+                "run_id": run_id,
+                "aggregate_revision": aggregate["aggregate_revision"],
+                "aggregate_digest": aggregate["aggregate_digest"],
+            }
+            current_decisions = {
+                self._lineage_key(reference): reference for reference in decision_refs
+            }
+            for slot in aggregate.get("slots", []):
+                reference = slot.get("decision_ref") if isinstance(slot, Mapping) else None
+                if not isinstance(reference, Mapping):
+                    continue
+                try:
+                    exact_reference = validate_exact_artifact_ref(
+                        reference,
+                        label="P0 closure decision reference",
+                        run_id=run_id,
+                    )
+                except (ContractError, TypeError) as error:
+                    raise CoordinatorError(
+                        "P0 closure aggregate has an invalid decision reference",
+                        code="closure_aggregate_invalid",
+                    ) from error
+                current_decisions[self._lineage_key(exact_reference)] = exact_reference
+            decision_refs = [
+                current_decisions[key] for key in sorted(current_decisions)
+            ]
+            self._fault("converge_after_aggregate")
+
+            deficits = self._convergence_deficits(
+                run_id=run_id,
+                insight_ref=exact_insight_ref,
+                insight=insight_artifact["payload"],
+                aggregate=aggregate,
+            )
+            self._ensure_obligations(connection, run_id)
+            obligations = {
+                item["obligation"]: bool(item["satisfied"])
+                for item in connection.execute(
+                    "SELECT obligation,satisfied FROM run_obligations WHERE run_id=?",
+                    (run_id,),
+                ).fetchall()
+            }
+            all_closed = bool(
+                obligations.get("insight_clear")
+                and obligations.get("p0_closure")
+                and aggregate["status"] == "passed"
+            )
+            outcome = "all_slots_closed" if all_closed else "closure_deficit"
+            if all_closed:
+                deficits = []
+            elif not deficits:
+                raise CoordinatorError(
+                    "closure deficit has no actionable diagnostic",
+                    code="convergence_deficit_invalid",
+                )
+            convergence = {
+                "convergence_id": convergence_id,
+                "run_id": run_id,
+                "blueprint_target_ref": target_ref,
+                "insight_digest_ref": exact_insight_ref,
+                "decision_refs": decision_refs,
+                "p0_closure_aggregate_ref": aggregate_ref,
+                "outcome": outcome,
+                "deficits": deficits,
+                "producer_version": producer_version,
+            }
+            try:
+                convergence = validate_convergence_record_payload(
+                    convergence, run_id=run_id
+                )
+            except ConvergenceRecordContractError as error:
+                raise CoordinatorError(
+                    "ConvergenceRecord contract is invalid",
+                    code="convergence_record_invalid",
+                ) from error
+            convergence_artifact = self._append_stage_artifact(
+                connection,
+                run_id=run_id,
+                artifact_id=convergence_id,
+                kind="convergence-record",
+                payload=convergence,
+                actor_kind="coordinator",
+                actor_id="decision-convergence",
+                status="active",
+                parent_refs=[target_ref, exact_insight_ref, *decision_refs],
+                created_at=now,
+            )
+            convergence_ref = {
+                "run_id": run_id,
+                "artifact_id": convergence_artifact["id"],
+                "revision": convergence_artifact["revision"],
+                "content_hash": convergence_artifact["content_hash"],
+            }
+            self._fault("converge_after_record")
+
+            event_type = outcome
+            next_state = "readiness" if all_closed else "autonomous_research"
+            self._guard_transition(
+                connection,
+                row,
+                event_type,
+                {"convergence_record_ref": convergence_ref},
+            )
+            revision = expected_revision + 1
+            state_payload = self._state_payload(
+                row,
+                lifecycle_state=next_state,
+                revision=revision,
+                body={
+                    "stage_id": stage_id,
+                    "convergence_record_ref": convergence_ref,
+                    "outcome": outcome,
+                },
+            )
+            connection.execute(
+                """UPDATE runs SET lifecycle_state=?,revision=?,state_digest=?,updated_at=?
+                   WHERE run_id=?""",
+                (next_state, revision, self._digest(state_payload), now, run_id),
+            )
+            self._fault("converge_after_run_update")
+            event_id = f"{event_type}-{stage_id}"
+            self._snapshot_current_revision(connection, run_id, source_event_id=event_id)
+            self._fault("converge_after_snapshot")
+            self._event(
+                connection,
+                run_id,
+                event_id,
+                expected_revision,
+                {
+                    "stage_id": stage_id,
+                    "input_digest": input_digest,
+                    "decision_refs": decision_refs,
+                    "convergence_record_ref": convergence_ref,
+                    "p0_closure_aggregate_ref": aggregate_ref,
+                    "deficits": deficits,
+                },
+                event_type=event_type,
+            )
+            self._fault("converge_after_event")
+            result = {
+                "run": self._row(self._require_run(connection, run_id)),
+                "stage_id": stage_id,
+                "input_digest": input_digest,
+                "decision_refs": decision_refs,
+                "convergence_record_ref": convergence_ref,
+                "convergence_record": convergence,
+                "p0_closure_aggregate": aggregate,
+            }
+            connection.execute(
+                "INSERT INTO stage_operations VALUES(?,?,?,?,?,?,?)",
+                (
+                    run_id,
+                    stage_id,
+                    "converge",
+                    input_digest,
+                    revision,
+                    canonical_json_bytes(result).decode("utf-8"),
+                    now,
+                ),
+            )
+            self._fault("converge_after_stage_record")
+        return result
+
+    def _convergence_deficits(
+        self,
+        *,
+        run_id: str,
+        insight_ref: Mapping[str, Any],
+        insight: Mapping[str, Any],
+        aggregate: Mapping[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Project canonical insight and closure gaps into stable successor inputs."""
+
+        insight_source = (
+            f"insight-digest:{insight_ref['artifact_id']}@{insight_ref['revision']}"
+            f"#{insight_ref['content_hash']}"
+        )
+        aggregate_source = (
+            f"p0-closure:{aggregate['aggregate_revision']}"
+            f"#{aggregate['aggregate_digest']}"
+        )
+        candidates: list[dict[str, Any]] = []
+        for gap in insight.get("gaps", []):
+            if not isinstance(gap, Mapping) or not isinstance(gap.get("slot_id"), str):
+                continue
+            method = str(gap.get("next_acquisition_method", "validation"))
+            action = method if method in {
+                "landscape",
+                "deep_dive",
+                "adversarial",
+                "validation",
+                "method_switch",
+            } else "validation"
+            reason = str(gap.get("reason", "Insight gap remains open"))
+            kind = "uncovered" if action == "landscape" else "insight_gap"
+            candidates.append(
+                {
+                    "slot_id": gap["slot_id"],
+                    "kind": kind,
+                    "trigger": reason,
+                    "action": action,
+                    "source_refs": [insight_source],
+                }
+            )
+        for contradiction in insight.get("contradictions", []):
+            if not isinstance(contradiction, Mapping) or not isinstance(
+                contradiction.get("slot_id"), str
+            ):
+                continue
+            candidates.append(
+                {
+                    "slot_id": contradiction["slot_id"],
+                    "kind": "contradiction",
+                    "trigger": f"Contradictory evidence remains for {contradiction.get('subject', 'the Slot')}.",
+                    "action": "adversarial",
+                    "source_refs": [
+                        insight_source,
+                        *sorted(
+                            str(item)
+                            for item in contradiction.get("evidence_refs", [])
+                            if str(item).strip()
+                        ),
+                    ],
+                }
+            )
+        for slot in aggregate.get("slots", []):
+            if not isinstance(slot, Mapping) or slot.get("status") == "passed":
+                continue
+            status = str(slot.get("status", "missing"))
+            kind = "closure_stale" if status in {
+                "stale",
+                "revoked",
+                "failed",
+            } else "closure_missing"
+            source_refs = [aggregate_source]
+            decision_ref = slot.get("decision_ref")
+            if isinstance(decision_ref, Mapping):
+                source_refs.append(
+                    f"decision:{decision_ref.get('artifact_id')}@{decision_ref.get('revision')}"
+                    f"#{decision_ref.get('content_hash')}"
+                )
+            candidates.append(
+                {
+                    "slot_id": str(slot.get("slot_id")),
+                    "kind": kind,
+                    "trigger": f"P0 closure status is {status}.",
+                    "action": "validation",
+                    "source_refs": source_refs,
+                }
+            )
+
+        unique: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for candidate in candidates:
+            key = (
+                candidate["slot_id"],
+                candidate["kind"],
+                candidate["action"],
+            )
+            unique.setdefault(key, candidate)
+        result: list[dict[str, Any]] = []
+        for key, candidate in sorted(unique.items()):
+            semantic = {
+                "run_id": run_id,
+                "slot_id": key[0],
+                "kind": key[1],
+                "action": key[2],
+                "trigger": candidate["trigger"],
+                "source_refs": sorted(set(candidate["source_refs"])),
+            }
+            result.append(
+                {
+                    "deficit_id": "deficit-" + self._digest(semantic)[:16],
+                    "slot_id": semantic["slot_id"],
+                    "kind": semantic["kind"],
+                    "trigger": semantic["trigger"],
+                    "action": semantic["action"],
+                    "source_refs": semantic["source_refs"],
+                }
+            )
         return result
 
     @staticmethod

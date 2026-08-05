@@ -191,6 +191,10 @@ from .decision_entries import (
     DecisionEntryContractError,
     validate_decision_entry_payload,
 )
+from .convergence_records import (
+    ConvergenceRecordContractError,
+    validate_convergence_record_payload,
+)
 from .coordinator import CoordinatorError, ResearchRunCoordinator
 from .evaluation_fixtures import assess_attribution, reported_claude_glm_fixture
 from .policy import AdaptiveResearchPolicy, DEFAULT_WEIGHTS
@@ -241,6 +245,8 @@ __all__ = [
     "ArtifactRevision",
     "DecisionEntryContractError",
     "validate_decision_entry_payload",
+    "ConvergenceRecordContractError",
+    "validate_convergence_record_payload",
     "ASSURANCE_ADAPTER_SELECTION_KIND",
     "ASSURANCE_EVIDENCE_KIND",
     "ASSURANCE_FOLLOW_UP_KIND",
