@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from .contracts import HostEvent
+from .contracts import canonical_json_bytes
+import hashlib
+import re
 
 
 def reconcile_host_events(*, canonical_attempts: Mapping[str, Mapping[str, Any]], host_events: list[Mapping[str, Any]]) -> dict[str, Any]:
@@ -29,6 +32,26 @@ def reconcile_host_events(*, canonical_attempts: Mapping[str, Mapping[str, Any]]
         if str(canonical_attempts[attempt_id].get("status", "")) in {"leased", "running", "unknown"}:
             discrepancies.append({"kind": "missing_host_event", "attempt_id": attempt_id, "disposition": "recover"})
     return {"schema_version": 1, "discrepancies": discrepancies, "status": "reconcile_required" if discrepancies else "no_divergence_detected"}
+
+
+def canonical_event_digest(events: list[Mapping[str, Any]]) -> str:
+    """Hash semantic event content while excluding host-specific ids/timestamps."""
+    normalized = []
+    for raw in events:
+        event = raw if isinstance(raw, HostEvent) else HostEvent.from_dict(raw)
+        normalized.append({"event_type": event.event_type, "run_id": event.run_id, "round_id": event.round_id, "slot_id": event.slot_id, "action_id": event.action_id, "attempt_id": event.attempt_id, "causation_id": event.causation_id, "correlation_id": event.correlation_id, "sequence": event.sequence, "expected_revision": event.expected_revision, "payload": dict(event.payload)})
+    normalized.sort(key=lambda item: (item["sequence"], item["event_type"], item["attempt_id"] or ""))
+    return hashlib.sha256(canonical_json_bytes(normalized)).hexdigest()
+
+
+def sanitize_provider_failure(*, provider: str, model: str, category: str, opaque_code: str, attempt_id: str, gateway_log_ref: str | None = None) -> dict[str, Any]:
+    """Persist only bounded provider metadata; raw gateway details never enter the event."""
+    fields = (provider, model, category, opaque_code, attempt_id)
+    if any(not isinstance(value, str) or not value.strip() for value in fields):
+        raise ValueError("provider failure metadata must be nonempty")
+    if not re.fullmatch(r"[A-Za-z0-9._:-]{1,96}", opaque_code):
+        raise ValueError("opaque_code must be bounded and diagnostic-free")
+    return {"provider": provider, "model": model, "category": category, "opaque_code": opaque_code, "attempt_id": attempt_id, "gateway_log_ref": gateway_log_ref}
 
 
 def emit_native_event(

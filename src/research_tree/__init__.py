@@ -182,7 +182,7 @@ from .contracts import ContractError, EntityEnvelope, HostEvent, validate_feedba
 from .coordinator import CoordinatorError, ResearchRunCoordinator
 from .evaluation_fixtures import assess_attribution, reported_claude_glm_fixture
 from .policy import AdaptiveResearchPolicy, DEFAULT_WEIGHTS
-from .host_events import emit_native_event, event_from_adapter_payload, reconcile_host_events
+from .host_events import canonical_event_digest, emit_native_event, event_from_adapter_payload, reconcile_host_events, sanitize_provider_failure
 from .debug_trace import emit_causal_trace
 from .alignment_strategy import AlignmentStrategyError, AlignmentStrategyState, select_alignment_action
 from .worker_contracts import AttemptPolicy, CanonicalWorkItem, FindingSubmission, WorkerContractError
@@ -334,6 +334,8 @@ __all__ = [
     "emit_native_event",
     "event_from_adapter_payload",
     "reconcile_host_events",
+    "canonical_event_digest",
+    "sanitize_provider_failure",
     "emit_causal_trace",
     "AlignmentStrategyError",
     "AlignmentStrategyState",
