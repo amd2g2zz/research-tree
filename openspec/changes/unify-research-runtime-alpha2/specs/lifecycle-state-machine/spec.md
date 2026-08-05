@@ -65,3 +65,17 @@ Replaying the append-only transition/event stream SHALL produce the same semanti
 
 - **WHEN** an event references a future revision or an unstarted attempt
 - **THEN** it is retained as pending/stale evidence and cannot mutate the projection until its causal predecessor is present
+
+Every lifecycle mutation SHALL commit the run row, obligation side effects,
+immutable revision snapshot, and accepted event in one SQLite transaction. The
+implementation SHALL expose deterministic fault-injection boundaries after
+each of those four writes for recovery verification. A crash at any boundary
+SHALL leave the pre-transition state, revision, obligations, and event stream
+intact; retrying the same transition from the same expected revision SHALL
+then commit exactly once.
+
+#### Scenario: Process fails during a lifecycle commit
+
+- **WHEN** a fault is injected after the run update, transition side effects, revision snapshot, or event append
+- **THEN** reopening the coordinator yields the exact predecessor state and event stream
+- **AND** repeated recovery is idempotent and the transition can be retried once without repair scripts

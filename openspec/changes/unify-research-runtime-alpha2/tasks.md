@@ -61,7 +61,7 @@ fields, dependency cycles, evidence paths, and acceptance command paths.
 - [x] 5.4 Implement completion as the conjunction of P0 closure tokens, non-blocking insight state, readiness, required evaluation, both deliveries, and revision-bound user acceptance. Evidence: `tests/test_alpha2_completion_gates.py` proves every obligation, the exact delivery pair, canonical displayed digest, and contextual acceptance are required.
 - [ ] 5.5 Reject host, worker, hook, report-file, empty-frontier, and completed-wave completion attempts with persisted reasons.
 - [ ] 5.6 Implement supersession and same-round replanning rules without mutating prior round artifacts.
-- [ ] 5.7 Add coordinator recovery tests at every transition boundary and prove repeated event ingestion is idempotent.
+- [x] 5.7 Add coordinator recovery tests at every transition boundary and prove repeated event ingestion is idempotent. Evidence: fault injection after run update, side effects, revision snapshot, and event append plus HostEvent duplicate/conflict tests in `tests/test_alpha2_runtime_contract.py`.
 - [x] 5.8 Add an authority-bypass audit that proves recursive_search.py, native_execution_adapter.py, Hermes adapters, and hooks cannot set canonical completion from local status, report size, heading count, or worker count. Evidence: `scripts/audit_completion_authority.py`, `tests/test_alpha2_completion_authority.py`, and generated package parity checks cover canonical source, adapters, hooks, and all three host packages.
 
 ## 6. Local AdaptiveResearchPolicy (#58)

@@ -103,6 +103,65 @@ def test_human_or_operator_transition_rejects_other_actors(tmp_path: Path) -> No
     assert coordinator.events(state["run_id"])[-1]["error_code"] == "authority_denied"
 
 
+@pytest.mark.parametrize(
+    "boundary",
+    [
+        "transition_after_run_update",
+        "transition_after_side_effects",
+        "transition_after_snapshot",
+        "transition_after_event",
+    ],
+)
+def test_transition_crash_boundaries_roll_back_and_retry_once(
+    tmp_path: Path, boundary: str
+) -> None:
+    from research_tree.coordinator import ResearchRunCoordinator
+
+    armed = True
+
+    def fail_at(name: str) -> None:
+        nonlocal armed
+        if armed and name == boundary:
+            armed = False
+            raise RuntimeError(f"injected crash at {name}")
+
+    coordinator = ResearchRunCoordinator(tmp_path, fault_injector=fail_at)
+    before = coordinator.create("run-transition-crash")
+    before_events = coordinator.events(before["run_id"])
+    before_revisions = coordinator.revisions(before["run_id"])
+
+    with pytest.raises(RuntimeError, match=boundary):
+        coordinator.transition(
+            before["run_id"],
+            event="alignment_projection_ready",
+            actor="coordinator",
+            expected_revision=before["revision"],
+            payload={"strategy_digest": before["authority_digest"]},
+        )
+
+    reopened = ResearchRunCoordinator(tmp_path)
+    assert reopened.status(before["run_id"]) == before
+    assert reopened.events(before["run_id"]) == before_events
+    assert reopened.revisions(before["run_id"]) == before_revisions
+    first_recovery = reopened.recover(before["run_id"])
+    assert reopened.recover(before["run_id"]) == first_recovery
+
+    committed = reopened.transition(
+        before["run_id"],
+        event="alignment_projection_ready",
+        actor="coordinator",
+        expected_revision=before["revision"],
+        payload={"strategy_digest": before["authority_digest"]},
+    )
+    assert committed["revision"] == before["revision"] + 1
+    assert committed["lifecycle_state"] == "handoff_pending"
+    assert [
+        event["event_type"]
+        for event in reopened.events(before["run_id"])
+        if event["event_type"] == "alignment_projection_ready"
+    ] == ["alignment_projection_ready"]
+
+
 def test_coordinator_rejects_illegal_transition_without_mutation(tmp_path: Path) -> None:
     from research_tree.coordinator import ResearchRunCoordinator
 

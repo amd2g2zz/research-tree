@@ -13,7 +13,7 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from .contracts import HostEvent, canonical_json_bytes, validate_feedback_event
 from .replay import explain_run, why_not_complete
@@ -80,13 +80,23 @@ class ResearchRunCoordinator:
 
     error_type = CoordinatorError
 
-    def __init__(self, workspace: str | Path) -> None:
+    def __init__(
+        self,
+        workspace: str | Path,
+        *,
+        fault_injector: Callable[[str], None] | None = None,
+    ) -> None:
         root = Path(workspace).resolve()
         root.mkdir(parents=True, exist_ok=True)
         self.database = root / ".research-tree" / "run-ledger.sqlite3"
+        self._fault_injector = fault_injector
         self.database.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             self._schema(connection)
+
+    def _fault(self, boundary: str) -> None:
+        if self._fault_injector is not None:
+            self._fault_injector(boundary)
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database, timeout=10.0)
@@ -1382,6 +1392,7 @@ class ResearchRunCoordinator:
                 digest = self._digest(state)
                 authority_digest = body.get("strategy_digest") if event == "alignment_projection_ready" else row["authority_digest"]
                 connection.execute("UPDATE runs SET lifecycle_state=?,revision=?,state_digest=?,authority_digest=?,updated_at=?,termination_reason=? WHERE run_id=?", (next_state, revision, digest, authority_digest or row["authority_digest"], now, body.get("termination_reason"), run_id))
+                self._fault("transition_after_run_update")
                 if event == "deliveries_compiled":
                     connection.execute("UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation='technical_delivery'", (body["technical_digest"], now, run_id))
                     connection.execute("UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation='human_delivery'", (body["human_digest"], now, run_id))
@@ -1389,9 +1400,12 @@ class ResearchRunCoordinator:
                     connection.execute("UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation='acceptance'", (body["displayed_digest"], now, run_id))
                 elif event == "needs_deeper_research":
                     connection.execute("UPDATE run_obligations SET satisfied=0,updated_at=? WHERE run_id=? AND obligation IN ('readiness','evaluation','technical_delivery','human_delivery','acceptance')", (now, run_id))
+                self._fault("transition_after_side_effects")
                 event_id = f"{event}-{revision}"
                 self._snapshot_current_revision(connection, run_id, source_event_id=event_id)
+                self._fault("transition_after_snapshot")
                 self._event(connection, run_id, event_id, expected_revision, body, event_type=event)
+                self._fault("transition_after_event")
         if rejection is not None:
             raise rejection
         return self.status(run_id)
