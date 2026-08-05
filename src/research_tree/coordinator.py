@@ -367,6 +367,16 @@ class ResearchRunCoordinator:
             ).fetchall()
         return {row["oracle_run_id"]: json.loads(row["payload_json"]) for row in rows}
 
+    def closure_assessments(self, run_id: str) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            self._require_run(connection, run_id)
+            rows = connection.execute(
+                """SELECT payload_json FROM slot_closure_assessments
+                   WHERE run_id=? ORDER BY slot_id,assessment_revision""",
+                (run_id,),
+            ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
     def record_closure_assessment(
         self,
         run_id: str,
@@ -654,6 +664,7 @@ class ResearchRunCoordinator:
             )
             invalidated_attempt_ids: list[str] = []
             invalidated_obligations: list[str] = []
+            revoked_closure_tokens: list[str] = []
             if feedback["materiality"] in {"material", "terminal"}:
                 for digest in invalidated:
                     connection.execute("INSERT OR IGNORE INTO invalidations VALUES(?,?,?,?)", (run_id, digest, feedback["message"], revision))
@@ -666,6 +677,38 @@ class ResearchRunCoordinator:
                     ).fetchall()
                 ]
                 connection.execute("UPDATE run_obligations SET satisfied=0,updated_at=? WHERE run_id=?", (self._now(), run_id))
+                latest_closures = connection.execute(
+                    """SELECT closure.slot_id,closure.assessment_revision,closure.payload_json,closure.token_digest
+                       FROM slot_closure_assessments AS closure
+                       JOIN (
+                         SELECT slot_id,MAX(assessment_revision) AS revision
+                         FROM slot_closure_assessments WHERE run_id=? GROUP BY slot_id
+                       ) AS latest
+                       ON latest.slot_id=closure.slot_id AND latest.revision=closure.assessment_revision
+                       WHERE closure.run_id=? AND closure.status='passed'""",
+                    (run_id, run_id),
+                ).fetchall()
+                for closure in latest_closures:
+                    prior_payload = json.loads(closure["payload_json"])
+                    revoked_payload = {
+                        **prior_payload,
+                        "assessment_revision": int(closure["assessment_revision"]) + 1,
+                        "status": "revoked",
+                        "token_digest": None,
+                    }
+                    revoked_closure_tokens.append(str(closure["token_digest"]))
+                    connection.execute(
+                        "INSERT INTO slot_closure_assessments VALUES(?,?,?,?,?,?,?)",
+                        (
+                            run_id,
+                            closure["slot_id"],
+                            revoked_payload["assessment_revision"],
+                            canonical_json_bytes(revoked_payload).decode("utf-8"),
+                            None,
+                            "revoked",
+                            self._now(),
+                        ),
+                    )
                 for attempt in connection.execute(
                     "SELECT attempt_id,lease_json FROM action_attempts WHERE run_id=? ORDER BY attempt_id",
                     (run_id,),
@@ -707,6 +750,7 @@ class ResearchRunCoordinator:
                     "invalidated_digests": invalidated,
                     "invalidated_attempt_ids": invalidated_attempt_ids,
                     "invalidated_obligations": invalidated_obligations,
+                    "revoked_closure_tokens": revoked_closure_tokens,
                 }
             )
             self._event(connection, run_id, event_id, expected_revision, event_payload, event_type="feedback_recorded")

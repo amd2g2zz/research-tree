@@ -148,9 +148,23 @@ def test_coordinator_persists_oracle_before_satisfying_closure_obligation(tmp_pa
         fallback="Use the current implementation.",
         reversal_condition="A failed integration test.", assessor_version="core-v1",
     )
-    coordinator.record_closure_assessment("run-oracle", assessment, expected_revision=coordinator.status("run-oracle")["revision"])
+    state = coordinator.record_closure_assessment("run-oracle", assessment, expected_revision=coordinator.status("run-oracle")["revision"])
     assert coordinator.oracle_runs("run-oracle")["oracle-run-1"]["attempt_id"] == "attempt-1"
     assert coordinator.obligations("run-oracle")["p0_closure"]["evidence_ref"] == assessment.token_digest
+    coordinator.record_feedback(
+        {
+            "feedback_id": "feedback-closure", "run_id": "run-oracle", "actor": "human",
+            "kind": "correction", "message": "The decision premise changed.",
+            "target_refs": ["decision:decision-a"], "materiality": "material",
+            "created_at": "2026-08-05T02:00:00Z",
+        },
+        expected_revision=state["revision"],
+    )
+    history = coordinator.closure_assessments("run-oracle")
+    assert [item["status"] for item in history] == ["passed", "revoked"]
+    assert history[0]["token_digest"] == assessment.token_digest
+    assert history[1]["token_digest"] is None
+    assert coordinator.obligations("run-oracle")["p0_closure"]["satisfied"] is False
 
 
 def test_coordinator_rejects_closure_with_unpersisted_oracle(tmp_path) -> None:

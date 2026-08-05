@@ -92,3 +92,7 @@ A SlotClosureAssessment SHALL include required-evidence results, independence gr
 
 - **WHEN** a parent artifact digest or oracle result is marked stale
 - **THEN** the closure token cannot be reused for readiness or delivery and the coordinator opens a traceable revalidation action
+
+Material or terminal FeedbackEvents append a successor `revoked` assessment revision,
+preserve the prior passed assessment and token for replay, clear the canonical P0
+closure obligation, and include the revoked token in the feedback event.
