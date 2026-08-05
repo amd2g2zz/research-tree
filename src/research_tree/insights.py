@@ -71,11 +71,14 @@ def build_insight_digest(
     gaps: list[dict[str, Any]] = []
     source_refs: set[str] = set()
     slot_refs = sorted(set(str(item) for item in active_slot_ids))
+    covered_slot_refs: set[str] = set()
     option_effects: dict[tuple[str, str], dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     for finding_id, payload in normalized:
         slot_id = str(payload.get("decision_slot_id", ""))
         if slot_id and slot_id not in slot_refs:
             continue
+        if slot_id:
+            covered_slot_refs.add(slot_id)
         for observation_index, observation in enumerate(payload.get("observations", ())):
             if not isinstance(observation, Mapping):
                 continue
@@ -115,6 +118,14 @@ def build_insight_digest(
                         "next_acquisition_method": next_method or "validation",
                     }
                 )
+    for slot_id in sorted(set(slot_refs) - covered_slot_refs):
+        gaps.append(
+            {
+                "slot_id": slot_id,
+                "reason": "No accepted Finding Pack covers this active Decision Slot.",
+                "next_acquisition_method": "landscape",
+            }
+        )
     for (slot_id, option), effects in sorted(option_effects.items()):
         if {"supports", "contradicts"} <= set(effects):
             contradictions.append({"slot_id": slot_id, "subject": option, "evidence_refs": sorted({ref for refs in effects.values() for ref in refs}), "resolution_action": "adversarial"})

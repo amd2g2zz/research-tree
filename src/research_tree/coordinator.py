@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 import re
 import sqlite3
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 from .contracts import (
     ContractError,
@@ -32,6 +32,11 @@ from .oracles import OracleAttempt, OracleRun, OracleSpec
 from .closure import P0ClosureAggregate, SlotClosureAssessment
 from .evidence import EvidenceArtifact, EvidenceError, EvidenceResolver
 from .finding_packs import FindingPackContractError, validate_finding_pack_payload
+from .insights import (
+    InsightDigestError,
+    build_insight_digest,
+    validate_canonical_insight_digest,
+)
 from .worker_contracts import CanonicalWorkItem, WorkerContractError
 
 
@@ -1109,6 +1114,316 @@ class ResearchRunCoordinator:
                 ),
             )
             self._fault("ingest_after_stage_record")
+        return result
+
+    def synthesize_findings(
+        self,
+        run_id: str,
+        *,
+        stage_id: str,
+        finding_pack_refs: Sequence[Mapping[str, Any]],
+        digest_id: str,
+        producer_version: str,
+        expected_revision: int,
+        previous_digest_ref: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Reduce exact Finding Pack revisions into one atomic InsightDigest."""
+
+        if not isinstance(stage_id, str) or not IDENTIFIER_RE.fullmatch(stage_id):
+            raise CoordinatorError("stage id is invalid", code="invalid_stage_id")
+        if not isinstance(digest_id, str) or not IDENTIFIER_RE.fullmatch(digest_id):
+            raise CoordinatorError("InsightDigest id is invalid", code="invalid_digest_id")
+        if not isinstance(producer_version, str) or not producer_version.strip():
+            raise CoordinatorError(
+                "InsightDigest producer version is required",
+                code="invalid_producer_version",
+            )
+        if isinstance(finding_pack_refs, (str, bytes)):
+            raise CoordinatorError(
+                "Finding Pack references must be an array",
+                code="finding_refs_invalid",
+            )
+        try:
+            exact_finding_refs = sorted(
+                (
+                    validate_exact_artifact_ref(
+                        reference,
+                        label="Finding Pack reference",
+                        run_id=run_id,
+                    )
+                    for reference in finding_pack_refs
+                ),
+                key=self._lineage_key,
+            )
+            exact_previous_ref = (
+                validate_exact_artifact_ref(
+                    previous_digest_ref,
+                    label="previous InsightDigest reference",
+                    run_id=run_id,
+                )
+                if previous_digest_ref is not None
+                else None
+            )
+        except (ContractError, TypeError) as error:
+            raise CoordinatorError(
+                "synthesis artifact reference is invalid",
+                code="synthesis_ref_invalid",
+            ) from error
+        if len({self._lineage_key(ref) for ref in exact_finding_refs}) != len(
+            exact_finding_refs
+        ):
+            raise CoordinatorError(
+                "Finding Pack references must be unique",
+                code="finding_refs_invalid",
+            )
+        request = {
+            "stage": "synthesize",
+            "stage_id": stage_id,
+            "run_id": run_id,
+            "finding_pack_refs": exact_finding_refs,
+            "digest_id": digest_id,
+            "producer_version": producer_version,
+            "previous_digest_ref": exact_previous_ref,
+            "expected_revision": expected_revision,
+        }
+        input_digest = self._digest(request)
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            prior = connection.execute(
+                "SELECT input_digest,result_json FROM stage_operations WHERE run_id=? AND stage_id=?",
+                (run_id, stage_id),
+            ).fetchone()
+            if prior is not None:
+                if prior["input_digest"] != input_digest:
+                    raise CoordinatorError(
+                        "stage id was reused with different inputs",
+                        code="idempotency_conflict",
+                    )
+                return json.loads(prior["result_json"])
+
+            row = self._require_run(connection, run_id)
+            if int(row["revision"]) != expected_revision:
+                raise CoordinatorError("expected revision is stale", code="stale_revision")
+            if row["lifecycle_state"] != "autonomous_research":
+                raise CoordinatorError(
+                    "synthesis requires an autonomous research checkpoint",
+                    code="synthesis_state_invalid",
+                )
+            self._assert_current_in_connection(
+                connection, run_id, self._authority_digest(row), action="synthesize"
+            )
+            in_flight_attempts = [
+                lease.attempt_id
+                for lease in (
+                    AttemptLease.from_dict(json.loads(item["lease_json"]))
+                    for item in connection.execute(
+                        "SELECT lease_json FROM action_attempts WHERE run_id=?",
+                        (run_id,),
+                    ).fetchall()
+                )
+                if lease.status in {"leased", "running"}
+            ]
+            if in_flight_attempts:
+                raise CoordinatorError(
+                    "synthesis checkpoint has in-flight attempts: "
+                    + ", ".join(sorted(in_flight_attempts)),
+                    code="batch_incomplete",
+                    next_action="reconcile_or_await_attempt",
+                )
+
+            binding = self._current_blueprint_target_ref(connection, run_id)
+            if binding is None:
+                raise CoordinatorError(
+                    "synthesis requires a bound Blueprint Target",
+                    code="blueprint_not_bound",
+                )
+            target = self._resolve_initialization_artifact(
+                connection,
+                binding[1],
+                expected_kind="blueprint-target",
+                stale_code="stale_blueprint",
+            )
+            active_slot_ids = sorted(
+                {
+                    str(slot["slot_id"])
+                    for slot in target["payload"].get("slots", [])
+                    if isinstance(slot, Mapping)
+                    and isinstance(slot.get("slot_id"), str)
+                    and slot.get("status") not in {"closed", "superseded"}
+                }
+            )
+            findings: list[dict[str, Any]] = []
+            for reference in exact_finding_refs:
+                artifact = self._resolve_initialization_artifact(
+                    connection,
+                    reference,
+                    expected_kind="finding-pack",
+                    stale_code="stale_finding_pack",
+                )
+                if artifact["status"] != "accepted":
+                    raise CoordinatorError(
+                        "synthesis requires accepted Finding Packs",
+                        code="finding_pack_not_accepted",
+                    )
+                try:
+                    finding = validate_finding_pack_payload(
+                        artifact["payload"], run_id=run_id
+                    )
+                except FindingPackContractError as error:
+                    raise CoordinatorError(
+                        "persisted Finding Pack contract is invalid",
+                        code="finding_pack_invalid",
+                    ) from error
+                if finding["blueprint_target_ref"] != binding[1]:
+                    raise CoordinatorError(
+                        "Finding Pack does not bind the current Blueprint Target",
+                        code="blueprint_binding_invalid",
+                    )
+                if finding["decision_slot_id"] not in active_slot_ids:
+                    raise CoordinatorError(
+                        "Finding Pack does not cover an active Decision Slot",
+                        code="finding_slot_invalid",
+                    )
+                findings.append(finding)
+
+            latest_digest = connection.execute(
+                """SELECT artifact_id,revision,content_hash FROM artifacts
+                   WHERE run_id=? AND kind='insight-digest'
+                   ORDER BY created_at DESC,artifact_id DESC,revision DESC LIMIT 1""",
+                (run_id,),
+            ).fetchone()
+            if latest_digest is None and exact_previous_ref is not None:
+                raise CoordinatorError(
+                    "previous InsightDigest does not resolve",
+                    code="previous_digest_invalid",
+                )
+            if latest_digest is not None:
+                latest_ref = {
+                    "run_id": run_id,
+                    "artifact_id": latest_digest["artifact_id"],
+                    "revision": int(latest_digest["revision"]),
+                    "content_hash": latest_digest["content_hash"],
+                }
+                if exact_previous_ref != latest_ref:
+                    raise CoordinatorError(
+                        "synthesis must supersede the latest InsightDigest",
+                        code="previous_digest_required",
+                    )
+            previous_ref_text = (
+                "insight-digest:"
+                f"{exact_previous_ref['artifact_id']}@{exact_previous_ref['revision']}"
+                f"#{exact_previous_ref['content_hash']}"
+                if exact_previous_ref is not None
+                else None
+            )
+            try:
+                insight = build_insight_digest(
+                    findings,
+                    digest_id=digest_id,
+                    producer_version=producer_version,
+                    active_slot_ids=active_slot_ids,
+                    previous_digest_ref=previous_ref_text,
+                )
+                validate_canonical_insight_digest(insight)
+            except InsightDigestError as error:
+                raise CoordinatorError(
+                    "InsightDigest synthesis failed",
+                    code="insight_digest_invalid",
+                ) from error
+
+            parent_refs: list[Mapping[str, Any]] = list(exact_finding_refs)
+            if exact_previous_ref is not None:
+                parent_refs.append(exact_previous_ref)
+            now = self._now()
+            artifact = self._append_stage_artifact(
+                connection,
+                run_id=run_id,
+                artifact_id=digest_id,
+                kind="insight-digest",
+                payload=insight,
+                actor_kind="coordinator",
+                actor_id="insight-synthesis",
+                status="active",
+                parent_refs=parent_refs,
+                created_at=now,
+            )
+            self._fault("synthesize_after_artifact")
+            insight_ref = {
+                "run_id": run_id,
+                "artifact_id": artifact["id"],
+                "revision": artifact["revision"],
+                "content_hash": artifact["content_hash"],
+            }
+            insight_clear = not (
+                insight["gaps"]
+                or insight["contradictions"]
+                or insight["recommended_actions"]
+            )
+            self._ensure_obligations(connection, run_id)
+            connection.execute(
+                """UPDATE run_obligations SET satisfied=?,evidence_ref=?,updated_at=?
+                   WHERE run_id=? AND obligation='insight_clear'""",
+                (int(insight_clear), insight_ref["content_hash"], now, run_id),
+            )
+            self._fault("synthesize_after_obligation")
+            revision = expected_revision + 1
+            state_payload = self._state_payload(
+                row,
+                lifecycle_state="synthesis",
+                revision=revision,
+                body={
+                    "stage_id": stage_id,
+                    "insight_digest_ref": insight_ref,
+                    "insight_clear": insight_clear,
+                },
+            )
+            connection.execute(
+                """UPDATE runs SET lifecycle_state=?,revision=?,state_digest=?,updated_at=?
+                   WHERE run_id=?""",
+                ("synthesis", revision, self._digest(state_payload), now, run_id),
+            )
+            self._fault("synthesize_after_run_update")
+            event_id = f"batch-checkpoint-{stage_id}"
+            self._snapshot_current_revision(connection, run_id, source_event_id=event_id)
+            self._fault("synthesize_after_snapshot")
+            self._event(
+                connection,
+                run_id,
+                event_id,
+                expected_revision,
+                {
+                    "stage_id": stage_id,
+                    "input_digest": input_digest,
+                    "finding_pack_refs": exact_finding_refs,
+                    "insight_digest_ref": insight_ref,
+                    "insight_clear": insight_clear,
+                },
+                event_type="batch_checkpoint",
+            )
+            self._fault("synthesize_after_event")
+            result = {
+                "run": self._row(self._require_run(connection, run_id)),
+                "stage_id": stage_id,
+                "input_digest": input_digest,
+                "finding_pack_refs": exact_finding_refs,
+                "insight_digest_ref": insight_ref,
+                "insight_digest": insight,
+                "insight_clear": insight_clear,
+            }
+            connection.execute(
+                "INSERT INTO stage_operations VALUES(?,?,?,?,?,?,?)",
+                (
+                    run_id,
+                    stage_id,
+                    "synthesize",
+                    input_digest,
+                    revision,
+                    canonical_json_bytes(result).decode("utf-8"),
+                    now,
+                ),
+            )
+            self._fault("synthesize_after_stage_record")
         return result
 
     @staticmethod

@@ -4,10 +4,27 @@
 
 The runtime SHALL persist an InsightDigest with source revisions, covered Decision Slots, confirmed facts, hypotheses, contradictions, unresolved gaps, confidence/calibration, changed beliefs, recommended actions, and limitations. It SHALL have a producer version and exact parent references.
 
+A synthesis checkpoint SHALL reject while any attempt remains `leased` or
+`running`. Once no attempt is in flight, an empty or partial accepted batch is
+still reduced: every active Decision Slot without an accepted Finding Pack
+becomes an explicit blocking `landscape` gap. If a prior InsightDigest exists,
+the caller MUST provide its exact current artifact reference and the successor
+MUST persist it as both predecessor metadata and immutable parent lineage.
+
 #### Scenario: Findings are synthesized
 
 - **WHEN** a new verified Finding Pack batch is ingested
 - **THEN** the digest is recomputed from canonical inputs and the prior digest remains immutable
+
+#### Scenario: Worker is still executing
+
+- **WHEN** a synthesis checkpoint is requested while an attempt is `leased` or `running`
+- **THEN** the coordinator rejects `batch_incomplete` without writing a digest or changing lifecycle state
+
+#### Scenario: Active Slot has no accepted Finding Pack
+
+- **WHEN** the settled batch leaves an active Decision Slot uncovered
+- **THEN** the digest records a blocking gap and a landscape successor trigger for that exact Slot
 
 ### Requirement: Insight synthesis distinguishes fact, inference, recommendation, and unknown
 

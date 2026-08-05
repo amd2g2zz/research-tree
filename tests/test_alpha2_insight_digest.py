@@ -112,3 +112,40 @@ def test_structured_synthesis_counts_alpha2_anchor_lineage_and_ids():
     assert insight["anchor_count"] == 2
     assert insight["uncertainties"] == ["The alternate path remains untested."]
     assert insight["signal"] == "qualified"
+
+
+def test_canonical_digest_exposes_every_uncovered_active_slot():
+    finding = {
+        "id": "finding-a",
+        "decision_slot_id": "slot-a",
+        "observations": [
+            {
+                "claim": "Slot A is covered.",
+                "anchor": {"kind": "source", "ref": "source-a"},
+            }
+        ],
+        "option_effects": [],
+        "remaining_uncertainties": [],
+    }
+
+    digest = build_insight_digest(
+        [finding],
+        digest_id="digest-uncovered",
+        producer_version="insight-v1",
+        active_slot_ids=["slot-a", "slot-b"],
+    )
+
+    assert digest["gaps"] == [
+        {
+            "slot_id": "slot-b",
+            "reason": "No accepted Finding Pack covers this active Decision Slot.",
+            "next_acquisition_method": "landscape",
+        }
+    ]
+    assert digest["recommended_actions"] == [
+        {
+            "slot_id": "slot-b",
+            "action": "landscape",
+            "trigger": "No accepted Finding Pack covers this active Decision Slot.",
+        }
+    ]

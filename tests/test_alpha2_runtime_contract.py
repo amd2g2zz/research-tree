@@ -692,6 +692,222 @@ def test_ingest_uses_the_schema_identifier_contract_for_nested_ids(tmp_path: Pat
     assert rejected.value.code == "finding_pack_invalid"
 
 
+def _ingested_finding(tmp_path: Path):
+    coordinator, run_id, _dispatched, payload, _evidence = _initialized_dispatch(tmp_path)
+    ingested = coordinator.ingest_finding_pack(
+        run_id,
+        stage_id="ingest-for-synthesis",
+        finding_pack=payload,
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+    return coordinator, run_id, ingested
+
+
+def test_synthesis_commits_digest_obligation_state_and_event_once(tmp_path: Path) -> None:
+    from research_tree.sqlite_ledger import SQLiteRunLedger
+
+    coordinator, run_id, ingested = _ingested_finding(tmp_path)
+    before = coordinator.status(run_id)
+    synthesized = coordinator.synthesize_findings(
+        run_id,
+        stage_id="synthesize-batch-1",
+        finding_pack_refs=[ingested["finding_pack_ref"]],
+        digest_id="insight-batch-1",
+        producer_version="insight-v1",
+        expected_revision=before["revision"],
+    )
+
+    assert synthesized["run"]["revision"] == before["revision"] + 1
+    assert synthesized["run"]["lifecycle_state"] == "synthesis"
+    assert synthesized["insight_digest"]["gaps"] == []
+    assert synthesized["insight_digest"]["contradictions"] == []
+    insight_obligation = coordinator.obligations(run_id)["insight_clear"]
+    assert insight_obligation["satisfied"] is True
+    assert insight_obligation["evidence_ref"] == synthesized["insight_digest_ref"][
+        "content_hash"
+    ]
+    stored = SQLiteRunLedger(tmp_path).resolve(
+        run_id,
+        synthesized["insight_digest_ref"]["artifact_id"],
+        synthesized["insight_digest_ref"]["revision"],
+    )
+    assert stored["payload"] == synthesized["insight_digest"]
+    assert stored["parent_refs"] == [
+        {
+            "run_id": run_id,
+            "artifact_id": ingested["finding_pack_ref"]["artifact_id"],
+            "revision": ingested["finding_pack_ref"]["revision"],
+        }
+    ]
+    assert coordinator.events(run_id)[-1]["event_type"] == "batch_checkpoint"
+
+    events = coordinator.events(run_id)
+    repeated = coordinator.synthesize_findings(
+        run_id,
+        stage_id="synthesize-batch-1",
+        finding_pack_refs=[ingested["finding_pack_ref"]],
+        digest_id="insight-batch-1",
+        producer_version="insight-v1",
+        expected_revision=before["revision"],
+    )
+    assert repeated == synthesized
+    assert coordinator.events(run_id) == events
+
+
+def test_synthesis_fault_rolls_back_digest_obligation_and_transition(tmp_path: Path) -> None:
+    from research_tree.coordinator import ResearchRunCoordinator
+    from research_tree.sqlite_ledger import SQLiteLedgerError, SQLiteRunLedger
+
+    coordinator, run_id, ingested = _ingested_finding(tmp_path)
+    before = coordinator.status(run_id)
+    before_events = coordinator.events(run_id)
+    before_obligation = coordinator.obligations(run_id)["insight_clear"]
+
+    def fail(boundary: str) -> None:
+        if boundary == "synthesize_after_obligation":
+            raise RuntimeError(boundary)
+
+    failing = ResearchRunCoordinator(tmp_path, fault_injector=fail)
+    with pytest.raises(RuntimeError, match="synthesize_after_obligation"):
+        failing.synthesize_findings(
+            run_id,
+            stage_id="synthesize-fault",
+            finding_pack_refs=[ingested["finding_pack_ref"]],
+            digest_id="insight-fault",
+            producer_version="insight-v1",
+            expected_revision=before["revision"],
+        )
+
+    reopened = ResearchRunCoordinator(tmp_path)
+    assert reopened.status(run_id) == before
+    assert reopened.events(run_id) == before_events
+    assert reopened.obligations(run_id)["insight_clear"] == before_obligation
+    with pytest.raises(SQLiteLedgerError, match="does not exist"):
+        SQLiteRunLedger(tmp_path).resolve(run_id, "insight-fault", 1)
+
+
+def test_synthesis_rejects_checkpoint_while_attempt_is_still_running(
+    tmp_path: Path,
+) -> None:
+    coordinator, run_id, _dispatched, _payload, _evidence = _initialized_dispatch(
+        tmp_path
+    )
+    before = coordinator.status(run_id)
+
+    with pytest.raises(coordinator.error_type) as rejected:
+        coordinator.synthesize_findings(
+            run_id,
+            stage_id="synthesize-premature",
+            finding_pack_refs=[],
+            digest_id="insight-premature",
+            producer_version="insight-v1",
+            expected_revision=before["revision"],
+        )
+
+    assert rejected.value.code == "batch_incomplete"
+    assert coordinator.status(run_id) == before
+
+
+def test_synthesis_persists_an_uncovered_slot_as_blocking(tmp_path: Path) -> None:
+    coordinator, state, handoff, target = _confirmed_initialization_fixture(tmp_path)
+    run_id = state["run_id"]
+    coordinator.initialize_from_alignment(
+        run_id,
+        handoff_ref={
+            "run_id": run_id,
+            "artifact_id": handoff["id"],
+            "revision": handoff["revision"],
+            "content_hash": handoff["content_hash"],
+        },
+        blueprint_target_ref={
+            "run_id": run_id,
+            "artifact_id": target["id"],
+            "revision": target["revision"],
+            "content_hash": target["content_hash"],
+        },
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+
+    synthesized = coordinator.synthesize_findings(
+        run_id,
+        stage_id="synthesize-uncovered",
+        finding_pack_refs=[],
+        digest_id="insight-uncovered",
+        producer_version="insight-v1",
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+
+    assert synthesized["insight_clear"] is False
+    assert synthesized["insight_digest"]["gaps"] == [
+        {
+            "slot_id": "slot-p0",
+            "reason": "No accepted Finding Pack covers this active Decision Slot.",
+            "next_acquisition_method": "landscape",
+        }
+    ]
+    obligation = coordinator.obligations(run_id)["insight_clear"]
+    assert obligation["satisfied"] is False
+    assert obligation["evidence_ref"] == synthesized["insight_digest_ref"][
+        "content_hash"
+    ]
+
+
+def test_synthesis_requires_and_preserves_previous_digest_lineage(tmp_path: Path) -> None:
+    from research_tree.sqlite_ledger import SQLiteRunLedger
+
+    coordinator, run_id, ingested = _ingested_finding(tmp_path)
+    first = coordinator.synthesize_findings(
+        run_id,
+        stage_id="synthesize-lineage-1",
+        finding_pack_refs=[ingested["finding_pack_ref"]],
+        digest_id="insight-lineage-1",
+        producer_version="insight-v1",
+        expected_revision=coordinator.status(run_id)["revision"],
+    )
+    resumed = coordinator.transition(
+        run_id,
+        event="closure_deficit",
+        actor="coordinator",
+        expected_revision=first["run"]["revision"],
+        payload={"reason": "Recompute with an explicit predecessor."},
+    )
+    before_rejected = coordinator.status(run_id)
+
+    with pytest.raises(coordinator.error_type) as missing_previous:
+        coordinator.synthesize_findings(
+            run_id,
+            stage_id="synthesize-lineage-missing",
+            finding_pack_refs=[ingested["finding_pack_ref"]],
+            digest_id="insight-lineage-missing",
+            producer_version="insight-v1",
+            expected_revision=resumed["revision"],
+        )
+    assert missing_previous.value.code == "previous_digest_required"
+    assert coordinator.status(run_id) == before_rejected
+
+    second = coordinator.synthesize_findings(
+        run_id,
+        stage_id="synthesize-lineage-2",
+        finding_pack_refs=[ingested["finding_pack_ref"]],
+        digest_id="insight-lineage-2",
+        producer_version="insight-v1",
+        previous_digest_ref=first["insight_digest_ref"],
+        expected_revision=resumed["revision"],
+    )
+
+    assert second["insight_digest"]["previous_digest_ref"] == (
+        "insight-digest:insight-lineage-1@1#"
+        + first["insight_digest_ref"]["content_hash"]
+    )
+    stored = SQLiteRunLedger(tmp_path).resolve(run_id, "insight-lineage-2", 1)
+    assert {parent["artifact_id"] for parent in stored["parent_refs"]} == {
+        "finding-dispatch",
+        "insight-lineage-1",
+    }
+    original = SQLiteRunLedger(tmp_path).resolve(run_id, "insight-lineage-1", 1)
+    assert original["content_hash"] == first["insight_digest_ref"]["content_hash"]
+
+
 def test_human_or_operator_transition_rejects_other_actors(tmp_path: Path) -> None:
     from research_tree.coordinator import ResearchRunCoordinator
 

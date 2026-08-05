@@ -144,6 +144,18 @@ fail before semantic compilation and without mutation.
   `closure_deficit` and commits evidence-linked successor Work Items
 - **AND** an empty host queue cannot substitute for those items
 
+#### Scenario: Synthesis checkpoint races an active attempt
+
+- **WHEN** any canonical attempt remains `leased` or `running`
+- **THEN** the `synthesize` stage returns `batch_incomplete` without mutation
+- **AND** a host-local empty queue or worker-count observation cannot override the guard
+
+#### Scenario: InsightDigest is superseded
+
+- **WHEN** the run already has an active InsightDigest
+- **THEN** the next `synthesize` stage requires its exact artifact reference
+- **AND** commits the old digest as an immutable parent of the successor rather than overwriting it
+
 #### Scenario: Readiness validator reports a deficit
 
 - **WHEN** the exact current package fails any required readiness gate
