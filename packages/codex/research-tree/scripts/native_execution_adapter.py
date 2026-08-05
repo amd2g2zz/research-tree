@@ -116,6 +116,43 @@ def _save_state(workspace: Path, state: dict[str, Any]) -> None:
     _atomic_write(_state_path(workspace, state["run_id"]), state)
 
 
+def _emit_host_event(
+    state: dict[str, Any],
+    *,
+    event_type: str,
+    task: dict[str, Any] | None,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Append a shared HostEvent wire object to the adapter outbox."""
+
+    sequence = int(state.get("host_sequence", 0)) + 1
+    event_id = f"event-{state['host']}-{sequence}-{event_type.replace('_', '-')}"
+    digest = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    event = {
+        "protocol_version": 1,
+        "event_id": event_id,
+        "event_type": event_type,
+        "run_id": state["run_id"],
+        "round_id": state.get("alignment_run_id") or state["run_id"],
+        "slot_id": task.get("decision_slot") if task else None,
+        "action_id": task.get("task_id") if task else None,
+        "attempt_id": task.get("attempt_id") if task else None,
+        "host": "claude-code" if state["host"] == "claude" else state["host"],
+        "causation_id": None,
+        "correlation_id": state["run_id"],
+        "sequence": sequence,
+        "expected_revision": int(state.get("revision", 0)),
+        "payload_digest": digest,
+        "emitted_at": _now(),
+        "payload": payload,
+    }
+    state.setdefault("host_events", []).append(event)
+    state["host_sequence"] = sequence
+    return event
+
+
 def _load_handoff(workspace: Path, path: Path) -> tuple[dict[str, Any], Path]:
     resolved = _inside(workspace, path, "handoff path")
     handoff = _read_json(resolved, "alignment handoff")
@@ -154,6 +191,8 @@ def init_run(
             "human_research_report": {"status": "pending"},
         },
         "tasks": {},
+        "host_events": [],
+        "host_sequence": 0,
     }
     _save_state(workspace, state)
     return state
@@ -260,6 +299,19 @@ def start_task(
     task["reviewed_by"] = None
     task["review_note"] = None
     task["checked_anchors"] = []
+    _emit_host_event(
+        state,
+        event_type="attempt_started",
+        task=task,
+        payload={
+            "worker_id": task["worker_id"] or "native-worker",
+            "lease_expires_at": task["started_at"],
+            "tool_capability_digest": hashlib.sha256(
+                json.dumps(state.get("execution_context", {}), sort_keys=True).encode("utf-8")
+            ).hexdigest(),
+            "started_at": task["started_at"],
+        },
+    )
     _save_state(workspace, state)
     return task
 
@@ -397,6 +449,12 @@ def finish_task(
         task["status"] = "failed"
         task["failure_reason"] = _require_string(reason, "failure reason")
         task["worker_id"] = None
+        _emit_host_event(
+            state,
+            event_type="worker_finished",
+            task=task,
+            payload={"terminal_status": "failed", "artifact_refs": []},
+        )
         _save_state(workspace, state)
         return task
 
@@ -416,6 +474,19 @@ def finish_task(
     task["artifact_sha256"] = hashlib.sha256(artifact.read_bytes()).hexdigest()
     task["worker_id"] = None
     task["submitted_at"] = _now()
+    _emit_host_event(
+        state,
+        event_type="finding_submitted",
+        task=task,
+        payload={
+            "finding_pack_digest": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+            "evidence_refs": [
+                observation["anchor"]["ref"] for observation in pack["observations"]
+            ],
+            "submission_status": "submitted",
+            "output_digest": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+        },
+    )
     _save_state(workspace, state)
     return task
 
@@ -457,6 +528,19 @@ def verify_task(
     task["review_note"] = _require_string(review_note, "review note")
     task["checked_anchors"] = sorted(supplied_anchors)
     task["reviewed_at"] = _now()
+    _emit_host_event(
+        state,
+        event_type="review_completed",
+        task=task,
+        payload={
+            "reviewer_id": task["reviewed_by"],
+            "accepted_refs": sorted(supplied_anchors),
+            "field_diagnostics": {"checked_anchor_count": len(supplied_anchors)},
+            "review_digest": hashlib.sha256(
+                json.dumps({"note": task["review_note"], "anchors": sorted(supplied_anchors)}, sort_keys=True).encode("utf-8")
+            ).hexdigest(),
+        },
+    )
     _save_state(workspace, state)
     return task
 
@@ -499,6 +583,16 @@ def recover(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
         task["reviewed_by"] = None
         task["review_note"] = None
         task["checked_anchors"] = []
+        _emit_host_event(
+            state,
+            event_type="attempt_unknown",
+            task=task,
+            payload={
+                "reconciliation_reason": reasons[task_id],
+                "last_heartbeat": task.get("started_at") or _now(),
+                "observed_host_state": "unknown",
+            },
+        )
     if reasons:
         state["status"] = "running"
         _save_state(workspace, state)
@@ -543,6 +637,7 @@ def status(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
         "recovery_required": [
             error.split(":", 1)[0] for error in integrity_errors
         ],
+        "host_event_count": len(state.get("host_events", [])),
     }
 
 
