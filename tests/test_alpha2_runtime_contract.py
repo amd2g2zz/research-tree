@@ -381,6 +381,9 @@ def test_adaptive_policy_uses_decision_deficits_and_never_prunes_p0() -> None:
     )
     assert state["realized_delta"]["baseline_zero"] is False
     assert state["growth"]
+    assert state["growth"][0]["trigger"].startswith("finding:f1")
+    assert state["growth"][0]["oracle"]
+    assert state["growth"][0]["action_id"].startswith("action-p0-")
     pruned = policy.prune(state["actions"], protected_slots={"p0"})
     assert all(item["slot_id"] == "p0" or item["status"] == "pruned" for item in pruned)
 

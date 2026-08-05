@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
 from typing import Any, Mapping, Sequence
 
 from .evidence_delta import EvidenceBaseline, measure_realized_delta
@@ -89,25 +90,88 @@ class AdaptiveResearchPolicy:
             for continuation in finding.get("research_continuations", ())
             if isinstance(continuation, Mapping)
         ]
-        growth = [
-            {"slot_id": str(finding.get("decision_slot_id")), "action_kind": str(item.get("kind", "deep_dive")), "question": str(item.get("question", "")), "status": "proposed"}
-            for finding in findings for item in finding.get("research_continuations", ())
-            if isinstance(item, Mapping) and str(item.get("question", "")).strip()
-        ]
-        growth.extend(
-            {"slot_id": str(finding.get("decision_slot_id")), "action_kind": "validation", "question": str(uncertainty), "status": "proposed"}
-            for finding in findings
-            for uncertainty in finding.get("remaining_uncertainties", ())
-            if str(uncertainty).strip()
-        )
+        growth: list[dict[str, Any]] = []
+        for finding in findings:
+            slot_id = str(finding.get("decision_slot_id"))
+            slot = slots.get(slot_id, {})
+            priority = str(slot.get("priority", "P1"))
+            finding_id = str(finding.get("id", "unknown-finding"))
+            for item in finding.get("research_continuations", ()):
+                if not isinstance(item, Mapping):
+                    continue
+                question = str(item.get("question", "")).strip()
+                if not question:
+                    continue
+                growth.append(
+                    self._growth_action(
+                        slot_id=slot_id,
+                        priority=priority,
+                        action_kind=str(item.get("kind", "deep_dive")),
+                        question=question,
+                        trigger=f"finding:{finding_id}",
+                        evidence_needed=str(item.get("evidence_needed", "Decision-relevant evidence with provenance.")),
+                        oracle=str(item.get("oracle", "The successor question is answered with anchored evidence.")),
+                        estimated_cost=item.get("estimated_cost", 1.0),
+                    )
+                )
+            for uncertainty in finding.get("remaining_uncertainties", ()):
+                question = str(uncertainty).strip()
+                if not question:
+                    continue
+                growth.append(
+                    self._growth_action(
+                        slot_id=slot_id,
+                        priority=priority,
+                        action_kind="validation",
+                        question=question,
+                        trigger=f"finding:{finding_id}:uncertainty",
+                        evidence_needed="Evidence that resolves the recorded uncertainty.",
+                        oracle="The uncertainty is resolved or explicitly bounded.",
+                        estimated_cost=1.0,
+                    )
+                )
+        proposals = list(self.propose(slots=slots, findings=findings)) + growth
+        protected_slots = {
+            slot_id
+            for slot_id, slot in slots.items()
+            if str(slot.get("priority", "P1")) == "P0"
+        }
+        actions = list(self.prune(proposals, protected_slots=protected_slots))
         return {
             "realized_delta": {**delta, "baseline_zero": delta["realized_delta"] == 0.0},
             "baseline": updated.to_dict(),
             "transition_index": transition_index,
             "policy_version": 1,
-            "actions": list(self.propose(slots=slots, findings=findings)) + growth,
+            "actions": actions,
             "growth": growth,
             "continuation_count": len(continuations),
+            "pruned_count": sum(1 for item in actions if item.get("status") == "pruned"),
+        }
+
+    @staticmethod
+    def _growth_action(
+        *, slot_id: str, priority: str, action_kind: str, question: str,
+        trigger: str, evidence_needed: str, oracle: str, estimated_cost: Any,
+    ) -> dict[str, Any]:
+        normalized_kind = action_kind if action_kind in {"landscape", "deep_dive", "adversarial", "validation", "method_switch"} else "deep_dive"
+        digest = hashlib.sha256(
+            f"{slot_id}:{normalized_kind}:{question.casefold()}".encode("utf-8")
+        ).hexdigest()[:16]
+        try:
+            cost = float(estimated_cost)
+        except (TypeError, ValueError):
+            cost = 1.0
+        return {
+            "action_id": f"action-{slot_id}-{digest}",
+            "slot_id": slot_id,
+            "priority": priority,
+            "action_kind": normalized_kind,
+            "question": question,
+            "trigger": trigger,
+            "evidence_needed": evidence_needed,
+            "oracle": oracle,
+            "estimated_cost": cost if cost > 0 else 1.0,
+            "status": "proposed",
         }
 
     def prune(self, actions: Sequence[Mapping[str, Any]], *, protected_slots: set[str] | None = None) -> tuple[dict[str, Any], ...]:
