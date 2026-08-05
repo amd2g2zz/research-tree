@@ -29,6 +29,80 @@ def test_entity_envelope_uses_utf8_without_bom_and_verifies_content_hash() -> No
         EntityEnvelope.from_dict(tampered)
 
 
+def test_lifecycle_registry_is_exactly_the_runtime_transition_system() -> None:
+    from research_tree.coordinator import LIFECYCLE_STATES, TRANSITIONS
+
+    registry = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "openspec"
+            / "changes"
+            / "unify-research-runtime-alpha2"
+            / "registries"
+            / "lifecycle-matrix-v1.json"
+        ).read_text(encoding="utf-8")
+    )
+    vocabulary = registry["state_vocabulary"]
+    assert set(vocabulary) == {"active", "resumable", "terminal"}
+    assert set().union(*map(set, vocabulary.values())) == set(LIFECYCLE_STATES)
+
+    required = set(registry["transition_contract"]["required_fields"])
+    assert required == {
+        "from",
+        "event",
+        "to",
+        "actor",
+        "host",
+        "guard",
+        "side_effects",
+        "next_actions",
+        "failure_code",
+    }
+    edges = registry["transitions"]
+    assert all(set(edge) == required for edge in edges)
+    declared = {
+        (edge["from"], edge["event"]): (edge["to"], edge["actor"])
+        for edge in edges
+    }
+    assert len(declared) == len(edges)
+    assert declared == TRANSITIONS
+    assert all(edge["host"] == "canonical-runtime" for edge in edges)
+
+
+def test_human_or_operator_transition_rejects_other_actors(tmp_path: Path) -> None:
+    from research_tree.coordinator import ResearchRunCoordinator
+
+    coordinator = ResearchRunCoordinator(tmp_path)
+    state = coordinator.create("run-actor-boundary")
+    state = coordinator.transition(
+        state["run_id"],
+        event="alignment_projection_ready",
+        actor="coordinator",
+        expected_revision=state["revision"],
+        payload={"strategy_digest": state["authority_digest"]},
+    )
+    state = coordinator.transition(
+        state["run_id"],
+        event="handoff_confirmed",
+        actor="human",
+        expected_revision=state["revision"],
+        payload={"displayed_digest": state["authority_digest"]},
+    )
+
+    with pytest.raises(coordinator.error_type) as rejected:
+        coordinator.transition(
+            state["run_id"],
+            event="cancel_requested",
+            actor="host",
+            expected_revision=state["revision"],
+            payload={"termination_reason": "operator-requested cancellation"},
+        )
+
+    assert rejected.value.code == "authority_denied"
+    assert coordinator.status(state["run_id"]) == state
+    assert coordinator.events(state["run_id"])[-1]["error_code"] == "authority_denied"
+
+
 def test_coordinator_rejects_illegal_transition_without_mutation(tmp_path: Path) -> None:
     from research_tree.coordinator import ResearchRunCoordinator
 

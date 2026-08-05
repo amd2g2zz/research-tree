@@ -1317,7 +1317,12 @@ class ResearchRunCoordinator:
                 if target is None:
                     raise CoordinatorError("illegal transition", code="illegal_transition")
                 next_state, required_actor = target
-                if required_actor != actor and required_actor != "human_or_operator":
+                allowed_actors = (
+                    {"human", "operator"}
+                    if required_actor == "human_or_operator"
+                    else {required_actor}
+                )
+                if actor not in allowed_actors:
                     raise CoordinatorError("actor is not authorized for transition", code="authority_denied")
                 if event == "handoff_confirmed":
                     displayed = body.get("displayed_digest")
@@ -1726,6 +1731,12 @@ class ResearchRunCoordinator:
                 raise CoordinatorError("acceptance does not bind exact delivery revisions", code="stale_acceptance")
             if not isinstance(body.get("feedback"), str) or body["feedback"].strip().casefold() in {"", "ok", "okay", "yes", "continue", "go ahead"}:
                 raise CoordinatorError("generic acknowledgement cannot accept delivery", code="invalid_acceptance")
+        elif event == "cancel_requested":
+            reason = body.get("termination_reason")
+            if not isinstance(reason, str) or not reason.strip():
+                raise CoordinatorError(
+                    "cancellation reason is required", code="missing_termination_reason"
+                )
 
     @staticmethod
     def _row(row: sqlite3.Row) -> dict[str, Any]:
