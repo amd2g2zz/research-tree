@@ -85,13 +85,13 @@ substitute for local evidence.
 
 - [x] 8.1 Define the versioned HostEvent envelope and validators for dispatch, attempt, submission, review, provider failure, unknown outcome, retry, and worker completion. Evidence: strict HostEvent envelope/schema validation now rejects invalid sequence, revision, and optional lineage identifiers before ingestion.
 - [x] 8.2 Implement expected-revision, attempt-binding, duplicate-event, stale-event, and unsupported-version handling in the coordinator ingestion boundary. Evidence: unsupported protocol versions, out-of-order sequences, unknown attempts, and orphan host observations are quarantined without run mutation; duplicate and payload-conflict behavior remains idempotent; `tests/test_alpha2_host_event_ordering.py` and full regression pass.
-- [ ] 8.3 Refactor the Codex adapter to dispatch native subagents and submit HostEvents without maintaining closure, readiness, report, or completion state.
-- [ ] 8.4 Refactor the Claude Code adapter independently for its package format and native tools while using the same HostEvent contract.
-- [ ] 8.5 Preserve open conversational alignment when a native question tool cannot express an unconstrained prompt.
+- [x] 8.3 Refactor the Codex adapter to dispatch native subagents and submit HostEvents without maintaining closure, readiness, report, or completion state. Evidence: the shared native runtime emits dispatch/attempt/submission/review/unknown HostEvents to an outbox and keeps `canonical_complete=false`; Codex has a host-bound entrypoint.
+- [x] 8.4 Refactor the Claude Code adapter independently for its package format and native tools while using the same HostEvent contract. Evidence: Claude has a separate host-bound entrypoint and package-specific adapter resources while sharing only the validated wire runtime.
+- [x] 8.5 Preserve open conversational alignment when a native question tool cannot express an unconstrained prompt. Evidence: alignment planner emits `ask_one` as an unconstrained sentence prompt and persists the pending attempt independently of host UI controls.
 - [ ] 8.6 Add source-checkout, installed-package, Windows, POSIX, rebuild, and package-parity tests for both native adapters.
-- [ ] 8.7 Prove equivalent Codex and Claude event fixtures produce the same canonical semantic digest.
+- [x] 8.7 Prove equivalent Codex and Claude event fixtures produce the same canonical semantic digest. Evidence: `tests/test_alpha2_host_parity.py` remains green with host-specific entrypoints and the shared event envelope.
 - [ ] 8.8 Define activation evidence states for discovery, current installation, live body injection, and post-activation behavior; require explicit host receipts instead of inferring activation from a file read.
-- [ ] 8.9 Add host-specific activation markers, side-effect-free probes, package digests, and bounded receipts for Codex, Claude Code, and Hermes.
+- [x] 8.9 Add host-specific activation markers, side-effect-free probes, package digests, and bounded receipts for Codex, Claude Code, and Hermes. Evidence: package activation markers, `activation_receipt.py`, digest receipts, and package activation tests cover all three hosts.
 - [ ] 8.10 Add stale-link classification and non-destructive refresh handling to setup/status, including the legacy repository-root path failure mode.
 - [ ] 8.11 Run native activation probes in isolated Codex, Claude Code, and Hermes fixtures; mark unavailable CLIs as unavailable evidence and retain exact outputs.
 

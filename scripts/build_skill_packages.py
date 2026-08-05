@@ -56,11 +56,13 @@ CLAUDE_FILES = (
     Path("references/claude-code-compatibility.md"),
     Path("references/claude-native-orchestration.md"),
     Path("scripts/native_execution_adapter.py"),
+    Path("scripts/claude_execution_adapter.py"),
 )
 CODEX_FILES = (
     Path("references/codex-cli-compatibility.md"),
     Path("references/codex-native-orchestration.md"),
     Path("scripts/native_execution_adapter.py"),
+    Path("scripts/codex_execution_adapter.py"),
 )
 HOST_FILE_MAP = {
     "codex": (
