@@ -15,6 +15,8 @@ import sqlite3
 from typing import Any, Mapping
 
 from .contracts import HostEvent, canonical_json_bytes, validate_feedback_event
+from .replay import explain_run, why_not_complete
+from .leases import AttemptLease
 
 
 LIFECYCLE_STATES = frozenset({
@@ -98,6 +100,11 @@ class ResearchRunCoordinator:
           run_id TEXT NOT NULL, digest TEXT NOT NULL, reason TEXT NOT NULL,
           revision INTEGER NOT NULL, PRIMARY KEY(run_id,digest)
         );
+        CREATE TABLE IF NOT EXISTS action_attempts(
+          run_id TEXT NOT NULL, attempt_id TEXT NOT NULL, lease_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL, PRIMARY KEY(run_id,attempt_id),
+          FOREIGN KEY(run_id) REFERENCES runs(run_id)
+        );
         """)
 
     @staticmethod
@@ -148,6 +155,17 @@ class ResearchRunCoordinator:
         manifest["manifest_digest"] = self._digest(manifest)
         return manifest
 
+    def replay(self, run_id: str) -> dict[str, Any]:
+        state = self.status(run_id)
+        return explain_run(state, self.events(run_id))
+
+    def why_not_complete(self, run_id: str) -> dict[str, Any]:
+        state = self.status(run_id)
+        obligations: list[str] = []
+        if state["lifecycle_state"] == "awaiting_acceptance":
+            obligations.append("revision-bound human acceptance")
+        return why_not_complete(state, obligations)
+
     def next_actions(self, run_id: str) -> dict[str, Any]:
         state = self.status(run_id)
         mapping = {
@@ -168,6 +186,43 @@ class ResearchRunCoordinator:
 
         state = self.status(run_id)
         return {"run_id": run_id, "state": state, "reconciled_events": [], "next_action": self.next_actions(run_id)["next_action"]}
+
+    def issue_lease(self, lease: AttemptLease, *, expected_revision: int) -> dict[str, Any]:
+        """Persist a new attempt lease and advance the run revision atomically."""
+        with self._connect() as connection:
+            row = self._require_run(connection, lease.run_id)
+            if int(row["revision"]) != expected_revision:
+                raise CoordinatorError("expected revision is stale", code="stale_revision")
+            if connection.execute("SELECT 1 FROM action_attempts WHERE run_id=? AND attempt_id=?", (lease.run_id, lease.attempt_id)).fetchone():
+                raise CoordinatorError("attempt already exists", code="duplicate_attempt")
+            revision = expected_revision + 1
+            state = self._state_payload(row, lifecycle_state=row["lifecycle_state"], revision=revision, body={})
+            connection.execute("INSERT INTO action_attempts VALUES(?,?,?,?)", (lease.run_id, lease.attempt_id, json.dumps(lease.to_dict(), sort_keys=True), self._now()))
+            connection.execute("UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?", (revision, self._digest(state), self._now(), lease.run_id))
+            self._event(connection, lease.run_id, "attempt-started-" + lease.attempt_id, expected_revision, lease.to_dict(), event_type="attempt_lease_issued")
+        return self.status(lease.run_id)
+
+    def heartbeat_lease(self, run_id: str, attempt_id: str, *, now: str, lease_seconds: int | None = None) -> dict[str, Any]:
+        with self._connect() as connection:
+            self._require_run(connection, run_id)
+            row = connection.execute("SELECT lease_json FROM action_attempts WHERE run_id=? AND attempt_id=?", (run_id, attempt_id)).fetchone()
+            if row is None:
+                raise CoordinatorError("attempt does not exist", code="attempt_not_found")
+            lease = AttemptLease.from_dict(json.loads(row["lease_json"])).heartbeat(now=now, lease_seconds=lease_seconds)
+            connection.execute("UPDATE action_attempts SET lease_json=?,updated_at=? WHERE run_id=? AND attempt_id=?", (json.dumps(lease.to_dict(), sort_keys=True), self._now(), run_id, attempt_id))
+        return lease.to_dict()
+
+    def expire_leases(self, run_id: str, *, now: str) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            self._require_run(connection, run_id)
+            rows = connection.execute("SELECT attempt_id,lease_json FROM action_attempts WHERE run_id=?", (run_id,)).fetchall()
+            expired: list[dict[str, Any]] = []
+            for row in rows:
+                lease = AttemptLease.from_dict(json.loads(row["lease_json"])).expire(now=now)
+                if lease.status == "unknown":
+                    connection.execute("UPDATE action_attempts SET lease_json=?,updated_at=? WHERE run_id=? AND attempt_id=?", (json.dumps(lease.to_dict(), sort_keys=True), self._now(), run_id, row["attempt_id"]))
+                    expired.append(lease.to_dict())
+        return expired
 
     def why_action(self, run_id: str) -> dict[str, Any]:
         state = self.status(run_id)

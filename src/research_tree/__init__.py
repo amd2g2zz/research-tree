@@ -189,6 +189,9 @@ from .oracles import OracleError, OracleRun, OracleSpec
 from .closure import ClosureError, SlotClosureAssessment
 from .acceptance import AcceptanceError, DeliveryAcceptance
 from .lifecycle import LifecycleError, allowed_transition, transition_table
+from .leases import AttemptLease, LeaseError
+from .replay import ReplayError, explain_run, ordered_events, replay_events, semantic_state_digest, why_not_complete
+from .migrations import MigrationEntry, MigrationError, MigrationManager
 from .work_items import (
     InvalidWorkItemError,
     WorkItemCompiler,
@@ -335,6 +338,17 @@ __all__ = [
     "LifecycleError",
     "allowed_transition",
     "transition_table",
+    "AttemptLease",
+    "LeaseError",
+    "ReplayError",
+    "ordered_events",
+    "replay_events",
+    "semantic_state_digest",
+    "explain_run",
+    "why_not_complete",
+    "MigrationEntry",
+    "MigrationError",
+    "MigrationManager",
     "RuntimeStoreError",
     "VerificationError",
     "VerificationFailure",

@@ -13,6 +13,7 @@ from .recursive_search import RecursiveResearchCoordinator
 from .alignment_handoff import initialize_research_from_alignment
 from .storage import RunStore
 from .coordinator import CoordinatorError, ResearchRunCoordinator
+from .migrations import MigrationManager
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -117,6 +118,12 @@ def build_parser() -> argparse.ArgumentParser:
     accept.add_argument("--run-id", required=True)
     accept.add_argument("--expected-revision", type=int, required=True)
     accept.add_argument("--displayed-digest", required=True)
+    migrate = run_commands.add_parser("migrate")
+    migrate.add_argument("--workspace", type=Path, required=True)
+    migrate.add_argument("--source", action="append", required=True)
+    migrate.add_argument("--destination-root", default=".research-tree/imported")
+    migrate.add_argument("--mode", choices=("inventory", "dry-run", "apply", "verify", "rollback", "status"), default="dry-run")
+    migrate.add_argument("--confirm")
     return parser
 
 
@@ -131,6 +138,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                 output = ResearchRunCoordinator(arguments.workspace).record_feedback(
                     value, expected_revision=arguments.expected_revision
                 )
+            elif arguments.run_command == "migrate":
+                manager = MigrationManager(arguments.workspace)
+                if arguments.mode == "inventory":
+                    output = manager.inventory(arguments.source, destination_root=arguments.destination_root)
+                elif arguments.mode == "dry-run":
+                    output = manager.dry_run(arguments.source, destination_root=arguments.destination_root)
+                elif arguments.mode == "apply":
+                    output = manager.apply(arguments.source, destination_root=arguments.destination_root, confirmation=arguments.confirm)
+                elif arguments.mode == "verify":
+                    output = manager.verify()
+                elif arguments.mode == "rollback":
+                    output = manager.rollback()
+                else:
+                    output = manager.status()
             else:
                 coordinator = ResearchRunCoordinator(arguments.workspace)
                 if arguments.run_command == "init":
@@ -143,12 +164,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 elif arguments.run_command == "next":
                     output = coordinator.next_actions(arguments.run_id)
                 elif arguments.run_command == "replay":
-                    output = {"run_id": arguments.run_id, "events": coordinator.events(arguments.run_id), "state": coordinator.status(arguments.run_id)}
+                    output = coordinator.replay(arguments.run_id)
                 elif arguments.run_command in {"explain", "why-action"}:
                     output = coordinator.why_action(arguments.run_id)
                 elif arguments.run_command == "why-not-complete":
-                    state = coordinator.status(arguments.run_id)
-                    output = {"run_id": arguments.run_id, "complete": state["lifecycle_state"] == "completed", "unmet_obligations": [] if state["lifecycle_state"] == "completed" else [f"lifecycle_state={state['lifecycle_state']}"], "next_action": "accept" if state["lifecycle_state"] == "awaiting_acceptance" else "continue_research"}
+                    output = coordinator.why_not_complete(arguments.run_id)
                 elif arguments.run_command == "export-audit":
                     output = coordinator.audit(arguments.run_id)
                 elif arguments.run_command == "recover":
