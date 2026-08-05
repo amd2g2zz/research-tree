@@ -8,6 +8,7 @@ one durable authority here.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
@@ -404,7 +405,50 @@ class ResearchRunCoordinator:
                 (revision, self._digest(state), self._now(), host_event.run_id),
             )
             connection.execute("INSERT INTO host_events VALUES(?,?,?,?)", (host_event.run_id, host_event.event_id, raw, host_event.payload_digest))
+            self._apply_host_event_effect(connection, host_event)
         return payload
+
+    def _apply_host_event_effect(self, connection: sqlite3.Connection, event: HostEvent) -> None:
+        """Project an accepted host observation onto its canonical attempt lease.
+
+        This is intentionally narrower than lifecycle completion: host events
+        may advance an attempt to a reviewable or recoverable state, but only
+        coordinator obligations and human acceptance can close a run.
+        """
+
+        if not event.attempt_id:
+            return
+        row = connection.execute(
+            "SELECT lease_json FROM action_attempts WHERE run_id=? AND attempt_id=?",
+            (event.run_id, event.attempt_id),
+        ).fetchone()
+        if row is None:
+            return
+        lease = AttemptLease.from_dict(json.loads(row["lease_json"]))
+        status: str | None = None
+        if event.event_type == "attempt_started":
+            status = "running"
+        elif event.event_type == "finding_submitted":
+            status = "submitted"
+        elif event.event_type == "review_completed":
+            status = "verified" if event.payload.get("accepted_refs") else "rejected"
+        elif event.event_type == "provider_failed":
+            category = str(event.payload.get("retry_category", "unknown")).casefold()
+            status = "retryable" if category in {"retryable", "transient", "context_limit"} else "unknown"
+        elif event.event_type == "attempt_unknown":
+            status = "unknown"
+        elif event.event_type == "retry_requested":
+            status = "retryable"
+        elif event.event_type == "worker_finished":
+            terminal = str(event.payload.get("terminal_status", "")).casefold()
+            status = "submitted" if terminal in {"completed", "verified", "success", "submitted"} else "rejected"
+        if status is None or lease.status == status:
+            return
+        updated = replace(lease, status=status, last_seen_at=self._now())
+        connection.execute(
+            "UPDATE action_attempts SET lease_json=?,updated_at=? WHERE run_id=? AND attempt_id=?",
+            (json.dumps(updated.to_dict(), sort_keys=True), self._now(), event.run_id, event.attempt_id),
+        )
 
     def _authority_digest(self, row: sqlite3.Row) -> str:
         return str(row["authority_digest"])

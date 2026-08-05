@@ -389,6 +389,11 @@ retry category, opaque code, and safe gateway-log ref; and
 class, and next action. Other event types use their corresponding field list
 in the HostEvent protocol specification.
 
+Accepted attempt events may project a lease to `running`, `submitted`,
+`verified`, `retryable`, `unknown`, or `rejected` according to the event and
+its payload. This projection is an observation for reconciliation; it never
+issues a closure token or changes the run lifecycle to `completed`.
+
 ## Persistent recursive research state
 
 Every accepted batch appends a `research-tree-state` artifact. Revision zero

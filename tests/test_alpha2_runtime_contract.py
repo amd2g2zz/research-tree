@@ -120,6 +120,8 @@ def test_host_event_is_idempotent_but_payload_conflict_is_rejected(tmp_path: Pat
     first = coordinator.ingest_host_event(event)
     second = coordinator.ingest_host_event(event)
     assert first == second
+    assert coordinator.reconcile_host("run-events")["status"] == "no_divergence_detected"
+    assert coordinator.status("run-events")["lifecycle_state"] == "alignment"
     changed = HostEvent.create(
         event_id=event.event_id,
         event_type=event.event_type,

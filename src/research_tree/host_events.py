@@ -25,7 +25,20 @@ def reconcile_host_events(*, canonical_attempts: Mapping[str, Mapping[str, Any]]
         if len(events) > 1 and len({str(event.get("event_id")) for event in events}) != len(events):
             discrepancies.append({"kind": "duplicate_host_event", "attempt_id": attempt_id, "disposition": "reconcile"})
         canonical_status = str(canonical_attempts[attempt_id].get("status", "unknown"))
-        host_statuses = {str(event.get("payload", {}).get("status")) for event in events if isinstance(event.get("payload"), Mapping)}
+        host_statuses: set[str] = set()
+        for event in events:
+            payload = event.get("payload")
+            if not isinstance(payload, Mapping):
+                continue
+            status = payload.get("status")
+            if status is None:
+                status = payload.get("submission_status")
+            if status is None:
+                terminal = payload.get("terminal_status")
+                if terminal is not None:
+                    status = "submitted" if str(terminal).casefold() in {"completed", "verified", "success", "submitted"} else "rejected"
+            if status is not None:
+                host_statuses.add(str(status))
         if host_statuses and canonical_status not in host_statuses:
             discrepancies.append({"kind": "divergent_outcome", "attempt_id": attempt_id, "canonical_status": canonical_status, "host_statuses": sorted(host_statuses), "disposition": "canonical_remains_authoritative"})
     for attempt_id in sorted(set(canonical_attempts) - set(by_attempt)):
