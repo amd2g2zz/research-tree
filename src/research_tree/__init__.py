@@ -183,6 +183,10 @@ from .coordinator import CoordinatorError, ResearchRunCoordinator
 from .evaluation_fixtures import assess_attribution, reported_claude_glm_fixture
 from .policy import AdaptiveResearchPolicy, DEFAULT_WEIGHTS
 from .host_events import emit_native_event, event_from_adapter_payload
+from .cas import CASError, CASIntegrityError, ContentAddressedStore
+from .evidence import EvidenceAnchor, EvidenceArtifact, EvidenceError
+from .oracles import OracleError, OracleRun, OracleSpec
+from .closure import ClosureError, SlotClosureAssessment
 from .work_items import (
     InvalidWorkItemError,
     WorkItemCompiler,
@@ -313,6 +317,17 @@ __all__ = [
     "DEFAULT_WEIGHTS",
     "emit_native_event",
     "event_from_adapter_payload",
+    "CASError",
+    "CASIntegrityError",
+    "ContentAddressedStore",
+    "EvidenceAnchor",
+    "EvidenceArtifact",
+    "EvidenceError",
+    "OracleError",
+    "OracleRun",
+    "OracleSpec",
+    "ClosureError",
+    "SlotClosureAssessment",
     "RuntimeStoreError",
     "VerificationError",
     "VerificationFailure",
