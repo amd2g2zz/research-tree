@@ -8,12 +8,15 @@ import pytest
 from research_tree.coordinator import ResearchRunCoordinator
 from research_tree.contracts import HostEvent
 from research_tree.leases import AttemptLease
+from research_tree.sqlite_ledger import SQLiteRunLedger
+from tests.alpha2_runtime_helpers import satisfy_p0_closure
 
 
 def test_material_feedback_preserves_revision_and_quarantines_dependent_state(
     tmp_path: Path,
 ) -> None:
-    coordinator = ResearchRunCoordinator(tmp_path)
+    ledger = SQLiteRunLedger(tmp_path)
+    coordinator = ledger.coordinator
     strategy_digest = "a" * 64
     state = coordinator.create(
         "run-correction-integration",
@@ -26,7 +29,8 @@ def test_material_feedback_preserves_revision_and_quarantines_dependent_state(
         expected_revision=state["revision"],
         payload={"strategy_digest": strategy_digest},
     )
-    for obligation in ("p0_closure", "insight_clear", "readiness", "evaluation"):
+    state = satisfy_p0_closure(ledger, state, suffix="correction")
+    for obligation in ("insight_clear", "readiness", "evaluation"):
         state = coordinator.record_obligation(
             state["run_id"],
             obligation,

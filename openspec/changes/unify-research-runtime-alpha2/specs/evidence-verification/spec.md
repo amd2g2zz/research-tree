@@ -41,6 +41,10 @@ artifacts, evaluator, limitations, and reproducibility. The
 legacy `create` API remains a compatibility constructor and does not itself authorize
 alpha2 closure.
 
+The coordinator rejects direct `p0_closure` obligation writes unless the evidence
+reference resolves to a persisted passed assessment token. A worker-authored status,
+arbitrary string, report field, or host event cannot satisfy this obligation.
+
 #### Scenario: Oracle execution fails
 - **WHEN** the recorded oracle result is failed or inconclusive
 - **THEN** the result remains visible and triggers an independent validation, method switch, fallback, or bounded residual-risk decision

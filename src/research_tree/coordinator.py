@@ -309,6 +309,15 @@ class ResearchRunCoordinator:
             row = self._require_run(connection, run_id)
             if int(row["revision"]) != expected_revision:
                 raise CoordinatorError("expected revision is stale", code="stale_revision")
+            if obligation == "p0_closure" and connection.execute(
+                """SELECT 1 FROM slot_closure_assessments
+                   WHERE run_id=? AND token_digest=? AND status='passed'""",
+                (run_id, evidence_ref),
+            ).fetchone() is None:
+                raise CoordinatorError(
+                    "P0 closure requires a persisted core assessment token",
+                    code="closure_token_required",
+                )
             self._ensure_obligations(connection, run_id)
             revision = expected_revision + 1
             connection.execute("UPDATE run_obligations SET satisfied=1,evidence_ref=?,updated_at=? WHERE run_id=? AND obligation=?", (evidence_ref, self._now(), run_id, obligation))

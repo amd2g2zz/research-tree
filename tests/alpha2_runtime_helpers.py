@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+from research_tree import AttemptLease, OracleRun, SlotClosureAssessment, SQLiteRunLedger
+
+
+def satisfy_p0_closure(ledger: SQLiteRunLedger, state: dict[str, object], *, suffix: str = "main") -> dict[str, object]:
+    coordinator = ledger.coordinator
+    run_id = str(state["run_id"])
+    lease = AttemptLease.create(
+        attempt_id=f"attempt-closure-{suffix}", work_item_id=f"work-closure-{suffix}",
+        run_id=run_id, owner="closure-worker", dispatch_digest="e" * 64,
+        started_at="2026-08-05T00:00:00Z", lease_expires_at="2026-08-05T01:00:00Z",
+    )
+    state = coordinator.issue_lease(lease, expected_revision=int(state["revision"]))
+    run = OracleRun.from_mapping(
+        {
+            "oracle_run_id": f"oracle-run-{suffix}", "oracle_spec_id": "oracle-build",
+            "oracle_spec_version": 1, "attempt_id": lease.attempt_id, "method": "integration-test",
+            "input_digests": ["a" * 64], "environment_digest": "b" * 64,
+            "toolchain_digest": "c" * 64, "tool_event_refs": [], "verdict": "passed",
+            "exit_code": 0, "timed_out": False, "result_artifact_refs": ["artifact-result"],
+            "evaluator": "core-v1", "limitations": [], "reproducibility_status": "reproducible",
+        }
+    )
+    state = coordinator.record_oracle_run(run_id, run, expected_revision=int(state["revision"]))
+    decision = ledger.append_artifact(
+        run_id=run_id, artifact_id=f"decision-{suffix}", kind="decision-ledger-entry",
+        payload={"status": "selected"}, actor_kind="coordinator", actor_id="decision-compiler",
+        status="active", expected_revision=0,
+    )
+    assessment = SlotClosureAssessment.assess_alpha2(
+        slot_id=f"slot-{suffix}", assessment_revision=1,
+        decision_ref={"run_id": run_id, "artifact_id": f"decision-{suffix}", "revision": 1, "content_hash": decision["content_hash"]},
+        decision_status="selected",
+        evidence=[
+            {"evidence_id": "e1", "provenance_group": "source-a", "classes": ["repository"]},
+            {"evidence_id": "e2", "provenance_group": "source-b", "classes": ["experiment"]},
+        ],
+        oracle_runs=[run.to_contract_dict()], contradictions=[], required_classes=["repository", "experiment"],
+        counterevidence_search={"completed": True}, fallback="Use the prior implementation.",
+        reversal_condition="A failed integration test.", assessor_version="core-v1",
+    )
+    return coordinator.record_closure_assessment(
+        run_id, assessment, expected_revision=coordinator.status(run_id)["revision"]
+    )
