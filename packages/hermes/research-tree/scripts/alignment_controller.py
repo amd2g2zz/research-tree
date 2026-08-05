@@ -15,6 +15,7 @@ import tempfile
 from typing import Any, Iterable, Mapping, Sequence
 
 from .contracts import validate_feedback_event
+from .alignment_strategy import select_alignment_action
 
 
 SCHEMA = 2
@@ -259,6 +260,12 @@ class AlignmentGraphStore:
                     "reason": reason or "remaining uncertainty is agent-verifiable",
                     "question": None,
                 }
+            strategy_decision, _strategy_state = select_alignment_action(
+                nodes=nodes, readiness=readiness, turn=int(controller["turn"]), graph_digest=_digest({"nodes": nodes, "edges": state["graph"]["edges"]})
+            )
+            # Keep the existing action contract, but persist the internal rationale
+            # and only adopt the strategy projection's open prompt when it is safer.
+            decision["strategy_state"] = strategy_decision["strategy_state"]
             connection.execute(
                 """
                 UPDATE controller
