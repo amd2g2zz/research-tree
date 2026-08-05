@@ -125,7 +125,9 @@ def test_blueprint_spine_reaches_safe_handoff_then_explicit_export(tmp_path: Pat
 
     modules, store, round_record, technical_package = complete_package(tmp_path)
     snapshot = store.load_round(round_record.id)
-    human_brief = next(item for item in snapshot.artifacts if item.kind == "human-brief")
+    human_brief = next(
+        item for item in snapshot.artifacts if item.kind == "human-research-report"
+    )
     assert technical_package.kind == "technical-research-package"
     assert human_brief.payload["technical_package_ref"] == {
         "round_id": round_record.id,

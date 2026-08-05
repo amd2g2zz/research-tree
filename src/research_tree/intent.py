@@ -742,17 +742,26 @@ def _normalize_disposition(value: Mapping[str, str] | None) -> dict[str, str]:
 def _normalize_delivery_targets(value: Mapping[str, bool] | None) -> dict[str, bool]:
     defaults = {
         "technical_research_package": True,
-        "human_brief": True,
+        "human_research_report": True,
         "openspec": False,
     }
     if value is None:
         return defaults
     if not isinstance(value, Mapping):
         raise InvalidWorkingBriefError("delivery_targets must be a mapping")
-    _require_exact_keys(value, set(defaults), "delivery_targets", InvalidWorkingBriefError)
-    if any(not isinstance(enabled, bool) for enabled in value.values()):
+    normalized = dict(value)
+    if "human_brief" in normalized:
+        if "human_research_report" in normalized:
+            raise InvalidWorkingBriefError(
+                "delivery_targets cannot contain both human_brief and human_research_report"
+            )
+        normalized["human_research_report"] = normalized.pop("human_brief")
+    _require_exact_keys(
+        normalized, set(defaults), "delivery_targets", InvalidWorkingBriefError
+    )
+    if any(not isinstance(enabled, bool) for enabled in normalized.values()):
         raise InvalidWorkingBriefError("delivery_targets values must be bools")
-    return {key: value[key] for key in defaults}
+    return {key: normalized[key] for key in defaults}
 
 
 def _resolve_input_artifacts(

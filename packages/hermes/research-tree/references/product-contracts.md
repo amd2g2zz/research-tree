@@ -206,7 +206,7 @@ alignment research cannot responsibly distinguish a non-recoverable choice.
   },
   "delivery_targets": {
     "technical_research_package": true,
-    "human_brief": true,
+    "human_research_report": true,
     "openspec": false
   }
 }
@@ -262,7 +262,7 @@ new strategy decides its disposition.
   "strategy_changes": [],
   "delivery_targets": {
     "technical_research_package": true,
-    "human_brief": true,
+    "human_research_report": true,
     "openspec": false
   }
 }
@@ -460,7 +460,7 @@ intent. Only target-changing feedback starts a new Working Brief.
   "artifact_refs": {
     "intent_model": "research/round-002/intent-model.json",
     "technical_research_package": "research/round-002/agent-package.md",
-    "human_brief": "research/round-002/human-brief.md",
+    "human_research_report": "research/round-002/human-research-report.md",
     "decision_ledger": "research/round-002/decision-ledger.json",
     "readiness_record": "research/round-002/readiness.json",
     "openspec": null

@@ -215,38 +215,52 @@ def test_partial_ambiguity_generates_nonblocking_question_and_brief(tmp_path: Pa
     assert recommendation is not None
     assert recommendation.question.startswith("Should the initial demo")
 
-    brief = modules["WorkingBriefCompiler"](store).compile(
-        round_id=round_record.id,
-        brief_id="working-brief",
-        intent_model=model,
-        triggers=[{"kind": "initial_request", "text": "Start", "input_ids": ["input-brief"]}],
-        context_bundle_ids=("input-context",),
-        selected_input_ids=("input-brief", "input-local", "input-cloud"),
-        input_roles={
+    brief_args = {
+        "round_id": round_record.id,
+        "intent_model": model,
+        "triggers": [{"kind": "initial_request", "text": "Start", "input_ids": ["input-brief"]}],
+        "context_bundle_ids": ("input-context",),
+        "selected_input_ids": ("input-brief", "input-local", "input-cloud"),
+        "input_roles": {
             "input-brief": "primary",
             "input-local": "constraint",
             "input-cloud": "counterexample",
         },
-        material_conflicts=[
+        "material_conflicts": [
             {
                 "input_ids": ["input-local", "input-cloud"],
                 "status": "open",
                 "note": "Deployment direction remains unresolved.",
             }
         ],
-        working_interpretation="Local-first is leading while cloud hosting remains viable.",
-        technical_outcome="Choose an implementation-ready safe reverse-engineering path.",
-        assumptions=["Proceed with local-first research until evidence ranks alternatives."],
+        "working_interpretation": "Local-first is leading while cloud hosting remains viable.",
+        "technical_outcome": "Choose an implementation-ready safe reverse-engineering path.",
+        "assumptions": ["Proceed with local-first research until evidence ranks alternatives."],
+    }
+    brief = modules["WorkingBriefCompiler"](store).compile(
+        brief_id="working-brief",
+        **brief_args,
     )
 
     assert brief.payload["intent_model_id"] == model.id
     assert brief.payload["intent_hypothesis_ids"] == ("intent-local",)
     assert brief.payload["delivery_targets"] == {
         "technical_research_package": True,
-        "human_brief": True,
+        "human_research_report": True,
         "openspec": False,
     }
     assert brief.parent_refs[0].artifact_id == model.id
+
+    legacy_alias = modules["WorkingBriefCompiler"](store).compile(
+        brief_id="working-brief-legacy-alias",
+        delivery_targets={
+            "technical_research_package": True,
+            "human_brief": True,
+            "openspec": False,
+        },
+        **brief_args,
+    )
+    assert legacy_alias.payload["delivery_targets"] == brief.payload["delivery_targets"]
 
 
 def test_question_policy_stays_silent_when_evidence_can_rank_ambiguity(tmp_path: Path) -> None:

@@ -41,9 +41,11 @@ from .delivery import (
     DeliveryCompiler,
     DeliveryError,
     HUMAN_BRIEF_KIND,
+    HUMAN_RESEARCH_REPORT_KIND,
     InvalidDeliveryError,
     TECHNICAL_RESEARCH_PACKAGE_KIND,
     validate_human_brief_payload,
+    validate_human_research_report_payload,
     validate_technical_package_payload,
 )
 from .evaluation import (
@@ -400,6 +402,7 @@ __all__ = [
     "SourceAcquisitionPort",
     "SimplerBaselineResult",
     "HUMAN_BRIEF_KIND",
+    "HUMAN_RESEARCH_REPORT_KIND",
     "TECHNICAL_RESEARCH_PACKAGE_KIND",
     "TimeSplitCase",
     "QuestionPolicy",
@@ -422,6 +425,7 @@ __all__ = [
     "validate_assurance_resolution_payload",
     "validate_assurance_selection_payload",
     "validate_human_brief_payload",
+    "validate_human_research_report_payload",
     "validate_blueprint_evaluation_payload",
     "validate_readiness_record_payload",
     "validate_risk_verification_payload",

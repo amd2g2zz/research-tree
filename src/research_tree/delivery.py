@@ -29,6 +29,7 @@ from .storage import RunStore
 
 
 TECHNICAL_RESEARCH_PACKAGE_KIND = "technical-research-package"
+HUMAN_RESEARCH_REPORT_KIND = "human-research-report"
 HUMAN_BRIEF_KIND = "human-brief"
 READINESS_GATES = (
     "intent_alignment",
@@ -71,7 +72,13 @@ class DeliveryArtifacts:
     """The two immutable outputs compiled from one structured snapshot."""
 
     technical_package: ArtifactRevision
-    human_brief: ArtifactRevision
+    human_research_report: ArtifactRevision
+
+    @property
+    def human_brief(self) -> ArtifactRevision:
+        """Compatibility alias; alpha2 never writes the legacy artifact kind."""
+
+        return self.human_research_report
 
 
 class DeliveryCompiler:
@@ -85,7 +92,8 @@ class DeliveryCompiler:
         *,
         round_id: str,
         technical_package_id: str,
-        human_brief_id: str,
+        human_research_report_id: str | None = None,
+        human_brief_id: str | None = None,
         working_brief: ArtifactRevision,
         blueprint_target: ArtifactRevision,
         decision_entries: Sequence[ArtifactRevision],
@@ -101,15 +109,24 @@ class DeliveryCompiler:
         try:
             snapshot = self._store.load_round(round_id)
             validate_identifier(technical_package_id, "technical_package_id")
-            validate_identifier(human_brief_id, "human_brief_id")
-            if technical_package_id == human_brief_id:
+            report_id = human_research_report_id or human_brief_id
+            if not report_id:
+                raise InvalidDeliveryError("human_research_report_id is required")
+            if human_research_report_id and human_brief_id:
                 raise InvalidDeliveryError(
-                    "technical_package_id and human_brief_id must be distinct"
+                    "human_research_report_id and legacy human_brief_id are mutually exclusive"
+                )
+            validate_identifier(report_id, "human_research_report_id")
+            if technical_package_id == report_id:
+                raise InvalidDeliveryError(
+                    "technical_package_id and human_research_report_id must be distinct"
                 )
             _ensure_id_compatibility(
                 snapshot.artifacts, technical_package_id, TECHNICAL_RESEARCH_PACKAGE_KIND
             )
-            _ensure_id_compatibility(snapshot.artifacts, human_brief_id, HUMAN_BRIEF_KIND)
+            _ensure_id_compatibility(
+                snapshot.artifacts, report_id, HUMAN_RESEARCH_REPORT_KIND
+            )
             brief = _resolve_exact(
                 snapshot.artifacts, working_brief, WORKING_BRIEF_KIND, "working_brief"
             )
@@ -137,8 +154,8 @@ class DeliveryCompiler:
             )
             previous_human = _latest_artifact(
                 snapshot.artifacts,
-                human_brief_id,
-                HUMAN_BRIEF_KIND,
+                report_id,
+                HUMAN_RESEARCH_REPORT_KIND,
             )
             next_package_ref = ArtifactRef(
                 round_id,
@@ -176,7 +193,7 @@ class DeliveryCompiler:
                 "markdown": _render_human_markdown(round_id, next_package_ref, human_document),
             }
             validate_technical_package_payload(technical_payload)
-            validate_human_brief_payload(human_payload)
+            validate_human_research_report_payload(human_payload)
         except (InvalidIdentifierError, TypeError, ValueError) as error:
             raise InvalidDeliveryError(str(error)) from error
 
@@ -206,14 +223,17 @@ class DeliveryCompiler:
         )
         if technical_package.revision != next_package_ref.revision:
             raise InvalidDeliveryError("technical package revision changed during delivery compilation")
-        human_brief = self._store.append_artifact(
+        human_report = self._store.append_artifact(
             round_id,
-            human_brief_id,
-            HUMAN_BRIEF_KIND,
+            report_id,
+            HUMAN_RESEARCH_REPORT_KIND,
             human_payload,
             parent_refs=human_refs,
         )
-        return DeliveryArtifacts(technical_package=technical_package, human_brief=human_brief)
+        return DeliveryArtifacts(
+            technical_package=technical_package,
+            human_research_report=human_report,
+        )
 
 
 def validate_technical_package_payload(payload: Mapping[str, Any]) -> None:
@@ -225,7 +245,7 @@ def validate_technical_package_payload(payload: Mapping[str, Any]) -> None:
     _nonempty_string(payload["markdown"], "technical package markdown")
 
 
-def validate_human_brief_payload(payload: Mapping[str, Any]) -> None:
+def validate_human_research_report_payload(payload: Mapping[str, Any]) -> None:
     """Validate the smaller requester-facing document before append."""
 
     _require_exact_keys(
@@ -235,7 +255,13 @@ def validate_human_brief_payload(payload: Mapping[str, Any]) -> None:
     _validate_artifact_ref(ref, "technical_package_ref")
     document = _mapping_value(payload["document"], "human brief document")
     _validate_human_document(document)
-    _nonempty_string(payload["markdown"], "human brief markdown")
+    _nonempty_string(payload["markdown"], "human research report markdown")
+
+
+def validate_human_brief_payload(payload: Mapping[str, Any]) -> None:
+    """Compatibility alias for the alpha2 Human Research Report validator."""
+
+    validate_human_research_report_payload(payload)
 
 
 def _validate_technical_document(document: Mapping[str, Any]) -> None:

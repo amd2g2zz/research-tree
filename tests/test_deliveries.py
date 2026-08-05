@@ -317,7 +317,7 @@ def compile_deliveries(
     return modules["DeliveryCompiler"](store).compile(
         round_id=round_record.id,
         technical_package_id="technical-package",
-        human_brief_id="human-brief",
+        human_research_report_id="human-research-report",
         working_brief=brief,
         blueprint_target=target,
         decision_entries=decisions,
@@ -325,7 +325,7 @@ def compile_deliveries(
     )
 
 
-def test_compiles_traceable_agent_package_and_independent_human_brief(tmp_path: Path) -> None:
+def test_compiles_traceable_agent_package_and_human_research_report(tmp_path: Path) -> None:
     modules, store, round_record, model, brief, target, _finding, decision = context(tmp_path)
 
     deliveries = compile_deliveries(
@@ -333,13 +333,14 @@ def test_compiles_traceable_agent_package_and_independent_human_brief(tmp_path: 
     )
 
     technical = deliveries.technical_package
-    human = deliveries.human_brief
+    human = deliveries.human_research_report
     document = technical.payload["document"]
     record = document["decision_records"][0]
     closure = {entry["decision_slot_id"]: entry for entry in document["blueprint_closure"]}
 
     assert technical.kind == "technical-research-package"
-    assert human.kind == "human-brief"
+    assert human.kind == "human-research-report"
+    assert deliveries.human_brief == human
     assert record["intent_hypothesis_ids"] == ("intent-agent",)
     assert record["repository_touchpoints"] == ({"path": "src/agent.py", "symbol": "run"},)
     assert record["validation"]["oracle"].startswith("one fixture")
@@ -364,6 +365,26 @@ def test_compiles_traceable_agent_package_and_independent_human_brief(tmp_path: 
     }
     assert expected_refs <= set(technical.parent_refs)
     assert expected_refs <= set(human.parent_refs)
+
+
+def test_legacy_human_brief_api_alias_writes_only_canonical_report_kind(
+    tmp_path: Path,
+) -> None:
+    modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
+
+    deliveries = modules["DeliveryCompiler"](store).compile(
+        round_id=round_record.id,
+        technical_package_id="technical-package",
+        human_brief_id="legacy-api-report-id",
+        working_brief=brief,
+        blueprint_target=target,
+        decision_entries=[decision],
+        readiness=readiness(),
+    )
+
+    assert deliveries.human_brief.kind == "human-research-report"
+    kinds = {artifact.kind for artifact in store.load_round(round_record.id).artifacts}
+    assert "human-brief" not in kinds
 
 
 def test_missing_blueprint_closure_and_nonpassing_readiness_are_visible(tmp_path: Path) -> None:
@@ -391,7 +412,7 @@ def test_missing_blueprint_closure_and_nonpassing_readiness_are_visible(tmp_path
     assert "work-observability" in human.payload["markdown"]
 
 
-def test_human_brief_makes_unclosed_decisions_and_readiness_follow_up_standalone(
+def test_human_report_makes_unclosed_decisions_and_readiness_follow_up_standalone(
     tmp_path: Path,
 ) -> None:
     modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
@@ -453,7 +474,7 @@ def test_passing_decision_closure_gate_cannot_contradict_missing_or_blocked_slot
 
     kinds = {artifact.kind for artifact in store.load_round(round_record.id).artifacts}
     assert "technical-research-package" not in kinds
-    assert "human-brief" not in kinds
+    assert "human-research-report" not in kinds
 
 
 def test_invalid_implementation_facing_p0_record_leaves_no_delivery_artifacts(
@@ -477,7 +498,7 @@ def test_invalid_implementation_facing_p0_record_leaves_no_delivery_artifacts(
 
     kinds = {artifact.kind for artifact in store.load_round(round_record.id).artifacts}
     assert "technical-research-package" not in kinds
-    assert "human-brief" not in kinds
+    assert "human-research-report" not in kinds
 
 
 @pytest.mark.parametrize(
@@ -538,7 +559,7 @@ def test_directly_written_p0_decision_revisions_are_semantically_revalidated(
 
     kinds = {artifact.kind for artifact in store.load_round(round_record.id).artifacts}
     assert "technical-research-package" not in kinds
-    assert "human-brief" not in kinds
+    assert "human-research-report" not in kinds
 
 
 def test_stale_or_ambiguous_ledger_inputs_are_rejected_before_outputs(tmp_path: Path) -> None:
@@ -556,7 +577,7 @@ def test_stale_or_ambiguous_ledger_inputs_are_rejected_before_outputs(tmp_path: 
 
     kinds = {artifact.kind for artifact in store.load_round(round_record.id).artifacts}
     assert "technical-research-package" not in kinds
-    assert "human-brief" not in kinds
+    assert "human-research-report" not in kinds
 
 
 def test_delivery_api_has_no_worker_prose_or_default_openspec_path(tmp_path: Path) -> None:
@@ -574,7 +595,11 @@ def test_delivery_api_has_no_worker_prose_or_default_openspec_path(tmp_path: Pat
 
 def test_public_payload_validators_reject_nested_schema_drift(tmp_path: Path) -> None:
     modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
-    from research_tree import validate_human_brief_payload, validate_technical_package_payload
+    from research_tree import (
+        validate_human_brief_payload,
+        validate_human_research_report_payload,
+        validate_technical_package_payload,
+    )
     from research_tree.domain import thaw_json
 
     deliveries = compile_deliveries(modules, store, round_record, brief, target, [decision])
@@ -589,6 +614,11 @@ def test_public_payload_validators_reject_nested_schema_drift(tmp_path: Path) ->
     invalid_human["document"]["unclosed_blueprint_items"][0].pop("next_action")
     with pytest.raises(modules["InvalidDeliveryError"]):
         validate_human_brief_payload(invalid_human)
+
+    empty_markdown = thaw_json(deliveries.human_research_report.payload)
+    empty_markdown["markdown"] = ""
+    with pytest.raises(modules["InvalidDeliveryError"]):
+        validate_human_research_report_payload(empty_markdown)
 
 
 def test_rollout_and_observability_are_structured_or_explicitly_unknown(tmp_path: Path) -> None:
@@ -661,7 +691,7 @@ def test_readiness_cannot_pass_while_blueprint_closure_is_missing(tmp_path: Path
         modules["DeliveryCompiler"](store).compile(
             round_id=round_record.id,
             technical_package_id="technical-package",
-            human_brief_id="human-brief",
+            human_research_report_id="human-research-report",
             working_brief=brief,
             blueprint_target=target,
             decision_entries=[decision],
@@ -670,7 +700,7 @@ def test_readiness_cannot_pass_while_blueprint_closure_is_missing(tmp_path: Path
 
     kinds = {artifact.kind for artifact in store.load_round(round_record.id).artifacts}
     assert "technical-research-package" not in kinds
-    assert "human-brief" not in kinds
+    assert "human-research-report" not in kinds
 
 
 def test_malformed_p0_ledger_trace_is_rejected_before_outputs(tmp_path: Path) -> None:
@@ -693,7 +723,7 @@ def test_malformed_p0_ledger_trace_is_rejected_before_outputs(tmp_path: Path) ->
 
     kinds = {artifact.kind for artifact in store.load_round(round_record.id).artifacts}
     assert "technical-research-package" not in kinds
-    assert "human-brief" not in kinds
+    assert "human-research-report" not in kinds
 
 
 def test_public_payload_validators_reject_shallow_placeholder_documents() -> None:
