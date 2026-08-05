@@ -489,7 +489,7 @@ def _normalize_oracle_run_refs(value: Any) -> list[dict[str, Any]]:
         label = f"oracle_run_refs[{index}]"
         _require_exact_keys(
             ref,
-            {"oracle_run_id", "oracle_spec_id", "oracle_spec_version", "attempt_id"},
+            {"oracle_run_id", "oracle_attempt_id", "oracle_spec_id", "oracle_spec_version", "attempt_id"},
             label,
             InvalidFindingPackError,
         )
@@ -502,6 +502,7 @@ def _normalize_oracle_run_refs(value: Any) -> list[dict[str, Any]]:
         normalized.append(
             {
                 "oracle_run_id": oracle_run_id,
+                "oracle_attempt_id": _nonempty_string(ref["oracle_attempt_id"], f"{label}.oracle_attempt_id", InvalidFindingPackError),
                 "oracle_spec_id": _nonempty_string(ref["oracle_spec_id"], f"{label}.oracle_spec_id", InvalidFindingPackError),
                 "oracle_spec_version": version,
                 "attempt_id": _nonempty_string(ref["attempt_id"], f"{label}.attempt_id", InvalidFindingPackError),

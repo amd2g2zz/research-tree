@@ -1,17 +1,56 @@
 from __future__ import annotations
 
-from research_tree import AttemptLease, OracleRun, SlotClosureAssessment, SQLiteRunLedger
+from research_tree import (
+    AttemptLease,
+    OracleAttempt,
+    OracleRun,
+    OracleSpec,
+    SlotClosureAssessment,
+    SQLiteRunLedger,
+)
 
 
 def satisfy_p0_closure(ledger: SQLiteRunLedger, state: dict[str, object], *, suffix: str = "main") -> dict[str, object]:
     coordinator = ledger.coordinator
     run_id = str(state["run_id"])
+    spec_id = f"oracle-build-{suffix}"
+    spec = OracleSpec.create(
+        spec_id,
+        "integration-test",
+        "integration-test",
+        expected="The integration test passes.",
+        version=1,
+    )
+    state = coordinator.record_oracle_spec(
+        run_id, spec, expected_revision=int(state["revision"])
+    )
     lease = AttemptLease.create(
         attempt_id=f"attempt-closure-{suffix}", work_item_id=f"work-closure-{suffix}",
         run_id=run_id, owner="closure-worker", dispatch_digest="e" * 64,
         started_at="2026-08-05T00:00:00Z", lease_expires_at="2026-08-05T01:00:00Z",
     )
     state = coordinator.issue_lease(lease, expected_revision=int(state["revision"]))
+    spec_digest = coordinator.oracle_specs(run_id)[f"{spec_id}@1"][
+        "contract_digest"
+    ]
+    oracle_attempt = OracleAttempt.from_mapping(
+        {
+            "oracle_attempt_id": f"oracle-attempt-{suffix}",
+            "run_id": run_id,
+            "action_attempt_id": lease.attempt_id,
+            "oracle_spec_id": spec_id,
+            "oracle_spec_version": 1,
+            "oracle_spec_digest": spec_digest,
+            "method": "integration-test",
+            "input_digests": ["a" * 64],
+            "environment_digest": "b" * 64,
+            "toolchain_digest": "c" * 64,
+            "started_at": "2026-08-05T00:00:00+00:00",
+        }
+    )
+    state = coordinator.record_oracle_attempt(
+        run_id, oracle_attempt, expected_revision=int(state["revision"])
+    )
     result_artifact = ledger.append_artifact(
         run_id=run_id,
         artifact_id=f"oracle-result-{suffix}",
@@ -24,7 +63,9 @@ def satisfy_p0_closure(ledger: SQLiteRunLedger, state: dict[str, object], *, suf
     )
     run = OracleRun.from_mapping(
         {
-            "oracle_run_id": f"oracle-run-{suffix}", "oracle_spec_id": "oracle-build",
+            "oracle_run_id": f"oracle-run-{suffix}",
+            "oracle_attempt_id": oracle_attempt.oracle_attempt_id,
+            "oracle_spec_id": spec_id,
             "oracle_spec_version": 1, "attempt_id": lease.attempt_id, "method": "integration-test",
             "input_digests": ["a" * 64], "environment_digest": "b" * 64,
             "toolchain_digest": "c" * 64, "tool_event_refs": [], "verdict": "passed",

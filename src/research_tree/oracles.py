@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 import hashlib
 import re
 from typing import Any, Mapping, Sequence
@@ -10,6 +11,10 @@ from typing import Any, Mapping, Sequence
 
 class OracleError(ValueError):
     pass
+
+
+_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+_DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,8 +99,97 @@ class OracleSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class OracleAttempt:
+    oracle_attempt_id: str
+    run_id: str
+    action_attempt_id: str
+    oracle_spec_id: str
+    oracle_spec_version: int
+    oracle_spec_digest: str
+    method: str
+    input_digests: tuple[str, ...]
+    environment_digest: str
+    toolchain_digest: str
+    started_at: str
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any]) -> "OracleAttempt":
+        required = {
+            "oracle_attempt_id",
+            "run_id",
+            "action_attempt_id",
+            "oracle_spec_id",
+            "oracle_spec_version",
+            "oracle_spec_digest",
+            "method",
+            "input_digests",
+            "environment_digest",
+            "toolchain_digest",
+            "started_at",
+        }
+        if set(value) != required:
+            raise OracleError("OracleAttempt contract fields mismatch")
+        for field in ("oracle_attempt_id", "run_id", "action_attempt_id"):
+            if not isinstance(value[field], str) or _ID_RE.fullmatch(value[field]) is None:
+                raise OracleError(f"OracleAttempt {field} is invalid")
+        if not isinstance(value["oracle_spec_id"], str) or not value["oracle_spec_id"].strip():
+            raise OracleError("OracleAttempt oracle_spec_id is required")
+        version = value["oracle_spec_version"]
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            raise OracleError("OracleAttempt oracle_spec_version must be positive")
+        for field in ("oracle_spec_digest", "environment_digest", "toolchain_digest"):
+            if not isinstance(value[field], str) or _DIGEST_RE.fullmatch(value[field]) is None:
+                raise OracleError(f"OracleAttempt {field} must be lowercase SHA-256")
+        if not isinstance(value["method"], str) or not value["method"].strip():
+            raise OracleError("OracleAttempt method is required")
+        inputs = value["input_digests"]
+        if not isinstance(inputs, list) or any(
+            not isinstance(item, str) or _DIGEST_RE.fullmatch(item) is None
+            for item in inputs
+        ):
+            raise OracleError("OracleAttempt input_digests are invalid")
+        try:
+            started = datetime.fromisoformat(
+                str(value["started_at"]).replace("Z", "+00:00")
+            )
+        except ValueError as error:
+            raise OracleError("OracleAttempt started_at must be ISO-8601") from error
+        if started.tzinfo is None or started.utcoffset() != timedelta(0):
+            raise OracleError("OracleAttempt started_at must be UTC")
+        return cls(
+            oracle_attempt_id=value["oracle_attempt_id"],
+            run_id=value["run_id"],
+            action_attempt_id=value["action_attempt_id"],
+            oracle_spec_id=value["oracle_spec_id"],
+            oracle_spec_version=version,
+            oracle_spec_digest=value["oracle_spec_digest"],
+            method=value["method"],
+            input_digests=tuple(inputs),
+            environment_digest=value["environment_digest"],
+            toolchain_digest=value["toolchain_digest"],
+            started_at=started.astimezone(timezone.utc).isoformat(),
+        )
+
+    def to_contract_dict(self) -> dict[str, Any]:
+        return {
+            "oracle_attempt_id": self.oracle_attempt_id,
+            "run_id": self.run_id,
+            "action_attempt_id": self.action_attempt_id,
+            "oracle_spec_id": self.oracle_spec_id,
+            "oracle_spec_version": self.oracle_spec_version,
+            "oracle_spec_digest": self.oracle_spec_digest,
+            "method": self.method,
+            "input_digests": list(self.input_digests),
+            "environment_digest": self.environment_digest,
+            "toolchain_digest": self.toolchain_digest,
+            "started_at": self.started_at,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class OracleRun:
     oracle_run_id: str
+    oracle_attempt_id: str
     oracle_spec_id: str
     attempt_id: str
     input_refs: tuple[Mapping[str, Any], ...]
@@ -115,7 +209,7 @@ class OracleRun:
     reproducibility_status: str = "reproducible"
 
     @classmethod
-    def create(cls, oracle_run_id: str, spec: OracleSpec, *, attempt_id: str, input_refs: Sequence[Mapping[str, Any]], verdict: str, environment_digest: str, result: Mapping[str, Any], **contract: Any) -> "OracleRun":
+    def create(cls, oracle_run_id: str, spec: OracleSpec, *, attempt_id: str, input_refs: Sequence[Mapping[str, Any]], verdict: str, environment_digest: str, result: Mapping[str, Any], oracle_attempt_id: str | None = None, **contract: Any) -> "OracleRun":
         if verdict not in {"pass", "fail", "inconclusive", "unavailable"}:
             raise OracleError("unsupported oracle verdict")
         if not environment_digest:
@@ -140,15 +234,26 @@ class OracleRun:
         defaults["result_artifact_refs"] = _normalize_artifact_refs(
             defaults["result_artifact_refs"]
         )
-        return cls(oracle_run_id, spec.oracle_id, attempt_id, input_values, verdict, environment_digest, dict(result), **defaults)
+        return cls(
+            oracle_run_id=oracle_run_id,
+            oracle_attempt_id=oracle_attempt_id or attempt_id,
+            oracle_spec_id=spec.oracle_id,
+            attempt_id=attempt_id,
+            input_refs=input_values,
+            verdict=verdict,
+            environment_digest=environment_digest,
+            result=dict(result),
+            **defaults,
+        )
 
     def to_dict(self) -> dict[str, Any]:
-        return {"oracle_run_id": self.oracle_run_id, "oracle_spec_id": self.oracle_spec_id, "attempt_id": self.attempt_id, "input_refs": [dict(ref) for ref in self.input_refs], "verdict": self.verdict, "environment_digest": self.environment_digest, "result": dict(self.result)}
+        return {"oracle_run_id": self.oracle_run_id, "oracle_attempt_id": self.oracle_attempt_id, "oracle_spec_id": self.oracle_spec_id, "attempt_id": self.attempt_id, "input_refs": [dict(ref) for ref in self.input_refs], "verdict": self.verdict, "environment_digest": self.environment_digest, "result": dict(self.result)}
 
     def to_contract_dict(self) -> dict[str, Any]:
         verdict = {"pass": "passed", "fail": "failed", "unavailable": "blocked"}.get(self.verdict, self.verdict)
         return {
             "oracle_run_id": self.oracle_run_id,
+            "oracle_attempt_id": self.oracle_attempt_id,
             "oracle_spec_id": self.oracle_spec_id,
             "oracle_spec_version": self.oracle_spec_version,
             "attempt_id": self.attempt_id,
@@ -168,25 +273,67 @@ class OracleRun:
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "OracleRun":
-        required = {"oracle_run_id", "oracle_spec_id", "oracle_spec_version", "attempt_id", "method", "input_digests", "environment_digest", "toolchain_digest", "tool_event_refs", "verdict", "exit_code", "timed_out", "result_artifact_refs", "evaluator", "limitations", "reproducibility_status"}
+        required = {"oracle_run_id", "oracle_attempt_id", "oracle_spec_id", "oracle_spec_version", "attempt_id", "method", "input_digests", "environment_digest", "toolchain_digest", "tool_event_refs", "verdict", "exit_code", "timed_out", "result_artifact_refs", "evaluator", "limitations", "reproducibility_status"}
         if set(value) != required:
             raise OracleError("OracleRun contract fields mismatch")
         if value["verdict"] not in {"passed", "failed", "inconclusive", "not_applicable", "blocked"}:
             raise OracleError("unsupported oracle contract verdict")
         if value["reproducibility_status"] not in {"reproducible", "flaky", "unavailable", "not_reproducible"}:
             raise OracleError("unsupported reproducibility status")
-        if not isinstance(value["timed_out"], bool) or not isinstance(value["input_digests"], list) or not isinstance(value["result_artifact_refs"], list) or not isinstance(value["tool_event_refs"], list):
+        if not isinstance(value["timed_out"], bool) or not isinstance(value["input_digests"], list) or not isinstance(value["result_artifact_refs"], list) or not isinstance(value["tool_event_refs"], list) or not isinstance(value["limitations"], list):
             raise OracleError("OracleRun collection fields are invalid")
+        for field in ("oracle_run_id", "oracle_attempt_id", "attempt_id"):
+            if not isinstance(value[field], str) or _ID_RE.fullmatch(value[field]) is None:
+                raise OracleError(f"OracleRun {field} is invalid")
+        if not isinstance(value["oracle_spec_id"], str) or not value["oracle_spec_id"].strip():
+            raise OracleError("OracleRun oracle_spec_id is required")
         if isinstance(value["oracle_spec_version"], bool) or not isinstance(value["oracle_spec_version"], int) or value["oracle_spec_version"] < 1:
             raise OracleError("oracle_spec_version must be positive")
         if not isinstance(value["method"], str) or not value["method"].strip():
             raise OracleError("oracle method is required")
+        for field in ("environment_digest", "toolchain_digest"):
+            if not isinstance(value[field], str) or _DIGEST_RE.fullmatch(value[field]) is None:
+                raise OracleError(f"OracleRun {field} must be lowercase SHA-256")
+        if any(
+            not isinstance(item, str) or _DIGEST_RE.fullmatch(item) is None
+            for item in value["input_digests"]
+        ):
+            raise OracleError("OracleRun input_digests are invalid")
+        if any(
+            not isinstance(item, str) or not item.strip()
+            for item in value["tool_event_refs"]
+        ):
+            raise OracleError("OracleRun tool_event_refs are invalid")
+        if any(not isinstance(item, str) for item in value["limitations"]):
+            raise OracleError("OracleRun limitations are invalid")
+        if not isinstance(value["evaluator"], str) or not value["evaluator"].strip():
+            raise OracleError("OracleRun evaluator is required")
+        if value["exit_code"] is not None and (
+            isinstance(value["exit_code"], bool)
+            or not isinstance(value["exit_code"], int)
+        ):
+            raise OracleError("OracleRun exit_code must be an integer or null")
         result_artifact_refs = _normalize_artifact_refs(value["result_artifact_refs"])
         return cls(
-            str(value["oracle_run_id"]), str(value["oracle_spec_id"]), str(value["attempt_id"]), tuple({"digest": digest} for digest in value["input_digests"]),
-            {"passed": "pass", "failed": "fail", "blocked": "unavailable"}.get(value["verdict"], value["verdict"]),
-            str(value["environment_digest"]), {"status": value["verdict"]},
-            value["oracle_spec_version"], str(value["method"]), tuple(value["input_digests"]), str(value["toolchain_digest"]), tuple(value["tool_event_refs"]), value["exit_code"], value["timed_out"], result_artifact_refs, str(value["evaluator"]), tuple(value["limitations"]), str(value["reproducibility_status"]),
+            oracle_run_id=str(value["oracle_run_id"]),
+            oracle_attempt_id=str(value["oracle_attempt_id"]),
+            oracle_spec_id=str(value["oracle_spec_id"]),
+            attempt_id=str(value["attempt_id"]),
+            input_refs=tuple({"digest": digest} for digest in value["input_digests"]),
+            verdict={"passed": "pass", "failed": "fail", "blocked": "unavailable"}.get(value["verdict"], value["verdict"]),
+            environment_digest=str(value["environment_digest"]),
+            result={"status": value["verdict"]},
+            oracle_spec_version=value["oracle_spec_version"],
+            method=str(value["method"]),
+            input_digests=tuple(value["input_digests"]),
+            toolchain_digest=str(value["toolchain_digest"]),
+            tool_event_refs=tuple(value["tool_event_refs"]),
+            exit_code=value["exit_code"],
+            timed_out=value["timed_out"],
+            result_artifact_refs=result_artifact_refs,
+            evaluator=str(value["evaluator"]),
+            limitations=tuple(value["limitations"]),
+            reproducibility_status=str(value["reproducibility_status"]),
         )
 
 

@@ -100,13 +100,13 @@
     },
     {
       "requirement_id": "evidence-verification/validation-verdicts-come-from-executable-oraclerun-artifacts",
-      "source_modules": ["src/research_tree/oracles.py", "src/research_tree/closure.py"],
-      "public_surface": ["OracleSpec.from_mapping", "OracleRun.from_mapping", "SlotClosureAssessment.assess_alpha2"],
-      "migration_impact": "Legacy constructors remain non-authoritative compatibility APIs; alpha2 closure consumes canonical contract mappings only.",
+      "source_modules": ["src/research_tree/oracles.py", "src/research_tree/coordinator.py", "src/research_tree/closure.py"],
+      "public_surface": ["OracleSpec.from_mapping", "OracleAttempt.from_mapping", "OracleRun.from_mapping", "ResearchRunCoordinator.record_oracle_spec", "ResearchRunCoordinator.record_oracle_attempt", "ResearchRunCoordinator.record_oracle_run", "SlotClosureAssessment.assess_alpha2"],
+      "migration_impact": "Legacy constructors remain non-authoritative compatibility APIs; alpha2 requires persisted OracleSpec and OracleAttempt lineage plus exact result-artifact refs before closure consumes an OracleRun.",
       "unit_tests": ["tests/test_oracle_closure.py"],
       "integration_tests": ["tests/test_alpha2_completion_gates.py"],
       "black_box_cases": ["evaluation/cases/alpha1-adversarial-v1.json"],
-      "evidence_artifact": "tests/test_oracle_closure.py::test_alpha2_closure_rejects_forged_verdict_and_active_contradiction",
+      "evidence_artifact": "tests/test_oracle_closure.py::test_coordinator_rejects_oracle_run_binding_mismatch",
       "github_issue": "#56",
       "owner": "evidence",
       "status": "in_progress"

@@ -9,6 +9,8 @@
 | Hermes checkpoint | read and reconcile | HostEvent adapter only | read-only during cutover |
 | human-brief delivery | read and classify | human-research-report only | legacy_unverified |
 | validation_result.status | read as observation | OracleRun verdict only | non-authoritative |
+| missing OracleAttempt | no alpha1 equivalent | persist exact spec/action execution binding before OracleRun | reject as unbound validation |
+| OracleRun bare result artifact ids | read as legacy observation | emit exact artifact revision/hash refs | reject from canonical oracle ledger |
 | package schemas | validate old package | emit package manifest v1 | host-specific compatibility aliases |
 
 The migration implementation SHALL turn this matrix into executable checks. A

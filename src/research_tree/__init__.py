@@ -205,7 +205,7 @@ from .evidence import (
     ResolvableEvidenceAnchor,
     provenance_group_for,
 )
-from .oracles import OracleError, OracleRun, OracleSpec
+from .oracles import OracleAttempt, OracleError, OracleRun, OracleSpec
 from .closure import ClosureError, SlotClosureAssessment, oracle_successor_actions
 from .acceptance import AcceptanceError, DeliveryAcceptance, validate_semantic_deliveries
 from .lifecycle import LifecycleError, allowed_transition, transition_table
@@ -377,6 +377,7 @@ __all__ = [
     "ResolvableEvidenceAnchor",
     "provenance_group_for",
     "OracleError",
+    "OracleAttempt",
     "OracleRun",
     "OracleSpec",
     "ClosureError",

@@ -349,6 +349,7 @@ def validate_finding(path: Path) -> dict[str, Any]:
     seen_oracle_runs: set[str] = set()
     required_ref_fields = {
         "oracle_run_id",
+        "oracle_attempt_id",
         "oracle_spec_id",
         "oracle_spec_version",
         "attempt_id",
@@ -359,6 +360,9 @@ def validate_finding(path: Path) -> dict[str, Any]:
             raise AdapterError(f"Finding Pack {label} fields are invalid")
         oracle_run_id = _require_string(
             oracle_ref.get("oracle_run_id"), f"{label} oracle_run_id"
+        )
+        _require_string(
+            oracle_ref.get("oracle_attempt_id"), f"{label} oracle_attempt_id"
         )
         _require_string(
             oracle_ref.get("oracle_spec_id"), f"{label} oracle_spec_id"

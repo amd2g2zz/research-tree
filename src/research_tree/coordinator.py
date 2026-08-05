@@ -19,7 +19,7 @@ from .contracts import HostEvent, canonical_json_bytes, validate_feedback_event
 from .replay import explain_run, why_not_complete
 from .leases import AttemptLease
 from .host_events import reconcile_host_events
-from .oracles import OracleRun
+from .oracles import OracleAttempt, OracleRun, OracleSpec
 from .closure import SlotClosureAssessment
 
 
@@ -142,10 +142,28 @@ class ResearchRunCoordinator:
           created_at TEXT NOT NULL, PRIMARY KEY(run_id,attempt_id,feedback_id),
           FOREIGN KEY(run_id,attempt_id) REFERENCES action_attempts(run_id,attempt_id)
         );
+        CREATE TABLE IF NOT EXISTS oracle_specs(
+          run_id TEXT NOT NULL, oracle_spec_id TEXT NOT NULL, oracle_spec_version INTEGER NOT NULL,
+          payload_json TEXT NOT NULL, payload_digest TEXT NOT NULL, created_at TEXT NOT NULL,
+          PRIMARY KEY(run_id,oracle_spec_id,oracle_spec_version),
+          FOREIGN KEY(run_id) REFERENCES runs(run_id)
+        );
+        CREATE TABLE IF NOT EXISTS oracle_attempts(
+          run_id TEXT NOT NULL, oracle_attempt_id TEXT NOT NULL, action_attempt_id TEXT NOT NULL,
+          oracle_spec_id TEXT NOT NULL, oracle_spec_version INTEGER NOT NULL,
+          oracle_spec_digest TEXT NOT NULL, payload_json TEXT NOT NULL,
+          payload_digest TEXT NOT NULL, created_at TEXT NOT NULL,
+          PRIMARY KEY(run_id,oracle_attempt_id),
+          FOREIGN KEY(run_id,action_attempt_id) REFERENCES action_attempts(run_id,attempt_id),
+          FOREIGN KEY(run_id,oracle_spec_id,oracle_spec_version)
+            REFERENCES oracle_specs(run_id,oracle_spec_id,oracle_spec_version)
+        );
         CREATE TABLE IF NOT EXISTS oracle_runs(
-          run_id TEXT NOT NULL, oracle_run_id TEXT NOT NULL, oracle_spec_id TEXT NOT NULL,
+          run_id TEXT NOT NULL, oracle_run_id TEXT NOT NULL, oracle_attempt_id TEXT NOT NULL,
+          oracle_spec_id TEXT NOT NULL,
           attempt_id TEXT NOT NULL, payload_json TEXT NOT NULL, payload_digest TEXT NOT NULL,
           created_at TEXT NOT NULL, PRIMARY KEY(run_id,oracle_run_id),
+          FOREIGN KEY(run_id,oracle_attempt_id) REFERENCES oracle_attempts(run_id,oracle_attempt_id),
           FOREIGN KEY(run_id,attempt_id) REFERENCES action_attempts(run_id,attempt_id)
         );
         CREATE TABLE IF NOT EXISTS slot_closure_assessments(
@@ -164,6 +182,11 @@ class ResearchRunCoordinator:
         ):
             if name not in event_columns:
                 connection.execute(f"ALTER TABLE events ADD COLUMN {name} {declaration}")
+        oracle_run_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(oracle_runs)")
+        }
+        if "oracle_attempt_id" not in oracle_run_columns:
+            connection.execute("ALTER TABLE oracle_runs ADD COLUMN oracle_attempt_id TEXT")
         connection.execute(
             """INSERT OR IGNORE INTO run_revisions(
                  run_id,revision,lifecycle_state,authority_digest,state_digest,
@@ -348,6 +371,32 @@ class ResearchRunCoordinator:
                 (run_id, parsed.attempt_id),
             ).fetchone() is None:
                 raise CoordinatorError("oracle references an unknown attempt", code="attempt_not_found")
+            attempt_row = connection.execute(
+                """SELECT payload_json FROM oracle_attempts
+                   WHERE run_id=? AND oracle_attempt_id=?""",
+                (run_id, parsed.oracle_attempt_id),
+            ).fetchone()
+            if attempt_row is None:
+                raise CoordinatorError(
+                    "oracle references an unknown OracleAttempt",
+                    code="oracle_attempt_not_found",
+                )
+            oracle_attempt = json.loads(attempt_row["payload_json"])
+            expected_binding = {
+                "action_attempt_id": payload["attempt_id"],
+                "oracle_spec_id": payload["oracle_spec_id"],
+                "oracle_spec_version": payload["oracle_spec_version"],
+                "method": payload["method"],
+                "input_digests": payload["input_digests"],
+                "environment_digest": payload["environment_digest"],
+                "toolchain_digest": payload["toolchain_digest"],
+            }
+            for field, expected in expected_binding.items():
+                if oracle_attempt[field] != expected:
+                    raise CoordinatorError(
+                        f"oracle run does not match OracleAttempt field {field}",
+                        code="oracle_attempt_binding_mismatch",
+                    )
             for tool_event_ref in payload["tool_event_refs"]:
                 if connection.execute(
                     "SELECT 1 FROM events WHERE run_id=? AND event_id=?",
@@ -390,8 +439,11 @@ class ResearchRunCoordinator:
             raw = canonical_json_bytes(payload)
             try:
                 connection.execute(
-                    "INSERT INTO oracle_runs VALUES(?,?,?,?,?,?,?)",
-                    (run_id, parsed.oracle_run_id, parsed.oracle_spec_id, parsed.attempt_id, raw.decode("utf-8"), hashlib.sha256(raw).hexdigest(), self._now()),
+                    """INSERT INTO oracle_runs(
+                         run_id,oracle_run_id,oracle_attempt_id,oracle_spec_id,
+                         attempt_id,payload_json,payload_digest,created_at
+                       ) VALUES(?,?,?,?,?,?,?,?)""",
+                    (run_id, parsed.oracle_run_id, parsed.oracle_attempt_id, parsed.oracle_spec_id, parsed.attempt_id, raw.decode("utf-8"), hashlib.sha256(raw).hexdigest(), self._now()),
                 )
             except sqlite3.IntegrityError as error:
                 raise CoordinatorError("oracle run is not immutable and unique", code="oracle_conflict") from error
@@ -405,6 +457,190 @@ class ResearchRunCoordinator:
             self._event(connection, run_id, event_id, expected_revision, payload, event_type="oracle_run_recorded")
             self._snapshot_current_revision(connection, run_id, source_event_id=event_id)
         return self.status(run_id)
+
+    def record_oracle_spec(
+        self,
+        run_id: str,
+        oracle_spec: OracleSpec | Mapping[str, Any],
+        *,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        parsed = (
+            oracle_spec
+            if isinstance(oracle_spec, OracleSpec)
+            else OracleSpec.from_mapping(oracle_spec)
+        )
+        payload = parsed.to_contract_dict()
+        raw = canonical_json_bytes(payload)
+        digest = hashlib.sha256(raw).hexdigest()
+        with self._connect() as connection:
+            row = self._require_run(connection, run_id)
+            if int(row["revision"]) != expected_revision:
+                raise CoordinatorError("expected revision is stale", code="stale_revision")
+            try:
+                connection.execute(
+                    """INSERT INTO oracle_specs(
+                         run_id,oracle_spec_id,oracle_spec_version,payload_json,
+                         payload_digest,created_at
+                       ) VALUES(?,?,?,?,?,?)""",
+                    (
+                        run_id,
+                        parsed.oracle_id,
+                        parsed.version,
+                        raw.decode("utf-8"),
+                        digest,
+                        self._now(),
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise CoordinatorError(
+                    "oracle specification is not immutable and unique",
+                    code="oracle_spec_conflict",
+                ) from error
+            revision = expected_revision + 1
+            state = self._state_payload(
+                row, lifecycle_state=row["lifecycle_state"], revision=revision, body={}
+            )
+            connection.execute(
+                "UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?",
+                (revision, self._digest(state), self._now(), run_id),
+            )
+            event_id = f"oracle-spec-{parsed.oracle_id}-{parsed.version}"
+            self._event(
+                connection,
+                run_id,
+                event_id,
+                expected_revision,
+                {"oracle_spec": payload, "contract_digest": digest},
+                event_type="oracle_spec_recorded",
+            )
+            self._snapshot_current_revision(connection, run_id, source_event_id=event_id)
+        return self.status(run_id)
+
+    def oracle_specs(self, run_id: str) -> dict[str, dict[str, Any]]:
+        with self._connect() as connection:
+            self._require_run(connection, run_id)
+            rows = connection.execute(
+                """SELECT oracle_spec_id,oracle_spec_version,payload_json,payload_digest
+                   FROM oracle_specs WHERE run_id=?
+                   ORDER BY oracle_spec_id,oracle_spec_version""",
+                (run_id,),
+            ).fetchall()
+        return {
+            f"{row['oracle_spec_id']}@{row['oracle_spec_version']}": {
+                **json.loads(row["payload_json"]),
+                "contract_digest": row["payload_digest"],
+            }
+            for row in rows
+        }
+
+    def record_oracle_attempt(
+        self,
+        run_id: str,
+        oracle_attempt: OracleAttempt | Mapping[str, Any],
+        *,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        parsed = (
+            oracle_attempt
+            if isinstance(oracle_attempt, OracleAttempt)
+            else OracleAttempt.from_mapping(oracle_attempt)
+        )
+        payload = parsed.to_contract_dict()
+        if parsed.run_id != run_id:
+            raise CoordinatorError(
+                "OracleAttempt must belong to the current run",
+                code="oracle_attempt_scope_mismatch",
+            )
+        raw = canonical_json_bytes(payload)
+        with self._connect() as connection:
+            row = self._require_run(connection, run_id)
+            if int(row["revision"]) != expected_revision:
+                raise CoordinatorError("expected revision is stale", code="stale_revision")
+            if connection.execute(
+                "SELECT 1 FROM action_attempts WHERE run_id=? AND attempt_id=?",
+                (run_id, parsed.action_attempt_id),
+            ).fetchone() is None:
+                raise CoordinatorError(
+                    "OracleAttempt references an unknown action attempt",
+                    code="attempt_not_found",
+                )
+            spec = connection.execute(
+                """SELECT payload_json,payload_digest FROM oracle_specs
+                   WHERE run_id=? AND oracle_spec_id=? AND oracle_spec_version=?""",
+                (run_id, parsed.oracle_spec_id, parsed.oracle_spec_version),
+            ).fetchone()
+            if spec is None:
+                raise CoordinatorError(
+                    "OracleAttempt references an unknown OracleSpec revision",
+                    code="oracle_spec_not_found",
+                )
+            if spec["payload_digest"] != parsed.oracle_spec_digest:
+                raise CoordinatorError(
+                    "OracleAttempt OracleSpec digest is stale",
+                    code="stale_oracle_spec",
+                )
+            spec_payload = json.loads(spec["payload_json"])
+            if spec_payload["invocation_adapter"] != parsed.method:
+                raise CoordinatorError(
+                    "OracleAttempt method does not match OracleSpec",
+                    code="oracle_spec_method_mismatch",
+                )
+            try:
+                connection.execute(
+                    """INSERT INTO oracle_attempts(
+                         run_id,oracle_attempt_id,action_attempt_id,oracle_spec_id,
+                         oracle_spec_version,oracle_spec_digest,payload_json,
+                         payload_digest,created_at
+                       ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (
+                        run_id,
+                        parsed.oracle_attempt_id,
+                        parsed.action_attempt_id,
+                        parsed.oracle_spec_id,
+                        parsed.oracle_spec_version,
+                        parsed.oracle_spec_digest,
+                        raw.decode("utf-8"),
+                        hashlib.sha256(raw).hexdigest(),
+                        self._now(),
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise CoordinatorError(
+                    "OracleAttempt is not immutable and unique",
+                    code="oracle_attempt_conflict",
+                ) from error
+            revision = expected_revision + 1
+            state = self._state_payload(
+                row, lifecycle_state=row["lifecycle_state"], revision=revision, body={}
+            )
+            connection.execute(
+                "UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?",
+                (revision, self._digest(state), self._now(), run_id),
+            )
+            event_id = f"oracle-attempt-{parsed.oracle_attempt_id}"
+            self._event(
+                connection,
+                run_id,
+                event_id,
+                expected_revision,
+                payload,
+                event_type="oracle_attempt_recorded",
+            )
+            self._snapshot_current_revision(connection, run_id, source_event_id=event_id)
+        return self.status(run_id)
+
+    def oracle_attempts(self, run_id: str) -> dict[str, dict[str, Any]]:
+        with self._connect() as connection:
+            self._require_run(connection, run_id)
+            rows = connection.execute(
+                """SELECT oracle_attempt_id,payload_json FROM oracle_attempts
+                   WHERE run_id=? ORDER BY oracle_attempt_id""",
+                (run_id,),
+            ).fetchall()
+        return {
+            row["oracle_attempt_id"]: json.loads(row["payload_json"]) for row in rows
+        }
 
     def oracle_runs(self, run_id: str) -> dict[str, dict[str, Any]]:
         with self._connect() as connection:

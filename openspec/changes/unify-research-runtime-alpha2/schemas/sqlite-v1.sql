@@ -110,18 +110,45 @@ CREATE TABLE evidence (
   FOREIGN KEY(run_id, evidence_id, revision) REFERENCES artifacts(run_id, artifact_id, revision)
 );
 
-CREATE TABLE oracles (
+CREATE TABLE oracle_specs (
+  run_id TEXT NOT NULL,
+  oracle_spec_id TEXT NOT NULL,
+  oracle_spec_version INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_digest TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(run_id, oracle_spec_id, oracle_spec_version),
+  FOREIGN KEY(run_id) REFERENCES runs(run_id)
+);
+
+CREATE TABLE oracle_attempts (
+  run_id TEXT NOT NULL,
+  oracle_attempt_id TEXT NOT NULL,
+  action_attempt_id TEXT NOT NULL,
+  oracle_spec_id TEXT NOT NULL,
+  oracle_spec_version INTEGER NOT NULL,
+  oracle_spec_digest TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_digest TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(run_id, oracle_attempt_id),
+  FOREIGN KEY(run_id, action_attempt_id) REFERENCES attempts(run_id, attempt_id),
+  FOREIGN KEY(run_id, oracle_spec_id, oracle_spec_version)
+    REFERENCES oracle_specs(run_id, oracle_spec_id, oracle_spec_version)
+);
+
+CREATE TABLE oracle_runs (
   run_id TEXT NOT NULL,
   oracle_run_id TEXT NOT NULL,
+  oracle_attempt_id TEXT NOT NULL,
   oracle_spec_id TEXT NOT NULL,
-  attempt_id TEXT NOT NULL,
-  verdict TEXT NOT NULL,
-  environment_digest TEXT NOT NULL,
-  toolchain_digest TEXT NOT NULL,
-  result_json TEXT NOT NULL,
-  reproducibility_status TEXT NOT NULL,
+  action_attempt_id TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_digest TEXT NOT NULL,
+  created_at TEXT NOT NULL,
   PRIMARY KEY(run_id, oracle_run_id),
-  FOREIGN KEY(run_id, attempt_id) REFERENCES attempts(run_id, attempt_id)
+  FOREIGN KEY(run_id, oracle_attempt_id) REFERENCES oracle_attempts(run_id, oracle_attempt_id),
+  FOREIGN KEY(run_id, action_attempt_id) REFERENCES attempts(run_id, attempt_id)
 );
 
 CREATE TABLE closures (

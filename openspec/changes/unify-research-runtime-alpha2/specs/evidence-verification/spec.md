@@ -46,7 +46,7 @@ reference resolves to a persisted passed assessment token. A worker-authored sta
 arbitrary string, report field, or host event cannot satisfy this obligation.
 
 Finding Packs persist only exact `oracle_run_refs` containing the OracleRun id,
-OracleSpec id and version, and attempt id. Supplying the alpha1
+OracleAttempt id, OracleSpec id and version, and action attempt id. Supplying the alpha1
 `validation_result` field fails compilation. The adaptive policy resolves every ref
 against coordinator-provided OracleRun data before applying failure reweighting.
 
@@ -55,6 +55,17 @@ Every `OracleRun.result_artifact_refs` entry is an exact artifact reference with
 accepts only references that resolve to the current run and whose persisted digest
 matches exactly. A path, bare artifact id, cross-run ref, missing revision, or stale
 digest cannot enter the OracleRun ledger.
+
+The coordinator persists an immutable OracleSpec revision before execution. Each
+OracleAttempt has its own id and binds one current action attempt to that exact
+OracleSpec payload digest, method, input digests, environment digest, toolchain
+digest, and UTC start time. OracleRun carries both `oracle_attempt_id` and the
+action `attempt_id`; all shared execution-boundary fields must equal the persisted
+OracleAttempt before any verdict or result artifact is accepted.
+
+#### Scenario: Oracle execution binding is forged or stale
+- **WHEN** an OracleRun names an absent OracleAttempt or changes its action attempt, OracleSpec revision, method, input, environment, or toolchain binding
+- **THEN** the coordinator rejects the OracleRun without advancing the run revision
 
 #### Scenario: Oracle execution fails
 - **WHEN** the recorded oracle result is failed or inconclusive

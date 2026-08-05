@@ -21,6 +21,22 @@ def canonical_spec() -> dict[str, object]:
     }
 
 
+def canonical_oracle_attempt() -> dict[str, object]:
+    return {
+        "oracle_attempt_id": "oracle-attempt-1",
+        "run_id": "run-oracle",
+        "action_attempt_id": "attempt-1",
+        "oracle_spec_id": "oracle-build",
+        "oracle_spec_version": 2,
+        "oracle_spec_digest": "2" * 64,
+        "method": "python-compileall",
+        "input_digests": ["c" * 64],
+        "environment_digest": "d" * 64,
+        "toolchain_digest": "e" * 64,
+        "started_at": "2026-08-05T00:00:00+00:00",
+    }
+
+
 def decision_ref() -> dict[str, object]:
     return {"run_id": "run-oracle", "artifact_id": "decision-a", "revision": 1, "content_hash": "9" * 64}
 
@@ -40,6 +56,56 @@ def result_artifact_ref(
     }
 
 
+def persist_oracle_boundary(ledger, state):
+    from research_tree import AttemptLease, OracleAttempt, OracleSpec
+
+    coordinator = ledger.coordinator
+    spec = OracleSpec.create(
+        "oracle-build",
+        "integration-test",
+        "integration-test",
+        expected="The integration test passes.",
+        version=1,
+    )
+    state = coordinator.record_oracle_spec(
+        "run-oracle", spec, expected_revision=state["revision"]
+    )
+    state = coordinator.issue_lease(
+        AttemptLease.create(
+            attempt_id="attempt-1",
+            work_item_id="work-1",
+            run_id="run-oracle",
+            owner="worker-1",
+            dispatch_digest="f" * 64,
+            started_at="2026-08-05T00:00:00Z",
+            lease_expires_at="2026-08-05T01:00:00Z",
+        ),
+        expected_revision=state["revision"],
+    )
+    spec_digest = coordinator.oracle_specs("run-oracle")["oracle-build@1"][
+        "contract_digest"
+    ]
+    attempt = OracleAttempt.from_mapping(
+        {
+            "oracle_attempt_id": "oracle-attempt-1",
+            "run_id": "run-oracle",
+            "action_attempt_id": "attempt-1",
+            "oracle_spec_id": "oracle-build",
+            "oracle_spec_version": 1,
+            "oracle_spec_digest": spec_digest,
+            "method": "integration-test",
+            "input_digests": ["a" * 64],
+            "environment_digest": "b" * 64,
+            "toolchain_digest": "c" * 64,
+            "started_at": "2026-08-05T00:00:00+00:00",
+        }
+    )
+    state = coordinator.record_oracle_attempt(
+        "run-oracle", attempt, expected_revision=state["revision"]
+    )
+    return state, attempt
+
+
 def test_canonical_oracle_spec_round_trips_exact_execution_boundary() -> None:
     from research_tree import OracleSpec
 
@@ -47,11 +113,76 @@ def test_canonical_oracle_spec_round_trips_exact_execution_boundary() -> None:
     assert spec.to_contract_dict() == canonical_spec()
 
 
+def test_canonical_oracle_attempt_round_trips_exact_spec_and_action_binding() -> None:
+    from research_tree import OracleAttempt
+
+    attempt = OracleAttempt.from_mapping(canonical_oracle_attempt())
+    assert attempt.to_contract_dict() == canonical_oracle_attempt()
+
+
+def test_coordinator_rejects_stale_oracle_spec_digest_without_advancing(
+    tmp_path,
+) -> None:
+    from research_tree import AttemptLease, OracleAttempt, OracleSpec, SQLiteRunLedger
+
+    ledger = SQLiteRunLedger(tmp_path)
+    coordinator = ledger.coordinator
+    state = coordinator.create("run-oracle")
+    spec = OracleSpec.create(
+        "oracle-build",
+        "integration-test",
+        "integration-test",
+        expected="The integration test passes.",
+        version=1,
+    )
+    state = coordinator.record_oracle_spec(
+        "run-oracle", spec, expected_revision=state["revision"]
+    )
+    state = coordinator.issue_lease(
+        AttemptLease.create(
+            attempt_id="attempt-1",
+            work_item_id="work-1",
+            run_id="run-oracle",
+            owner="worker-1",
+            dispatch_digest="f" * 64,
+            started_at="2026-08-05T00:00:00Z",
+            lease_expires_at="2026-08-05T01:00:00Z",
+        ),
+        expected_revision=state["revision"],
+    )
+    attempt = OracleAttempt.from_mapping(
+        {
+            "oracle_attempt_id": "oracle-attempt-1",
+            "run_id": "run-oracle",
+            "action_attempt_id": "attempt-1",
+            "oracle_spec_id": "oracle-build",
+            "oracle_spec_version": 1,
+            "oracle_spec_digest": "0" * 64,
+            "method": "integration-test",
+            "input_digests": ["a" * 64],
+            "environment_digest": "b" * 64,
+            "toolchain_digest": "c" * 64,
+            "started_at": "2026-08-05T00:00:00+00:00",
+        }
+    )
+    before = state["revision"]
+
+    with pytest.raises(coordinator.error_type) as error:
+        coordinator.record_oracle_attempt(
+            "run-oracle", attempt, expected_revision=before
+        )
+
+    assert error.value.code == "stale_oracle_spec"
+    assert coordinator.status("run-oracle")["revision"] == before
+    assert coordinator.oracle_attempts("run-oracle") == {}
+
+
 def test_canonical_oracle_run_binds_attempt_inputs_and_reproducibility() -> None:
     from research_tree import OracleError, OracleRun
 
     value = {
         "oracle_run_id": "oracle-run-1",
+        "oracle_attempt_id": "oracle-attempt-1",
         "oracle_spec_id": "oracle-build",
         "oracle_spec_version": 2,
         "attempt_id": "attempt-1",
@@ -74,6 +205,10 @@ def test_canonical_oracle_run_binds_attempt_inputs_and_reproducibility() -> None
     legacy["result_artifact_refs"] = ["artifact-timeout-log"]
     with pytest.raises(OracleError, match="contract fields mismatch"):
         OracleRun.from_mapping(legacy)
+    invalid_digest = dict(value)
+    invalid_digest["environment_digest"] = "not-a-digest"
+    with pytest.raises(OracleError, match="environment_digest"):
+        OracleRun.from_mapping(invalid_digest)
 
 
 def test_oracle_contract_rejects_unbounded_or_unknown_policy() -> None:
@@ -100,6 +235,7 @@ def test_finding_pack_rejects_worker_verdict_and_accepts_exact_oracle_ref() -> N
         [
             {
                 "oracle_run_id": "oracle-run-1",
+                "oracle_attempt_id": "oracle-attempt-1",
                 "oracle_spec_id": "oracle-build",
                 "oracle_spec_version": 2,
                 "attempt_id": "attempt-1",
@@ -153,17 +289,12 @@ def test_alpha2_closure_token_is_replayable_and_revocable() -> None:
 
 
 def test_coordinator_persists_oracle_before_satisfying_closure_obligation(tmp_path) -> None:
-    from research_tree import AttemptLease, OracleRun, SQLiteRunLedger, SlotClosureAssessment
+    from research_tree import OracleRun, SQLiteRunLedger, SlotClosureAssessment
 
     ledger = SQLiteRunLedger(tmp_path)
     coordinator = ledger.coordinator
     state = coordinator.create("run-oracle")
-    lease = AttemptLease.create(
-        attempt_id="attempt-1", work_item_id="work-1", run_id="run-oracle",
-        owner="worker-1", dispatch_digest="f" * 64,
-        started_at="2026-08-05T00:00:00Z", lease_expires_at="2026-08-05T01:00:00Z",
-    )
-    state = coordinator.issue_lease(lease, expected_revision=state["revision"])
+    state, oracle_attempt = persist_oracle_boundary(ledger, state)
     result_artifact = ledger.append_artifact(
         run_id="run-oracle",
         artifact_id="oracle-result",
@@ -176,7 +307,9 @@ def test_coordinator_persists_oracle_before_satisfying_closure_obligation(tmp_pa
     )
     run = OracleRun.from_mapping(
         {
-            "oracle_run_id": "oracle-run-1", "oracle_spec_id": "oracle-build",
+            "oracle_run_id": "oracle-run-1",
+            "oracle_attempt_id": oracle_attempt.oracle_attempt_id,
+            "oracle_spec_id": "oracle-build",
             "oracle_spec_version": 1, "attempt_id": "attempt-1", "method": "integration-test",
             "input_digests": ["a" * 64],
             "environment_digest": "b" * 64, "toolchain_digest": "c" * 64,
@@ -241,27 +374,17 @@ def test_coordinator_persists_oracle_before_satisfying_closure_obligation(tmp_pa
 def test_coordinator_rejects_unresolved_result_artifact_without_advancing(
     tmp_path, reference, expected_code
 ) -> None:
-    from research_tree import AttemptLease, OracleRun, SQLiteRunLedger
+    from research_tree import OracleRun, SQLiteRunLedger
 
     ledger = SQLiteRunLedger(tmp_path)
     coordinator = ledger.coordinator
     state = coordinator.create("run-oracle")
-    state = coordinator.issue_lease(
-        AttemptLease.create(
-            attempt_id="attempt-1",
-            work_item_id="work-1",
-            run_id="run-oracle",
-            owner="worker-1",
-            dispatch_digest="f" * 64,
-            started_at="2026-08-05T00:00:00Z",
-            lease_expires_at="2026-08-05T01:00:00Z",
-        ),
-        expected_revision=state["revision"],
-    )
+    state, oracle_attempt = persist_oracle_boundary(ledger, state)
     before = state["revision"]
     run = OracleRun.from_mapping(
         {
             "oracle_run_id": "oracle-run-1",
+            "oracle_attempt_id": oracle_attempt.oracle_attempt_id,
             "oracle_spec_id": "oracle-build",
             "oracle_spec_version": 1,
             "attempt_id": "attempt-1",
@@ -289,23 +412,12 @@ def test_coordinator_rejects_unresolved_result_artifact_without_advancing(
 
 
 def test_coordinator_rejects_stale_result_artifact_digest(tmp_path) -> None:
-    from research_tree import AttemptLease, OracleRun, SQLiteRunLedger
+    from research_tree import OracleRun, SQLiteRunLedger
 
     ledger = SQLiteRunLedger(tmp_path)
     coordinator = ledger.coordinator
     state = coordinator.create("run-oracle")
-    state = coordinator.issue_lease(
-        AttemptLease.create(
-            attempt_id="attempt-1",
-            work_item_id="work-1",
-            run_id="run-oracle",
-            owner="worker-1",
-            dispatch_digest="f" * 64,
-            started_at="2026-08-05T00:00:00Z",
-            lease_expires_at="2026-08-05T01:00:00Z",
-        ),
-        expected_revision=state["revision"],
-    )
+    state, oracle_attempt = persist_oracle_boundary(ledger, state)
     artifact = ledger.append_artifact(
         run_id="run-oracle",
         artifact_id="oracle-result",
@@ -320,6 +432,7 @@ def test_coordinator_rejects_stale_result_artifact_digest(tmp_path) -> None:
     run = OracleRun.from_mapping(
         {
             "oracle_run_id": "oracle-run-1",
+            "oracle_attempt_id": oracle_attempt.oracle_attempt_id,
             "oracle_spec_id": "oracle-build",
             "oracle_spec_version": 1,
             "attempt_id": "attempt-1",
@@ -345,6 +458,54 @@ def test_coordinator_rejects_stale_result_artifact_digest(tmp_path) -> None:
             "run-oracle", run, expected_revision=before
         )
     assert error.value.code == "stale_result_artifact"
+    assert coordinator.status("run-oracle")["revision"] == before
+
+
+def test_coordinator_rejects_oracle_run_binding_mismatch(tmp_path) -> None:
+    from research_tree import OracleRun, SQLiteRunLedger
+
+    ledger = SQLiteRunLedger(tmp_path)
+    coordinator = ledger.coordinator
+    state, oracle_attempt = persist_oracle_boundary(
+        ledger, coordinator.create("run-oracle")
+    )
+    artifact = ledger.append_artifact(
+        run_id="run-oracle",
+        artifact_id="oracle-result",
+        kind="oracle-result",
+        payload={"exit_code": 0},
+        actor_kind="oracle",
+        actor_id="core-v1",
+        status="active",
+        expected_revision=0,
+    )
+    run = OracleRun.from_mapping(
+        {
+            "oracle_run_id": "oracle-run-1",
+            "oracle_attempt_id": oracle_attempt.oracle_attempt_id,
+            "oracle_spec_id": "oracle-build",
+            "oracle_spec_version": 1,
+            "attempt_id": "attempt-1",
+            "method": "forged-method",
+            "input_digests": ["a" * 64],
+            "environment_digest": "b" * 64,
+            "toolchain_digest": "c" * 64,
+            "tool_event_refs": [],
+            "verdict": "passed",
+            "exit_code": 0,
+            "timed_out": False,
+            "result_artifact_refs": [
+                result_artifact_ref(content_hash=artifact["content_hash"])
+            ],
+            "evaluator": "core-v1",
+            "limitations": [],
+            "reproducibility_status": "reproducible",
+        }
+    )
+    before = coordinator.status("run-oracle")["revision"]
+    with pytest.raises(coordinator.error_type) as error:
+        coordinator.record_oracle_run("run-oracle", run, expected_revision=before)
+    assert error.value.code == "oracle_attempt_binding_mismatch"
     assert coordinator.status("run-oracle")["revision"] == before
 
 

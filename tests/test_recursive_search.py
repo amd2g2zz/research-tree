@@ -34,6 +34,7 @@ def finding(
         "oracle_run_refs": [] if validation is None else [
             {
                 "oracle_run_id": validation["evidence_ref"],
+                "oracle_attempt_id": f"oracle-attempt-{finding_id}",
                 "oracle_spec_id": validation["oracle"],
                 "oracle_spec_version": 1,
                 "attempt_id": f"attempt-{finding_id}",
@@ -183,6 +184,7 @@ def test_stop_requires_independent_evidence_and_validation(tmp_path: Path) -> No
 
     second_run = {
         "oracle_run_id": "runs/restart-replay/result.json",
+        "oracle_attempt_id": "oracle-attempt-finding-two",
         "oracle_spec_id": "restart and replay preserves the active frontier",
         "oracle_spec_version": 1,
         "attempt_id": "attempt-finding-two",
@@ -270,6 +272,7 @@ def test_failed_validation_boosts_residual_and_grows_independent_retry() -> None
     )
     first_run = {
         "oracle_run_id": "runs/failed-one.json",
+        "oracle_attempt_id": "oracle-attempt-finding-validation-failed-one",
         "oracle_spec_id": "restart and replay preserves the active frontier",
         "oracle_spec_version": 1,
         "attempt_id": "attempt-finding-validation-failed-one",
@@ -298,6 +301,7 @@ def test_failed_validation_boosts_residual_and_grows_independent_retry() -> None
 
     second_run = {
         "oracle_run_id": "runs/failed-two.json",
+        "oracle_attempt_id": "oracle-attempt-finding-validation-failed-two",
         "oracle_spec_id": "restart and replay preserves the active frontier",
         "oracle_spec_version": 1,
         "attempt_id": "attempt-finding-validation-failed-two",
@@ -413,6 +417,7 @@ def test_tree_state_persists_and_replays_unconsumed_finding_after_restart(
 
     replay_run = {
         "oracle_run_id": "runs/restart-replay/result.json",
+        "oracle_attempt_id": "oracle-attempt-finding-pending",
         "oracle_spec_id": "restart and replay preserves the active frontier",
         "oracle_spec_version": 1,
         "attempt_id": "attempt-finding-pending",

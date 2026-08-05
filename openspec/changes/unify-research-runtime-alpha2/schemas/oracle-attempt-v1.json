@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/oracle-attempt-v1.json",
+  "title": "Alpha2 OracleAttempt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["oracle_attempt_id", "run_id", "action_attempt_id", "oracle_spec_id", "oracle_spec_version", "oracle_spec_digest", "method", "input_digests", "environment_digest", "toolchain_digest", "started_at"],
+  "properties": {
+    "oracle_attempt_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "run_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "action_attempt_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "oracle_spec_id": { "type": "string", "minLength": 1 },
+    "oracle_spec_version": { "type": "integer", "minimum": 1 },
+    "oracle_spec_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "method": { "type": "string", "minLength": 1 },
+    "input_digests": { "type": "array", "items": { "type": "string", "pattern": "^[0-9a-f]{64}$" } },
+    "environment_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "toolchain_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "started_at": { "type": "string", "format": "date-time" }
+  }
+}

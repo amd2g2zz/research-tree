@@ -4,9 +4,10 @@
   "title": "Alpha2 OracleRun",
   "type": "object",
   "additionalProperties": false,
-  "required": ["oracle_run_id", "oracle_spec_id", "oracle_spec_version", "attempt_id", "method", "input_digests", "environment_digest", "toolchain_digest", "tool_event_refs", "verdict", "exit_code", "timed_out", "result_artifact_refs", "evaluator", "limitations", "reproducibility_status"],
+  "required": ["oracle_run_id", "oracle_attempt_id", "oracle_spec_id", "oracle_spec_version", "attempt_id", "method", "input_digests", "environment_digest", "toolchain_digest", "tool_event_refs", "verdict", "exit_code", "timed_out", "result_artifact_refs", "evaluator", "limitations", "reproducibility_status"],
   "properties": {
     "oracle_run_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "oracle_attempt_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
     "oracle_spec_id": { "type": "string", "minLength": 1 },
     "oracle_spec_version": { "type": "integer", "minimum": 1 },
     "attempt_id": { "type": "string", "minLength": 1 },

@@ -350,6 +350,7 @@ a mandatory pre-research questionnaire.
   }],
   "oracle_run_refs": [{
     "oracle_run_id": "persisted OracleRun id",
+    "oracle_attempt_id": "persisted OracleAttempt id",
     "oracle_spec_id": "persisted OracleSpec id",
     "oracle_spec_version": 2,
     "attempt_id": "the exact coordinator-issued attempt id"

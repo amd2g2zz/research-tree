@@ -485,7 +485,7 @@ def _expected_finding_pack() -> dict[str, str]:
         "remaining_uncertainties": "unresolved evidence that can still change the decision",
         "research_node_id": "the exact persisted research-tree node being answered",
         "research_continuations": "structured successor actions triggered by evidence, not prose suggestions",
-        "oracle_run_refs": "exact coordinator-resolved OracleRun ids, spec revisions, and attempt bindings; never a worker verdict",
+        "oracle_run_refs": "exact coordinator-resolved OracleRun and OracleAttempt ids, spec revisions, and action-attempt bindings; never a worker verdict",
     }
 
 

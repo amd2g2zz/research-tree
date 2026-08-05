@@ -560,6 +560,7 @@ def test_adapter_rejects_worker_verdict_and_requires_exact_oracle_refs(
     payload["oracle_run_refs"] = [
         {
             "oracle_run_id": "oracle-run-1",
+            "oracle_attempt_id": "oracle-attempt-1",
             "oracle_spec_id": "oracle-spec-1",
             "oracle_spec_version": 2,
             "attempt_id": attempt_id,
@@ -584,6 +585,7 @@ def test_adapter_rejects_worker_verdict_and_requires_exact_oracle_refs(
     payload["oracle_run_refs"] = [
         {
             "oracle_run_id": "oracle-run-1",
+            "oracle_attempt_id": "oracle-attempt-1",
             "oracle_spec_id": "oracle-spec-1",
             "oracle_spec_version": 2,
             "attempt_id": attempt_id,

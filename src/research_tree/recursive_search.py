@@ -593,7 +593,12 @@ def _apply_finding_oracles(
         run = oracle_runs.get(run_id)
         if not isinstance(run, Mapping):
             raise ValueError(f"OracleRun does not resolve: {run_id}")
-        for field in ("oracle_spec_id", "oracle_spec_version", "attempt_id"):
+        for field in (
+            "oracle_attempt_id",
+            "oracle_spec_id",
+            "oracle_spec_version",
+            "attempt_id",
+        ):
             if run.get(field) != ref.get(field):
                 raise ValueError(f"OracleRun binding mismatch: {run_id}.{field}")
         status = str(run.get("verdict", "inconclusive"))

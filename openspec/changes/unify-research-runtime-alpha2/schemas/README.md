@@ -19,6 +19,7 @@ tools, and release evidence.
 | evidence-artifact-v1.json | Immutable acquired evidence object | acquisition/evidence resolver |
 | evidence-anchor-v1.json | Exact evidence selector | evidence resolver |
 | oracle-spec-v1.json | Reproducible validation contract | oracle runner |
+| oracle-attempt-v1.json | Exact OracleSpec/action-attempt execution binding | oracle runner/coordinator |
 | oracle-run-v1.json | Executed validation result | oracle runner |
 | slot-closure-assessment-v1.json | Closure token inputs and lifecycle | closure evaluator |
 | host-event-v1.json | Cross-host event wire protocol | event ingestion |
