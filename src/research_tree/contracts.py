@@ -193,12 +193,28 @@ class HostEvent:
             raise ContractError("unsupported host event type", code="unsupported_event_type")
         if host not in {"codex", "claude-code", "hermes"}:
             raise ContractError("unsupported host", code="invalid_host")
-        digest = hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
+        normalized_payload = validate_host_event_payload(event_type, payload)
+        if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
+            raise ContractError("host event sequence must be a positive integer", code="invalid_event_order")
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 0:
+            raise ContractError("host event expected_revision must be nonnegative", code="invalid_event_order")
+        normalized_optional: dict[str, str | None] = {}
+        for label, value in (
+            ("slot_id", slot_id),
+            ("action_id", action_id),
+            ("attempt_id", attempt_id),
+            ("causation_id", causation_id),
+            ("correlation_id", correlation_id),
+        ):
+            normalized_optional[label] = None if value is None else _identifier(value, label)
+        digest = hashlib.sha256(canonical_json_bytes(normalized_payload)).hexdigest()
         stamp = emitted_at or datetime.now(timezone.utc).isoformat()
         return cls(1, _identifier(event_id, "event_id"), event_type,
                    _identifier(run_id, "run_id"), _identifier(round_id, "round_id"),
-                   slot_id, action_id, attempt_id, host, causation_id, correlation_id,
-                   int(sequence), int(expected_revision), digest, _timestamp(stamp, "emitted_at"), dict(payload))
+                   normalized_optional["slot_id"], normalized_optional["action_id"],
+                   normalized_optional["attempt_id"], host,
+                   normalized_optional["causation_id"], normalized_optional["correlation_id"],
+                   int(sequence), int(expected_revision), digest, _timestamp(stamp, "emitted_at"), normalized_payload)
 
     def to_dict(self) -> dict[str, Any]:
         return {"protocol_version": self.protocol_version, "event_id": self.event_id,

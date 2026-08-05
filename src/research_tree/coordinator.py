@@ -94,6 +94,11 @@ class ResearchRunCoordinator:
           run_id TEXT NOT NULL, event_id TEXT NOT NULL, event_json TEXT NOT NULL,
           payload_digest TEXT NOT NULL, PRIMARY KEY(run_id,event_id)
         );
+        CREATE TABLE IF NOT EXISTS quarantined_host_events(
+          run_id TEXT NOT NULL, event_id TEXT NOT NULL, reason_code TEXT NOT NULL,
+          safe_event_json TEXT NOT NULL, payload_digest TEXT NOT NULL,
+          created_at TEXT NOT NULL, PRIMARY KEY(run_id,event_id,reason_code)
+        );
         CREATE TABLE IF NOT EXISTS invalidations(
           run_id TEXT NOT NULL, digest TEXT NOT NULL, reason TEXT NOT NULL,
           revision INTEGER NOT NULL, PRIMARY KEY(run_id,digest)
@@ -138,6 +143,26 @@ class ResearchRunCoordinator:
             ).fetchall()
         return [
             {"event_id": row["event_id"], "sequence": row["sequence"], "event_type": row["event_type"], "expected_revision": row["expected_revision"], "payload": json.loads(row["payload_json"]), "payload_digest": row["payload_digest"], "accepted": bool(row["accepted"]), "error_code": row["error_code"]}
+            for row in rows
+        ]
+
+    def quarantined_host_events(self, run_id: str) -> list[dict[str, Any]]:
+        """Return bounded protocol diagnostics without raw host payloads."""
+
+        with self._connect() as connection:
+            self._require_run(connection, run_id)
+            rows = connection.execute(
+                "SELECT event_id,reason_code,safe_event_json,payload_digest,created_at FROM quarantined_host_events WHERE run_id=? ORDER BY created_at,event_id",
+                (run_id,),
+            ).fetchall()
+        return [
+            {
+                "event_id": row["event_id"],
+                "reason_code": row["reason_code"],
+                "safe_event": json.loads(row["safe_event_json"]),
+                "payload_digest": row["payload_digest"],
+                "created_at": row["created_at"],
+            }
             for row in rows
         ]
 
@@ -238,7 +263,35 @@ class ResearchRunCoordinator:
                 raise CoordinatorError(f"{action} references an invalidated digest", code="stale_digest")
 
     def ingest_host_event(self, event: HostEvent | Mapping[str, Any]) -> dict[str, Any]:
-        host_event = event if isinstance(event, HostEvent) else HostEvent.from_dict(event)
+        if isinstance(event, HostEvent):
+            host_event = event
+        else:
+            try:
+                host_event = HostEvent.from_dict(event)
+            except ContractError as error:
+                if error.code != "unsupported_protocol_version":
+                    raise
+                raw_event = dict(event)
+                run_id = raw_event.get("run_id")
+                event_id = raw_event.get("event_id")
+                if not isinstance(run_id, str) or not IDENTIFIER_RE.fullmatch(run_id):
+                    raise CoordinatorError("unsupported event has invalid run identity", code=error.code) from error
+                if not isinstance(event_id, str) or not IDENTIFIER_RE.fullmatch(event_id):
+                    raise CoordinatorError("unsupported event has invalid event identity", code=error.code) from error
+                with self._connect() as connection:
+                    self._require_run(connection, run_id)
+                    self._quarantine_host_event(
+                        connection,
+                        run_id=run_id,
+                        event_id=event_id,
+                        reason_code=error.code,
+                        value=raw_event,
+                    )
+                raise CoordinatorError(
+                    "host event protocol version is unsupported",
+                    code=error.code,
+                    next_action="upgrade_adapter_or_apply_registered_migration",
+                ) from error
         payload = host_event.to_dict()
         with self._connect() as connection:
             row = self._require_run(connection, host_event.run_id)
@@ -250,15 +303,226 @@ class ResearchRunCoordinator:
                 return json.loads(prior["event_json"])
             if row["revision"] != host_event.expected_revision:
                 raise CoordinatorError("host event expected revision is stale", code="stale_revision")
-            self._event(connection, host_event.run_id, host_event.event_id, host_event.expected_revision, payload, event_type=host_event.event_type)
-            revision = int(row["revision"]) + 1
-            state = self._state_payload(row, lifecycle_state=row["lifecycle_state"], revision=revision, body={})
-            connection.execute(
-                "UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?",
-                (revision, self._digest(state), self._now(), host_event.run_id),
-            )
-            connection.execute("INSERT INTO host_events VALUES(?,?,?,?)", (host_event.run_id, host_event.event_id, raw, host_event.payload_digest))
+            elif self._host_sequence_is_out_of_order(connection, host_event):
+                self._quarantine_host_event(
+                    connection,
+                    run_id=host_event.run_id,
+                    event_id=host_event.event_id,
+                    reason_code="out_of_order_event",
+                    value=payload,
+                )
+                rejection = CoordinatorError(
+                    "host event sequence is out of order",
+                    code="out_of_order_event",
+                    next_action="reconcile_host_sequence",
+                )
+            elif host_event.event_type == "completion_claimed":
+                self._ensure_obligations(connection, host_event.run_id)
+                unmet = [
+                    item["obligation"]
+                    for item in connection.execute(
+                        """SELECT obligation FROM run_obligations
+                           WHERE run_id=? AND satisfied=0 ORDER BY obligation""",
+                        (host_event.run_id,),
+                    ).fetchall()
+                ]
+                rejection_payload = {
+                    "actor": f"adapter:{host_event.host}",
+                    "actual_revision": int(row["revision"]),
+                    "attempted_event": "completion_claimed",
+                    "attempted_revision": host_event.expected_revision,
+                    "current_state": row["lifecycle_state"],
+                    "payload_digest": host_event.payload_digest,
+                    "reason_code": "completion_claim_rejected",
+                    "next_action": "continue_canonical_gates",
+                    "claim_kind": host_event.payload["claim_kind"],
+                    "claimed_state": host_event.payload["claimed_state"],
+                    "source_ref": host_event.payload["source_ref"],
+                    "local_status": host_event.payload["local_status"],
+                    "unmet_obligations": unmet,
+                }
+                self._event(
+                    connection,
+                    host_event.run_id,
+                    f"completion-claim-rejected-{host_event.event_id}",
+                    host_event.expected_revision,
+                    rejection_payload,
+                    event_type="completion_claim_rejected",
+                    accepted=False,
+                    error_code="completion_claim_rejected",
+                    idempotent=True,
+                )
+                connection.execute(
+                    "INSERT INTO host_events VALUES(?,?,?,?)",
+                    (
+                        host_event.run_id,
+                        host_event.event_id,
+                        raw,
+                        host_event.payload_digest,
+                    ),
+                )
+                rejection = CoordinatorError(
+                    "host completion claim is not authoritative",
+                    code="completion_claim_rejected",
+                    next_action="continue_canonical_gates",
+                )
+            elif host_event.event_type in ATTEMPT_BOUND_EVENT_TYPES:
+                if not host_event.attempt_id:
+                    raise CoordinatorError(
+                        "attempt-bound host event requires attempt_id",
+                        code="attempt_binding_required",
+                    )
+                attempt = connection.execute(
+                    "SELECT lease_json FROM action_attempts WHERE run_id=? AND attempt_id=?",
+                    (host_event.run_id, host_event.attempt_id),
+                ).fetchone()
+                if attempt is None:
+                    self._quarantine_host_event(
+                        connection,
+                        run_id=host_event.run_id,
+                        event_id=host_event.event_id,
+                        reason_code="attempt_not_found",
+                        value=payload,
+                    )
+                    rejection = CoordinatorError(
+                        "host event references an unknown attempt",
+                        code="attempt_not_found",
+                        next_action="reconcile_orphan_event",
+                    )
+                elif connection.execute(
+                    "SELECT 1 FROM attempt_invalidations WHERE run_id=? AND attempt_id=?",
+                    (host_event.run_id, host_event.attempt_id),
+                ).fetchone():
+                    raise CoordinatorError(
+                        "attempt was invalidated by material feedback",
+                        code="attempt_invalidated",
+                        next_action="replan_and_create_new_attempt",
+                    )
+                lease_status = json.loads(attempt["lease_json"]).get("status") if attempt is not None else None
+                if rejection is None and lease_status == "unknown" and host_event.event_type != "attempt_unknown":
+                    raise CoordinatorError(
+                        "expired attempt cannot report success",
+                        code="attempt_expired",
+                    )
+            if rejection is None:
+                self._event(connection, host_event.run_id, host_event.event_id, host_event.expected_revision, payload, event_type=host_event.event_type)
+                revision = int(row["revision"]) + 1
+                state = self._state_payload(row, lifecycle_state=row["lifecycle_state"], revision=revision, body={})
+                connection.execute(
+                    "UPDATE runs SET revision=?,state_digest=?,updated_at=? WHERE run_id=?",
+                    (revision, self._digest(state), self._now(), host_event.run_id),
+                )
+                connection.execute("INSERT INTO host_events VALUES(?,?,?,?)", (host_event.run_id, host_event.event_id, raw, host_event.payload_digest))
+                self._apply_host_event_effect(connection, host_event)
+                self._snapshot_current_revision(
+                    connection,
+                    host_event.run_id,
+                    source_event_id=host_event.event_id,
+                )
+        if rejection is not None:
+            raise rejection
         return payload
+
+    def _quarantine_host_event(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        run_id: str,
+        event_id: str,
+        reason_code: str,
+        value: Mapping[str, Any],
+    ) -> None:
+        safe_keys = {
+            "protocol_version", "event_id", "event_type", "run_id", "round_id",
+            "host", "causation_id", "correlation_id", "sequence",
+            "expected_revision", "payload_digest", "emitted_at",
+        }
+        safe_event = {key: value.get(key) for key in sorted(safe_keys) if key in value}
+        supplied_digest = value.get("payload_digest")
+        if isinstance(supplied_digest, str) and re.fullmatch(r"[0-9a-f]{64}", supplied_digest):
+            payload_digest = supplied_digest
+        else:
+            try:
+                payload_digest = hashlib.sha256(
+                    canonical_json_bytes(value.get("payload", {}))
+                ).hexdigest()
+            except ContractError:
+                payload_digest = hashlib.sha256(b"invalid-host-payload").hexdigest()
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO quarantined_host_events(
+                run_id,event_id,reason_code,safe_event_json,payload_digest,created_at
+            ) VALUES(?,?,?,?,?,?)
+            """,
+            (
+                run_id,
+                event_id,
+                reason_code,
+                canonical_json_bytes(safe_event).decode("utf-8"),
+                payload_digest,
+                self._now(),
+            ),
+        )
+
+    @staticmethod
+    def _host_sequence_is_out_of_order(
+        connection: sqlite3.Connection, event: HostEvent
+    ) -> bool:
+        maximum = 0
+        for row in connection.execute(
+            "SELECT event_json FROM host_events WHERE run_id=?", (event.run_id,)
+        ).fetchall():
+            try:
+                prior = json.loads(row["event_json"])
+            except json.JSONDecodeError:
+                continue
+            if prior.get("host") == event.host:
+                sequence = prior.get("sequence", 0)
+                if isinstance(sequence, int) and not isinstance(sequence, bool):
+                    maximum = max(maximum, sequence)
+        return maximum > 0 and event.sequence <= maximum
+
+    def _apply_host_event_effect(self, connection: sqlite3.Connection, event: HostEvent) -> None:
+        """Project an accepted host observation onto its canonical attempt lease.
+
+        This is intentionally narrower than lifecycle completion: host events
+        may advance an attempt to a reviewable or recoverable state, but only
+        coordinator obligations and human acceptance can close a run.
+        """
+
+        if not event.attempt_id:
+            return
+        row = connection.execute(
+            "SELECT lease_json FROM action_attempts WHERE run_id=? AND attempt_id=?",
+            (event.run_id, event.attempt_id),
+        ).fetchone()
+        if row is None:
+            return
+        lease = AttemptLease.from_dict(json.loads(row["lease_json"]))
+        status: str | None = None
+        if event.event_type == "attempt_started":
+            status = "running"
+        elif event.event_type == "finding_submitted":
+            status = "submitted"
+        elif event.event_type == "review_completed":
+            status = "verified" if event.payload.get("accepted_refs") else "rejected"
+        elif event.event_type == "provider_failed":
+            category = str(event.payload.get("retry_category", "unknown")).casefold()
+            status = "retryable" if category in {"retryable", "transient", "context_limit"} else "unknown"
+        elif event.event_type == "attempt_unknown":
+            status = "unknown"
+        elif event.event_type == "retry_requested":
+            status = "retryable"
+        elif event.event_type == "worker_finished":
+            terminal = str(event.payload.get("terminal_status", "")).casefold()
+            status = "submitted" if terminal in {"completed", "verified", "success", "submitted"} else "rejected"
+        if status is None or lease.status == status:
+            return
+        updated = replace(lease, status=status, last_seen_at=self._now())
+        connection.execute(
+            "UPDATE action_attempts SET lease_json=?,updated_at=? WHERE run_id=? AND attempt_id=?",
+            (json.dumps(updated.to_dict(), sort_keys=True), self._now(), event.run_id, event.attempt_id),
+        )
 
     def _authority_digest(self, row: sqlite3.Row) -> str:
         return str(row["authority_digest"])
