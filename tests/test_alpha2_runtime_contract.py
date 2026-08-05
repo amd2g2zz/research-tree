@@ -385,6 +385,31 @@ def test_adaptive_policy_uses_decision_deficits_and_never_prunes_p0() -> None:
     assert all(item["slot_id"] == "p0" or item["status"] == "pruned" for item in pruned)
 
 
+def test_adaptive_policy_reuses_persisted_baseline_for_second_round_gain() -> None:
+    from research_tree.policy import AdaptiveResearchPolicy
+
+    policy = AdaptiveResearchPolicy()
+    slots = {"p0": {"priority": "P0", "question": "Validate", "closure": 0.1}}
+    finding = {
+        "id": "f-baseline",
+        "decision_slot_id": "p0",
+        "observations": [{"claim": "x", "anchor": {"kind": "source", "ref": "a"}}],
+        "option_effects": [],
+        "remaining_uncertainties": [],
+    }
+    first = policy.apply(slots, [finding], transition_index=1)
+    second = policy.apply(
+        slots,
+        [finding],
+        baseline=first["baseline"],
+        transition_index=2,
+    )
+    assert first["realized_delta"]["baseline_zero"] is False
+    assert second["transition_index"] == 2
+    assert second["realized_delta"]["baseline_zero"] is True
+    assert second["realized_delta"]["duplicate_only"] is True
+
+
 def test_canonical_run_cli_exposes_status_and_replay(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     from research_tree.cli import main
 

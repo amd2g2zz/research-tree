@@ -62,9 +62,27 @@ class AdaptiveResearchPolicy:
         rank = {"P0": 0, "P1": 1, "P2": 2}
         return tuple(sorted(actions, key=lambda item: (rank.get(str(item["priority"]), 9), -item["selection_value"], item["slot_id"])))
 
-    def apply(self, slots: Mapping[str, Mapping[str, Any]], findings: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-        baseline = EvidenceBaseline()
-        delta, updated = measure_realized_delta(baseline, findings, transition_index=1)
+    def apply(
+        self,
+        slots: Mapping[str, Mapping[str, Any]],
+        findings: Sequence[Mapping[str, Any]],
+        *,
+        baseline: EvidenceBaseline | Mapping[str, Any] | None = None,
+        transition_index: int = 1,
+    ) -> dict[str, Any]:
+        """Measure one policy transition against the persisted evidence baseline."""
+
+        if baseline is None:
+            current = EvidenceBaseline()
+        elif isinstance(baseline, EvidenceBaseline):
+            current = baseline
+        elif isinstance(baseline, Mapping):
+            current = EvidenceBaseline.from_dict(baseline)
+        else:
+            raise TypeError("baseline must be EvidenceBaseline, mapping, or None")
+        delta, updated = measure_realized_delta(
+            current, findings, transition_index=transition_index
+        )
         continuations = [
             continuation
             for finding in findings
@@ -85,19 +103,22 @@ class AdaptiveResearchPolicy:
         return {
             "realized_delta": {**delta, "baseline_zero": delta["realized_delta"] == 0.0},
             "baseline": updated.to_dict(),
+            "transition_index": transition_index,
+            "policy_version": 1,
             "actions": list(self.propose(slots=slots, findings=findings)) + growth,
             "growth": growth,
             "continuation_count": len(continuations),
         }
 
-    def prune(self, actions: Sequence[Mapping[str, Any]], *, protected_slots: set[str] = set()) -> tuple[dict[str, Any], ...]:
+    def prune(self, actions: Sequence[Mapping[str, Any]], *, protected_slots: set[str] | None = None) -> tuple[dict[str, Any], ...]:
+        protected = set(protected_slots or ())
         seen: set[tuple[str, str]] = set()
         result: list[dict[str, Any]] = []
         for action in actions:
             item = dict(action)
             key = (str(item.get("slot_id")), str(item.get("question", "")).strip().casefold())
             priority = str(item.get("priority", "P1"))
-            if key in seen and str(item.get("slot_id")) not in protected_slots and priority != "P0":
+            if key in seen and str(item.get("slot_id")) not in protected and priority != "P0":
                 item["status"] = "pruned"
                 item["prune_reason"] = "duplicate_optional_action"
             else:
