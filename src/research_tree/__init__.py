@@ -187,7 +187,7 @@ from .cas import CASError, CASIntegrityError, ContentAddressedStore
 from .evidence import EvidenceAnchor, EvidenceArtifact, EvidenceError
 from .oracles import OracleError, OracleRun, OracleSpec
 from .closure import ClosureError, SlotClosureAssessment
-from .acceptance import AcceptanceError, DeliveryAcceptance
+from .acceptance import AcceptanceError, DeliveryAcceptance, validate_semantic_deliveries
 from .lifecycle import LifecycleError, allowed_transition, transition_table
 from .leases import AttemptLease, LeaseError
 from .replay import ReplayError, explain_run, ordered_events, replay_events, semantic_state_digest, why_not_complete
@@ -339,6 +339,7 @@ __all__ = [
     "SlotClosureAssessment",
     "AcceptanceError",
     "DeliveryAcceptance",
+    "validate_semantic_deliveries",
     "LifecycleError",
     "allowed_transition",
     "transition_table",
