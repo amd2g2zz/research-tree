@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/decision-ledger-entry-v1.json",
+  "title": "Alpha2 DecisionLedgerEntry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decision_id",
+    "run_id",
+    "blueprint_target_ref",
+    "decision_slot_id",
+    "finding_pack_refs",
+    "insight_digest_ref",
+    "status",
+    "selected_option",
+    "alternatives",
+    "evidence_basis",
+    "rationale",
+    "design_consequence",
+    "repository_touchpoints",
+    "validation",
+    "change_tasks",
+    "assumptions",
+    "fallback",
+    "reversal_condition",
+    "revision_reason",
+    "previous_decision_ref",
+    "producer_version",
+    "limitations"
+  ],
+  "properties": {
+    "decision_id": { "$ref": "#/$defs/identifier" },
+    "run_id": { "$ref": "#/$defs/identifier" },
+    "blueprint_target_ref": { "$ref": "#/$defs/artifactRef" },
+    "decision_slot_id": { "$ref": "#/$defs/identifier" },
+    "finding_pack_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/artifactRef" }
+    },
+    "insight_digest_ref": { "$ref": "#/$defs/artifactRef" },
+    "status": {
+      "type": "string",
+      "enum": ["selected", "conditional", "deferred", "blocked"]
+    },
+    "selected_option": { "type": ["string", "null"], "minLength": 1 },
+    "alternatives": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["option", "disposition", "reason"],
+        "properties": {
+          "option": { "type": "string", "minLength": 1 },
+          "disposition": {
+            "type": "string",
+            "enum": ["rejected", "deferred", "unresolved"]
+          },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "evidence_basis": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["finding_pack_ref", "observation_ids"],
+        "properties": {
+          "finding_pack_ref": { "$ref": "#/$defs/artifactRef" },
+          "observation_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/identifier" }
+          }
+        }
+      }
+    },
+    "rationale": { "type": "string", "minLength": 1 },
+    "design_consequence": { "type": "string", "minLength": 1 },
+    "repository_touchpoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "symbols", "change_kind"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "symbols": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "change_kind": {
+            "type": "string",
+            "enum": ["add", "modify", "delete", "inspect"]
+          }
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["oracle_run_refs", "status", "limitations"],
+      "properties": {
+        "oracle_run_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/oracleRunRef" }
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "passed", "failed", "inconclusive", "not_applicable"]
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "change_tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["task_id", "objective", "affected_paths", "success_oracle"],
+        "properties": {
+          "task_id": { "$ref": "#/$defs/identifier" },
+          "objective": { "type": "string", "minLength": 1 },
+          "affected_paths": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "success_oracle": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "assumptions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "fallback": { "type": "string", "minLength": 1 },
+    "reversal_condition": { "type": "string", "minLength": 1 },
+    "revision_reason": { "type": "string", "minLength": 1 },
+    "previous_decision_ref": {
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/artifactRef" }
+      ]
+    },
+    "producer_version": { "type": "string", "minLength": 1 },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": { "enum": ["selected", "conditional"] }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "selected_option": { "type": "string", "minLength": 1 },
+          "finding_pack_refs": { "minItems": 1 },
+          "evidence_basis": { "minItems": 1 }
+        }
+      },
+      "else": {
+        "properties": { "selected_option": { "type": "null" } }
+      }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "artifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "artifact_id", "revision", "content_hash"],
+      "properties": {
+        "run_id": { "$ref": "#/$defs/identifier" },
+        "artifact_id": { "$ref": "#/$defs/identifier" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "content_hash": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "oracleRunRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["oracle_run_id", "payload_digest"],
+      "properties": {
+        "oracle_run_id": { "$ref": "#/$defs/identifier" },
+        "payload_digest": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}

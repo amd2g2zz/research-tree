@@ -12,6 +12,7 @@
 | missing OracleAttempt | no alpha1 equivalent | persist exact spec/action execution binding before OracleRun | reject as unbound validation |
 | OracleRun bare result artifact ids | read as legacy observation | emit exact artifact revision/hash refs | reject from canonical oracle ledger |
 | single Slot token as run P0 closure | read as legacy observation | emit deterministic P0ClosureAggregate | reject as incomplete run closure |
+| RunStore Decision Ledger entry | import exact target/finding parents and legacy option semantics | emit DecisionLedgerEntry v1 with exact Blueprint/Finding/Insight refs | legacy_unverified until refs and observation basis resolve |
 | package schemas | validate old package | emit package manifest v1 | host-specific compatibility aliases |
 
 The migration implementation SHALL turn this matrix into executable checks. A
