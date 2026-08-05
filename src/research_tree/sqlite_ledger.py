@@ -11,6 +11,8 @@ from typing import Any, Callable, Mapping, Sequence
 
 from .contracts import canonical_json_bytes
 from .coordinator import ResearchRunCoordinator
+from .closure import oracle_successor_actions
+from .worker_contracts import CanonicalWorkItem
 
 
 class SQLiteLedgerError(ValueError):
@@ -71,12 +73,14 @@ class SQLiteRunLedger:
         if self._fault_injector is not None:
             self._fault_injector(boundary)
 
-    def append_artifact(self, *, run_id: str, artifact_id: str, kind: str, payload: Mapping[str, Any], actor_kind: str, actor_id: str, status: str, parent_refs: Sequence[Mapping[str, Any]] = (), expected_revision: int | None = None, created_at: str | None = None) -> dict[str, Any]:
+    def append_artifact(self, *, run_id: str, artifact_id: str, kind: str, payload: Mapping[str, Any], actor_kind: str, actor_id: str, status: str, parent_refs: Sequence[Mapping[str, Any]] = (), expected_revision: int | None = None, expected_run_revision: int | None = None, created_at: str | None = None) -> dict[str, Any]:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             run_row = connection.execute("SELECT * FROM runs WHERE run_id=?", (run_id,)).fetchone()
             if run_row is None:
                 raise SQLiteLedgerError("run does not exist", code="run_not_found")
+            if expected_run_revision is not None and int(run_row["revision"]) != expected_run_revision:
+                raise SQLiteLedgerError("run expected revision is stale", code="stale_run_revision")
             current = int(connection.execute("SELECT COALESCE(MAX(revision),0) FROM artifacts WHERE run_id=? AND artifact_id=?", (run_id, artifact_id)).fetchone()[0])
             if expected_revision is not None and current != expected_revision:
                 raise SQLiteLedgerError("artifact expected revision is stale", code="stale_revision")
@@ -175,6 +179,101 @@ class SQLiteRunLedger:
                 else {}
             ),
         }
+
+    def schedule_oracle_successors(
+        self,
+        *,
+        run_id: str,
+        slot_id: str,
+        oracle_run_ids: Sequence[str],
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        """Persist bounded successor Work Items for non-passing OracleRuns.
+
+        The deterministic artifact id makes this operation replay-safe: a retry
+        observes the existing Work Item and does not advance the run revision.
+        """
+
+        if not isinstance(slot_id, str) or not slot_id.strip():
+            raise SQLiteLedgerError("slot_id is required", code="invalid_slot")
+        if isinstance(oracle_run_ids, (str, bytes)):
+            raise SQLiteLedgerError("oracle_run_ids must be a sequence", code="invalid_oracle_runs")
+        requested = [str(item) for item in oracle_run_ids]
+        if not requested or any(not item.strip() for item in requested):
+            raise SQLiteLedgerError("oracle_run_ids must be nonempty", code="invalid_oracle_runs")
+        current = self.coordinator.status(run_id)
+        if int(current["revision"]) != expected_revision:
+            raise SQLiteLedgerError("run expected revision is stale", code="stale_run_revision")
+        runs = self.coordinator.oracle_runs(run_id)
+        missing = sorted(set(requested) - set(runs))
+        if missing:
+            raise SQLiteLedgerError(
+                f"OracleRun does not resolve: {missing[0]}", code="oracle_run_not_found"
+            )
+        actions = oracle_successor_actions([runs[item] for item in requested])
+        work_items: list[dict[str, Any]] = []
+        for action in actions:
+            oracle_id = action["oracle_run_id"]
+            safe_oracle = "".join(char if char.isalnum() or char == "-" else "-" for char in oracle_id).strip("-")
+            work_item_id = f"oracle-{safe_oracle}-{action['action']}"
+            if len(work_item_id) > 63:
+                work_item_id = f"oracle-{hashlib.sha256(oracle_id.encode('utf-8')).hexdigest()[:16]}-{action['action']}"
+            existing = self._latest_artifact(run_id, work_item_id)
+            if existing is not None:
+                if existing["kind"] != "work-item":
+                    raise SQLiteLedgerError(
+                        f"successor id conflicts with {existing['kind']}", code="artifact_conflict"
+                    )
+                continue
+            oracle = runs[oracle_id]
+            work = CanonicalWorkItem.create(
+                work_item_id=work_item_id,
+                slot_id=slot_id,
+                action_kind=action["action"],
+                objective=(
+                    f"{action['reason']}; execute an independent successor for {oracle_id}."
+                ),
+                inputs=(
+                    f"oracle-run:{oracle_id}",
+                    f"oracle-attempt:{oracle['oracle_attempt_id']}",
+                    f"oracle-spec:{oracle['oracle_spec_id']}@{oracle['oracle_spec_version']}",
+                ),
+                method=(
+                    "independent-method-switch"
+                    if action["action"] == "method_switch"
+                    else "independent-validation"
+                ),
+                expected_output="A new OracleRun with reproducible evidence or an explicit bounded fallback.",
+                success_oracle="The successor OracleRun is independently reproducible or the residual risk is recorded.",
+                permission_profile="research-read-only",
+                completion_evidence=(
+                    f"oracle-run:{oracle_id}",
+                    "successor-oracle-run",
+                ),
+            )
+            artifact = self.append_artifact(
+                run_id=run_id,
+                artifact_id=work_item_id,
+                kind="work-item",
+                payload=work.to_dict(),
+                actor_kind="coordinator",
+                actor_id="oracle-successor-scheduler",
+                status="pending",
+                expected_run_revision=current["revision"],
+            )
+            current = self.coordinator.status(run_id)
+            work_items.append(artifact)
+        return {"run_id": run_id, "revision": current["revision"], "work_items": work_items, "actions": actions}
+
+    def _latest_artifact(self, run_id: str, artifact_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT kind,revision FROM artifacts WHERE run_id=? AND artifact_id=? ORDER BY revision DESC LIMIT 1",
+                (run_id, artifact_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return {"kind": row["kind"], "revision": int(row["revision"])}
 
     def resolve(self, run_id: str, artifact_id: str, revision: int) -> dict[str, Any]:
         with self._connect() as connection:

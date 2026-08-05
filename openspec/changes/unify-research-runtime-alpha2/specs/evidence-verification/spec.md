@@ -138,6 +138,12 @@ Every OracleSpec SHALL declare input schema, invocation adapter, allowed command
 - **WHEN** repeated identical inputs produce conflicting verdicts
 - **THEN** reproducibility_status is flaky, the conflict is retained, and the Slot remains open until an explicit risk-tier rule resolves it
 
+#### Scenario: Failed or inconclusive OracleRun creates successor work
+- **WHEN** a failed or inconclusive OracleRun is recorded for an open Decision Slot
+- **THEN** the scheduler persists a distinct canonical WorkItem referencing the exact OracleRun, OracleAttempt, and OracleSpec revision
+- **AND** a failed result selects a method-switch action while an inconclusive result selects independent validation
+- **AND** replaying the scheduling request is idempotent and does not create a second WorkItem or advance the run revision
+
 ### Requirement: Closure tokens have lifecycle and revocation semantics
 
 A SlotClosureAssessment SHALL include required-evidence results, independence groups, counterevidence search, contradiction disposition, oracle refs and verdicts, fallback, reversal condition, assessor version, issued_at, expires_at when applicable, and a token digest. A closure token SHALL be revoked or marked stale when any parent evidence, InsightDigest, OracleRun, or Decision Ledger revision is superseded.

@@ -357,6 +357,72 @@ def test_alpha2_closure_token_is_replayable_and_revocable() -> None:
     assert assessment.to_contract_dict()["oracle_refs"] == ["run-1"]
     assert assessment.revoke(reason="parent evidence superseded").status == "revoked"
     assert oracle_successor_actions([{"oracle_run_id": "run-fail", "verdict": "failed"}])[0]["action"] == "method_switch"
+    assert oracle_successor_actions([{"oracle_run_id": "run-uncertain", "verdict": "inconclusive"}])[0]["action"] == "validation"
+
+
+def test_failed_oracle_is_persisted_as_idempotent_successor_work(tmp_path) -> None:
+    from research_tree import OracleRun, SQLiteRunLedger
+
+    ledger = SQLiteRunLedger(tmp_path)
+    coordinator = ledger.coordinator
+    state = coordinator.create("run-oracle")
+    state, _attempt = persist_oracle_boundary(ledger, state)
+    result_artifact = ledger.append_artifact(
+        run_id="run-oracle",
+        artifact_id="oracle-result",
+        kind="oracle-result",
+        payload={"exit_code": 1},
+        actor_kind="oracle",
+        actor_id="core-v1",
+        status="active",
+        expected_revision=0,
+    )
+    oracle_run = OracleRun.from_mapping(
+        {
+            "oracle_run_id": "oracle-run-failed",
+            "oracle_attempt_id": "oracle-attempt-1",
+            "oracle_spec_id": "oracle-build",
+            "oracle_spec_version": 1,
+            "attempt_id": "attempt-1",
+            "method": "integration-test",
+            "input_digests": ["a" * 64],
+            "environment_digest": "b" * 64,
+            "toolchain_digest": "c" * 64,
+            "tool_event_refs": [],
+            "verdict": "failed",
+            "exit_code": 1,
+            "timed_out": False,
+            "result_artifact_refs": [result_artifact_ref(content_hash=result_artifact["content_hash"])],
+            "evaluator": "core-v1",
+            "limitations": ["integration assertion failed"],
+            "reproducibility_status": "reproducible",
+        }
+    )
+    state = coordinator.record_oracle_run(
+        "run-oracle", oracle_run, expected_revision=coordinator.status("run-oracle")["revision"]
+    )
+
+    first = ledger.schedule_oracle_successors(
+        run_id="run-oracle",
+        slot_id="slot-a",
+        oracle_run_ids=["oracle-run-failed"],
+        expected_revision=state["revision"],
+    )
+    assert len(first["work_items"]) == 1
+    work = first["work_items"][0]
+    assert work["kind"] == "work-item"
+    assert work["payload"]["action_kind"] == "method_switch"
+    assert "oracle-run:oracle-run-failed" in work["payload"]["inputs"]
+    assert "oracle-attempt:oracle-attempt-1" in work["payload"]["inputs"]
+
+    second = ledger.schedule_oracle_successors(
+        run_id="run-oracle",
+        slot_id="slot-a",
+        oracle_run_ids=["oracle-run-failed"],
+        expected_revision=first["revision"],
+    )
+    assert second["work_items"] == []
+    assert second["revision"] == first["revision"]
 
 
 def test_coordinator_persists_oracle_before_satisfying_closure_obligation(tmp_path) -> None:
