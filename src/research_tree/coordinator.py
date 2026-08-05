@@ -764,6 +764,14 @@ class ResearchRunCoordinator:
                     self._now(),
                 ),
             )
+            if prior is not None:
+                self._revoke_latest_closures(
+                    connection,
+                    run_id,
+                    binding_revision=int(prior["binding_revision"]),
+                    reason="Blueprint Target revision superseded the closure parent",
+                    event_expected_revision=expected_revision,
+                )
             aggregate = self._persist_p0_closure_aggregate(
                 connection,
                 run_id,
@@ -798,6 +806,101 @@ class ResearchRunCoordinator:
                 (run_id,),
             ).fetchall()
         return [json.loads(row["payload_json"]) for row in rows]
+
+    def _current_blueprint_target_ref(
+        self, connection: sqlite3.Connection, run_id: str
+    ) -> tuple[int, dict[str, Any]] | None:
+        binding = connection.execute(
+            """SELECT binding_revision,blueprint_artifact_id,blueprint_revision,
+                      blueprint_content_hash
+               FROM decision_slot_sets WHERE run_id=?
+               ORDER BY binding_revision DESC LIMIT 1""",
+            (run_id,),
+        ).fetchone()
+        if binding is None:
+            return None
+        return int(binding["binding_revision"]), {
+            "run_id": run_id,
+            "artifact_id": binding["blueprint_artifact_id"],
+            "revision": int(binding["blueprint_revision"]),
+            "content_hash": binding["blueprint_content_hash"],
+        }
+
+    def _revoke_latest_closures(
+        self,
+        connection: sqlite3.Connection,
+        run_id: str,
+        *,
+        reason: str,
+        event_expected_revision: int,
+        binding_revision: int | None = None,
+        decision_artifact_id: str | None = None,
+        decision_revision: int | None = None,
+    ) -> list[str]:
+        rows = connection.execute(
+            """SELECT slot_id,assessment_revision,blueprint_binding_revision,
+                      payload_json,token_digest,status
+               FROM slot_closure_assessments WHERE run_id=?""",
+            (run_id,),
+        ).fetchall()
+        latest: dict[tuple[str, int], sqlite3.Row] = {}
+        for row in rows:
+            key = (row["slot_id"], int(row["blueprint_binding_revision"] or 0))
+            if key not in latest or int(row["assessment_revision"]) > int(latest[key]["assessment_revision"]):
+                latest[key] = row
+        revoked: list[str] = []
+        for row in latest.values():
+            if row["status"] != "passed" or not row["token_digest"]:
+                continue
+            if binding_revision is not None and int(row["blueprint_binding_revision"] or 0) != binding_revision:
+                continue
+            prior = json.loads(row["payload_json"])
+            parent = prior.get("decision_ref") or {}
+            if decision_artifact_id is not None:
+                if parent.get("artifact_id") != decision_artifact_id:
+                    continue
+                if decision_revision is not None and int(parent.get("revision", 0)) >= decision_revision:
+                    continue
+            revoked_payload = {
+                **prior,
+                "assessment_revision": int(row["assessment_revision"]) + 1,
+                "status": "revoked",
+                "token_digest": None,
+                "revocation_reason": reason,
+                "checks": {**dict(prior.get("checks", {})), "revoked": reason},
+            }
+            connection.execute(
+                """INSERT INTO slot_closure_assessments(
+                     run_id,slot_id,assessment_revision,blueprint_binding_revision,
+                     payload_json,token_digest,status,created_at
+                   ) VALUES(?,?,?,?,?,?,?,?)""",
+                (
+                    run_id,
+                    row["slot_id"],
+                    revoked_payload["assessment_revision"],
+                    row["blueprint_binding_revision"],
+                    canonical_json_bytes(revoked_payload).decode("utf-8"),
+                    None,
+                    "revoked",
+                    self._now(),
+                ),
+            )
+            token = str(row["token_digest"])
+            revoked.append(token)
+            self._event(
+                connection,
+                run_id,
+                f"closure-revoked-{row['slot_id']}-{revoked_payload['assessment_revision']}",
+                event_expected_revision,
+                {
+                    "slot_id": row["slot_id"],
+                    "assessment_revision": revoked_payload["assessment_revision"],
+                    "revoked_token": token,
+                    "reason": reason,
+                },
+                event_type="slot_closure_revoked",
+            )
+        return revoked
 
     def _persist_p0_closure_aggregate(
         self,
@@ -1266,46 +1369,12 @@ class ResearchRunCoordinator:
                     ).fetchall()
                 ]
                 connection.execute("UPDATE run_obligations SET satisfied=0,updated_at=? WHERE run_id=?", (self._now(), run_id))
-                latest_closures = connection.execute(
-                    """SELECT closure.slot_id,closure.assessment_revision,closure.blueprint_binding_revision,
-                              closure.payload_json,closure.token_digest
-                       FROM slot_closure_assessments AS closure
-                       JOIN (
-                         SELECT slot_id,blueprint_binding_revision,MAX(assessment_revision) AS revision
-                         FROM slot_closure_assessments WHERE run_id=?
-                         GROUP BY slot_id,blueprint_binding_revision
-                       ) AS latest
-                       ON latest.slot_id=closure.slot_id
-                      AND latest.blueprint_binding_revision=closure.blueprint_binding_revision
-                      AND latest.revision=closure.assessment_revision
-                       WHERE closure.run_id=? AND closure.status='passed'""",
-                    (run_id, run_id),
-                ).fetchall()
-                for closure in latest_closures:
-                    prior_payload = json.loads(closure["payload_json"])
-                    revoked_payload = {
-                        **prior_payload,
-                        "assessment_revision": int(closure["assessment_revision"]) + 1,
-                        "status": "revoked",
-                        "token_digest": None,
-                    }
-                    revoked_closure_tokens.append(str(closure["token_digest"]))
-                    connection.execute(
-                        """INSERT INTO slot_closure_assessments(
-                             run_id,slot_id,assessment_revision,blueprint_binding_revision,
-                             payload_json,token_digest,status,created_at
-                           ) VALUES(?,?,?,?,?,?,?,?)""",
-                        (
-                            run_id,
-                            closure["slot_id"],
-                            revoked_payload["assessment_revision"],
-                            closure["blueprint_binding_revision"],
-                            canonical_json_bytes(revoked_payload).decode("utf-8"),
-                            None,
-                            "revoked",
-                            self._now(),
-                        ),
-                    )
+                revoked_closure_tokens = self._revoke_latest_closures(
+                    connection,
+                    run_id,
+                    reason=f"human feedback invalidated prior closure: {feedback['message']}",
+                    event_expected_revision=expected_revision,
+                )
                 binding = connection.execute(
                     """SELECT binding_revision,blueprint_artifact_id,blueprint_revision,
                               blueprint_content_hash

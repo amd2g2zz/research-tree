@@ -440,7 +440,13 @@ def test_coordinator_persists_oracle_before_satisfying_closure_obligation(tmp_pa
     assert [item["status"] for item in history] == ["passed", "revoked"]
     assert history[0]["token_digest"] == assessment.token_digest
     assert history[1]["token_digest"] is None
+    assert history[1]["revocation_reason"].startswith("human feedback invalidated prior closure:")
     assert coordinator.obligations("run-oracle")["p0_closure"]["satisfied"] is False
+    assert any(
+        event["event_type"] == "slot_closure_revoked"
+        and event["payload"]["reason"].startswith("human feedback invalidated prior closure:")
+        for event in coordinator.events("run-oracle")
+    )
 
 
 def test_p0_closure_aggregates_every_active_blueprint_slot(tmp_path) -> None:
@@ -678,6 +684,119 @@ def test_closure_rejects_decision_slot_mismatch_without_advancing(tmp_path) -> N
     assert error.value.code == "closure_slot_mismatch"
     assert coordinator.status("run-oracle")["revision"] == before
     assert coordinator.closure_assessments("run-oracle") == []
+
+
+def test_decision_parent_supersession_revokes_prior_closure_in_same_append(tmp_path) -> None:
+    from research_tree import OracleRun, SQLiteRunLedger
+
+    ledger = SQLiteRunLedger(tmp_path)
+    coordinator = ledger.coordinator
+    coordinator.create("run-oracle")
+    state, blueprint = bind_blueprint(ledger, ["slot-a"])
+    state, oracle_attempt = persist_oracle_boundary(ledger, state)
+    result_artifact = ledger.append_artifact(
+        run_id="run-oracle",
+        artifact_id="oracle-result",
+        kind="oracle-result",
+        payload={"exit_code": 0},
+        actor_kind="oracle",
+        actor_id="core-v1",
+        status="active",
+        expected_revision=0,
+    )
+    oracle_run = OracleRun.from_mapping(
+        {
+            "oracle_run_id": "oracle-run-1",
+            "oracle_attempt_id": oracle_attempt.oracle_attempt_id,
+            "oracle_spec_id": "oracle-build",
+            "oracle_spec_version": 1,
+            "attempt_id": "attempt-1",
+            "method": "integration-test",
+            "input_digests": ["a" * 64],
+            "environment_digest": "b" * 64,
+            "toolchain_digest": "c" * 64,
+            "tool_event_refs": [],
+            "verdict": "passed",
+            "exit_code": 0,
+            "timed_out": False,
+            "result_artifact_refs": [
+                result_artifact_ref(content_hash=result_artifact["content_hash"])
+            ],
+            "evaluator": "core-v1",
+            "limitations": [],
+            "reproducibility_status": "reproducible",
+        }
+    )
+    coordinator.record_oracle_run(
+        "run-oracle",
+        oracle_run,
+        expected_revision=coordinator.status("run-oracle")["revision"],
+    )
+    decision = ledger.append_artifact(
+        run_id="run-oracle",
+        artifact_id="decision-slot-a",
+        kind="decision-ledger-entry",
+        payload={
+            "decision_slot_id": "slot-a",
+            "blueprint_target_id": "blueprint-target",
+            "status": "selected",
+            "fallback": "Defer slot-a.",
+            "reversal_condition": "New evidence reverses slot-a.",
+        },
+        actor_kind="coordinator",
+        actor_id="decision-compiler",
+        status="active",
+        parent_refs=[
+            {
+                "run_id": "run-oracle",
+                "artifact_id": "blueprint-target",
+                "revision": blueprint["revision"],
+            }
+        ],
+        expected_revision=0,
+    )
+    assessment = passing_assessment("slot-a", decision, oracle_run)
+    coordinator.record_closure_assessment(
+        "run-oracle",
+        assessment,
+        expected_revision=coordinator.status("run-oracle")["revision"],
+    )
+    assert coordinator.obligations("run-oracle")["p0_closure"]["satisfied"] is True
+
+    ledger.append_artifact(
+        run_id="run-oracle",
+        artifact_id="decision-slot-a",
+        kind="decision-ledger-entry",
+        payload={
+            "decision_slot_id": "slot-a",
+            "blueprint_target_id": "blueprint-target",
+            "status": "selected",
+            "fallback": "Defer slot-a after revision.",
+            "reversal_condition": "New evidence reverses slot-a after revision.",
+        },
+        actor_kind="coordinator",
+        actor_id="decision-compiler",
+        status="active",
+        parent_refs=[
+            {
+                "run_id": "run-oracle",
+                "artifact_id": "blueprint-target",
+                "revision": blueprint["revision"],
+                },
+            {
+                "run_id": "run-oracle",
+                "artifact_id": "decision-slot-a",
+                "revision": decision["revision"],
+            },
+        ],
+        expected_revision=1,
+    )
+
+    history = coordinator.closure_assessments("run-oracle")
+    assert [item["status"] for item in history] == ["passed", "revoked"]
+    assert history[-1]["revocation_reason"] == "decision ledger revision superseded the closure parent"
+    assert coordinator.obligations("run-oracle")["p0_closure"]["satisfied"] is False
+    assert coordinator.p0_closure_aggregates("run-oracle")[-1]["status"] == "open"
 
 
 @pytest.mark.parametrize(

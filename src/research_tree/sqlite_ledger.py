@@ -140,11 +140,41 @@ class SQLiteRunLedger:
                     datetime.now(timezone.utc).isoformat(),
                 ),
             )
+            revoked_closure_tokens: list[str] = []
+            aggregate: dict[str, Any] | None = None
+            if kind == "decision-ledger-entry":
+                revoked_closure_tokens = self.coordinator._revoke_latest_closures(
+                    connection,
+                    run_id,
+                    decision_artifact_id=artifact_id,
+                    decision_revision=revision,
+                    reason="decision ledger revision superseded the closure parent",
+                    event_expected_revision=run_revision,
+                )
+                current_binding = self.coordinator._current_blueprint_target_ref(
+                    connection, run_id
+                )
+                if current_binding is not None:
+                    binding_revision, blueprint_ref = current_binding
+                    aggregate = self.coordinator._persist_p0_closure_aggregate(
+                        connection,
+                        run_id,
+                        binding_revision=binding_revision,
+                        blueprint_target_ref=blueprint_ref,
+                    )
             self._fault("after_event")
             self.coordinator._snapshot_current_revision(
                 connection, run_id, source_event_id=event_id
             )
-        return {**body, "content_hash": content_hash}
+        return {
+            **body,
+            "content_hash": content_hash,
+            **(
+                {"revoked_closure_tokens": revoked_closure_tokens, "p0_closure_aggregate": aggregate}
+                if kind == "decision-ledger-entry"
+                else {}
+            ),
+        }
 
     def resolve(self, run_id: str, artifact_id: str, revision: int) -> dict[str, Any]:
         with self._connect() as connection:
