@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "entries": [
+    { "path": "src/", "asset_class": "authoring_source", "owner": "runtime", "mutability": "source", "tracked": true, "distributed": true, "cleanup_safety": "never_delete", "canonical_command": "uv run pytest -q" },
+    { "path": "skill-src/", "asset_class": "authoring_source", "owner": "skill", "mutability": "source", "tracked": true, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": "uv run python scripts/build_skill_packages.py" },
+    { "path": "packages/", "asset_class": "generated_distribution", "owner": "release", "mutability": "rebuildable", "tracked": true, "distributed": true, "cleanup_safety": "safe_rebuild", "canonical_command": "uv run python scripts/build_skill_packages.py" },
+    { "path": "scripts/", "asset_class": "authoring_source", "owner": "runtime", "mutability": "source", "tracked": true, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": "uv run pytest -q" },
+    { "path": "hooks/", "asset_class": "authoring_source", "owner": "host-adapter", "mutability": "source", "tracked": true, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": "uv run pytest -q" },
+    { "path": "tests/", "asset_class": "authoring_source", "owner": "quality", "mutability": "source", "tracked": true, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": "uv run pytest -q" },
+    { "path": "docs/", "asset_class": "historical_or_normative", "owner": "maintainers", "mutability": "source", "tracked": true, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": "uv run python scripts/check_docs.py" },
+    { "path": "references/", "asset_class": "authoring_source", "owner": "runtime", "mutability": "source", "tracked": true, "distributed": true, "cleanup_safety": "never_delete", "canonical_command": "uv run python scripts/build_skill_packages.py --check" },
+    { "path": "assets/", "asset_class": "authoring_source", "owner": "skill", "mutability": "source", "tracked": true, "distributed": true, "cleanup_safety": "never_delete", "canonical_command": "uv run python scripts/build_skill_packages.py --check" },
+    { "path": "evaluation/", "asset_class": "evaluation_source", "owner": "quality", "mutability": "versioned_or_append_only", "tracked": true, "distributed": false, "cleanup_safety": "explicit_confirmation", "canonical_command": "uv run python scripts/evaluate.py" },
+    { "path": ".research-tree/", "asset_class": "runtime_state", "owner": "runtime", "mutability": "append_only_or_rebuildable", "tracked": false, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": "research-tree run-status" },
+    { "path": ".agents/", "asset_class": "installed_copy", "owner": "codex", "mutability": "generated_or_link", "tracked": false, "distributed": false, "cleanup_safety": "explicit_confirmation", "canonical_command": "research-tree-setup" },
+    { "path": ".claude/", "asset_class": "installed_copy", "owner": "claude-code", "mutability": "generated_or_link", "tracked": false, "distributed": false, "cleanup_safety": "explicit_confirmation", "canonical_command": "research-tree-setup" },
+    { "path": ".codex/", "asset_class": "installed_copy", "owner": "codex", "mutability": "generated_or_link", "tracked": false, "distributed": false, "cleanup_safety": "explicit_confirmation", "canonical_command": "research-tree-setup" },
+    { "path": "build/", "asset_class": "build_product", "owner": "release", "mutability": "disposable", "tracked": false, "distributed": false, "cleanup_safety": "safe_ignore", "canonical_command": "uv build" },
+    { "path": "dist/", "asset_class": "build_product", "owner": "release", "mutability": "disposable", "tracked": false, "distributed": true, "cleanup_safety": "safe_ignore", "canonical_command": "uv build" },
+    { "path": "raw/", "asset_class": "historical_or_runtime", "owner": "research", "mutability": "operator_migrated", "tracked": false, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": null },
+    { "path": "research-runs/", "asset_class": "evaluation_output", "owner": "quality", "mutability": "operator_migrated", "tracked": false, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": "research-tree run-export-audit" },
+    { "path": "openspec/", "asset_class": "active_change_or_history", "owner": "maintainers", "mutability": "append_only_per_change", "tracked": true, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": "openspec validate" }
+  ]
+}

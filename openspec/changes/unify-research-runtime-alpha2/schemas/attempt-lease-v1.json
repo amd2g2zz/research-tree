@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/attempt-lease-v1.json",
+  "title": "Alpha2 attempt lease",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["attempt_id", "work_item_id", "run_id", "owner", "status", "dispatch_digest", "retry_ordinal", "started_at", "lease_expires_at", "heartbeat_sequence"],
+  "properties": {
+    "attempt_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "work_item_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "run_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "owner": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["leased", "running", "submitted", "verified", "retryable", "unknown", "rejected", "cancelled", "completed"] },
+    "dispatch_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "retry_ordinal": { "type": "integer", "minimum": 0 },
+    "started_at": { "type": "string", "format": "date-time" },
+    "lease_expires_at": { "type": "string", "format": "date-time" },
+    "heartbeat_sequence": { "type": "integer", "minimum": 0 },
+    "last_seen_at": { "type": ["string", "null"], "format": "date-time" }
+  }
+}

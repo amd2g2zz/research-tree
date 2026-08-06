@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/analysis-checkpoint-v1.json",
+  "title": "Alpha2 AnalysisCheckpoint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["checkpoint_id", "run_id", "attempt_id", "action_id", "scope", "source_capture_refs", "facts", "hypotheses", "contradictions", "open_questions", "method_outcomes", "next_actions", "created_at"],
+  "properties": {
+    "checkpoint_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "attempt_id": { "type": "string", "minLength": 1 },
+    "action_id": { "type": "string", "minLength": 1 },
+    "scope": { "type": "string", "minLength": 1 },
+    "source_capture_refs": { "type": "array", "items": { "type": "string" } },
+    "facts": { "type": "array", "items": { "type": "object", "required": ["statement", "evidence_refs"], "additionalProperties": false, "properties": { "statement": { "type": "string" }, "evidence_refs": { "type": "array", "items": { "type": "string" } } } } },
+    "hypotheses": { "type": "array", "items": { "type": "object", "required": ["statement", "status"], "additionalProperties": false, "properties": { "statement": { "type": "string" }, "status": { "type": "string", "enum": ["candidate", "supported", "weakened", "rejected", "unknown"] } } } },
+    "contradictions": { "type": "array", "items": { "type": "string" } },
+    "open_questions": { "type": "array", "items": { "type": "string" } },
+    "method_outcomes": { "type": "array", "items": { "type": "object", "required": ["method_id", "status"], "additionalProperties": false, "properties": { "method_id": { "type": "string" }, "status": { "type": "string", "enum": ["useful", "no_result", "failed", "blocked", "unknown"] } } } },
+    "next_actions": { "type": "array", "items": { "type": "string" } },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

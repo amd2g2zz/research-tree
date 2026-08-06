@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/source-capture-v1.json",
+  "title": "Alpha2 SourceCapture",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["capture_id", "run_id", "attempt_id", "locator", "content_digest", "media_type", "size_bytes", "captured_at", "method_id", "provider_id", "provenance_group", "status"],
+  "properties": {
+    "capture_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "attempt_id": { "type": "string", "minLength": 1 },
+    "locator": { "type": "object", "minProperties": 1 },
+    "content_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "media_type": { "type": "string", "minLength": 1 },
+    "size_bytes": { "type": "integer", "minimum": 0 },
+    "captured_at": { "type": "string", "format": "date-time" },
+    "method_id": { "type": "string", "minLength": 1 },
+    "provider_id": { "type": "string", "minLength": 1 },
+    "provenance_group": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["committed", "superseded", "quarantined", "unavailable"] }
+  }
+}

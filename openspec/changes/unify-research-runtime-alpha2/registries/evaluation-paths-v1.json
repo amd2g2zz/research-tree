@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "canonical_root": "evaluation/",
+  "disposable_root": ".research-tree/evaluation-runs/",
+  "entries": [
+    { "path": "evaluation/cases/", "class": "versioned-case", "tracked": true, "mutable": "append-new-version", "retention": "indefinite" },
+    { "path": "evaluation/schemas/", "class": "evaluation-schema", "tracked": true, "mutable": "versioned", "retention": "indefinite" },
+    { "path": "evaluation/harness/", "class": "evaluator-code", "tracked": true, "mutable": "source", "retention": "indefinite" },
+    { "path": "evaluation/baselines/", "class": "registered-baseline", "tracked": true, "mutable": "immutable-by-digest", "retention": "indefinite" },
+    { "path": "evaluation/results/", "class": "redacted-release-evidence", "tracked": true, "mutable": "append-only", "retention": "release-plus-audit" },
+    { "path": "evaluation/reviews/", "class": "blinded-review", "tracked": true, "mutable": "append-only", "retention": "release-plus-audit" },
+    { "path": ".research-tree/evaluation-runs/", "class": "raw-disposable-run", "tracked": false, "mutable": "disposable", "retention": "operator-defined" },
+    { "path": "evaluation/experiences/", "class": "legacy-experience-input", "tracked": false, "mutable": "migration-only", "retention": "classify-and-redact" },
+    { "path": "evals/", "class": "retired-ambiguous-root", "tracked": false, "mutable": "forbidden", "retention": "remove-empty-root-with-note" }
+  ],
+  "hidden_oracle_policy": "oracle bodies and reference patches remain evaluator-owned and outside worker-visible requests"
+}

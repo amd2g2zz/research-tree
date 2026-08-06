@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/host-event-v1.json",
+  "title": "Alpha2 HostEvent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "event_id", "event_type", "run_id", "round_id", "slot_id", "action_id", "attempt_id", "host", "causation_id", "correlation_id", "sequence", "expected_revision", "payload_digest", "emitted_at", "payload"],
+  "properties": {
+    "protocol_version": { "const": 1 },
+    "event_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "event_type": { "type": "string", "enum": ["dispatch_requested", "attempt_started", "checkpoint_persisted", "workflow_started", "workflow_resumed", "workflow_phase_completed", "finding_submitted", "review_completed", "provider_failed", "attempt_unknown", "retry_requested", "worker_finished", "acceptance_recorded", "reconciliation_detected"] },
+    "run_id": { "type": "string", "minLength": 1 },
+    "round_id": { "type": "string", "minLength": 1 },
+    "slot_id": { "type": ["string", "null"] },
+    "action_id": { "type": ["string", "null"] },
+    "attempt_id": { "type": ["string", "null"] },
+    "host": { "type": "string", "enum": ["codex", "claude-code", "hermes"] },
+    "causation_id": { "type": ["string", "null"] },
+    "correlation_id": { "type": ["string", "null"] },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "expected_revision": { "type": "integer", "minimum": 0 },
+    "payload_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "emitted_at": { "type": "string", "format": "date-time" },
+    "payload": { "type": "object" }
+  }
+}

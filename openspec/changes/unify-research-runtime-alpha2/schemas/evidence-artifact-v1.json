@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/evidence-artifact-v1.json",
+  "title": "Alpha2 EvidenceArtifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["evidence_id", "run_id", "revision", "media_type", "locator", "content_digest", "size_bytes", "acquired_at", "acquisition_method", "provenance_group", "applicability", "confidence", "limitations", "status", "extractor_version"],
+  "properties": {
+    "evidence_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "run_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "media_type": { "type": "string", "minLength": 1 },
+    "locator": { "type": "object", "minProperties": 1 },
+    "content_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "size_bytes": { "type": "integer", "minimum": 0 },
+    "acquired_at": { "type": "string", "format": "date-time" },
+    "acquisition_method": { "type": "string", "minLength": 1 },
+    "provenance_group": { "type": "string", "minLength": 1 },
+    "source_revision": { "type": ["string", "null"] },
+    "applicability": { "type": "string", "minLength": 1 },
+    "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+    "limitations": { "type": "array", "items": { "type": "string" } },
+    "license_note": { "type": ["string", "null"] },
+    "extractor_version": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["active", "superseded", "rejected", "quarantined", "legacy_unverified"] }
+  }
+}

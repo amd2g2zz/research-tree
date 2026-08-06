@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/entity-envelope-v1.json",
+  "title": "Alpha2 canonical entity envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "id",
+    "run_id",
+    "revision",
+    "created_at",
+    "actor",
+    "status",
+    "payload",
+    "parent_refs",
+    "content_hash"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "kind": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "run_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "host"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["coordinator", "worker", "human", "oracle", "adapter", "migration"] },
+        "id": { "type": "string", "minLength": 1 },
+        "host": { "type": "string", "enum": ["codex", "claude-code", "hermes", "source", "evaluator"] }
+      }
+    },
+    "status": { "type": "string", "minLength": 1 },
+    "payload": { "type": "object" },
+    "parent_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["run_id", "id", "revision"],
+        "properties": {
+          "run_id": { "type": "string", "minLength": 1 },
+          "id": { "type": "string", "minLength": 1 },
+          "revision": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "content_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

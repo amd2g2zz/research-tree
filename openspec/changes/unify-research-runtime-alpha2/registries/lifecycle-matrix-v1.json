@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "state_vocabulary": {
+    "active": ["alignment", "handoff_pending", "autonomous_research", "synthesis", "readiness", "delivery_pending", "awaiting_acceptance"],
+    "resumable": ["paused", "blocked"],
+    "terminal": ["completed", "superseded", "authority_blocked", "failed"]
+  },
+  "transition_contract": {
+    "required_fields": ["from", "event", "to", "actor", "guard", "side_effects", "next_actions"],
+    "failure_code_default": "illegal_transition",
+    "failure_code_rule": "A successful edge may omit a null failure_code; a rejected edge uses the error catalog entry for its failed guard."
+  },
+  "transitions": [
+    { "from": "alignment", "event": "alignment_projection_ready", "to": "handoff_pending", "actor": "coordinator", "guard": "readiness_predicate_passes_except_contextual_confirmation", "side_effects": ["persist_strategy_digest", "emit_alignment_message"], "next_actions": ["confirm_handoff", "revise_alignment"] },
+    { "from": "alignment", "event": "authority_impossible", "to": "authority_blocked", "actor": "coordinator", "guard": "hard_goal_is_infeasible_or_unauthorized", "side_effects": ["persist_alternatives", "emit_authority_request"], "next_actions": ["create_successor_round"] },
+    { "from": "handoff_pending", "event": "handoff_confirmed", "to": "autonomous_research", "actor": "human", "guard": "displayed_digest_matches_and_confirmation_is_contextual", "side_effects": ["persist_autonomy_envelope", "schedule_initial_actions"], "next_actions": ["dispatch", "pause"] },
+    { "from": "handoff_pending", "event": "alignment_feedback", "to": "alignment", "actor": "human", "guard": "response_changes_or_rejects_strategy", "side_effects": ["append_belief_revision"], "next_actions": ["plan_next_prompt"] },
+    { "from": "autonomous_research", "event": "batch_checkpoint", "to": "synthesis", "actor": "coordinator", "guard": "all_current_attempts_are_terminal_or_unknown", "side_effects": ["persist_checkpoint"], "next_actions": ["synthesize", "recover_unknown"] },
+    { "from": "autonomous_research", "event": "operational_limit", "to": "paused", "actor": "coordinator", "guard": "resumable_limit_reached", "side_effects": ["persist_resume_action"], "next_actions": ["resume", "change_method"] },
+    { "from": "synthesis", "event": "closure_deficit", "to": "autonomous_research", "actor": "coordinator", "guard": "digest_has_open_or_contradictory_obligations", "side_effects": ["create_action_proposals"], "next_actions": ["dispatch", "pause"] },
+    { "from": "synthesis", "event": "all_slots_closed", "to": "readiness", "actor": "coordinator", "guard": "all_required_slots_have_current_closure_tokens", "side_effects": ["persist_insight_digest"], "next_actions": ["evaluate_readiness"] },
+    { "from": "readiness", "event": "readiness_passed", "to": "delivery_pending", "actor": "coordinator", "guard": "all_required_checks_pass", "side_effects": ["freeze_source_digest"], "next_actions": ["compile_deliveries"] },
+    { "from": "readiness", "event": "readiness_deficit", "to": "autonomous_research", "actor": "coordinator", "guard": "a_check_is_unknown_or_failed_and_researchable", "side_effects": ["record_deficit"], "next_actions": ["dispatch"] },
+    { "from": "delivery_pending", "event": "deliveries_compiled", "to": "awaiting_acceptance", "actor": "coordinator", "guard": "both_manifests_validate_and_source_digest_is_current", "side_effects": ["persist_delivery_revisions", "display_digests"], "next_actions": ["accept", "request_depth"] },
+    { "from": "awaiting_acceptance", "event": "delivery_accepted", "to": "completed", "actor": "human", "guard": "both_exact_revisions_and_displayed_digest_match", "side_effects": ["issue_terminal_record"], "next_actions": ["export_audit"] },
+    { "from": "awaiting_acceptance", "event": "needs_deeper_research", "to": "autonomous_research", "actor": "human", "guard": "feedback_is_material_but_objective_is_unchanged", "side_effects": ["append_feedback_lineage", "invalidate_delivery_acceptance"], "next_actions": ["dispatch"] },
+    { "from": "awaiting_acceptance", "event": "intent_correction", "to": "superseded", "actor": "coordinator", "guard": "feedback_changes_target_or_success_definition", "side_effects": ["create_successor_round"], "next_actions": ["align_successor"] },
+    { "from": "paused", "event": "resume", "to": "autonomous_research", "actor": "coordinator", "guard": "resume_preconditions_pass", "side_effects": ["reconcile_leases"], "next_actions": ["dispatch", "recover"] },
+    { "from": "blocked", "event": "blocker_resolved", "to": "autonomous_research", "actor": "coordinator", "guard": "next_method_or_authority_decision_is_recorded", "side_effects": ["append_resolution"], "next_actions": ["dispatch", "request_authority"] },
+    { "from": "alignment", "event": "supersede", "to": "superseded", "actor": "coordinator", "guard": "successor_round_exists", "side_effects": ["link_successor"], "next_actions": ["export_audit"] },
+    { "from": "autonomous_research", "event": "cancel_requested", "to": "superseded", "actor": "human_or_operator", "guard": "cancellation_reason_and_actor_are_recorded", "side_effects": ["cancel_active_attempts", "link_termination_reason"], "next_actions": ["export_audit"] },
+    { "from": "autonomous_research", "event": "fatal_failure", "to": "failed", "actor": "coordinator", "guard": "non_retryable_failure_is_recorded", "side_effects": ["persist_failure"], "next_actions": ["export_audit", "create_successor_round"] }
+  ],
+  "rule": "No transition outside this list may mutate canonical lifecycle state. A missing guard result is false. Terminal states accept only idempotent reads and audit export."
+}

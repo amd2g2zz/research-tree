@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "task_rule": {
+    "required_fields": ["task_id", "depends_on", "owner", "outputs", "acceptance_command", "rollback", "evidence_refs"],
+    "close_condition": "all required fields resolve and acceptance command exits zero in the declared environment"
+  },
+  "groups": [
+    { "group": 1, "depends_on": [], "owner": "quality", "outputs": ["alpha1-fixture-manifest", "negative-semantic-fixtures"], "acceptance_command": "uv run pytest -q tests/test_alpha1_baseline.py", "rollback": "remove fixture revision only" },
+    { "group": 2, "depends_on": [1], "owner": "runtime", "outputs": ["sqlite-v1", "cas", "legacy-importer"], "acceptance_command": "uv run pytest -q tests/test_sqlite_ledger.py tests/test_migration.py", "rollback": "disable alpha2 storage flag" },
+    { "group": 3, "depends_on": [2], "owner": "evidence", "outputs": ["evidence-schemas", "anchor-resolver"], "acceptance_command": "uv run pytest -q tests/test_evidence_contract.py", "rollback": "retain imported evidence as read-only" },
+    { "group": 4, "depends_on": [3], "owner": "evidence", "outputs": ["oracle-runner", "closure-assessor"], "acceptance_command": "uv run pytest -q tests/test_oracle_closure.py", "rollback": "revoke alpha2 closure tokens" },
+    { "group": 5, "depends_on": [2, 4], "owner": "runtime", "outputs": ["coordinator", "state-machine"], "acceptance_command": "uv run pytest -q tests/test_coordinator.py tests/test_lifecycle.py", "rollback": "route reads to legacy projection" },
+    { "group": 6, "depends_on": [3, 4, 5], "owner": "research", "outputs": ["adaptive-policy", "insight-digest"], "acceptance_command": "uv run pytest -q tests/test_adaptive_policy.py tests/test_insights.py", "rollback": "freeze optional frontier growth" },
+    { "group": 7, "depends_on": [5], "owner": "alignment", "outputs": ["handoff-contract", "acceptance-prompt"], "acceptance_command": "uv run pytest -q tests/test_alignment_protocol.py", "rollback": "remain handoff_pending" },
+    { "group": 8, "depends_on": [5], "owner": "host-adapter", "outputs": ["host-event-protocol", "codex-claude-adapters"], "acceptance_command": "uv run pytest -q tests/test_host_event_protocol.py", "rollback": "disable canonical event cutover" },
+    { "group": 9, "depends_on": [8], "owner": "host-adapter", "outputs": ["hermes-adapter"], "acceptance_command": "uv run pytest -q tests/test_hermes_execution_adapter.py", "rollback": "keep Hermes checkpoint read-only" },
+    { "group": 10, "depends_on": [4, 5, 7], "owner": "delivery", "outputs": ["technical-package", "human-report", "acceptance"], "acceptance_command": "uv run pytest -q tests/test_deliveries.py tests/test_delivery_acceptance.py", "rollback": "invalidate unaccepted delivery revisions" },
+    { "group": 11, "depends_on": [5, 8], "owner": "observability", "outputs": ["trace-schema", "replay", "reconcile"], "acceptance_command": "uv run pytest -q tests/test_debug_trace.py tests/test_replay.py", "rollback": "retain append-only events" },
+    { "group": 12, "depends_on": [1, 6, 8, 9, 10, 11], "owner": "quality", "outputs": ["black-box-results", "release-gates"], "acceptance_command": "uv run python evaluation/harness/run_release_gates.py", "rollback": "reject candidate manifest" },
+    { "group": 13, "depends_on": [2, 8, 9, 10, 12], "owner": "release", "outputs": ["migration-report", "package-manifests"], "acceptance_command": "uv run pytest -q tests/test_migration.py tests/test_skill_packages.py", "rollback": "restore alpha1 reader" },
+    { "group": 14, "depends_on": [2, 5], "owner": "runtime", "outputs": ["contract-registry", "state-matrix"], "acceptance_command": "uv run python scripts/validate_contracts.py", "rollback": "reject implementation slice" },
+    { "group": 15, "depends_on": [3, 5, 8], "owner": "research", "outputs": ["worker-orchestration", "method-registry"], "acceptance_command": "uv run pytest -q tests/test_worker_orchestration.py tests/test_acquisition.py", "rollback": "quarantine incomplete attempts" },
+    { "group": 16, "depends_on": [3, 4, 6], "owner": "research", "outputs": ["insight-digest", "policy-calibration"], "acceptance_command": "uv run pytest -q tests/test_insight_digest.py tests/test_policy_replay.py", "rollback": "use prior policy version" },
+    { "group": 17, "depends_on": [2, 3, 4, 8], "owner": "security", "outputs": ["permission-profiles", "sandbox-checks"], "acceptance_command": "uv run pytest -q tests/test_execution_boundary.py", "rollback": "disable unsafe method" },
+    { "group": 18, "depends_on": [5, 8, 10, 11, 12, 13, 14, 15, 16, 17], "owner": "release", "outputs": ["delivery-matrix", "release-manifest", "dod-report"], "acceptance_command": "uv run python scripts/verify_release_manifest.py", "rollback": "hold release and keep feature flag off" },
+    { "group": 19, "depends_on": [14], "owner": "documentation", "outputs": ["documentation-registry", "doc-checks"], "acceptance_command": "uv run python scripts/check_docs.py", "rollback": "mark docs change incomplete" },
+    { "group": 20, "depends_on": [12, 18], "owner": "quality", "outputs": ["evaluation-registry", "evaluation-migration"], "acceptance_command": "uv run python scripts/check_evaluation_assets.py", "rollback": "retain raw runs outside tracked source" },
+    { "group": 21, "depends_on": [13, 19, 20], "owner": "release", "outputs": ["path-registry", "clean-checkout-report"], "acceptance_command": "uv run python scripts/check_repository_layout.py", "rollback": "do not move untracked material" },
+    { "group": 22, "depends_on": [18, 19, 20, 21], "owner": "maintainers", "outputs": ["alpha2-release"], "acceptance_command": "uv run python scripts/verify_alpha2_release.py", "rollback": "do not tag or publish" }
+  ]
+}

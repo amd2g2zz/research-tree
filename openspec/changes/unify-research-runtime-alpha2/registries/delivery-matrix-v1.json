@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "row_key": "<capability>/<requirement-slug>",
+  "required_columns": ["requirement_id", "source_modules", "public_surface", "migration_impact", "unit_tests", "integration_tests", "black_box_cases", "evidence_artifact", "github_issue", "owner", "status"],
+  "status_values": ["planned", "in_progress", "verified", "blocked", "not_applicable"],
+  "generation_rule": "scripts/generate_delivery_matrix.py parses every spec.md Requirement heading and emits exactly one row; release validation rejects missing, duplicate, or orphan rows",
+  "capability_rows": [
+    { "capability": "canonical-runtime-contract", "source_modules": ["src/research_tree/coordinator.py", "src/research_tree/contracts/", "src/research_tree/ledger.py"], "public_surface": ["research-tree run"], "task_groups": [5, 14, 18], "github_issue": "#57", "owner": "runtime" },
+    { "capability": "durable-research-runtime", "source_modules": ["src/research_tree/ledger.py", "src/research_tree/cas.py", "src/research_tree/migrations.py"], "public_surface": ["run-recover", "run-replay"], "task_groups": [2, 13], "github_issue": "#53", "owner": "runtime" },
+    { "capability": "evidence-verification", "source_modules": ["src/research_tree/evidence.py", "src/research_tree/oracles.py", "src/research_tree/closure.py"], "public_surface": ["run ingest", "run verify"], "task_groups": [3, 4], "github_issue": "#54", "owner": "evidence" },
+    { "capability": "adaptive-research-execution", "source_modules": ["src/research_tree/policy.py", "src/research_tree/scheduler.py"], "public_surface": ["run next"], "task_groups": [6, 16], "github_issue": "#58", "owner": "research" },
+    { "capability": "mutual-alignment", "source_modules": ["src/research_tree/alignment.py", "src/research_tree/handoff.py"], "public_surface": ["run init", "run next"], "task_groups": [7], "github_issue": "#59", "owner": "alignment" },
+    { "capability": "worker-orchestration", "source_modules": ["src/research_tree/scheduler.py", "src/research_tree/leases.py", "src/research_tree/checkpoints.py"], "public_surface": ["run next", "run recover"], "task_groups": [15, 25], "github_issue": "#80", "owner": "research" },
+    { "capability": "research-acquisition", "source_modules": ["src/research_tree/acquisition.py", "src/research_tree/methods.py", "src/research_tree/search_portfolio.py"], "public_surface": ["run ingest", "run plan-search"], "task_groups": [15, 27], "github_issue": "#83", "owner": "research" },
+    { "capability": "insight-synthesis", "source_modules": ["src/research_tree/insights.py"], "public_surface": ["run synthesize", "run explain"], "task_groups": [16], "github_issue": "#58", "owner": "research" },
+    { "capability": "host-event-protocol", "source_modules": ["src/research_tree/events.py", "scripts/native_execution_adapter.py", "scripts/hermes_execution_adapter.py"], "public_surface": ["run ingest", "run reconcile-host"], "task_groups": [8, 9], "github_issue": "#82", "owner": "host-adapter" },
+    { "capability": "host-native-orchestration", "source_modules": ["src/research_tree/host_capabilities.py", "src/research_tree/native_workflows.py", "scripts/native_execution_adapter.py", "scripts/hermes_execution_adapter.py"], "public_surface": ["run probe-host", "run reconcile-host"], "task_groups": [8, 9, 26], "github_issue": "#82", "owner": "host-adapter" },
+    { "capability": "semantic-research-delivery", "source_modules": ["src/research_tree/delivery.py", "src/research_tree/acceptance.py"], "public_surface": ["run deliver", "run accept"], "task_groups": [10], "github_issue": "#62", "owner": "delivery" },
+    { "capability": "runtime-observability", "source_modules": ["src/research_tree/debug_trace.py", "src/research_tree/replay.py"], "public_surface": ["run explain", "run why-action", "run why-not-complete", "run replay"], "task_groups": [11], "github_issue": "#63", "owner": "observability" },
+    { "capability": "autonomous-tool-and-interaction", "source_modules": ["src/research_tree/intake.py", "src/research_tree/interaction.py"], "public_surface": ["run init", "run next"], "task_groups": [7, 15], "github_issue": "#59", "owner": "alignment" },
+    { "capability": "security-execution-boundary", "source_modules": ["src/research_tree/security.py", "src/research_tree/sandbox.py"], "public_surface": ["run next", "run ingest"], "task_groups": [17], "github_issue": "#53", "owner": "security" },
+    { "capability": "research-quality-evaluation", "source_modules": ["evaluation/harness/", "evaluation/schemas/"], "public_surface": ["run export-audit"], "task_groups": [12, 20], "github_issue": "#64", "owner": "quality" },
+    { "capability": "implementation-release-contract", "source_modules": ["scripts/validate_contracts.py", "scripts/verify_release_manifest.py"], "public_surface": ["run export-audit"], "task_groups": [18, 22], "github_issue": "#67", "owner": "release" },
+    { "capability": "canonical-schemas", "source_modules": ["src/research_tree/contracts/", "schemas/"], "public_surface": ["run ingest"], "task_groups": [14], "github_issue": "#53", "owner": "runtime" },
+    { "capability": "lifecycle-state-machine", "source_modules": ["src/research_tree/lifecycle.py"], "public_surface": ["run status", "run recover"], "task_groups": [14], "github_issue": "#57", "owner": "runtime" },
+    { "capability": "release-evidence", "source_modules": ["evaluation/harness/", "scripts/verify_alpha2_release.py"], "public_surface": ["run export-audit"], "task_groups": [18, 22], "github_issue": "#67", "owner": "quality" },
+    { "capability": "documentation-governance", "source_modules": ["registries/documentation-authority-v1.json", "scripts/check_docs.py"], "public_surface": [], "task_groups": [19], "github_issue": "#68", "owner": "documentation" },
+    { "capability": "evaluation-asset-governance", "source_modules": ["registries/evaluation-paths-v1.json", "scripts/check_evaluation_assets.py"], "public_surface": [], "task_groups": [20], "github_issue": "#69", "owner": "quality" },
+    { "capability": "repository-layout-governance", "source_modules": ["registries/repository-paths-v1.json", "scripts/check_repository_layout.py"], "public_surface": [], "task_groups": [21], "github_issue": "#70", "owner": "release" }
+  ],
+  "release_rule": "A capability row is not evidence of implementation. The generated requirement rows, tests, and immutable release manifest must all resolve before status becomes verified."
+}

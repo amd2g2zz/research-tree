@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/readiness-record-v1.json",
+  "title": "Alpha2 readiness record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["readiness_id", "run_id", "revision", "risk_tier", "checks", "status", "source_digest"],
+  "properties": {
+    "readiness_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "run_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "risk_tier": { "type": "string", "enum": ["low", "standard", "high", "critical"] },
+    "checks": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["check_id", "status", "reason", "evidence_refs"], "properties": { "check_id": { "type": "string", "minLength": 1 }, "status": { "type": "string", "enum": ["pass", "fail", "unknown", "not_applicable"] }, "reason": { "type": "string", "minLength": 1 }, "evidence_refs": { "type": "array", "items": { "type": "string" } } } } },
+    "status": { "type": "string", "enum": ["ready", "not_ready", "blocked", "stale"] },
+    "source_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

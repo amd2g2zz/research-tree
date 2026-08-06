@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/research-action-v1.json",
+  "title": "Alpha2 ResearchAction",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["action_id", "run_id", "slot_id", "action_kind", "objective", "trigger_refs", "method_id", "tool_ids", "expected_delta", "criticality", "depth", "mandatory", "oracle_spec_id", "policy_version", "policy_seed", "status"],
+  "properties": {
+    "action_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "run_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "slot_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "action_kind": { "type": "string", "enum": ["landscape", "deep_dive", "adversarial", "validation", "method_switch", "reconnaissance", "question", "disagreement"] },
+    "objective": { "type": "string", "minLength": 1 },
+    "trigger_refs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "method_id": { "type": "string", "minLength": 1 },
+    "tool_ids": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "expected_delta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_class", "independence", "contradiction", "oracle", "implementation_uncertainty", "decision_closure"],
+      "properties": {
+        "evidence_class": { "type": "number", "minimum": 0, "maximum": 1 },
+        "independence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "contradiction": { "type": "number", "minimum": 0, "maximum": 1 },
+        "oracle": { "type": "number", "minimum": 0, "maximum": 1 },
+        "implementation_uncertainty": { "type": "number", "minimum": 0, "maximum": 1 },
+        "decision_closure": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "criticality": { "type": "number", "minimum": 0, "maximum": 1 },
+    "method_fit": { "type": "number", "minimum": 0, "maximum": 1 },
+    "depth": { "type": "integer", "minimum": 0 },
+    "mandatory": { "type": "boolean" },
+    "oracle_spec_id": { "type": "string", "minLength": 1 },
+    "policy_version": { "type": "string", "minLength": 1 },
+    "policy_seed": { "type": "integer", "minimum": 0 },
+    "status": { "type": "string", "enum": ["proposed", "selected", "dispatched", "deferred", "superseded", "completed", "failed"] },
+    "score": { "type": ["object", "null"] },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}
