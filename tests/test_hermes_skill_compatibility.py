@@ -90,7 +90,7 @@ def test_render_hooks_uses_absolute_package_paths() -> None:
     assert "hooks_auto_accept: false" in completed.stdout
 
 
-def test_runtime_hook_records_metadata_without_task_content(tmp_path: Path) -> None:
+def test_runtime_hook_is_fail_open_and_does_not_persist_business_state(tmp_path: Path) -> None:
     payload = {
         "hook_event_name": "post_tool_call",
         "tool_name": "delegate_task",
@@ -119,14 +119,48 @@ def test_runtime_hook_records_metadata_without_task_content(tmp_path: Path) -> N
 
     assert completed.returncode == 0
     assert json.loads(completed.stdout) == {}
-    event_file = tmp_path / ".research-tree-hermes" / "events.jsonl"
-    record = json.loads(event_file.read_text(encoding="utf-8"))
-    assert record["event"] == "post_tool_call"
-    assert record["task_count"] == 2
-    assert record["delegation_id"] == "delegation-1"
-    serialized = json.dumps(record)
-    assert "TOP SECRET" not in serialized
-    assert "sensitive child summary" not in serialized
+    assert not (tmp_path / ".research-tree-hermes").exists()
+    wakeup = tmp_path / ".research-tree" / "host-wakeups" / "hermes.signal"
+    assert wakeup.is_file()
+    assert wakeup.stat().st_size == 0
+    assert "TOP SECRET" not in completed.stderr
+    assert "sensitive child summary" not in completed.stderr
+
+
+def test_runtime_hook_failure_still_returns_fail_open_response(tmp_path: Path) -> None:
+    completed = subprocess.run(
+        [sys.executable, str(RUNTIME_HOOK)],
+        input="not-json",
+        text=True,
+        capture_output=True,
+        check=False,
+        cwd=tmp_path,
+    )
+
+    assert completed.returncode == 0
+    assert json.loads(completed.stdout) == {}
+    assert "ignored error" in completed.stderr
+    assert not (tmp_path / ".research-tree-hermes").exists()
+    assert not (tmp_path / ".research-tree").exists()
+
+    not_a_directory = tmp_path / "blocked-workspace"
+    not_a_directory.write_text("occupied", encoding="utf-8")
+    write_failure = subprocess.run(
+        [sys.executable, str(RUNTIME_HOOK)],
+        input=json.dumps(
+            {
+                "hook_event_name": "subagent_stop",
+                "cwd": str(not_a_directory),
+            }
+        ),
+        text=True,
+        capture_output=True,
+        check=False,
+        cwd=tmp_path,
+    )
+    assert write_failure.returncode == 0
+    assert json.loads(write_failure.stdout) == {}
+    assert "ignored error" in write_failure.stderr
 
 
 def test_runtime_hook_ignores_unrelated_tool_calls(tmp_path: Path) -> None:
@@ -147,6 +181,7 @@ def test_runtime_hook_ignores_unrelated_tool_calls(tmp_path: Path) -> None:
 
     assert completed.returncode == 0
     assert not (tmp_path / ".research-tree-hermes" / "events.jsonl").exists()
+    assert not (tmp_path / ".research-tree").exists()
 
 
 def test_doctor_classifies_context_failure_without_leaking_log(tmp_path: Path) -> None:

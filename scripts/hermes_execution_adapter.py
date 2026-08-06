@@ -1,289 +1,590 @@
 #!/usr/bin/env python3
-"""Durable Hermes-native wave state for research-tree runs.
+"""Stateless Hermes projection, HostEvent translation, and recovery planning.
 
-Hermes owns delegation and completion events; this adapter owns the durable
-checkpoint that those events update. It deliberately does not invoke Hermes
-tools itself.
+The canonical coordinator owns all research state. This adapter accepts one
+bounded JSON input and emits one deterministic JSON projection; it never writes
+checkpoints, report manifests, evidence, readiness, or completion state.
 """
 
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import hashlib
 import json
-import os
 from pathlib import Path
 import re
 import sys
-import tempfile
-from typing import Any
+from typing import Any, Mapping, Sequence
+
+from host_event_adapter import AdapterError as WireAdapterError
+from host_event_adapter import _canonical_json_bytes
+from host_event_adapter import translate as translate_wire_event
 
 
-SCHEMA = 1
-STATUSES = {"aligned", "researching", "unknown", "delivery_pending"}
-BATCH_STATUSES = {"running", "verified", "failed", "unknown"}
-IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
+PROJECTION_FIELDS = frozenset(
+    {
+        "run_id",
+        "round_id",
+        "slot_id",
+        "action_id",
+        "attempt_id",
+        "expected_revision",
+        "work_item_ref",
+        "work_item",
+        "lease",
+    }
+)
+WORK_ITEM_FIELDS = frozenset(
+    {
+        "work_item_id",
+        "objective",
+        "method",
+        "permission_profile",
+        "expected_output",
+        "success_oracle",
+        "completion_evidence",
+        "attempt_policy",
+    }
+)
+LEASE_FIELDS = frozenset({"owner", "dispatch_digest", "lease_expires_at"})
+ARTIFACT_REF_FIELDS = frozenset(
+    {"run_id", "artifact_id", "revision", "content_hash"}
+)
+ATTEMPT_POLICY_FIELDS = frozenset(
+    {
+        "max_attempts",
+        "method_switch_after",
+        "backoff_seconds",
+        "retryable_failures",
+        "no_retry_failures",
+    }
+)
+OBSERVATION_CONTEXT_FIELDS = frozenset(
+    {
+        "event_id",
+        "run_id",
+        "round_id",
+        "slot_id",
+        "action_id",
+        "attempt_id",
+        "causation_id",
+        "correlation_id",
+        "sequence",
+        "expected_revision",
+        "emitted_at",
+    }
+)
+DIRECT_EVENT_KINDS = frozenset(
+    {
+        "delegation_dispatched",
+        "kanban_run_started",
+        "finding_submitted",
+        "review_completed",
+        "provider_failed",
+        "attempt_unknown",
+        "retry_selected",
+        "worker_finished",
+        "state_diverged",
+    }
+)
+EVENT_TYPE_BY_KIND = {
+    "delegation_dispatched": "dispatch_requested",
+    "kanban_run_started": "attempt_started",
+    "finding_submitted": "finding_submitted",
+    "review_completed": "review_completed",
+    "provider_failed": "provider_failed",
+    "attempt_unknown": "attempt_unknown",
+    "retry_selected": "retry_requested",
+    "worker_finished": "worker_finished",
+    "state_diverged": "reconciliation_detected",
+}
+COMPLETION_CLAIM_BY_KIND = {
+    "goal_succeeded": "host_status",
+    "kanban_completed": "worker_status",
+    "hook_completed": "hook_success",
+    "wave_completed": "completed_wave",
+}
+RECOVERY_FIELDS = frozenset(
+    {
+        "context",
+        "canonical_attempt",
+        "policy",
+        "snapshot",
+        "authority",
+        "fallback_providers",
+        "fallback_methods",
+    }
+)
 
 
-class HermesExecutionError(ValueError):
-    """Raised for invalid Hermes execution state or artifacts."""
+class HermesAdapterError(ValueError):
+    """A safe, bounded Hermes adapter failure."""
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def _exact(value: Mapping[str, Any], fields: frozenset[str], label: str) -> dict[str, Any]:
+    data = dict(value)
+    missing = fields - set(data)
+    extra = set(data) - fields
+    if missing or extra:
+        raise HermesAdapterError(
+            f"{label} fields mismatch; missing={sorted(missing)}, extra={sorted(extra)}"
+        )
+    return data
 
 
-def _identifier(value: str, label: str) -> str:
-    if not IDENTIFIER_RE.fullmatch(value):
-        raise HermesExecutionError(f"invalid {label}: {value!r}")
+def _object(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise HermesAdapterError(f"{label} must be an object")
+    return dict(value)
+
+
+def _identifier(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not IDENTIFIER_RE.fullmatch(value):
+        raise HermesAdapterError(f"{label} is invalid")
     return value
 
 
-def _inside(workspace: Path, candidate: Path, label: str) -> Path:
-    root = workspace.resolve()
-    resolved = candidate.resolve()
-    try:
-        resolved.relative_to(root)
-    except ValueError as exc:
-        raise HermesExecutionError(f"{label} must remain in the workspace") from exc
-    return resolved
+def _nonempty(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise HermesAdapterError(f"{label} must be nonempty")
+    return value.strip()
 
 
-def _run_dir(workspace: Path, run_id: str) -> Path:
-    return _inside(workspace, workspace / ".research-tree-hermes" / _identifier(run_id, "run id"), "run directory")
-
-
-def _state_path(workspace: Path, run_id: str) -> Path:
-    return _run_dir(workspace, run_id) / "state.json"
-
-
-def _read_json(path: Path, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise HermesExecutionError(f"missing {label}: {path}") from exc
-    except (OSError, json.JSONDecodeError) as exc:
-        raise HermesExecutionError(f"invalid {label}: {exc}") from exc
-    if not isinstance(value, dict):
-        raise HermesExecutionError(f"{label} must be an object")
+def _integer(value: Any, label: str, *, minimum: int = 0) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        raise HermesAdapterError(f"{label} must be an integer >= {minimum}")
     return value
 
 
-def _write_json(path: Path, value: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    encoded = json.dumps(value, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
-    descriptor, raw = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(raw)
+def _string_list(value: Any, label: str) -> list[str]:
+    if not isinstance(value, list) or not all(
+        isinstance(item, str) and item.strip() for item in value
+    ):
+        raise HermesAdapterError(f"{label} must be an array of nonempty strings")
+    return list(value)
+
+
+def _read_input(path: str) -> dict[str, Any]:
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
-            stream.write(encoded)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
+        raw = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
+        value = json.loads(raw)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise HermesAdapterError("cannot read adapter input") from exc
+    return _object(value, "adapter input")
 
 
-def _load_state(workspace: Path, run_id: str) -> dict[str, Any]:
-    state = _read_json(_state_path(workspace, run_id), "Hermes execution state")
-    if state.get("schema") != SCHEMA or state.get("run_id") != run_id:
-        raise HermesExecutionError("unsupported or mismatched Hermes execution state")
-    if state.get("status") not in STATUSES:
-        raise HermesExecutionError("Hermes execution state status is invalid")
-    if not isinstance(state.get("batches"), dict):
-        raise HermesExecutionError("Hermes execution batches must be an object")
-    return state
+def _digest(value: Any) -> str:
+    return hashlib.sha256(_canonical_json_bytes(value)).hexdigest()
 
 
-def _save_state(workspace: Path, state: dict[str, Any]) -> None:
-    state["revision"] = int(state.get("revision", 0)) + 1
-    state["updated_at"] = _now()
-    _write_json(_state_path(workspace, state["run_id"]), state)
+def project_task(value: Mapping[str, Any]) -> dict[str, Any]:
+    data = _exact(value, PROJECTION_FIELDS, "task projection")
+    canonical_refs = {
+        "run_id": _identifier(data["run_id"], "run_id"),
+        "round_id": _identifier(data["round_id"], "round_id"),
+        "slot_id": _identifier(data["slot_id"], "slot_id"),
+        "action_id": _identifier(data["action_id"], "action_id"),
+        "attempt_id": _identifier(data["attempt_id"], "attempt_id"),
+        "expected_revision": _integer(data["expected_revision"], "expected_revision"),
+    }
+    work_item_ref = _exact(
+        _object(data["work_item_ref"], "work_item_ref"),
+        ARTIFACT_REF_FIELDS,
+        "work_item_ref",
+    )
+    if _identifier(work_item_ref["run_id"], "work_item_ref.run_id") != canonical_refs["run_id"]:
+        raise HermesAdapterError("work_item_ref belongs to a different run")
+    _identifier(work_item_ref["artifact_id"], "work_item_ref.artifact_id")
+    _integer(work_item_ref["revision"], "work_item_ref.revision", minimum=1)
+    if not isinstance(work_item_ref["content_hash"], str) or not DIGEST_RE.fullmatch(
+        work_item_ref["content_hash"]
+    ):
+        raise HermesAdapterError("work_item_ref.content_hash must be lowercase SHA-256")
+    work_item = _exact(_object(data["work_item"], "work_item"), WORK_ITEM_FIELDS, "work_item")
+    lease = _exact(_object(data["lease"], "lease"), LEASE_FIELDS, "lease")
+    work_item_id = _identifier(work_item["work_item_id"], "work_item_id")
+    objective = _nonempty(work_item["objective"], "objective")
+    method = _nonempty(work_item["method"], "method")
+    permission_profile = _nonempty(work_item["permission_profile"], "permission_profile")
+    expected_output = _nonempty(work_item["expected_output"], "expected_output")
+    success_oracle = _nonempty(work_item["success_oracle"], "success_oracle")
+    completion_evidence = _string_list(
+        work_item["completion_evidence"], "completion_evidence"
+    )
+    policy = _exact(
+        _object(work_item["attempt_policy"], "attempt_policy"),
+        ATTEMPT_POLICY_FIELDS,
+        "attempt_policy",
+    )
+    max_attempts = _integer(policy.get("max_attempts"), "max_attempts", minimum=1)
+    if max_attempts > 3:
+        raise HermesAdapterError("max_attempts must not exceed three")
+    method_switch_after = _integer(
+        policy.get("method_switch_after"), "method_switch_after"
+    )
+    if method_switch_after >= max_attempts:
+        raise HermesAdapterError("method_switch_after must precede max_attempts")
+    policy_backoff = policy.get("backoff_seconds")
+    if not isinstance(policy_backoff, list) or len(policy_backoff) < max_attempts or not all(
+        isinstance(item, int) and not isinstance(item, bool) and item >= 0
+        for item in policy_backoff
+    ):
+        raise HermesAdapterError("attempt_policy backoff_seconds must cover all attempts")
+    _string_list(policy.get("retryable_failures"), "retryable_failures")
+    _string_list(policy.get("no_retry_failures"), "no_retry_failures")
+    _nonempty(lease["owner"], "lease owner")
+    dispatch_digest = lease["dispatch_digest"]
+    if not isinstance(dispatch_digest, str) or not DIGEST_RE.fullmatch(dispatch_digest):
+        raise HermesAdapterError("dispatch_digest must be lowercase SHA-256")
+    _nonempty(lease["lease_expires_at"], "lease_expires_at")
 
-
-def _load_handoff(workspace: Path, path: Path) -> tuple[dict[str, Any], Path]:
-    resolved = _inside(workspace, path, "handoff path")
-    handoff = _read_json(resolved, "alignment handoff")
-    if handoff.get("schema") != 1 or handoff.get("kind") != "alignment-handoff":
-        raise HermesExecutionError("handoff must be a schema-1 alignment-handoff artifact")
-    if not isinstance(handoff.get("decision_slots"), dict) or not handoff["decision_slots"]:
-        raise HermesExecutionError("handoff decision_slots must be nonempty")
-    if not isinstance(handoff.get("execution_context"), dict):
-        raise HermesExecutionError("handoff execution_context must be an object")
-    return handoff, resolved
-
-
-def init_run(workspace: Path, run_id: str, handoff_path: Path) -> dict[str, Any]:
-    workspace = workspace.resolve()
-    if _state_path(workspace, run_id).exists():
-        raise HermesExecutionError(f"run already exists: {run_id}")
-    handoff, resolved = _load_handoff(workspace, handoff_path)
-    state = {
-        "schema": SCHEMA,
-        "run_id": run_id,
-        "status": "aligned",
-        "revision": 0,
-        "created_at": _now(),
-        "updated_at": _now(),
-        "handoff_path": str(resolved),
-        "handoff_sha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
-        "alignment_run_id": handoff.get("run_id"),
-        "decision_slots": handoff["decision_slots"],
-        "execution_context": handoff["execution_context"],
-        "batches": {},
-        "deliverables": {
-            "technical_research_package": {"status": "pending"},
-            "human_research_report": {"status": "pending"},
+    acceptance_contract = {
+        "canonical_refs": canonical_refs,
+        "work_item_ref": work_item_ref,
+        "work_item_id": work_item_id,
+        "method": method,
+        "permission_profile": permission_profile,
+        "expected_output": expected_output,
+        "success_oracle": success_oracle,
+        "completion_evidence": completion_evidence,
+        "attempt_policy": policy,
+        "dispatch_digest": dispatch_digest,
+        "lease_expires_at": lease["lease_expires_at"],
+    }
+    contract_digest = _digest(acceptance_contract)
+    idempotency_key = (
+        f"research-tree:{canonical_refs['run_id']}:{canonical_refs['attempt_id']}"
+    )
+    criteria = [
+        f"Submit {expected_output} for work item {work_item_id}.",
+        f"Cite required evidence: {', '.join(completion_evidence)}.",
+        f"Satisfy closure oracle {success_oracle}; a worker verdict is not proof.",
+        "Hermes completion is non-authoritative; canonical closure remains with the coordinator.",
+    ]
+    return {
+        "schema_version": 1,
+        "kind": "hermes-task-projection",
+        "idempotency_key": idempotency_key,
+        "canonical_refs": canonical_refs,
+        "acceptance_contract": acceptance_contract,
+        "acceptance_contract_digest": contract_digest,
+        "acceptance_criteria": criteria,
+        "goal": {
+            "title": objective,
+            "goal": True,
+            "acceptance_contract_digest": contract_digest,
+        },
+        "kanban": {
+            "title": objective,
+            "body": f"Canonical work item {work_item_id}; method={method}",
+            "idempotency_key": idempotency_key,
+            "max_retries": max(0, max_attempts - 1),
+            "goal": True,
+            "acceptance_contract_digest": contract_digest,
         },
     }
-    _save_state(workspace, state)
-    return state
 
 
-def record_batch(
-    workspace: Path,
-    run_id: str,
-    batch_id: str,
-    status: str,
-    delegation_ids: list[str],
-    finding_paths: list[Path],
+def _wire_from_context(
+    context: Mapping[str, Any], *, event_type: str, payload: Mapping[str, Any]
 ) -> dict[str, Any]:
-    state = _load_state(workspace, run_id)
-    batch_id = _identifier(batch_id, "batch id")
-    if status not in BATCH_STATUSES:
-        raise HermesExecutionError(f"invalid batch status: {status}")
-    if batch_id in state["batches"]:
-        raise HermesExecutionError(f"batch already exists: {batch_id}")
-    paths = []
-    for path in finding_paths:
-        resolved = _inside(workspace, path, "Finding Pack path")
-        if status == "verified" and not resolved.is_file():
-            raise HermesExecutionError(f"verified Finding Pack is missing: {resolved}")
-        paths.append(str(resolved))
-    state["batches"][batch_id] = {
-        "batch_id": batch_id,
-        "status": status,
-        "delegation_ids": delegation_ids,
-        "finding_paths": paths,
-        "recorded_at": _now(),
-    }
-    state["status"] = "researching" if status in {"running", "verified"} else status
-    _save_state(workspace, state)
-    return state
-
-
-def recover_run(workspace: Path, run_id: str) -> dict[str, Any]:
-    state = _load_state(workspace, run_id)
-    recovered = []
-    for batch in state["batches"].values():
-        if batch["status"] == "running":
-            batch["status"] = "unknown"
-            recovered.append(batch["batch_id"])
-    if recovered:
-        state["status"] = "unknown"
-        _save_state(workspace, state)
-    return {"recovered_batches": recovered, "state": state}
-
-
-def _report_candidate(workspace: Path, path: Path, kind: str) -> dict[str, Any]:
-    resolved = _inside(workspace, path, f"{kind} path")
-    raw = resolved.read_bytes()
-    if raw.startswith(b"\xef\xbb\xbf"):
-        raise HermesExecutionError(f"{kind} must be UTF-8 without BOM")
+    data = _exact(context, OBSERVATION_CONTEXT_FIELDS, "event context")
+    event_input = {**data, "event_type": event_type, "payload": dict(payload)}
     try:
-        raw.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise HermesExecutionError(f"{kind} must be UTF-8") from exc
-    return {
-        "status": "candidate", "kind": kind, "path": str(resolved),
-        "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest(),
-    }
+        return translate_wire_event("hermes", event_input)
+    except WireAdapterError as exc:
+        raise HermesAdapterError(str(exc)) from exc
 
 
-def _status_projection(state: dict[str, Any]) -> dict[str, Any]:
-    all_batches_verified = bool(state["batches"]) and all(
-        batch["status"] == "verified" for batch in state["batches"].values()
-    )
-    return {
-        **state,
-        "all_batches_verified": all_batches_verified,
-        "canonical_complete": False,
-    }
-
-
-def prepare_delivery(workspace: Path, run_id: str, technical: Path, human: Path) -> dict[str, Any]:
-    state = _load_state(workspace, run_id)
-    if not state["batches"] or any(batch["status"] != "verified" for batch in state["batches"].values()):
-        raise HermesExecutionError("all delegation batches must be verified before delivery preparation")
-    state["deliverables"] = {
-        "technical_research_package": _report_candidate(workspace, technical, "technical_research_package"),
-        "human_research_report": _report_candidate(workspace, human, "human_research_report"),
-    }
-    state["status"] = "delivery_pending"
-    _save_state(workspace, state)
-    return _status_projection(state)
-
-
-def complete_run(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
-    """Reject the alpha1 Hermes-local completion authority."""
-
-    raise HermesExecutionError(
-        "adapter completion authority was removed; submit delivery candidates "
-        "with prepare-delivery, then use the canonical coordinator"
+def translate_observation(value: Mapping[str, Any]) -> dict[str, Any]:
+    data = dict(value)
+    kind = data.pop("kind", None)
+    details = _object(data.pop("details", None), "observation details")
+    if set(data) != OBSERVATION_CONTEXT_FIELDS:
+        _exact(data, OBSERVATION_CONTEXT_FIELDS, "observation context")
+    if kind in DIRECT_EVENT_KINDS:
+        return _wire_from_context(
+            data, event_type=EVENT_TYPE_BY_KIND[str(kind)], payload=details
+        )
+    claim_kind = COMPLETION_CLAIM_BY_KIND.get(str(kind))
+    if claim_kind is None:
+        raise HermesAdapterError("unsupported Hermes observation kind")
+    source_ref = _nonempty(details.get("source_ref"), "source_ref")
+    local_status = _nonempty(details.get("local_status"), "local_status")
+    if set(details) != {"source_ref", "local_status"}:
+        raise HermesAdapterError("completion observation contains unsupported fields")
+    return _wire_from_context(
+        data,
+        event_type="completion_claimed",
+        payload={
+            "claim_kind": claim_kind,
+            "claimed_state": "completed",
+            "source_ref": source_ref,
+            "local_status": local_status,
+        },
     )
 
 
-def main() -> int:
+def _derived_event_context(
+    base: Mapping[str, Any], *, suffix: str, revision_offset: int, sequence_offset: int
+) -> dict[str, Any]:
+    context = _exact(base, OBSERVATION_CONTEXT_FIELDS, "recovery context")
+    event_id = _identifier(context["event_id"], "event_id")
+    derived_id = event_id if not suffix else f"{event_id}-{suffix}"
+    if len(derived_id) > 64 or not IDENTIFIER_RE.fullmatch(derived_id):
+        derived_id = f"recovery-{_digest([event_id, suffix])[:48]}"
+    return {
+        **context,
+        "event_id": derived_id,
+        "expected_revision": _integer(
+            context["expected_revision"], "expected_revision"
+        )
+        + revision_offset,
+        "sequence": _integer(context["sequence"], "sequence", minimum=1)
+        + sequence_offset,
+    }
+
+
+def _allowed_fallback_provider(
+    values: Any, allowed: set[str], current: str
+) -> dict[str, str] | None:
+    if not isinstance(values, list):
+        raise HermesAdapterError("fallback_providers must be an array")
+    for raw in values:
+        candidate = _object(raw, "fallback provider")
+        if set(candidate) != {"provider", "model"}:
+            raise HermesAdapterError("fallback provider fields mismatch")
+        provider = _nonempty(candidate["provider"], "fallback provider")
+        model = _nonempty(candidate["model"], "fallback model")
+        if provider != current and provider in allowed:
+            return {"provider": provider, "model": model}
+    return None
+
+
+def _allowed_fallback_method(values: Any, allowed: set[str], current: str) -> str | None:
+    methods = _string_list(values, "fallback_methods")
+    return next((method for method in methods if method != current and method in allowed), None)
+
+
+def plan_recovery(value: Mapping[str, Any]) -> dict[str, Any]:
+    data = _exact(value, RECOVERY_FIELDS, "recovery plan")
+    context = _object(data["context"], "context")
+    attempt = _object(data["canonical_attempt"], "canonical_attempt")
+    policy = _object(data["policy"], "policy")
+    snapshot = _object(data["snapshot"], "snapshot")
+    authority = _object(data["authority"], "authority")
+
+    attempt_id = _identifier(attempt.get("attempt_id"), "attempt_id")
+    work_item_id = _identifier(attempt.get("work_item_id"), "work_item_id")
+    if attempt_id != context.get("attempt_id"):
+        raise HermesAdapterError("recovery context does not bind the canonical attempt")
+    retry_ordinal = _integer(attempt.get("retry_ordinal"), "retry_ordinal")
+    current_method = _nonempty(attempt.get("method"), "attempt method")
+    current_provider = _nonempty(attempt.get("provider"), "attempt provider")
+    current_model = _nonempty(attempt.get("model"), "attempt model")
+    current_status = _nonempty(attempt.get("status"), "attempt status")
+    if current_status not in {"retryable", "unknown"}:
+        raise HermesAdapterError("only retryable or unknown canonical attempts can recover")
+    snapshot_status = _nonempty(snapshot.get("status"), "snapshot status")
+    failure_category = _nonempty(
+        snapshot.get("failure_category", "unknown"), "failure_category"
+    )
+    max_attempts = _integer(policy.get("max_attempts"), "max_attempts", minimum=1)
+    method_switch_after = _integer(
+        policy.get("method_switch_after"), "method_switch_after"
+    )
+    retryable = set(_string_list(policy.get("retryable_failures"), "retryable_failures"))
+    no_retry = set(_string_list(policy.get("no_retry_failures"), "no_retry_failures"))
+    backoff = policy.get("backoff_seconds")
+    if not isinstance(backoff, list) or not all(
+        isinstance(item, int) and not isinstance(item, bool) and item >= 0
+        for item in backoff
+    ):
+        raise HermesAdapterError("backoff_seconds must be nonnegative integers")
+    allowed_providers = set(
+        _string_list(authority.get("allowed_providers"), "allowed_providers")
+    )
+    allowed_methods = set(
+        _string_list(authority.get("allowed_methods"), "allowed_methods")
+    )
+
+    events: list[dict[str, Any]] = []
+    revision_offset = 0
+    sequence_offset = 0
+    if snapshot_status in {"running", "stale", "missing", "unknown"}:
+        observed = {
+            key: snapshot[key]
+            for key in ("status", "task_id", "run_id")
+            if key in snapshot
+        }
+        unknown_context = _derived_event_context(
+            context,
+            suffix="unknown",
+            revision_offset=revision_offset,
+            sequence_offset=sequence_offset,
+        )
+        events.append(
+            _wire_from_context(
+                unknown_context,
+                event_type="attempt_unknown",
+                payload={
+                    "reconciliation_reason": f"hermes_restart_{snapshot_status}",
+                    "last_heartbeat": snapshot.get("last_heartbeat"),
+                    "observed_host_state": observed,
+                },
+            )
+        )
+        revision_offset += 1
+        sequence_offset += 1
+
+    if snapshot_status in {"completed", "submitted", "success"}:
+        return {
+            "schema_version": 1,
+            "decision": "awaiting_evidence_review",
+            "reason": "host_output_requires_finding_pack_and_independent_review",
+            "events": events,
+            "next_attempt": None,
+        }
+
+    next_ordinal = retry_ordinal + 1
+    if failure_category in no_retry:
+        return {
+            "schema_version": 1,
+            "decision": "terminal_failure",
+            "reason": "failure_category_is_not_retryable",
+            "events": events,
+            "next_attempt": None,
+        }
+    if failure_category not in retryable or next_ordinal >= max_attempts:
+        return {
+            "schema_version": 1,
+            "decision": "retry_exhausted",
+            "reason": "retry_policy_exhausted_or_unclassified",
+            "events": events,
+            "next_attempt": None,
+        }
+
+    provider_target = _allowed_fallback_provider(
+        data["fallback_providers"], allowed_providers, current_provider
+    )
+    method_target = _allowed_fallback_method(
+        data["fallback_methods"], allowed_methods, current_method
+    )
+    decision: str
+    target_provider = current_provider
+    target_model = current_model
+    target_method = current_method
+    if provider_target is not None:
+        decision = "alternate_provider"
+        target_provider = provider_target["provider"]
+        target_model = provider_target["model"]
+    elif next_ordinal <= method_switch_after and current_provider in allowed_providers:
+        decision = "retry_same_provider"
+    elif method_target is not None:
+        decision = "method_switch"
+        target_method = method_target
+    else:
+        return {
+            "schema_version": 1,
+            "decision": "authority_blocked",
+            "reason": "no_policy_candidate_is_inside_confirmed_authority",
+            "events": events,
+            "next_attempt": None,
+        }
+
+    next_attempt_id = _identifier(
+        f"{work_item_id}-retry-{next_ordinal}", "next attempt_id"
+    )
+    dispatch_payload = {
+        "predecessor_attempt": attempt_id,
+        "attempt_id": next_attempt_id,
+        "retry_ordinal": next_ordinal,
+        "method": target_method,
+        "provider": target_provider,
+        "model": target_model,
+    }
+    dispatch_digest = _digest(dispatch_payload)
+    retry_context = _derived_event_context(
+        context,
+        suffix="retry" if events else "",
+        revision_offset=revision_offset,
+        sequence_offset=sequence_offset,
+    )
+    events.append(
+        _wire_from_context(
+            retry_context,
+            event_type="retry_requested",
+            payload={
+                "predecessor_attempt": attempt_id,
+                "method_provider_change": {
+                    "decision": decision,
+                    "from": {
+                        "method": current_method,
+                        "provider": current_provider,
+                        "model": current_model,
+                    },
+                    "to": {
+                        "method": target_method,
+                        "provider": target_provider,
+                        "model": target_model,
+                    },
+                    "dispatch_digest": dispatch_digest,
+                },
+                "retry_policy": {
+                    "max_attempts": max_attempts,
+                    "method_switch_after": method_switch_after,
+                    "retry_ordinal": next_ordinal,
+                    "backoff_seconds": backoff[next_ordinal]
+                    if next_ordinal < len(backoff)
+                    else None,
+                },
+            },
+        )
+    )
+    return {
+        "schema_version": 1,
+        "decision": decision,
+        "reason": "policy_candidate_selected_within_confirmed_authority",
+        "events": events,
+        "next_attempt": {
+            **dispatch_payload,
+            "dispatch_digest": dispatch_digest,
+            "predecessor_status": current_status,
+        },
+    }
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--workspace", type=Path, default=Path.cwd())
     commands = parser.add_subparsers(dest="command", required=True)
-    init = commands.add_parser("init")
-    init.add_argument("--run-id", required=True)
-    init.add_argument("--handoff", type=Path, required=True)
-    batch = commands.add_parser("record-batch")
-    batch.add_argument("--run-id", required=True)
-    batch.add_argument("--batch-id", required=True)
-    batch.add_argument("--status", choices=sorted(BATCH_STATUSES), required=True)
-    batch.add_argument("--delegation-id", action="append", default=[])
-    batch.add_argument("--finding", type=Path, action="append", default=[])
-    recover = commands.add_parser("recover")
-    recover.add_argument("--run-id", required=True)
-    status = commands.add_parser("status")
-    status.add_argument("--run-id", required=True)
-    complete = commands.add_parser("complete")
-    complete.add_argument("--run-id", required=True)
-    complete.add_argument("--technical-report", type=Path, required=True)
-    complete.add_argument("--human-report", type=Path, required=True)
-    prepare = commands.add_parser("prepare-delivery")
-    prepare.add_argument("--run-id", required=True)
-    prepare.add_argument("--technical-report", type=Path, required=True)
-    prepare.add_argument("--human-report", type=Path, required=True)
-    args = parser.parse_args()
-    workspace = args.workspace.resolve()
+    for name in ("project-task", "translate-observation", "plan-recovery"):
+        command = commands.add_parser(name)
+        command.add_argument("--input", required=True, help="JSON path, or - for stdin")
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    arguments = build_parser().parse_args(argv)
     try:
-        if args.command == "init":
-            path = args.handoff if args.handoff.is_absolute() else workspace / args.handoff
-            result = init_run(workspace, args.run_id, path)
-        elif args.command == "record-batch":
-            result = record_batch(workspace, args.run_id, args.batch_id, args.status, args.delegation_id, [
-                path if path.is_absolute() else workspace / path for path in args.finding
-            ])
-        elif args.command == "recover":
-            result = recover_run(workspace, args.run_id)
-        elif args.command in {"complete", "prepare-delivery"}:
-            technical = args.technical_report if args.technical_report.is_absolute() else workspace / args.technical_report
-            human = args.human_report if args.human_report.is_absolute() else workspace / args.human_report
-            if args.command == "complete":
-                result = complete_run(workspace, args.run_id, technical, human)
-            else:
-                result = prepare_delivery(workspace, args.run_id, technical, human)
+        value = _read_input(arguments.input)
+        if arguments.command == "project-task":
+            result = project_task(value)
+        elif arguments.command == "translate-observation":
+            result = translate_observation(value)
         else:
-            result = _status_projection(_load_state(workspace, args.run_id))
-    except (HermesExecutionError, OSError) as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
-    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+            result = plan_recovery(value)
+    except (HermesAdapterError, WireAdapterError) as exc:
+        print(
+            json.dumps(
+                {"code": "invalid_hermes_observation", "safe_message": str(exc)},
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
+        return 2
+    sys.stdout.buffer.write(_canonical_json_bytes(result) + b"\n")
     return 0
 
 

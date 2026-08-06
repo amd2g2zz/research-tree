@@ -80,7 +80,10 @@ def test_only_claude_package_contains_claude_compatibility_material() -> None:
         assert not (package / "references" / "claude-code-compatibility.md").exists()
         assert not (package / "references" / "claude-native-orchestration.md").exists()
         if package == hermes:
-            assert not (package / "scripts" / "host_event_adapter.py").exists()
+            assert (package / "scripts" / "host_event_adapter.py").is_file()
+            assert (package / "scripts" / "hermes_execution_adapter.py").is_file()
+            assert not (package / "scripts" / "codex_execution_adapter.py").exists()
+            assert not (package / "scripts" / "claude_execution_adapter.py").exists()
 
     claude_skill = (claude / "SKILL.md").read_text(encoding="utf-8")
     assert "Claude Code runtime adapter" in claude_skill

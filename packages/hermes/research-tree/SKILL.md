@@ -261,11 +261,12 @@ evaluation.
   behavior; trace failure must never block research.
 - Use `scripts/hermes_skill_adapter.py` only for package validation, prompt-risk
   diagnosis, gateway-log diagnosis, hook rendering, or staging.
-- After handoff, use `scripts/hermes_execution_adapter.py` to initialize from
-  the persisted handoff, record each verified `delegate_task` wave, recover
-  in-flight waves as `unknown`, and register both reports as delivery
-  candidates. Hermes still owns delegation; this adapter owns a durable host
-  projection, never canonical completion, and does not invent Hermes tool calls.
+- After handoff, use `scripts/hermes_execution_adapter.py` with `project-task`
+  to project an exact canonical Work Item into Hermes goal/Kanban fields,
+  `translate-observation` to emit stateless HostEvents, and `plan-recovery` to
+  select policy-bounded retry, provider fallback, or method switch after a
+  restart. The adapter never owns a checkpoint, report gate, evidence verdict,
+  or completion state and does not invent Hermes tool calls.
 
 ## Completion standard
 

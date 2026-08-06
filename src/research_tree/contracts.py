@@ -20,6 +20,9 @@ from typing import Any, Mapping, Sequence
 IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 OPAQUE_CODE_RE = re.compile(r"^[A-Za-z0-9._:-]{1,96}$")
+SAFE_LOG_REF_RE = re.compile(
+    r"^(?:log:[A-Za-z0-9._:-]{1,192}|sha256:[0-9a-f]{64})$"
+)
 HOSTS = frozenset({"codex", "claude-code", "hermes", "source", "evaluator"})
 ACTOR_KINDS = frozenset({"coordinator", "worker", "human", "oracle", "adapter", "migration"})
 EVENT_TYPES = frozenset(
@@ -152,6 +155,11 @@ def validate_host_event_payload(event_type: str, payload: Mapping[str, Any]) -> 
                 "provider_failed payload contains raw diagnostics",
                 code="raw_provider_details",
             )
+        if set(normalized) != EVENT_PAYLOAD_FIELDS[event_type]:
+            raise ContractError(
+                "provider_failed payload fields mismatch",
+                code="raw_provider_details",
+            )
         for field in ("provider", "model", "retry_category"):
             if not isinstance(normalized[field], str) or not normalized[field].strip():
                 raise ContractError(
@@ -166,7 +174,7 @@ def validate_host_event_payload(event_type: str, payload: Mapping[str, Any]) -> 
             )
         gateway_ref = normalized["gateway_log_ref"]
         if gateway_ref is not None and (
-            not isinstance(gateway_ref, str) or len(gateway_ref) > 256
+            not isinstance(gateway_ref, str) or not SAFE_LOG_REF_RE.fullmatch(gateway_ref)
         ):
             raise ContractError(
                 "provider_failed gateway_log_ref is invalid",

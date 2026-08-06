@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Record sanitized Hermes lifecycle metadata without package dependencies."""
+"""Fail-open Hermes wake-up hook with no research-state authority."""
 
 from __future__ import annotations
 
 import json
-import sys
-from datetime import datetime, timezone
 from pathlib import Path
+import sys
 from typing import Any
 
 
@@ -22,14 +21,6 @@ EVENTS = frozenset(
         "post_tool_call",
     }
 )
-SAFE_EXTRA_KEYS = (
-    "delegation_id",
-    "task_id",
-    "child_id",
-    "role",
-    "status",
-    "duration_ms",
-)
 
 
 def _bounded_payload() -> dict[str, Any]:
@@ -42,61 +33,35 @@ def _bounded_payload() -> dict[str, Any]:
     return value
 
 
-def _safe_scalar(value: Any) -> str | int | float | bool | None:
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    return None
-
-
-def _event_record(payload: dict[str, Any]) -> dict[str, Any] | None:
+def _touch_wakeup(payload: dict[str, Any]) -> None:
     event = payload.get("hook_event_name")
     if event not in EVENTS:
-        return None
-    tool_name = payload.get("tool_name")
-    if event == "post_tool_call" and tool_name != "delegate_task":
-        return None
-
-    record: dict[str, Any] = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "event": event,
-    }
-    for key in ("session_id", "tool_name"):
-        value = _safe_scalar(payload.get(key))
-        if value is not None:
-            record[key] = value
-
-    tool_input = payload.get("tool_input")
-    if tool_name == "delegate_task" and isinstance(tool_input, dict):
-        tasks = tool_input.get("tasks")
-        if isinstance(tasks, list):
-            record["task_count"] = len(tasks)
-
-    extra = payload.get("extra")
-    if isinstance(extra, dict):
-        for key in SAFE_EXTRA_KEYS:
-            value = _safe_scalar(extra.get(key))
-            if value is not None:
-                record[key] = value
-    return record
-
-
-def _workspace(payload: dict[str, Any]) -> Path:
-    raw = payload.get("cwd")
-    return Path(raw).resolve() if isinstance(raw, str) and raw else Path.cwd().resolve()
+        if event is None:
+            return
+        raise ValueError("unsupported hook event")
+    if event == "post_tool_call" and payload.get("tool_name") != "delegate_task":
+        return
+    raw_workspace = payload.get("cwd")
+    if not isinstance(raw_workspace, str) or not raw_workspace:
+        return
+    target = (
+        Path(raw_workspace).resolve()
+        / ".research-tree"
+        / "host-wakeups"
+        / "hermes.signal"
+    )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.touch(exist_ok=True)
 
 
 def main() -> int:
     try:
         payload = _bounded_payload()
-        record = _event_record(payload)
-        if record is not None:
-            target = _workspace(payload) / ".research-tree-hermes" / "events.jsonl"
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with target.open("a", encoding="utf-8", newline="\n") as stream:
-                stream.write(json.dumps(record, ensure_ascii=True, separators=(",", ":")))
-                stream.write("\n")
-    except Exception as exc:  # Hooks are observational and must never block Hermes.
-        print(f"research-tree Hermes hook ignored error: {exc}", file=sys.stderr)
+        _touch_wakeup(payload)
+        # The marker is an optional wake-up only. Canonical recovery queries a
+        # fresh host snapshot, so a skipped or failed hook cannot create a gap.
+    except Exception as exc:  # The host contract is explicitly fail-open.
+        print(f"research-tree Hermes hook ignored error: {type(exc).__name__}", file=sys.stderr)
     print("{}")
     return 0
 

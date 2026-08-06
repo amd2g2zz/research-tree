@@ -51,6 +51,7 @@ HERMES_FILES = (
     Path("references/hermes-research-execution.md"),
     Path("scripts/hermes_runtime_hook.py"),
     Path("scripts/hermes_skill_adapter.py"),
+    Path("scripts/host_event_adapter.py"),
     Path("scripts/hermes_execution_adapter.py"),
 )
 CLAUDE_FILES = (

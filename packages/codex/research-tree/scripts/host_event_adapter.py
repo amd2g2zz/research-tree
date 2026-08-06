@@ -21,7 +21,7 @@ import unicodedata
 
 
 PROTOCOL_VERSION = 1
-HOSTS = ("codex", "claude-code")
+HOSTS = ("codex", "claude-code", "hermes")
 EVENT_TYPES = frozenset(
     {
         "dispatch_requested",
@@ -54,6 +54,56 @@ INPUT_FIELDS = frozenset(
         "emitted_at",
         "payload",
     }
+)
+EVENT_PAYLOAD_FIELDS: dict[str, frozenset[str]] = {
+    "dispatch_requested": frozenset(
+        {"work_item_id", "permission_profile", "dispatch_digest", "lease_policy"}
+    ),
+    "attempt_started": frozenset(
+        {"worker_id", "lease_expires_at", "tool_capability_digest", "started_at"}
+    ),
+    "finding_submitted": frozenset(
+        {"finding_pack_digest", "evidence_refs", "submission_status", "output_digest"}
+    ),
+    "review_completed": frozenset(
+        {"reviewer_id", "accepted_refs", "field_diagnostics", "review_digest"}
+    ),
+    "provider_failed": frozenset(
+        {"provider", "model", "retry_category", "opaque_code", "gateway_log_ref"}
+    ),
+    "attempt_unknown": frozenset(
+        {"reconciliation_reason", "last_heartbeat", "observed_host_state"}
+    ),
+    "retry_requested": frozenset(
+        {"predecessor_attempt", "method_provider_change", "retry_policy"}
+    ),
+    "worker_finished": frozenset({"terminal_status", "artifact_refs"}),
+    "completion_claimed": frozenset(
+        {"claim_kind", "claimed_state", "source_ref", "local_status"}
+    ),
+    "acceptance_recorded": frozenset(
+        {"delivery_acceptance_ref", "displayed_digest"}
+    ),
+    "reconciliation_detected": frozenset(
+        {"host_observation", "canonical_observation", "conflict_class", "next_action"}
+    ),
+}
+PROVIDER_RAW_FIELDS = frozenset(
+    {
+        "raw_error",
+        "raw_details",
+        "traceback",
+        "stack_trace",
+        "response_body",
+        "provider_message",
+        "exception",
+        "secret",
+        "token",
+    }
+)
+OPAQUE_CODE_RE = re.compile(r"^[A-Za-z0-9._:-]{1,96}$")
+SAFE_LOG_REF_RE = re.compile(
+    r"^(?:log:[A-Za-z0-9._:-]{1,192}|sha256:[0-9a-f]{64})$"
 )
 
 
@@ -106,6 +156,33 @@ def _utc_timestamp(value: Any) -> str:
     return value
 
 
+def _validate_payload(event_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+    normalized = _normalize(payload)
+    missing = EVENT_PAYLOAD_FIELDS[event_type] - set(normalized)
+    if missing:
+        raise AdapterError(
+            f"{event_type} payload is incomplete; missing={sorted(missing)}"
+        )
+    if event_type == "provider_failed":
+        if PROVIDER_RAW_FIELDS & set(normalized):
+            raise AdapterError("provider_failed payload contains raw diagnostics")
+        if set(normalized) != EVENT_PAYLOAD_FIELDS[event_type]:
+            raise AdapterError("provider_failed payload fields mismatch")
+        for field in ("provider", "model", "retry_category"):
+            if not isinstance(normalized[field], str) or not normalized[field].strip():
+                raise AdapterError(f"provider_failed {field} must be nonempty")
+        if not isinstance(normalized["opaque_code"], str) or not OPAQUE_CODE_RE.fullmatch(
+            normalized["opaque_code"]
+        ):
+            raise AdapterError("provider_failed opaque_code is invalid")
+        log_ref = normalized["gateway_log_ref"]
+        if log_ref is not None and (
+            not isinstance(log_ref, str) or not SAFE_LOG_REF_RE.fullmatch(log_ref)
+        ):
+            raise AdapterError("provider_failed gateway_log_ref is not a safe reference")
+    return normalized
+
+
 def translate(host: str, value: Mapping[str, Any]) -> dict[str, Any]:
     """Create a host-bound wire event without persisting business state."""
 
@@ -134,7 +211,7 @@ def translate(host: str, value: Mapping[str, Any]) -> dict[str, Any]:
     payload = data["payload"]
     if not isinstance(payload, Mapping):
         raise AdapterError("payload must be an object")
-    normalized_payload = _normalize(payload)
+    normalized_payload = _validate_payload(event_type, payload)
     return {
         "protocol_version": PROTOCOL_VERSION,
         "event_id": _identifier(data["event_id"], "event_id"),

@@ -16,18 +16,19 @@
   autonomously within the granted authority. Otherwise use ordinary dialogue
   during pre-handoff alignment.
 - After handoff, use Hermes' native plan-to-execute model: mirror the current
-  wave in `todo`, persist the authoritative checkpoint in the task workspace,
-  and dispatch dependency-ready leaf work as one `delegate_task(tasks=[...])`
-  batch. The parent continues coordinator work while children run and verifies
-  their artifact paths, URLs, and claims before ingestion. Never poll children
-  by repeatedly calling delegation.
+  wave in `todo`, project the authoritative canonical Work Item and Attempt
+  Lease into a Hermes goal/Kanban task, and dispatch dependency-ready leaf work
+  as one `delegate_task(tasks=[...])` batch. The parent continues coordinator
+  work while children run and verifies their artifact paths, URLs, and claims
+  before ingestion. Never poll children by repeatedly calling delegation.
 - Use `session_search` to recover relevant earlier dialogue and `memory` only
   for durable, reusable preferences or lessons. Neither replaces the current
   workspace checkpoint. Use a skill-backed `cronjob` only when granted
   autonomy requires continuation beyond the current process or session.
-- Treat an interrupted delegation as `unknown`, inspect persisted artifacts
-  and Hermes live delegation transcripts before retrying, and never count a
-  child summary as execution evidence by itself.
+- Treat an interrupted delegation as `unknown`, compare a fresh Hermes snapshot
+  with the canonical SQLite ledger, inspect persisted artifacts and Hermes live
+  delegation transcripts before retrying, and never count a child summary as
+  execution evidence by itself.
 - Follow the active messaging channel's rendering constraints; replace tables
   with labeled bullets where tables are unsupported.
 - Keep research artifacts in the writable task workspace. Do not modify the

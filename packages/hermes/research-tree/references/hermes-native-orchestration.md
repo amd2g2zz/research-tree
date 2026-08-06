@@ -20,7 +20,8 @@ arguments or assume every Hermes surface exposes every tool.
 - Use `delegate_task` for independent reasoning or research. Use
   `execute_code` or ordinary file tools for deterministic transformations.
 - Use Kanban tools, when exposed, as a mirror for task ownership and status;
-  workspace state remains authoritative so the skill also works without them.
+  the canonical SQLite coordinator remains authoritative so the skill also
+  works without Kanban.
 
 If a capability is absent, use the closest local fallback without weakening
 the evidence or completion oracle.
@@ -91,10 +92,13 @@ persists state before exit. A cron session must not create another cron job.
 
 ## Observability
 
-The package's `scripts/hermes_runtime_hook.py` records sanitized session,
-delegation, and subagent lifecycle metadata in
-`.research-tree-hermes/events.jsonl`. Generate an absolute-path hook snippet
-with:
+The package's `scripts/hermes_runtime_hook.py` is a fail-open wake-up signal.
+It validates a bounded hook envelope, touches the content-free operational
+marker `.research-tree/host-wakeups/hermes.signal`, and returns an empty Hermes
+response. The marker contains no task, attempt, evidence, provider, report, or
+completion data and may be lost without changing semantics. Hermes' own
+telemetry and a fresh Kanban/task snapshot are the diagnostic surfaces.
+Generate an absolute-path hook snippet with:
 
 ```bash
 python scripts/hermes_skill_adapter.py render-hooks
@@ -105,23 +109,25 @@ research content. Hermes live transcripts remain the detailed debugging
 surface. When ATOF/ATIF export is enabled, use it for aggregate execution and
 cost analysis rather than duplicating telemetry in research artifacts.
 
-For durable execution, use the Hermes-specific state adapter after the
-alignment handoff:
+For execution, use the stateless Hermes adapter around canonical coordinator
+state after the alignment handoff:
 
 ```bash
-python scripts/hermes_execution_adapter.py --workspace . init \
-  --run-id <run-id> --handoff .research-tree-alignment/<alignment-run>/handoff.json
-python scripts/hermes_execution_adapter.py --workspace . record-batch \
-  --run-id <run-id> --batch-id wave-001 --status verified \
-  --delegation-id <delegation-id> --finding findings/wave-001.json
-python scripts/hermes_execution_adapter.py --workspace . recover --run-id <run-id>
-python scripts/hermes_execution_adapter.py --workspace . prepare-delivery \
-  --run-id <run-id> --technical-report technical-research-package.md \
-  --human-report human-research-report.md
+python scripts/hermes_execution_adapter.py project-task \
+  --input canonical-work-item-and-lease.json
+python scripts/hermes_execution_adapter.py translate-observation \
+  --input bounded-hermes-observation.json
+python scripts/hermes_execution_adapter.py plan-recovery \
+  --input canonical-attempt-policy-and-hermes-snapshot.json
 ```
 
-The adapter consumes Hermes worker-finished events supplied by the parent; it
-does not call `delegate_task`. A verified wave and both report candidates can
-move the host projection only to `delivery_pending`. The legacy `complete`
-command is rejected; the canonical coordinator alone evaluates readiness,
-acceptance, and completion.
+`project-task` deterministically emits goal and Kanban fields with canonical
+refs, evidence requirements, closure oracle, retry policy, and a
+non-authoritative-completion notice. `translate-observation` maps delegation,
+run, Finding Pack, review, provider, retry, worker, and reconciliation outcomes
+to HostEvent v1. `plan-recovery` consumes canonical state plus a fresh Hermes
+snapshot; it can mark an attempt unknown and select a same-provider retry,
+allowed fallback provider, or allowed method switch with a new identity and
+dispatch digest. None of these commands writes local business state or calls
+`delegate_task`; only the canonical coordinator evaluates closure, readiness,
+delivery acceptance, and completion.
