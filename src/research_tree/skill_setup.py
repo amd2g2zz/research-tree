@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import re
 import shutil
 import subprocess
@@ -34,6 +35,7 @@ HOST_RELOAD_ACTIONS = {
     "claude": "Start a new Claude Code session after installing or refreshing a skill.",
     "hermes": "Run /reload-skills or start a new Hermes session after installing or refreshing a skill.",
 }
+HOST_CLI_NAMES = {"codex": "codex", "claude": "claude", "hermes": "hermes"}
 
 
 class SkillSetupError(ValueError):
@@ -211,6 +213,25 @@ def _declares_research_tree_skill(path: Path) -> bool:
     return bool(re.search(r"(?m)^name:\s*research-tree\s*$", text))
 
 
+def _same_package_content(target: Path, source: Path) -> bool:
+    """Recognize a current copy install without treating arbitrary dirs as links."""
+
+    if not target.is_dir() or not source.is_dir() or _is_link_like(target):
+        return False
+    source_files = sorted(
+        path.relative_to(source) for path in source.rglob("*") if path.is_file()
+    )
+    target_files = sorted(
+        path.relative_to(target) for path in target.rglob("*") if path.is_file()
+    )
+    if source_files != target_files:
+        return False
+    try:
+        return all((source / relative).read_bytes() == (target / relative).read_bytes() for relative in source_files)
+    except OSError:
+        return False
+
+
 def _activation_contract(package: Path, host: str) -> dict[str, object]:
     """Validate the static evidence required before a live activation probe.
 
@@ -268,6 +289,8 @@ def installation_status(
     if not _lexists(target):
         return "missing"
     if _same_source(target, source):
+        return "current"
+    if _same_package_content(target, source):
         return "current"
     if legacy_source is not None and _same_source(target, legacy_source):
         return "legacy"
@@ -508,6 +531,8 @@ def activation_status(
     home: Path,
     project_root: Path,
     codex_home: Path | None = None,
+    run_native_probes: bool = False,
+    probe_timeout: int = 60,
 ) -> dict[str, object]:
     """Report static activation readiness without overstating live loading.
 
@@ -532,6 +557,69 @@ def activation_status(
         )
         contract = _activation_contract(package, host)
         ready = installation == "current" and bool(contract["valid"])
+        evidence_states = {
+            "discovery": {
+                "status": "pass" if contract["valid"] else "fail",
+                "evidence_ref": str(package / "SKILL.md"),
+                "meaning": "the host-specific package and activation contract are discoverable",
+            },
+            "current_installation": {
+                "status": "pass" if installation == "current" else "fail",
+                "evidence_ref": str(target),
+                "disposition": installation,
+                "meaning": "the configured host target resolves to the current package",
+            },
+            "live_body_injection": {
+                "status": "unknown",
+                "required_receipt": "fresh host-visible activation sentinel response bound to the current session",
+                "cannot_be_inferred_from": [
+                    "SKILL.md file read",
+                    "package-only activation receipt",
+                ],
+            },
+            "post_activation_behavior": {
+                "status": "unknown",
+                "required_receipt": "bounded post-activation behavior observation referencing the live activation receipt",
+                "cannot_be_inferred_from": [
+                    "activation sentinel alone",
+                    "package installation status",
+                ],
+            },
+        }
+        native_probe = (
+            native_activation_probe(
+                host,
+                cwd=project_root,
+                timeout=probe_timeout,
+            )
+            if run_native_probes and ready
+            else {
+                "status": "not_run",
+                "reason": "static activation readiness is blocked" if not ready else "native probe was not requested",
+            }
+        )
+        if native_probe["status"] == "passed":
+            evidence_states["live_body_injection"] = {
+                "status": "pass",
+                "receipt": native_probe,
+                "meaning": "the fresh host session returned the exact package sentinel",
+            }
+        elif native_probe["status"] == "unavailable":
+            evidence_states["live_body_injection"]["status"] = "unavailable"
+            evidence_states["live_body_injection"]["unavailable_evidence"] = native_probe
+        elif native_probe["status"] == "failed":
+            evidence_states["live_body_injection"]["status"] = "fail"
+            evidence_states["live_body_injection"]["failure_evidence"] = native_probe
+        if not ready:
+            activation_state = "installation_or_contract_blocked"
+        elif native_probe["status"] == "passed":
+            activation_state = "live_activation_verified"
+        elif native_probe["status"] == "failed":
+            activation_state = "live_activation_failed"
+        elif native_probe["status"] == "unavailable":
+            activation_state = "live_activation_unavailable"
+        else:
+            activation_state = "awaiting_live_probe"
         installations.append(
             {
                 "host": host,
@@ -541,6 +629,9 @@ def activation_status(
                 "installation_status": installation,
                 "static_contract": contract,
                 "static_readiness": "ready" if ready else "blocked",
+                "activation_status": activation_state,
+                "evidence_states": evidence_states,
+                "native_probe": native_probe,
                 "manual_probe": {
                     "command": HOST_ACTIVATION_PROBES[host],
                     "expected_response": (
@@ -562,6 +653,90 @@ def activation_status(
         "repository": str(repository),
         "scope": scope,
         "installations": installations,
+    }
+
+
+def _native_probe_command(
+    host: str, executable: str, *, windows: bool | None = None
+) -> list[str]:
+    prompt = HOST_ACTIVATION_PROBES[host]
+    if host == "codex":
+        logical = [executable, "exec", prompt]
+    elif host == "claude":
+        logical = [executable, "-p", prompt, "--output-format", "text"]
+    else:
+        logical = [executable, "-z", prompt, "--skills", SKILL_NAME]
+    is_windows = os.name == "nt" if windows is None else windows
+    if is_windows and Path(executable).suffix.casefold() in {".cmd", ".bat"}:
+        comspec = os.environ.get("ComSpec")
+        if not comspec or PureWindowsPath(comspec).name.casefold() != "cmd.exe":
+            system_root = os.environ.get("SystemRoot", r"C:\Windows")
+            comspec = str(PureWindowsPath(system_root) / "System32" / "cmd.exe")
+        return [
+            comspec,
+            "/d",
+            "/s",
+            "/c",
+            *logical,
+        ]
+    return logical
+
+
+def native_activation_probe(
+    host: str,
+    *,
+    cwd: Path,
+    executable: str | None = None,
+    timeout: int = 60,
+    runner: object = subprocess.run,
+) -> dict[str, object]:
+    """Run one explicit isolated activation probe, or record unavailable evidence."""
+
+    if host not in HOST_LAYOUTS:
+        raise SkillSetupError(f"unsupported host: {host}")
+    if timeout < 1:
+        raise SkillSetupError("activation probe timeout must be positive")
+    command_name = executable or shutil.which(HOST_CLI_NAMES[host])
+    expected = "research-tree activation: " + ACTIVATION_SENTINELS[host]
+    if command_name is None:
+        return {
+            "host": host,
+            "status": "unavailable",
+            "reason": "host_cli_not_found",
+            "command_name": HOST_CLI_NAMES[host],
+            "expected_response": expected,
+        }
+    command = _native_probe_command(host, command_name)
+    try:
+        completed = runner(
+            command,
+            cwd=Path(cwd).resolve(),
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "host": host,
+            "status": "unavailable",
+            "reason": "probe_timeout",
+            "command": command,
+            "expected_response": expected,
+        }
+    output = str(completed.stdout).strip()
+    stderr = str(completed.stderr)
+    stderr_bytes = stderr.encode("utf-8")
+    return {
+        "host": host,
+        "status": "passed" if completed.returncode == 0 and output == expected else "failed",
+        "command": command,
+        "returncode": int(completed.returncode),
+        "exact_output": output,
+        "expected_response": expected,
+        "stderr_present": bool(stderr),
+        "stderr_bytes": len(stderr_bytes),
+        "stderr_sha256": hashlib.sha256(stderr_bytes).hexdigest(),
     }
 
 
@@ -605,6 +780,13 @@ def build_parser() -> argparse.ArgumentParser:
             "never replaces a real directory"
         ),
     )
+    activation = commands.choices["activation"]
+    activation.add_argument(
+        "--native-probe",
+        action="store_true",
+        help="run the host's documented one-shot CLI activation probe after static checks pass",
+    )
+    activation.add_argument("--probe-timeout", type=int, default=60)
     return parser
 
 
@@ -642,6 +824,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 home=arguments.home,
                 project_root=arguments.project_root,
                 codex_home=arguments.codex_home,
+                run_native_probes=arguments.native_probe,
+                probe_timeout=arguments.probe_timeout,
             )
     except SkillSetupError as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2), file=sys.stderr)

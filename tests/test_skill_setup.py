@@ -185,6 +185,16 @@ def test_stale_host_link_requires_explicit_refresh(tmp_path: Path) -> None:
     target = home / ".codex" / "skills" / "research-tree"
     _create_link(stale_source, target)
 
+    before = skill_status(
+        ("codex",),
+        source=ROOT,
+        scope="user",
+        home=home,
+        project_root=tmp_path / "project",
+    )
+    assert before["installations"][0]["status"] == "stale_link"
+    assert target.resolve() == stale_source.resolve()
+
     with pytest.raises(SkillSetupError, match="--refresh-stale-link"):
         install_skill(
             ("codex",),
@@ -206,6 +216,26 @@ def test_stale_host_link_requires_explicit_refresh(tmp_path: Path) -> None:
     )
     assert result["installations"][0]["action"] == "refreshed_stale_link"
     assert target.resolve() == resolve_package(ROOT, "codex").resolve()
+
+
+def test_legacy_repository_root_link_is_classified_before_migration(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    target = home / ".hermes" / "skills" / "research-tree"
+    target.parent.mkdir(parents=True)
+    _create_link(ROOT, target)
+
+    result = skill_status(
+        ("hermes",),
+        source=ROOT,
+        scope="user",
+        home=home,
+        project_root=tmp_path / "project",
+    )
+
+    assert result["installations"][0]["status"] == "legacy"
+    assert target.resolve() == ROOT.resolve()
 
 
 def test_activation_status_reports_static_proof_and_live_probe(tmp_path: Path) -> None:

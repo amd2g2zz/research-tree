@@ -21,3 +21,6 @@ Desktop.ini
 .research-tree-hooks/
 .research-tree-debug/
 .research-tree-alignment/
+
+# Canonical runtime state and disposable evaluation runs.
+.research-tree/
