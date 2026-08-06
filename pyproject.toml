@@ -27,7 +27,7 @@ default-groups = ["test"]
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 
 [tool.setuptools.packages.find]
 where = ["src"]
