@@ -292,7 +292,12 @@ class AlignmentGraphStore:
                 "SELECT * FROM controller WHERE singleton=1"
             ).fetchone()
             pending_node_id = controller["pending_node_id"]
-            if pending_node_id is not None and pending_node_id != node_id:
+            last_decision = json.loads(controller["last_decision_json"] or "{}")
+            if pending_node_id is None and last_decision.get("action") == "ask_one":
+                pending_node_id = last_decision.get("node_id") or last_decision.get("gap_id")
+            if pending_node_id is None:
+                raise AlignmentGraphError("no pending alignment action; record a typed FeedbackEvent")
+            if pending_node_id != node_id:
                 raise AlignmentGraphError(
                     f"response targets {node_id}, but pending action is {pending_node_id}"
                 )
