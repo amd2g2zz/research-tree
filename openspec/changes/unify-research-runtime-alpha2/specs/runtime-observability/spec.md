@@ -52,3 +52,17 @@ Every causal trace SHALL contain trace_id, run_id, event_id, causation_id, corre
 
 - **WHEN** an operator runs export-audit or replay
 - **THEN** the output includes schema versions, redaction status, unresolved references, and verification commands
+
+### Requirement: Research depth and continuity are observable
+
+The trace SHALL record SearchPortfolio revision, query rewrite reason, method/provider boundary, batch coverage assessment, depth disposition, strategy pivot refs, SourceCapture and AnalysisCheckpoint persistence, native workflow projection, and successor resume lineage. It SHALL distinguish a provider returning results from a Decision Slot becoming sufficiently closed.
+
+#### Scenario: A shallow search triggers deepening
+
+- **WHEN** a batch is marked `deepen`
+- **THEN** `why-action` resolves the missing evidence dimension, the source/checkpoint refs considered, and the selected deepening action
+
+#### Scenario: Research pivots after invalidating evidence
+
+- **WHEN** a successor strategy is created
+- **THEN** replay shows the invalidating evidence, stale actions, successor revision, and whether the pivot remained within authority

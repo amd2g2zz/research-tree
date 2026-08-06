@@ -31,7 +31,7 @@ Parallel workers SHALL declare independence groups and method identities. Fan-in
 
 ### Requirement: Worker outputs are typed and partially recoverable
 
-Worker submission SHALL contain attempt identity, observations, evidence anchors, option effects, uncertainties, continuation proposals, tool failures, and validation references. Invalid, empty, or partial submissions SHALL be stored with a disposition and next action rather than silently dropped.
+Worker submission SHALL contain attempt identity, observations, evidence anchors, source capture refs, an AnalysisCheckpoint ref, option effects, uncertainties, continuation proposals, tool failures, and validation references. Invalid, empty, or partial submissions SHALL be stored with a disposition and next action rather than silently dropped.
 
 #### Scenario: Worker returns an empty result
 
@@ -42,6 +42,38 @@ Worker submission SHALL contain attempt identity, observations, evidence anchors
 
 - **WHEN** only part of a submission validates
 - **THEN** valid portions remain tied to the attempt, malformed portions are rejected with field errors, and the Slot cannot close from the partial result alone
+
+### Requirement: Consequential review is independent of production
+
+For adversarial and validation actions, the coordinator SHALL bind the review to a distinct worker, method, or evaluator identity and SHALL reject a self-review as independent evidence. Review SHALL verify the required evidence refs and current oracle lineage; anchor presence alone is insufficient for a validation action.
+
+#### Scenario: A worker submits and reviews the same validation result
+
+- **WHEN** the producer and reviewer identities are equal
+- **THEN** the result remains submitted but non-independent and a successor review is scheduled
+
+### Requirement: Workers checkpoint evidence-bearing analysis before completion
+
+A worker SHALL persist SourceCapture refs as material is acquired and SHALL commit a bounded AnalysisCheckpoint before `worker_finished`. The checkpoint SHALL include scope, source refs, extracted facts, hypotheses with status, contradictions, unresolved questions, failed methods, completed actions, and successor proposals. It SHALL exclude full prompts, secrets, and private chain-of-thought.
+
+#### Scenario: Worker tries to finish with unsaved sources
+
+- **WHEN** a terminal worker event lacks the required capture and checkpoint refs for successful acquisitions
+- **THEN** the event is rejected as incomplete and the attempt remains resumable
+
+#### Scenario: Worker stops after a partial analysis
+
+- **WHEN** a provider failure, cancellation, or crash occurs after one or more durable checkpoints
+- **THEN** the coordinator preserves the partial artifacts and dispatches a successor with exact refs and remaining obligations
+
+### Requirement: Successor workers resume before reacquiring
+
+Before scheduling duplicate acquisition, the coordinator SHALL expose reusable SourceCaptures, AcquisitionReceipts, AnalysisCheckpoints, and accepted partial observations from predecessor attempts and SHALL record why any reusable artifact is rejected or reacquired.
+
+#### Scenario: Successor can continue from a valid checkpoint
+
+- **WHEN** the prior capture digest and checkpoint schema validate under current permissions
+- **THEN** the successor starts from those refs and rediscovery burden is recorded if it repeats the same acquisition
 
 ### Requirement: Scheduler ticks detect no progress and replan
 

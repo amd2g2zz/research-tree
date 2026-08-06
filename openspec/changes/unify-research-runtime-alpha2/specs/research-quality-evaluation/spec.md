@@ -102,3 +102,26 @@ claim provenance, and dual-delivery expectations.
 #### Scenario: Candidate corrects the historical behavior
 - **WHEN** the candidate preserves task identity, transactionally applies corrections, performs evidence-bearing recursive research, and satisfies both delivery oracles
 - **THEN** the fixture records the exact trace, artifacts, and reviewer evidence without claiming that an untested model or host caused the baseline failure
+
+### Requirement: Search depth and continuity are evaluated as outcomes
+
+The evaluation SHALL include cases where a first search batch is relevant but shallow, where implicit mechanisms are absent from the initial wording, where one provider returns repeated secondary sources, where a source is captured before a crash, and where evidence invalidates the initial strategy. Metrics SHALL include implicit-subquestion coverage, independent-method coverage, deepening correctness, pivot correctness, source-capture retention, checkpoint-resume success, and rediscovery burden.
+
+#### Scenario: Multiple queries use one provider
+
+- **WHEN** the candidate issues many rewritten queries through one provider
+- **THEN** the evaluator counts provider-boundary diversity as one and does not award multi-method coverage for query volume
+
+#### Scenario: Candidate stops after a shallow first wave
+
+- **WHEN** primary evidence, implementation detail, or validation remains open
+- **THEN** the case records premature research stop even if the candidate produced a polished report
+
+### Requirement: Adversarial and validation gates are tested as execution behavior
+
+The evaluation SHALL inject anchored but fabricated claims, landscape-only completion attempts, missing OracleRuns, self-review attempts, and adversarial negative results. It SHALL reject a candidate that preserves the claim, prepares delivery, or reports a closed Slot without the required independent adversarial and validation outcomes.
+
+#### Scenario: Fabricated claim carries a syntactically valid URL anchor
+
+- **WHEN** a worker submits a claim with an unreachable, mismatched, or unresolvable anchor
+- **THEN** the evaluator records unsupported_claim and the run cannot pass a consequential evidence gate

@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Host events use one versioned semantic envelope
-The system SHALL represent dispatch, attempt start, finding submission, review completion, provider failure, unknown outcome, retry request, and worker completion with a versioned envelope containing run, round, Decision Slot, action, attempt, host, event identity, and expected ledger revision.
+The system SHALL represent dispatch, attempt start, checkpoint persistence, finding submission, review completion, native workflow start/resume/phase completion, provider failure, unknown outcome, retry request, and worker completion with a versioned envelope containing run, round, Decision Slot, action, attempt, host, event identity, and expected ledger revision.
 
 The wire object validated by `schemas/host-event-v1.json` is embedded as the
 canonical entity envelope payload. Storage adds the common entity fields and
@@ -71,7 +71,10 @@ The protocol SHALL define and validate the payload and canonical state effect fo
 - provider_failed: provider/model identity, retry category, opaque code, and safe log ref;
 - attempt_unknown: reconciliation reason, last heartbeat, and observed host state;
 - retry_requested: predecessor attempt, method/provider change, and retry policy;
-- worker_finished: terminal worker status and all produced artifact refs;
+- checkpoint_persisted: SourceCapture refs, AcquisitionReceipt refs, AnalysisCheckpoint ref, and checkpoint digest;
+- workflow_started or workflow_resumed: native workflow id, capability digest, strategy revision, action refs, phase refs, and fallback id;
+- workflow_phase_completed: native workflow id, phase id, child attempt refs, produced artifact refs, and successor disposition;
+- worker_finished: terminal worker status, SourceCapture refs, AnalysisCheckpoint ref, and all produced artifact refs;
 - acceptance_recorded: DeliveryAcceptance ref and displayed digest;
 - reconciliation_detected: host observation, canonical observation, conflict class, and next action.
 

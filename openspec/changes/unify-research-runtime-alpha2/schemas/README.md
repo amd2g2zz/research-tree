@@ -14,14 +14,19 @@ tools, and release evidence.
 | permission-profile-v1.json | Read/write/network/execute capability boundary | security/adapters |
 | decision-slot-v1.json | Decision Slot and closure obligations | coordinator |
 | research-action-v1.json | Policy-selected action proposal and score inputs | policy/coordinator |
+| search-portfolio-v1.json | Intent-derived subquestions, query rewrites, method boundaries, and reassessment policy | acquisition/coordinator |
 | attempt-lease-v1.json | Work attempt and lease state | scheduler/coordinator |
 | work-item-v1.json | Executable research assignment | scheduler/coordinator |
+| source-capture-v1.json | Immutable raw acquisition capture | acquisition/CAS |
+| acquisition-receipt-v1.json | Durable acquisition outcome and provider lineage | acquisition/CAS |
+| analysis-checkpoint-v1.json | Bounded resumable analysis state without private reasoning | worker/coordinator |
 | evidence-artifact-v1.json | Immutable acquired evidence object | acquisition/evidence resolver |
 | evidence-anchor-v1.json | Exact evidence selector | evidence resolver |
 | oracle-spec-v1.json | Reproducible validation contract | oracle runner |
 | oracle-run-v1.json | Executed validation result | oracle runner |
 | slot-closure-assessment-v1.json | Closure token inputs and lifecycle | closure evaluator |
 | host-event-v1.json | Cross-host event wire protocol | event ingestion |
+| native-workflow-run-v1.json | Non-authoritative host workflow projection | host adapter/coordinator |
 | insight-digest-v1.json | Synthesized facts, gaps, and contradictions | insight service |
 | research-run-v1.json | Canonical run state | coordinator |
 | delivery-manifest-v1.json | Claim-to-lineage delivery index | delivery compiler |

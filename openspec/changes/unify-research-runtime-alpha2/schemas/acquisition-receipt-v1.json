@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/acquisition-receipt-v1.json",
+  "title": "Alpha2 AcquisitionReceipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["receipt_id", "capture_id", "attempt_id", "method_id", "provider_id", "requested_at", "completed_at", "status", "failure_history"],
+  "properties": {
+    "receipt_id": { "type": "string", "minLength": 1 },
+    "capture_id": { "type": ["string", "null"] },
+    "attempt_id": { "type": "string", "minLength": 1 },
+    "method_id": { "type": "string", "minLength": 1 },
+    "provider_id": { "type": "string", "minLength": 1 },
+    "requested_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": ["string", "null"], "format": "date-time" },
+    "status": { "type": "string", "enum": ["succeeded", "failed", "blocked", "unknown"] },
+    "failure_history": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["code", "at"], "properties": { "code": { "type": "string" }, "at": { "type": "string", "format": "date-time" } } } }
+  }
+}

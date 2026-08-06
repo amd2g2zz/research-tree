@@ -44,6 +44,25 @@ The system SHALL issue a closure token only after evaluating required evidence c
 - **WHEN** all required evidence, counterevidence, contradiction, validation, and fallback obligations resolve for the current revisions
 - **THEN** the core evaluator emits a closure token that records every input reference and check result
 
+### Requirement: Consequential findings undergo independent adversarial and validation review
+
+Before a consequential Decision Slot can close, the coordinator SHALL require a completed adversarial action that searches for counterevidence or records an explicit searched-without-result outcome, and a distinct validation action bound to a current OracleSpec/OracleRun or an explicit human-only authority boundary. The producing worker SHALL NOT be the sole reviewer of its own finding, and a worker-authored confidence or validation string SHALL never satisfy either obligation.
+
+#### Scenario: Finding is supported but no counterevidence was attempted
+
+- **WHEN** a worker submits a polished Finding Pack with anchored observations but no adversarial result
+- **THEN** the Slot remains open and the coordinator schedules adversarial work or records an explicit blocked disposition
+
+#### Scenario: Validation phase has no executable oracle
+
+- **WHEN** a validation Finding Pack contains no current OracleRun and no human-only authority record
+- **THEN** validation remains pending and the finding cannot satisfy readiness, delivery, or completion
+
+#### Scenario: The same worker reviews its own claim
+
+- **WHEN** the submitted worker identity equals the reviewer identity for a consequential finding
+- **THEN** the review is non-independent and the coordinator requests a distinct reviewer or method
+
 ### Requirement: Evidence history is never deleted by pruning or supersession
 The system SHALL preserve rejected, contradicted, superseded, failed, and inconclusive evidence with its original provenance and disposition.
 

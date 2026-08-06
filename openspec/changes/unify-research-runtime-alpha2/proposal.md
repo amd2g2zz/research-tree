@@ -11,7 +11,10 @@ Alpha1 established the product vocabulary and three-host packaging, but it also 
 - Make requester corrections transactional: invalidate dependent alignment,
   strategy, handoff, and delivery revisions before any stale plan can continue.
 - Refactor the global recursive completion state into a local `AdaptiveResearchPolicy` that proposes evidence-triggered growth, pruning, validation, and method switching without owning canonical state.
+- Derive persisted Search Portfolios from the aligned intent and current Decision Slot deficits, including rewritten queries, implicit subquestions, independent acquisition methods, and post-batch depth decisions.
+- Require workers to persist immutable source captures and bounded Analysis Checkpoints before completion so crashes, retries, and successor workers do not erase research context.
 - Define a versioned Host Event Protocol; Codex, Claude Code, and Hermes adapters translate native lifecycle events but cannot weaken evidence or completion rules.
+- Negotiate and exploit host-native dynamic workflows where available while preserving a coordinator-owned canonical plan, durable fallback, and equivalent cross-host outcomes.
 - Compile a Technical Research Package and a professional Human Research Report from the same Decision Ledger and require explicit acceptance of their exact revisions.
 - Add causal traces, replay, recovery, provider-failure handling, cross-host parity checks, and release-grade black-box evaluation.
 - Separate observed host/model behavior from causal attribution; require a
@@ -31,6 +34,7 @@ Alpha1 established the product vocabulary and three-host packaging, but it also 
 - `evidence-verification`: Resolvable multimodal evidence, provenance independence, executable oracles, and auditable Decision Slot closure.
 - `adaptive-research-execution`: Decision-centric action selection, evidence-triggered growth, conservative pruning, contradiction handling, and autonomous long-horizon replanning.
 - `host-event-protocol`: Host-neutral lifecycle events with platform-specific Codex, Claude Code, and Hermes execution adapters.
+- `host-native-orchestration`: Capability-negotiated native workflow projections, dynamic delegation, durable resume, and host-neutral fallback without a second completion authority.
 - `semantic-research-delivery`: Decision-Ledger-derived technical and human reports, readiness verification, and revision-bound human acceptance.
 - `runtime-observability`: Causal transition traces, why-action and why-not-complete explanations, replay, reconciliation, and safe provider diagnostics.
 - `research-quality-evaluation`: Adversarial, cross-host, hidden-oracle, independent-implementation, and expert-review release gates.
@@ -42,8 +46,8 @@ Alpha1 established the product vocabulary and three-host packaging, but it also 
 - `implementation-release-contract`: Requirement-to-code/test/evidence traceability, installable public contracts, reversible migration, immutable release manifests, pre-registered quality gates, and observable Definition of Done.
 - `canonical-schemas`: Checked-in versioned schemas, examples, validators, reference cardinality, and compatibility matrices for every canonical entity.
 - `lifecycle-state-machine`: Closed run-state transition matrix with explicit pause, resume, authority-block, supersession, acceptance, and replay semantics.
-- `worker-orchestration`: Bounded worker assignments, leases, heartbeats, fan-out/fan-in independence, partial outputs, retry, cancellation, and no-progress scheduling.
-- `research-acquisition`: Method/tool registry, source snapshots, derivative provenance, multimodal selectors, and typed acquisition fallback.
+- `worker-orchestration`: Bounded worker assignments, leases, heartbeats, fan-out/fan-in independence, durable source/checkpoint references, partial outputs, retry, cancellation, and no-progress scheduling.
+- `research-acquisition`: Intent-derived Search Portfolios, method/tool registry, source captures, derivative provenance, multimodal selectors, and typed acquisition fallback.
 - `insight-synthesis`: Versioned InsightDigest artifacts that classify facts, inferences, recommendations, contradictions, gaps, and action triggers.
 - `security-execution-boundary`: Sandboxed tool/oracle execution, path and network allowlists, secret redaction, licensing, and safe evidence handling.
 - `release-evidence`: Frozen evaluation manifests, executable metric definitions, absolute safety gates, blinded review, and offline-verifiable release bundles.
@@ -62,6 +66,6 @@ None. The repository has no existing OpenSpec capability specifications; alpha2 
 - Delivery governance affected: machine-readable schemas, state-transition matrices, API/CLI contracts, host capability matrices, migration manifests, release manifests, and requirement-to-evidence traceability.
 - New planning artifacts: checked-in JSON schemas and executable examples, SQLite v1 DDL, lifecycle and error registries, host capability matrix, compatibility matrix, documentation/evaluation/repository registries, delivery coverage matrix, and task execution registry.
 - Data affected: alpha1 filesystem rounds, alignment SQLite databases, native/Hermes checkpoints, Finding Packs, reports, and delivery names require explicit migration dispositions.
-- External tracking: GitHub milestone `alpha2`, Epic #67, and implementation
-  issues #53-#73 define the mission, back story, dependencies, governance, and
+- External tracking: GitHub milestone `alpha2`, Epic #67, and all P0 issues in
+  that milestone, including #80, #82, and #83, define the mission, back story, dependencies, governance, and
   release evidence.

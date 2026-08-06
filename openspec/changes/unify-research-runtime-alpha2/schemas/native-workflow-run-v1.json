@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/native-workflow-run-v1.json",
+  "title": "Alpha2 NativeWorkflowRun",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["workflow_id", "run_id", "host", "capability_digest", "strategy_revision", "action_refs", "status"],
+  "properties": {
+    "workflow_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "host": { "type": "string", "enum": ["codex", "claude-code", "hermes"] },
+    "capability_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "strategy_revision": { "type": "string", "minLength": 1 },
+    "action_refs": { "type": "array", "items": { "type": "string" } },
+    "phase_refs": { "type": "array", "items": { "type": "string" } },
+    "checkpoint_refs": { "type": "array", "items": { "type": "string" } },
+    "fallback_id": { "type": ["string", "null"] },
+    "status": { "type": "string", "enum": ["projected", "active", "paused", "stale", "completed", "reconciled"] }
+  }
+}

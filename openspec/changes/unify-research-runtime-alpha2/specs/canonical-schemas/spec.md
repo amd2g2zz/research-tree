@@ -17,7 +17,7 @@ The change SHALL contain a checked-in contract registry under schemas/ (or a rat
 
 ### Requirement: Canonical entity fields and references are exact
 
-The registry SHALL define required fields, optional fields, enum values, uniqueness constraints, reference cardinality, and digest rules for InputRecord, PermissionProfile, AlignmentMessage, FeedbackEvent, ResearchRun, DecisionSlot, ResearchAction, WorkItem, AttemptLease, EvidenceArtifact, EvidenceAnchor, OracleSpec, OracleRun, SlotClosureAssessment, InsightDigest, ReadinessRecord, HostEvent, DeliveryManifest, DeliveryAcceptance, and ReleaseManifest.
+The registry SHALL define required fields, optional fields, enum values, uniqueness constraints, reference cardinality, and digest rules for InputRecord, PermissionProfile, AlignmentMessage, FeedbackEvent, ResearchRun, DecisionSlot, ResearchAction, SearchPortfolio, WorkItem, AttemptLease, SourceCapture, AcquisitionReceipt, AnalysisCheckpoint, EvidenceArtifact, EvidenceAnchor, OracleSpec, OracleRun, SlotClosureAssessment, InsightDigest, ReadinessRecord, HostEvent, NativeWorkflowRun, DeliveryManifest, DeliveryAcceptance, and ReleaseManifest.
 
 #### Scenario: Evidence anchor is submitted
 

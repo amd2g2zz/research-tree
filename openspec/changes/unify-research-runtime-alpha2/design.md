@@ -49,7 +49,7 @@ The recursive search module will not replace these services. Its slot status, re
 
 One workspace database stores runs, immutable artifact revisions, parent references, events, action attempts, evidence metadata, oracle runs, and host events. The implementation enables foreign keys, WAL, full synchronization, busy timeout, and optimistic expected-revision checks. Only the coordinator writes canonical transitions; workers produce candidate artifacts for ingestion.
 
-Large source snapshots, binaries, images, and experiment output are stored under a SHA-256 content-addressed directory. The ledger records the digest, media type, size, locator, acquisition details, and selectors.
+Large source captures, binaries, images, and experiment output are stored under a SHA-256 content-addressed directory. The ledger records the digest, media type, size, locator, acquisition details, and selectors. An `AcquisitionReceipt` commits fetch status and provenance, while a bounded `AnalysisCheckpoint` commits evidence references, extracted facts, hypotheses, contradictions, unresolved questions, method failures, and next-action proposals. A worker may not emit `worker_finished` until all capture and checkpoint references have been ingested or explicitly classified as unavailable.
 
 **Alternatives considered:**
 
@@ -82,9 +82,11 @@ Scoring records impact, researchability, human exclusivity, expected ambiguity r
 
 ### 6. Adaptive research is local, evidence-triggered, and decision-centric
 
-`AdaptiveResearchPolicy` consumes open Decision Slots, verified Finding Packs, Insight Digests, closure deficits, and prior action outcomes. It emits typed actions: landscape, deep dive, adversarial check, validation, and method switch.
+`AdaptiveResearchPolicy` consumes open Decision Slots, verified Finding Packs, Insight Digests, closure deficits, prior action outcomes, and the current `SearchPortfolio`. It emits typed actions: landscape, deep dive, adversarial check, validation, and method switch.
 
-Growth occurs only when evidence exposes a narrower gap, competing hypothesis, invalid premise, failed oracle, or method limitation. Pruning marks optional duplicate, dominated, superseded, or decision-neutral actions without deleting history. P0 obligations, unresolved contradictions, counterevidence, and required validation are never pruned solely for low score.
+Each Search Portfolio is derived from the confirmed IntentModel, WorkingBrief, active Decision Slot, evidence deficit, and prior acquisition results. It records explicit and implicit subquestions, rewritten queries, source classes, method/provider identities, expected contribution, failure boundaries, and stop/deepen/pivot criteria. Multiple queries sent through one provider remain one provider boundary; diversity requires a materially distinct index, corpus, extraction path, repository inspection, primary-source retrieval, or experiment.
+
+Growth occurs only when evidence exposes a narrower gap, competing hypothesis, invalid premise, failed oracle, shallow-but-relevant coverage, or method limitation. A shallow first batch triggers deep reading, code inspection, primary-source acquisition, adversarial search, or experiment when the decision remains materially underdetermined. If evidence invalidates the initial direction, the policy persists a successor strategy and action graph with causal references; it does not silently continue the stale plan or require routine human approval inside the confirmed authority. Pruning marks optional duplicate, dominated, superseded, or decision-neutral actions without deleting history. P0 obligations, unresolved contradictions, counterevidence, and required validation are never pruned solely for low score.
 
 Expected value ranks candidate actions. Realized delta is a vector of evidence-class coverage, provenance independence, contradiction state, oracle state, implementation uncertainty, and decision closure. C4.5-style gain ratio may normalize branch proliferation; C5-style pessimistic pruning may defer repeated no-change optional work; boosting-like reweighting occurs only after a ledger-observable oracle failure.
 
@@ -92,11 +94,11 @@ Expected value ranks candidate actions. Realized delta is a vector of evidence-c
 
 The versioned Host Event Protocol includes dispatch requested, attempt started, finding submitted, review completed, provider failed, attempt unknown, retry requested, and worker finished. Every event identifies run, round, Decision Slot, action, attempt, host, and expected ledger revision.
 
-Codex and Claude Code use native subagent and question mechanisms. Hermes may use delegation, goals, Kanban, and lifecycle hooks. Hooks remain fail-open observability/wake-up mechanisms and cannot verify evidence or complete work. Provider failures persist safe metadata and move attempts to retryable or unknown states; they never imply task or run completion.
+Codex and Claude Code use native subagent and question mechanisms. Claude Code dynamic workflows and Codex multi-agent delegation are used when capability probes confirm them. Hermes may use delegation, goals, Kanban, and lifecycle hooks. Native workflows are rebuildable projections of coordinator actions: they may schedule phases, children, retries, and wake-ups, but they do not own strategy, evidence closure, readiness, or completion. Hooks remain fail-open observability/wake-up mechanisms and cannot verify evidence or complete work. Provider failures persist safe metadata and move attempts to retryable or unknown states; they never imply task or run completion.
 
 ### 8. Delivery is compiled, co-primary, and revision-accepted
 
-The existing DeliveryCompiler remains the canonical renderer. It produces a Technical Research Package and Human Research Report from the same exact Working Brief, Blueprint Target, Finding Packs, Decision Ledger entries, and Readiness record. Arbitrary worker Markdown and adapter byte/heading gates are removed.
+The existing DeliveryCompiler remains the canonical renderer. It produces a Technical Research Package and Human Research Report from the same exact Working Brief, Blueprint Target, Search Portfolios, Source Captures, Analysis Checkpoints, Finding Packs, Decision Ledger entries, and Readiness record. Material strategy pivots and the evidence that caused them are visible in both lineage and delivery. Arbitrary worker Markdown and adapter byte/heading gates are removed.
 
 The Human Research Report is not a courtesy summary. It must explain the understood problem, evidence, recommended direction, alternatives, consequences, risks, applicability, unknowns, and implementation meaning at professional depth. A `DeliveryAcceptance` artifact binds explicit user acceptance to exact delivery revisions. Rejection creates evidence-bearing follow-up work or a successor round.
 
@@ -186,13 +188,19 @@ The policy is deterministic for a fixed ledger digest, registry version, configu
 
 ### 19. Host capability differences are negotiated, not guessed
 
-Each adapter publishes a capability matrix for open-text questions, native ask tools, delegation, parallel workers, background execution, network/search, restart hooks, filesystem writes, and structured event transport. The coordinator selects a host execution plan from that matrix and records unsupported capabilities with fallback behavior. A host cannot claim parity by merely producing a Markdown report.
+Each adapter publishes a capability matrix for open-text questions, native ask tools, delegation, parallel workers, dynamic workflows, lifecycle hooks, background execution, durable resume, scheduled drain, network/search, filesystem writes, and structured event transport. The coordinator selects a host execution plan from that matrix and records unsupported capabilities with fallback behavior. A native workflow run persists its coordinator action refs, phase/child identities, checkpoint refs, and reconciliation state; it is never a second writable plan. A host cannot claim parity by merely producing a Markdown report.
 
-### 20. The evaluation and repository namespaces are fixed before implementation
+### 20. Search and analysis continuity are first-class artifacts
+
+`SearchPortfolio`, `SourceCapture`, `AcquisitionReceipt`, and `AnalysisCheckpoint` are canonical entities. Their schemas distinguish a query from a method/provider boundary, raw captured material from an extracted claim, and a bounded checkpoint from private chain-of-thought. Capture succeeds only after the CAS object and ledger receipt are durable. A worker crash after capture but before a Finding Pack leaves reusable source and checkpoint refs for a successor attempt.
+
+The coordinator assesses each completed acquisition batch against the current Slot: coverage by subquestion and evidence class, provenance independence, depth, contradictions, implementation uncertainty, and oracle readiness. It then records `deepen`, `broaden`, `pivot`, `validate`, or `sufficient_for_slot`; a worker count, URL count, query count, or completed provider call cannot imply sufficiency.
+
+### 21. The evaluation and repository namespaces are fixed before implementation
 
 evaluation/ is the sole tracked evaluation source namespace. Its registered subtrees are cases/, schemas/, harness/, baselines/, results/, and reviews/. Disposable transcripts and raw runs are written only to ignored .research-tree/evaluation-runs/. The empty evals/ root is retired with a migration note. The path registry, documentation registry, and generated-package provenance manifest are checked in before runtime cutover.
 
-### 21. Registries are executable release inputs
+### 22. Registries are executable release inputs
 
 The checked-in registries under `registries/` are not illustrative notes. The
 lifecycle matrix, error catalog, host capability matrix, task execution registry,
@@ -203,7 +211,7 @@ unknown-entry behavior. A missing registry entry is a release-blocking error; a 
 capability marked `host-dependent` is treated as unsupported until an adapter probe
 records a result and fallback.
 
-### 22. Corrections are transactional invalidation events
+### 23. Corrections are transactional invalidation events
 
 A material requester correction enters the coordinator as a canonical
 FeedbackEvent, not as free-form prose appended to the current brief. The event
@@ -226,7 +234,7 @@ Alternative considered: let the model rewrite the Living Brief and continue.
 This was rejected because the black-box transcript shows that prose
 acknowledgement does not prevent stale-plan execution or task contamination.
 
-### 23. Attribution is an evaluator-owned experiment
+### 24. Attribution is an evaluator-owned experiment
 
 Runtime traces record host and model identity as context but do not infer why a
 behavior occurred. The evaluation harness owns causal-attribution experiments.
@@ -250,7 +258,10 @@ and can still harden an unsupported hypothesis into product policy.
 - **[SQLite single-writer contention]** -> Keep transactions short, make the coordinator the only canonical writer, use WAL for readers, and persist worker output outside the transaction before ingestion.
 - **[Evidence resolution cannot prove truth]** -> Separate provenance/integrity from semantic confidence, require counterevidence and risk-tiered oracles, and expose residual uncertainty.
 - **[Automated semantic evaluation can be gamed]** -> Use deterministic invariants first, then hidden implementation oracles and blinded expert review; an LLM judge is never sole authority.
-- **[Host capabilities differ]** -> Version the event contract and test semantic parity while allowing host-specific dispatch and UI behavior.
+- **[Host capabilities differ]** -> Probe native workflow capabilities, persist selected fallbacks, and test semantic parity while allowing host-specific dispatch and UI behavior.
+- **[Native workflows create a second planner]** -> Treat every host workflow as a coordinator-derived projection; reconcile events and discard/rebuild stale projections after strategy revision.
+- **[Saved notes leak private reasoning or secrets]** -> Persist only the bounded AnalysisCheckpoint schema, redact secrets and full prompts, and prohibit private chain-of-thought fields.
+- **[Search diversity is simulated by query count]** -> Record method/provider failure boundaries and test that repeated calls to one provider do not satisfy independent-method coverage.
 - **[Long-horizon research can stall]** -> Persist attempts, no-change penalties, method-switch actions, leases, and resumable checkpoints; operational limits pause rather than complete.
 - **[Removing old paths is disruptive]** -> Stage import, read-only compatibility projections, shadow evaluation, and explicit cutover; never use permanent dual writes.
 - **[Human acceptance can delay terminal completion]** -> Separate research/readiness completion from final delivery acceptance while keeping the overall run non-complete and resumable.
@@ -264,11 +275,11 @@ and can still harden an unsupported hypothesis into product policy.
 
 1. Freeze alpha1 at tag `0.0.1-a1` and land adversarial semantic regression fixtures.
 2. Ratify the contract registry, capability specs, transition matrix, error catalog, and ADRs; introduce the storage protocol, SQLite RunLedger, CAS, and idempotent legacy importer without changing current reads.
-3. Add canonical entity validators and examples for Evidence Artifact, OracleRun, SlotClosureAssessment, Work Item, Attempt, HostEvent, DeliveryAcceptance, and release manifests.
-4. Add Evidence Artifact, OracleRun, and SlotClosureAssessment implementations and migrate canonical Finding Pack ingestion.
+3. Add canonical entity validators and examples for SearchPortfolio, SourceCapture, AcquisitionReceipt, AnalysisCheckpoint, Evidence Artifact, OracleRun, SlotClosureAssessment, Work Item, Attempt, HostEvent, DeliveryAcceptance, and release manifests.
+4. Add source-capture/checkpoint continuity, Evidence Artifact, OracleRun, and SlotClosureAssessment implementations and migrate canonical Finding Pack ingestion.
 5. Introduce ResearchRunCoordinator behind an alpha2 feature boundary and route the structured Decision Ledger/Readiness/Delivery path through it.
 6. Demote recursive search to AdaptiveResearchPolicy and remove its closure/delivery authority.
-7. Convert Codex and Claude Code adapters, then Hermes, to Host Event Protocol translators. Keep legacy state read-only for comparison.
+7. Convert Codex and Claude Code adapters, then Hermes, to Host Event Protocol translators; add capability-negotiated native workflow projections and host-neutral fallbacks. Keep legacy state read-only for comparison.
 8. Replace fixed alignment planning, adapter report gates, and Human Brief naming; add revision-bound acceptance and the one-prompt interaction contract.
 9. Ratify the documentation authority registry, repository path registry, evaluation asset taxonomy, and host capability matrix; inventory current tracked and untracked classes without deleting user artifacts.
 10. Migrate documentation and evaluation definitions, enforce generated-package provenance, and establish governed locations for retained baselines, expert reviews, and redacted run evidence.

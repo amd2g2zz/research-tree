@@ -27,6 +27,15 @@ Trace, Finding Pack, report, evaluation, and release-manifest serializers SHALL 
 - **WHEN** a gateway returns a raw error payload
 - **THEN** only an opaque code, provider/model identity, retry category, attempt id, and safe log reference are persisted
 
+### Requirement: Analysis Checkpoints exclude private reasoning and secrets
+
+The AnalysisCheckpoint schema SHALL permit only structured facts, evidence refs, hypothesis states, contradictions, uncertainties, method outcomes, and next-action proposals. It SHALL reject full prompts, hidden-oracle content, credentials, raw provider diagnostics, and private chain-of-thought.
+
+#### Scenario: Worker submits a narrative reasoning transcript
+
+- **WHEN** a checkpoint contains unrestricted internal reasoning or a secret-bearing prompt fragment
+- **THEN** ingestion redacts or rejects the prohibited field while preserving safe evidence references and resumable task state
+
 ### Requirement: Network and licensing policy is recorded
 
 External acquisition SHALL record network permission, source license/access note, retrieval time, and whether the source may be redistributed. Unlicensed or inaccessible material SHALL not be presented as a reproducible public fixture.

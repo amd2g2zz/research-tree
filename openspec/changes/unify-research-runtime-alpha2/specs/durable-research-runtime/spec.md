@@ -18,6 +18,20 @@ The system SHALL store large documents, source snapshots, binaries, images, and 
 - **WHEN** a stored artifact no longer matches its recorded digest
 - **THEN** integrity verification fails and all dependent unclosed work is reopened or blocked
 
+### Requirement: Acquisition and analysis commits survive partial failure
+
+SourceCapture, AcquisitionReceipt, and AnalysisCheckpoint revisions SHALL be immutable canonical artifacts with attempt, action, Decision Slot, producer, schema, content digest, parent refs, and timestamps. CAS content SHALL be staged and verified before its receipt is committed; a checkpoint SHALL reference only committed or explicitly unavailable captures.
+
+#### Scenario: Process fails between CAS write and ledger commit
+
+- **WHEN** captured bytes exist without a committed AcquisitionReceipt
+- **THEN** recovery verifies and reconciles or quarantines the orphan and does not expose it as accepted evidence
+
+#### Scenario: Process fails after checkpoint commit
+
+- **WHEN** no Finding Pack or worker completion was committed
+- **THEN** recovery retains the checkpoint, marks the attempt uncertain, and makes the checkpoint available to a reconciled successor
+
 ### Requirement: One coordinator owns lifecycle transitions
 The system SHALL allow only `ResearchRunCoordinator` to transition canonical lifecycle state, close Decision Slots, register readiness, request delivery acceptance, supersede a round, or complete a run.
 

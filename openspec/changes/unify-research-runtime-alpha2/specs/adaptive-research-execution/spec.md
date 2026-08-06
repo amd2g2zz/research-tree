@@ -22,6 +22,25 @@ The system SHALL grow depth, breadth, correction, validation, or method-switch s
 - **WHEN** a worker proposes additional topics without a triggering evidence reference or closure deficit
 - **THEN** the policy rejects those proposals as unbounded growth
 
+#### Scenario: First-wave material is relevant but shallow
+
+- **WHEN** batch assessment shows useful sources but insufficient primary evidence, implementation detail, or oracle readiness
+- **THEN** the policy grows a deep-read, repository-inspection, adversarial, or experiment action tied to the missing dimension
+
+### Requirement: Invalidated research directions create successor strategies
+
+When evidence contradicts a material premise or shows that the current strategy is superficial, the system SHALL persist a pivot assessment, supersede affected pending actions, create a successor strategy and Research Action Graph, and retain causal lineage to the invalidating evidence.
+
+#### Scenario: Research reveals the initial architecture assumption is wrong
+
+- **WHEN** accepted evidence invalidates that assumption after handoff
+- **THEN** the coordinator autonomously replans within confirmed authority and records the pivot for delivery instead of continuing the stale plan or silently replacing it
+
+#### Scenario: Pivot changes requester-controlled intent or safety
+
+- **WHEN** the required successor would alter outcome, authority, safety boundary, or an explicit hard constraint
+- **THEN** the run becomes authority_blocked and asks one focused human question rather than assuming permission
+
 ### Requirement: Realized delta measures closure-relevant change
 The system SHALL initialize historical evidence at zero realized delta and SHALL measure new evidence-class coverage, provenance independence, contradiction state, oracle state, implementation uncertainty, and Decision Slot closure change after each ingestion.
 
@@ -46,6 +65,20 @@ The system SHALL distinguish batch checkpoint, Decision Slot closure, and run co
 #### Scenario: Current frontier drains with an unclosed Slot
 - **WHEN** no action is currently executable but closure obligations remain
 - **THEN** the coordinator records a blocker, method switch, deferred fallback, or authority boundary rather than completion
+
+### Requirement: Research phases are enforced obligations, not advisory labels
+
+For every active consequential Slot, the coordinator SHALL persist the required phase set and SHALL reject delivery/readiness progression when the required deep-dive, adversarial, or validation phase is absent, unverified, or satisfied only by the same worker's assertion. A host may project phases differently, but it cannot omit their canonical obligations.
+
+#### Scenario: Caller adds only a landscape task
+
+- **WHEN** all manually added landscape tasks are verified but a consequential Slot has no adversarial or validation result
+- **THEN** the coordinator refuses delivery preparation and emits the missing phase actions
+
+#### Scenario: Adversarial search finds no counterevidence
+
+- **WHEN** an independent adversarial action searches the registered methods and finds no disconfirming material
+- **THEN** the negative result is persisted with method boundaries and can satisfy the adversarial attempt requirement without being treated as positive support
 
 ### Requirement: Autonomous research continues after confirmed handoff
 The system SHALL replan research, retry tools, search external documentation, and switch methods without routine human collaboration while remaining inside the confirmed authority and safety boundary.

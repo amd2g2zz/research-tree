@@ -101,3 +101,17 @@ DeliveryAcceptance SHALL bind both exact output revisions and the displayed dige
 
 - **WHEN** the user accepts the technical package but requests a deeper human report
 - **THEN** the run remains non-complete and records partial acceptance plus the missing delivery work
+
+### Requirement: Deliveries expose research continuity and material pivots
+
+The Technical Research Package and Human Research Report SHALL resolve the SearchPortfolio, SourceCapture, AcquisitionReceipt, AnalysisCheckpoint, Finding Pack, and strategy successor refs that support consequential claims. A material deepen, broaden, validate, or pivot disposition SHALL be disclosed with its trigger evidence, superseded strategy revision, and resulting decision impact.
+
+#### Scenario: Initial research direction is invalidated
+
+- **WHEN** the coordinator completes a successor strategy after contradictory evidence
+- **THEN** both deliveries explain the pivot and do not present the superseded plan as the original uninterrupted method
+
+#### Scenario: A report cites an uncaptured source
+
+- **WHEN** a consequential claim has only a URL or worker prose without a durable SourceCapture and selector
+- **THEN** delivery readiness rejects the claim or labels it unresolved and the run cannot complete

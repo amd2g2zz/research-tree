@@ -11,14 +11,51 @@ The minimum fallback order for an unresolved question SHALL be local context ins
 - **WHEN** the policy selects a tool
 - **THEN** the action records the registry version, selection reason, permission profile, and expected evidence class
 
+### Requirement: Search Portfolios derive acquisition from intent and deficits
+
+Before dispatching an acquisition batch, the system SHALL persist a SearchPortfolio derived from the confirmed IntentModel revision, WorkingBrief revision, active Decision Slot, current evidence deficit, and prior acquisition outcomes. It SHALL contain explicit and implicit subquestions, query rewrites, source classes, method/provider identities, expected contribution, failure boundaries, and batch reassessment criteria.
+
+#### Scenario: The requester names a broad topic
+
+- **WHEN** the confirmed intent leaves consequential mechanisms, implementation constraints, failure modes, or validation questions implicit
+- **THEN** the portfolio adds traceable subquestions and query rewrites for those deficits without changing requester-controlled outcome or authority
+
+#### Scenario: The same provider receives several rewritten queries
+
+- **WHEN** several calls use one search index, provider, or mirrored corpus
+- **THEN** they remain one method/provider boundary and do not satisfy an independent-method requirement by query count alone
+
+### Requirement: Acquisition uses independent method boundaries when decisions require them
+
+The system SHALL distinguish query, provider, corpus, extraction method, repository inspection, primary-source retrieval, and experiment identities. A portfolio requiring independent coverage SHALL select methods with materially distinct provenance or failure boundaries and SHALL record when only one boundary is available.
+
+#### Scenario: General search results repeat the same secondary claim
+
+- **WHEN** multiple pages derive from one announcement or index result
+- **THEN** the system groups them as dependent provenance and schedules a primary source, repository inspection, or experiment where required
+
+### Requirement: Every acquisition batch receives a depth disposition
+
+After each acquisition batch, the coordinator SHALL assess subquestion coverage, evidence classes, provenance independence, source depth, contradictions, implementation uncertainty, and oracle readiness and SHALL persist one of `deepen`, `broaden`, `pivot`, `validate`, or `sufficient_for_slot` with causal refs.
+
+#### Scenario: Search snippets are relevant but insufficient
+
+- **WHEN** the first batch identifies relevant sources without resolving a material Decision Slot
+- **THEN** the next action opens the full source, inspects code/data, or runs a bounded experiment instead of compiling a report
+
 ### Requirement: External sources are snapshotted and provenance-linked
 
-Every external retrieval SHALL record locator, retrieval time, response digest, media type, license/access note, extractor version, selector, and fetch failure history. Derivative sources SHALL link to their origin group.
+Every external retrieval SHALL produce an immutable SourceCapture and AcquisitionReceipt recording locator, retrieval time, response digest, media type, license/access note, extractor version, selector, fetch status, and failure history. Derivative sources SHALL link to their origin group. A successful receipt may be committed only after the captured bytes or registered immutable locator are durable.
 
 #### Scenario: URL changes between attempts
 
 - **WHEN** a later retrieval has a different digest
 - **THEN** it becomes a new artifact revision and cannot silently replace the earlier evidence
+
+#### Scenario: Retrieval succeeds and the worker crashes during analysis
+
+- **WHEN** source bytes were committed before a Finding Pack was submitted
+- **THEN** the successor attempt can resolve the SourceCapture and receipt without repeating the retrieval
 
 ### Requirement: Acquisition failure produces a next method
 
