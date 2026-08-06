@@ -178,6 +178,17 @@ from .alignment_handoff import (
     initialize_research_from_alignment,
 )
 from .storage import RunStore
+from .cas import CASError, CASIntegrityError, ContentAddressedStore
+from .leases import AttemptLease, LeaseError
+from .migrations import (
+    LegacyRunStoreImporter,
+    MigrationEntry,
+    MigrationError,
+    MigrationManager,
+)
+from .replay import ReplayError, ordered_events, replay_events, semantic_state_digest
+from .run_ledger import RunLedgerProtocol
+from .sqlite_ledger import SQLiteLedgerError, SQLiteRunLedger
 from .work_items import (
     InvalidWorkItemError,
     WorkItemCompiler,
@@ -296,6 +307,22 @@ __all__ = [
     "RESEARCH_STRATEGY_KIND",
     "ROUND_SUPERSESSION_KIND",
     "RunStore",
+    "CASError",
+    "CASIntegrityError",
+    "ContentAddressedStore",
+    "AttemptLease",
+    "LeaseError",
+    "LegacyRunStoreImporter",
+    "MigrationEntry",
+    "MigrationError",
+    "MigrationManager",
+    "ReplayError",
+    "ordered_events",
+    "replay_events",
+    "semantic_state_digest",
+    "RunLedgerProtocol",
+    "SQLiteLedgerError",
+    "SQLiteRunLedger",
     "RuntimeStoreError",
     "VerificationError",
     "VerificationFailure",
