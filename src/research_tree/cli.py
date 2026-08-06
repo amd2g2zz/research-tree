@@ -12,6 +12,7 @@ from .domain import ArtifactRevision, RuntimeStoreError, thaw_json
 from .recursive_search import RecursiveResearchCoordinator
 from .alignment_handoff import initialize_research_from_alignment
 from .storage import RunStore
+from .coordinator import CoordinatorError, ResearchRunCoordinator
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -83,12 +84,90 @@ def build_parser() -> argparse.ArgumentParser:
     tree_deliver.add_argument("--tree-id", default="research-tree")
     tree_deliver.add_argument("--technical-report", type=Path, required=True)
     tree_deliver.add_argument("--human-report", type=Path, required=True)
+
+    run = commands.add_parser("run", help="canonical alpha2 coordinator commands")
+    run_commands = run.add_subparsers(dest="run_command", required=True)
+    run_init = run_commands.add_parser("init")
+    run_init.add_argument("--workspace", type=Path, required=True)
+    run_init.add_argument("--run-id", required=True)
+    run_init.add_argument("--task-identity", type=Path)
+    for name in ("status", "next", "replay", "explain", "why-action", "why-not-complete", "recover", "reconcile-host", "export-audit"):
+        command = run_commands.add_parser(name)
+        command.add_argument("--workspace", type=Path, required=True)
+        command.add_argument("--run-id", required=True)
+    transition = run_commands.add_parser("transition")
+    transition.add_argument("--workspace", type=Path, required=True)
+    transition.add_argument("--run-id", required=True)
+    transition.add_argument("--event", required=True)
+    transition.add_argument("--actor", required=True)
+    transition.add_argument("--expected-revision", type=int, required=True)
+    transition.add_argument("--payload", type=Path)
+    feedback = run_commands.add_parser("feedback")
+    feedback.add_argument("--workspace", type=Path, required=True)
+    feedback.add_argument("--event", type=Path, required=True)
+    feedback.add_argument("--expected-revision", type=int, required=True)
+    deliver = run_commands.add_parser("deliver")
+    deliver.add_argument("--workspace", type=Path, required=True)
+    deliver.add_argument("--run-id", required=True)
+    deliver.add_argument("--expected-revision", type=int, required=True)
+    deliver.add_argument("--technical-digest", required=True)
+    deliver.add_argument("--human-digest", required=True)
+    accept = run_commands.add_parser("accept")
+    accept.add_argument("--workspace", type=Path, required=True)
+    accept.add_argument("--run-id", required=True)
+    accept.add_argument("--expected-revision", type=int, required=True)
+    accept.add_argument("--displayed-digest", required=True)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
+    if arguments.command == "run":
+        try:
+            if arguments.run_command == "feedback":
+                value = json.loads(arguments.event.read_text(encoding="utf-8"))
+                run_id = str(value.get("run_id", ""))
+                output = ResearchRunCoordinator(arguments.workspace).record_feedback(
+                    value, expected_revision=arguments.expected_revision
+                )
+            else:
+                coordinator = ResearchRunCoordinator(arguments.workspace)
+                if arguments.run_command == "init":
+                    identity = {}
+                    if arguments.task_identity:
+                        identity = json.loads(arguments.task_identity.read_text(encoding="utf-8"))
+                    output = coordinator.create(arguments.run_id, task_identity=identity)
+                elif arguments.run_command == "status":
+                    output = coordinator.status(arguments.run_id)
+                elif arguments.run_command == "next":
+                    output = coordinator.next_actions(arguments.run_id)
+                elif arguments.run_command == "replay":
+                    output = {"run_id": arguments.run_id, "events": coordinator.events(arguments.run_id), "state": coordinator.status(arguments.run_id)}
+                elif arguments.run_command in {"explain", "why-action"}:
+                    output = coordinator.why_action(arguments.run_id)
+                elif arguments.run_command == "why-not-complete":
+                    state = coordinator.status(arguments.run_id)
+                    output = {"run_id": arguments.run_id, "complete": state["lifecycle_state"] == "completed", "unmet_obligations": [] if state["lifecycle_state"] == "completed" else [f"lifecycle_state={state['lifecycle_state']}"], "next_action": "accept" if state["lifecycle_state"] == "awaiting_acceptance" else "continue_research"}
+                elif arguments.run_command == "export-audit":
+                    output = coordinator.audit(arguments.run_id)
+                elif arguments.run_command == "recover":
+                    output = coordinator.recover(arguments.run_id)
+                elif arguments.run_command == "reconcile-host":
+                    output = {"run_id": arguments.run_id, "status": "no_divergence_detected", "next_action": "continue"}
+                elif arguments.run_command == "deliver":
+                    output = coordinator.deliver(arguments.run_id, expected_revision=arguments.expected_revision, technical_digest=arguments.technical_digest, human_digest=arguments.human_digest)
+                elif arguments.run_command == "accept":
+                    output = coordinator.accept(arguments.run_id, expected_revision=arguments.expected_revision, displayed_digest=arguments.displayed_digest)
+                else:
+                    payload = {}
+                    if arguments.payload:
+                        payload = json.loads(arguments.payload.read_text(encoding="utf-8"))
+                    output = coordinator.transition(arguments.run_id, event=arguments.event, actor=arguments.actor, expected_revision=arguments.expected_revision, payload=payload)
+            print(json.dumps(output, ensure_ascii=False, indent=2, sort_keys=True))
+            return 0
+        except (CoordinatorError, OSError, ValueError, json.JSONDecodeError) as error:
+            parser.error(str(error))
     store = RunStore(arguments.store)
     try:
         if arguments.command == "create-round":

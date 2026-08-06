@@ -16,6 +16,24 @@ from typing import Iterable, Sequence
 
 SKILL_NAME = "research-tree"
 RESOURCE_RE = re.compile(r"`((?:references|templates|scripts|assets)/[^`\r\n]+)`")
+ACTIVATION_MARKER_RE = re.compile(
+    r"<!--\s*research-tree-activation:\s*([a-z]+):([A-Z0-9-]+)\s*-->"
+)
+ACTIVATION_SENTINELS = {
+    "codex": "RT-ACTIVE-V1-CODEX",
+    "claude": "RT-ACTIVE-V1-CLAUDE",
+    "hermes": "RT-ACTIVE-V1-HERMES",
+}
+HOST_ACTIVATION_PROBES = {
+    "codex": "$research-tree --activation-probe",
+    "claude": "/research-tree --activation-probe",
+    "hermes": "/research-tree --activation-probe",
+}
+HOST_RELOAD_ACTIONS = {
+    "codex": "Start a new Codex session after installing or refreshing a skill.",
+    "claude": "Start a new Claude Code session after installing or refreshing a skill.",
+    "hermes": "Run /reload-skills or start a new Hermes session after installing or refreshing a skill.",
+}
 
 
 class SkillSetupError(ValueError):
@@ -167,6 +185,80 @@ def _same_source(target: Path, source: Path) -> bool:
         return False
 
 
+def _is_link_like(path: Path) -> bool:
+    """Return whether *path* is a symlink or Windows directory junction.
+
+    ``Path.is_symlink`` does not report a Windows junction.  Comparing the
+    lexical path with its resolved target detects both without following an
+    arbitrary path for deletion.
+    """
+    if not _lexists(path):
+        return False
+    try:
+        return _absolute(path) != path.resolve(strict=True)
+    except OSError:
+        return False
+
+
+def _declares_research_tree_skill(path: Path) -> bool:
+    skill_file = path / "SKILL.md"
+    if not skill_file.is_file():
+        return False
+    try:
+        text = skill_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return bool(re.search(r"(?m)^name:\s*research-tree\s*$", text))
+
+
+def _activation_contract(package: Path, host: str) -> dict[str, object]:
+    """Validate the static evidence required before a live activation probe.
+
+    This deliberately does not claim that a host injected the skill body into a
+    particular model turn.  Only a host-visible probe can establish that.
+    """
+    expected = ACTIVATION_SENTINELS[host]
+    skill_file = package / "SKILL.md"
+    errors: list[str] = []
+    marker = None
+    if not skill_file.is_file():
+        errors.append("missing SKILL.md")
+        text = ""
+    else:
+        try:
+            text = skill_file.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            errors.append("SKILL.md is not UTF-8")
+            text = ""
+    if text:
+        matches = ACTIVATION_MARKER_RE.findall(text)
+        expected_matches = [(host, expected)]
+        if matches != expected_matches:
+            errors.append(
+                "SKILL.md activation marker does not match the host contract"
+            )
+        else:
+            marker = expected
+        if "--activation-probe" not in text:
+            errors.append("SKILL.md is missing the activation probe contract")
+        if "activation_receipt.py" not in text:
+            errors.append("SKILL.md is missing the activation receipt contract")
+
+    required = (
+        "references/research-quality-playbook.md",
+        "references/alignment-controller.md",
+        "scripts/activation_receipt.py",
+    )
+    missing = [relative for relative in required if not (package / relative).is_file()]
+    errors.extend(f"missing activation resource: {relative}" for relative in missing)
+    return {
+        "valid": not errors,
+        "sentinel": marker,
+        "required_resources": required,
+        "errors": errors,
+    }
+
+
 def installation_status(
     target: Path,
     source: Path,
@@ -179,6 +271,8 @@ def installation_status(
         return "current"
     if legacy_source is not None and _same_source(target, legacy_source):
         return "legacy"
+    if _is_link_like(target) and _declares_research_tree_skill(target):
+        return "stale_link"
     return "conflict"
 
 
@@ -245,6 +339,7 @@ def install_skill(
     project_root: Path,
     codex_home: Path | None = None,
     dry_run: bool = False,
+    refresh_stale_link: bool = False,
 ) -> dict[str, object]:
     repository = source.expanduser().resolve()
     if mode not in {"link", "copy"}:
@@ -281,11 +376,26 @@ def install_skill(
         )
         for host, target in targets.items()
     }
-    conflicts = [host for host, status in statuses.items() if status == "conflict"]
+    stale_links = [
+        host for host, status in statuses.items() if status == "stale_link"
+    ]
+    conflicts = [
+        host
+        for host, status in statuses.items()
+        if status == "conflict" or (status == "stale_link" and not refresh_stale_link)
+    ]
     if conflicts:
         details = ", ".join(f"{host}={targets[host]}" for host in conflicts)
+        stale_hint = (
+            "; use --refresh-stale-link only after confirming the stale link "
+            "may be repointed"
+            if stale_links
+            else ""
+        )
         raise SkillSetupError(
-            "refusing to overwrite existing non-source skill installation(s): " + details
+            "refusing to overwrite existing non-source skill installation(s): "
+            + details
+            + stale_hint
         )
 
     results: list[dict[str, str]] = []
@@ -294,18 +404,29 @@ def install_skill(
         for host, target in targets.items():
             status = statuses[host]
             action = "unchanged" if status == "current" else "planned"
-            if status in {"missing", "legacy"} and not dry_run:
-                previous = repository if status == "legacy" else None
+            if status in {"missing", "legacy", "stale_link"} and not dry_run:
+                previous = None
                 if status == "legacy":
+                    previous = repository
+                elif status == "stale_link":
+                    previous = target.resolve(strict=True)
+                if status in {"legacy", "stale_link"}:
                     _remove_link_target(target)
                 created.append((target, previous))
                 if mode == "link":
                     _create_link(sources[host], target)
                 else:
                     _copy_payload(sources[host], target, payloads[host])
-                action = "migrated" if status == "legacy" else "installed"
+                if status == "legacy":
+                    action = "migrated"
+                elif status == "stale_link":
+                    action = "refreshed_stale_link"
+                else:
+                    action = "installed"
             elif status == "legacy":
                 action = "planned_migration"
+            elif status == "stale_link":
+                action = "planned_stale_link_refresh"
             results.append(
                 {
                     "host": host,
@@ -334,6 +455,7 @@ def install_skill(
         "scope": scope,
         "mode": mode,
         "dry_run": dry_run,
+        "refresh_stale_link": refresh_stale_link,
         "installations": results,
     }
 
@@ -378,6 +500,71 @@ def skill_status(
     }
 
 
+def activation_status(
+    hosts: Sequence[str],
+    *,
+    source: Path,
+    scope: str,
+    home: Path,
+    project_root: Path,
+    codex_home: Path | None = None,
+) -> dict[str, object]:
+    """Report static activation readiness without overstating live loading.
+
+    The host owns model-context injection.  This command proves package shape
+    and installation target only; it returns an explicit live probe for the
+    requester to run in a fresh host session.
+    """
+    repository = source.expanduser().resolve()
+    installations = []
+    for host in tuple(dict.fromkeys(hosts)):
+        package = resolve_package(repository, host)
+        _read_payload(package)
+        target = _absolute(resolve_target(
+            host,
+            scope=scope,
+            home=home,
+            project_root=project_root,
+            codex_home=codex_home,
+        ))
+        installation = installation_status(
+            target, package, legacy_source=repository
+        )
+        contract = _activation_contract(package, host)
+        ready = installation == "current" and bool(contract["valid"])
+        installations.append(
+            {
+                "host": host,
+                "scope": scope,
+                "package": str(package),
+                "target": str(target),
+                "installation_status": installation,
+                "static_contract": contract,
+                "static_readiness": "ready" if ready else "blocked",
+                "manual_probe": {
+                    "command": HOST_ACTIVATION_PROBES[host],
+                    "expected_response": (
+                        "research-tree activation: " + ACTIVATION_SENTINELS[host]
+                    ),
+                    "after_install": HOST_RELOAD_ACTIONS[host],
+                },
+                "proves": [
+                    "the generated package has the host-specific activation contract",
+                    "whether the configured installation points at this package",
+                ],
+                "does_not_prove": [
+                    "that a particular live host session injected SKILL.md into model context",
+                    "that a model followed the activated instructions after injection",
+                ],
+            }
+        )
+    return {
+        "repository": str(repository),
+        "scope": scope,
+        "installations": installations,
+    }
+
+
 def _selected_hosts(raw_hosts: Sequence[str] | None) -> tuple[str, ...]:
     if not raw_hosts or "all" in raw_hosts:
         return tuple(HOST_LAYOUTS)
@@ -390,7 +577,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Install isolated research-tree packages for Codex, Claude Code, or Hermes.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
-    for command in ("install", "status"):
+    for command in ("install", "status", "activation"):
         child = commands.add_parser(command)
         child.add_argument(
             "--host",
@@ -410,6 +597,14 @@ def build_parser() -> argparse.ArgumentParser:
     install = commands.choices["install"]
     install.add_argument("--mode", choices=("link", "copy"), default="link")
     install.add_argument("--dry-run", action="store_true")
+    install.add_argument(
+        "--refresh-stale-link",
+        action="store_true",
+        help=(
+            "repoint a confirmed stale research-tree symlink or Windows junction; "
+            "never replaces a real directory"
+        ),
+    )
     return parser
 
 
@@ -428,9 +623,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 project_root=arguments.project_root,
                 codex_home=arguments.codex_home,
                 dry_run=arguments.dry_run,
+                refresh_stale_link=arguments.refresh_stale_link,
+            )
+        elif arguments.command == "status":
+            result = skill_status(
+                hosts,
+                source=arguments.source,
+                scope=arguments.scope,
+                home=arguments.home,
+                project_root=arguments.project_root,
+                codex_home=arguments.codex_home,
             )
         else:
-            result = skill_status(
+            result = activation_status(
                 hosts,
                 source=arguments.source,
                 scope=arguments.scope,

@@ -14,6 +14,8 @@ import sys
 import tempfile
 from typing import Any, Iterable, Mapping, Sequence
 
+from .contracts import validate_feedback_event
+
 
 SCHEMA = 2
 MAX_TURNS = 6
@@ -289,6 +291,16 @@ class AlignmentGraphStore:
             controller = connection.execute(
                 "SELECT * FROM controller WHERE singleton=1"
             ).fetchone()
+            pending_node_id = controller["pending_node_id"]
+            last_decision = json.loads(controller["last_decision_json"] or "{}")
+            if pending_node_id is None and last_decision.get("action") == "ask_one":
+                pending_node_id = last_decision.get("node_id") or last_decision.get("gap_id")
+            if pending_node_id is None:
+                raise AlignmentGraphError("no pending alignment action; record a typed FeedbackEvent")
+            if pending_node_id != node_id:
+                raise AlignmentGraphError(
+                    f"response targets {node_id}, but pending action is {pending_node_id}"
+                )
             hashed = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
             changed = hashed != controller["last_fingerprint"]
             turn = int(controller["turn"]) + 1
@@ -327,6 +339,73 @@ class AlignmentGraphStore:
             "state_changed": changed,
             "next_action": "reconnaissance" if stagnant >= MAX_STAGNANT_TURNS else "plan",
         }
+
+    def apply_correction(
+        self, feedback: Mapping[str, Any], *, expected_revision: int,
+        successor_update: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Atomically quarantine handoff state after a material correction.
+
+        The previous graph remains available through the event snapshots.  Any
+        optional successor graph must use new identifiers; callers express
+        replacement explicitly with a ``supersedes`` edge.
+        """
+
+        normalized = validate_feedback_event(feedback)
+        if normalized["materiality"] not in {"material", "terminal"}:
+            raise AlignmentGraphError("only material feedback can invalidate alignment")
+        with self._connect() as connection:
+            self._require_schema(connection)
+            controller = connection.execute(
+                "SELECT * FROM controller WHERE singleton=1"
+            ).fetchone()
+            if controller is None:
+                raise AlignmentGraphError("alignment controller state is missing")
+            if int(controller["revision"]) != expected_revision:
+                raise AlignmentGraphError("alignment revision is stale")
+            prior_state = self._materialize(connection)
+            existing_event = connection.execute(
+                "SELECT 1 FROM events WHERE event_id=?", ("feedback-" + normalized["feedback_id"],)
+            ).fetchone()
+            if existing_event:
+                raise AlignmentGraphError("feedback event has already been recorded")
+            invalidated = list(prior_state["controller"].get("invalidated_digests", []))
+            handoff = prior_state["controller"].get("handoff")
+            if handoff and handoff.get("alignment_digest"):
+                invalidated.append(str(handoff["alignment_digest"]))
+            for ref in normalized["target_refs"]:
+                if str(ref).startswith("strategy:"):
+                    invalidated.append(str(ref).split(":", 1)[1])
+            invalidated = sorted(set(invalidated))
+            if successor_update is not None:
+                nodes, edges = _normalize_update(successor_update)
+                current_ids = {
+                    row["node_id"] for row in connection.execute("SELECT node_id FROM nodes")
+                }
+                reused = sorted({node["id"] for node in nodes} & current_ids)
+                if reused:
+                    raise AlignmentGraphError(
+                        "correction successor must use new node ids: " + ", ".join(reused)
+                    )
+                for node in nodes:
+                    self._upsert_node(connection, node)
+                for edge in edges:
+                    self._upsert_edge(connection, edge)
+            connection.execute(
+                "UPDATE controller SET phase='alignment', status='alignment', pending_node_id=NULL, last_decision_json=NULL, handoff_json=NULL, invalidated_digests_json=? WHERE singleton=1",
+                (_json(invalidated),),
+            )
+            state = self._commit_event(
+                connection,
+                "correction_received",
+                {
+                    "feedback": normalized,
+                    "invalidated_digests": invalidated,
+                    "prior_revision": expected_revision,
+                    "successor_graph": successor_update is not None,
+                },
+            )
+        return state
 
     def confirm(self, confirmation: str, expected_digest: str | None = None) -> dict[str, Any]:
         text = " ".join(confirmation.split())
@@ -556,6 +635,7 @@ class AlignmentGraphStore:
                 pending_node_id TEXT,
                 last_decision_json TEXT,
                 handoff_json TEXT,
+                invalidated_digests_json TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -609,6 +689,13 @@ class AlignmentGraphStore:
             raise AlignmentGraphError("alignment database schema is missing") from exc
         if row is None or row["value"] != str(SCHEMA):
             raise AlignmentGraphError("unsupported alignment database schema")
+        columns = {
+            item["name"] for item in connection.execute("PRAGMA table_info(controller)")
+        }
+        if "invalidated_digests_json" not in columns:
+            connection.execute(
+                "ALTER TABLE controller ADD COLUMN invalidated_digests_json TEXT NOT NULL DEFAULT '[]'"
+            )
 
     @staticmethod
     def _upsert_node(connection: sqlite3.Connection, node: Mapping[str, Any]) -> None:
@@ -729,6 +816,7 @@ class AlignmentGraphStore:
                 if controller["last_decision_json"] else None,
                 "handoff": json.loads(controller["handoff_json"])
                 if controller["handoff_json"] else None,
+                "invalidated_digests": json.loads(controller["invalidated_digests_json"] or "[]"),
                 "created_at": controller["created_at"], "updated_at": controller["updated_at"],
             },
             "graph": graph,
@@ -741,7 +829,7 @@ class AlignmentGraphStore:
             """
             UPDATE controller SET run_id=?,phase=?,status=?,turn=?,stagnant_turns=?,
                 plan_count=?,revision=?,last_fingerprint=?,pending_node_id=?,
-                last_decision_json=?,handoff_json=?,created_at=?,updated_at=? WHERE singleton=1
+                last_decision_json=?,handoff_json=?,invalidated_digests_json=?,created_at=?,updated_at=? WHERE singleton=1
             """,
             (
                 controller["run_id"], controller["phase"], controller["status"], controller["turn"],
@@ -749,6 +837,7 @@ class AlignmentGraphStore:
                 controller["last_fingerprint"], controller["pending_node_id"],
                 _json(controller["last_decision"]) if controller["last_decision"] else None,
                 _json(controller["handoff"]) if controller["handoff"] else None,
+                _json(controller.get("invalidated_digests", [])),
                 controller["created_at"], controller["updated_at"],
             ),
         )
@@ -808,6 +897,10 @@ def _normalize_update(value: Mapping[str, Any]) -> tuple[list[dict[str, Any]], l
             raise AlignmentGraphError("node impact must be an integer") from exc
         if not 1 <= impact <= 5:
             raise AlignmentGraphError("node impact must be between 1 and 5")
+        if bool(raw.get("human_only", False)) and raw.get("source", "agent") == "agent" and raw.get("status", "candidate") in ACCEPTED_STATUSES:
+            raise AlignmentGraphError(
+                "agent evidence cannot resolve a requester-only alignment field"
+            )
         attributes = raw.get("attributes", {})
         if not isinstance(attributes, Mapping):
             raise AlignmentGraphError("node attributes must be an object")

@@ -178,6 +178,11 @@ from .alignment_handoff import (
     initialize_research_from_alignment,
 )
 from .storage import RunStore
+from .contracts import ContractError, EntityEnvelope, HostEvent, validate_feedback_event
+from .coordinator import CoordinatorError, ResearchRunCoordinator
+from .evaluation_fixtures import assess_attribution, reported_claude_glm_fixture
+from .policy import AdaptiveResearchPolicy, DEFAULT_WEIGHTS
+from .host_events import emit_native_event, event_from_adapter_payload
 from .work_items import (
     InvalidWorkItemError,
     WorkItemCompiler,
@@ -296,6 +301,18 @@ __all__ = [
     "RESEARCH_STRATEGY_KIND",
     "ROUND_SUPERSESSION_KIND",
     "RunStore",
+    "ContractError",
+    "EntityEnvelope",
+    "HostEvent",
+    "validate_feedback_event",
+    "CoordinatorError",
+    "ResearchRunCoordinator",
+    "assess_attribution",
+    "reported_claude_glm_fixture",
+    "AdaptiveResearchPolicy",
+    "DEFAULT_WEIGHTS",
+    "emit_native_event",
+    "event_from_adapter_payload",
     "RuntimeStoreError",
     "VerificationError",
     "VerificationFailure",
