@@ -8,6 +8,7 @@ on:
       - "scripts/*execution_adapter.py"
       - "packages/codex/**"
       - "packages/claude-code/**"
+      - "openspec/changes/unify-research-runtime-alpha2/**"
       - "src/research_tree/contracts.py"
       - "src/research_tree/host_events.py"
       - "tests/test_alpha2_native_event_emission.py"
