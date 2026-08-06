@@ -16,13 +16,13 @@
 
 ## 3. CI and Contributor Workflow (#91)
 
-- [ ] 3.1 Add a GitHub Actions workflow that runs the PR delivery gate for pull requests to `dev` and `master`.
-- [ ] 3.2 Run generated-package parity independently in CI.
-- [ ] 3.3 Document `dev` development, release promotion, worktree creation, exception review, and post-merge cleanup.
-- [ ] 3.4 Link the contributor workflow from the repository README.
+- [x] 3.1 Add a GitHub Actions workflow that runs the PR delivery gate for pull requests to `dev` and `master`.
+- [x] 3.2 Run generated-package parity independently in CI.
+- [x] 3.3 Document `dev` development, release promotion, worktree creation, exception review, and post-merge cleanup.
+- [x] 3.4 Link the contributor workflow from the repository README.
 
 ## 4. Verification and Delivery
 
 - [x] 4.1 Run strict OpenSpec validation, full regression, package parity, and `git diff --check` for the #88 specification/bootstrap slice.
-- [ ] 4.2 Open one PR for #88 with base `dev`, resolve all review threads, and merge only after current-head CI passes.
-- [ ] 4.3 Deliver #90 and #91 sequentially from fresh `origin/dev` worktrees.
+- [x] 4.2 Open and merge the #88 specification/bootstrap PR to `dev` under the then-active branch protection.
+- [x] 4.3 Deliver #90 and #91 sequentially from fresh `origin/dev` worktrees.
