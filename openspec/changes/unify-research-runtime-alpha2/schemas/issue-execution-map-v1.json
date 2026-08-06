@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Alpha2 issue execution map v1",
+  "type": "object",
+  "required": ["schema_version", "issues"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue", "primary_group", "supporting_groups", "capabilities", "openspec_change"],
+        "properties": {
+          "issue": { "type": "integer", "minimum": 1 },
+          "primary_group": { "type": "integer", "minimum": 1 },
+          "supporting_groups": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
+          "capabilities": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "openspec_change": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

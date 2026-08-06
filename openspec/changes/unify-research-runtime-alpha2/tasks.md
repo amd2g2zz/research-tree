@@ -295,3 +295,38 @@ substitute for local evidence.
 - [ ] 27.6 Add invalid-direction fixtures proving successor strategy/action lineage and autonomous continuation inside authority.
 - [ ] 27.7 Add a controlled comparison against the legacy direct-query behavior and publish rediscovery, coverage, depth, and decision-closure deltas.
 - [ ] 27.8 Link portfolio artifacts, query/method traces, comparison results, and limitations to #83 and the alpha2 release manifest.
+
+## 28. Four-Stage Strategy Handoff (#85)
+
+- [ ] 28.1 Define StrategyProjection schema, exact digest binding, and four-stage lifecycle transitions.
+- [ ] 28.2 Require current displayed projection and explicit non-generic confirmation before autonomous dispatch.
+- [ ] 28.3 Preserve strategy revision, rejection, correction, pause/resume, and cross-host projection lineage.
+- [ ] 28.4 Add lifecycle, replay, migration, and cross-host parity tests for stale, incomplete, and generic handoff attempts.
+
+## 29. Project-Scoped User Preference Profiles (#86)
+
+- [ ] 29.1 Define PreferenceObservation and project-local UserPreferenceProfile schemas with privacy boundaries.
+- [ ] 29.2 Implement five-turn refresh, explicit-input precedence, hysteresis, shadow changes, aging, and supersession.
+- [ ] 29.3 Bind material profile effects to StrategyProjection and expose inspection, correction, reset, and deletion controls.
+- [ ] 29.4 Add deterministic preference recall, volatility, override, privacy, reload, and strategy-trace tests.
+
+## 30. Paired Alpha Benchmark (#84)
+
+- [ ] 30.1 Define a frozen paired benchmark manifest for alpha1, alpha2, and simpler-prompt executions.
+- [ ] 30.2 Implement stratified sampling, metric polarity, missing-data rules, paired uncertainty, and hard integrity gates.
+- [ ] 30.3 Retain raw artifacts, blinded review outcomes, budget diagnostics, regressions, and environmental variation evidence.
+- [ ] 30.4 Publish a reproducible comparison report only after the #64 candidate harness is verified.
+
+## 31. DecisionFrame Before Strategy (#87)
+
+- [ ] 31.1 Persist literal requester wording, competing hypotheses, ambiguity, ownership, consequence, and disposition.
+- [ ] 31.2 Choose bounded reconnaissance or one open requester prompt for material unresolved ambiguity.
+- [ ] 31.3 Require ready_for_strategy DecisionFrame before StrategyProjection, research plan, or autonomous dispatch.
+- [ ] 31.4 Add black-box intent-substitution, hypothesis fidelity, clarification appropriateness, and decision-surface tests.
+
+## 32. Cross-Host Skill Activation Integrity (#71)
+
+- [ ] 32.1 Define discovered, static_ready, and live_verified activation evidence states and safe receipt schema.
+- [ ] 32.2 Add host-native side-effect-free activation probes for Codex, Claude Code, and Hermes.
+- [ ] 32.3 Diagnose missing, current, legacy, stale_link, and conflict installations without auto-rewriting user-owned paths.
+- [ ] 32.4 Add isolated host activation, malformed marker, wrong-host package, stale link, and package drift regression tests.

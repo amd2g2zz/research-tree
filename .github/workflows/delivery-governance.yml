@@ -28,6 +28,9 @@ jobs:
       - name: Validate policy artifacts
         run: uv run --frozen python scripts/check_delivery_workflow.py validate
 
+      - name: Validate OpenSpec execution governance
+        run: uv run --frozen python scripts/check_openspec_governance.py
+
       - name: Verify generated package parity
         run: uv run --frozen python scripts/build_skill_packages.py --check
 
