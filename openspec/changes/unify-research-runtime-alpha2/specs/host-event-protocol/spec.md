@@ -69,9 +69,71 @@ The system SHALL record provider and model identity, retry category, opaque erro
 ### Requirement: Hermes native features cannot weaken canonical gates
 The system SHALL use Hermes delegation, goals, Kanban, and lifecycle hooks for execution continuity while treating hook and goal-judge outcomes as non-authoritative signals.
 
+The Hermes adapter SHALL be a stateless translator in normal alpha2 execution.
+It SHALL project one exact canonical Work Item and Attempt Lease into goal or
+Kanban acceptance criteria, and SHALL translate bounded Hermes observations
+back into HostEvents. It SHALL NOT persist batches, report manifests, delivery
+status, lifecycle state, or another event ledger. Alpha1 `.research-tree-hermes`
+state is read-only migration input and SHALL NOT be written by the alpha2 path.
+
+Goal and Kanban acceptance criteria SHALL carry the canonical run, exact Work Item artifact revision and digest,
+Decision Slot, action, attempt, expected revision, permission profile, expected
+Finding Pack contract, evidence standard, closure oracle, retry policy, and a
+statement that Hermes completion is non-authoritative. Missing or stale
+canonical refs make the projection invalid.
+
+Canonical attempt count SHALL project to Hermes task retry limits only. It
+SHALL NOT be reused as a goal turn budget because reasoning turns and external
+attempt identities have different semantics.
+
 #### Scenario: Hermes hook fails open
 - **WHEN** a lifecycle hook raises an error or is skipped
 - **THEN** evidence, closure, and completion requirements remain unchanged and reconciliation detects any missing host event
+
+Hermes hooks MAY touch a content-free operational wake-up marker. The marker
+SHALL contain no task, attempt, evidence, provider, report, acceptance, or
+completion data; it is neither a HostEvent nor replay authority. Missing,
+stale, duplicated, or unwritable markers SHALL be semantically equivalent and
+recovery SHALL use canonical state plus a fresh Hermes snapshot.
+
+#### Scenario: Hermes goal judge reports success
+- **WHEN** a goal judge or Kanban task reports success without an accepted Finding Pack and current OracleRun
+- **THEN** the adapter emits a non-authoritative completion or worker observation
+- **AND** the coordinator does not close the Decision Slot or complete the run
+
+#### Scenario: Hermes projection is repeated
+- **WHEN** the same canonical Work Item and Attempt Lease are projected again after restart
+- **THEN** the adapter returns the same task identity and acceptance contract digest
+- **AND** no adapter-local business state is created
+
+### Requirement: Hermes recovery is ledger-led and policy-bounded
+
+The system SHALL reconcile a fresh Hermes task/run snapshot against canonical
+attempts after restart. A running, stale, missing, or ambiguous host outcome
+without accepted output SHALL become `attempt_unknown`. A valid submitted
+artifact SHALL be reviewable but not implicitly verified. Retry, alternate
+provider, and method switch SHALL preserve the predecessor and create a new
+attempt identity and dispatch digest according to the canonical AttemptPolicy
+and confirmed authority.
+
+Provider failure normalization SHALL retain provider/model identity, retry
+category, bounded opaque error code, attempt identity, and a safe gateway-log
+reference or digest. It SHALL reject raw provider messages, exception text,
+response bodies, prompts, credentials, or gateway-log content.
+
+#### Scenario: Retryable provider failure survives restart
+- **WHEN** Hermes exhausts provider retries, the process restarts, and the canonical attempt has no accepted Finding Pack
+- **THEN** recovery retains the failed predecessor, emits an unknown or retryable observation, and selects the next policy-authorized attempt
+- **AND** the run remains non-terminal without human intervention
+
+#### Scenario: Provider fallback is outside authority
+- **WHEN** an alternate provider would violate the confirmed authority or permission profile
+- **THEN** the adapter records an authority blocker and does not silently switch provider or downgrade the method
+
+#### Scenario: Hook event is missing but host state changed
+- **WHEN** a hook timed out or returned invalid JSON and a later Hermes snapshot differs from the canonical attempt
+- **THEN** reconciliation emits `reconciliation_detected` and the required recovery event
+- **AND** hook absence cannot satisfy evidence, closure, readiness, or completion
 
 ### Requirement: Cross-host semantic parity is testable
 The system SHALL produce equivalent canonical artifacts and lifecycle outcomes when semantically equivalent event traces are executed through Codex, Claude Code, and Hermes.

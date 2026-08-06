@@ -111,6 +111,62 @@ The versioned Host Event Protocol includes dispatch requested, attempt started, 
 
 Codex and Claude Code use native subagent and question mechanisms. Hermes may use delegation, goals, Kanban, and lifecycle hooks. Hooks remain fail-open observability/wake-up mechanisms and cannot verify evidence or complete work. Provider failures persist safe metadata and move attempts to retryable or unknown states; they never imply task or run completion.
 
+Hermes shell-hook return values are observational and are not a reliable
+continuation command. The package hook may therefore touch one content-free,
+loss-tolerant operational marker under `.research-tree/host-wakeups/` so an
+external drain loop can notice activity. The marker stores no event payload,
+task status, identifiers, evidence, or completion state. Its absence, staleness,
+or write failure has no semantic effect; reconciliation always reads the
+canonical ledger and a fresh Hermes snapshot.
+
+#### Hermes projection and recovery model
+
+Hermes integration is a one-way projection around the canonical coordinator,
+not a fourth state machine. The coordinator compiles a bounded Hermes task
+projection from one exact Work Item and Attempt Lease. The projection includes
+the Work Item identity, objective, method, permission profile, expected Finding
+Pack, evidence requirements, closure oracle, retry limit, and canonical
+revision. Hermes may mirror that projection as a goal or Kanban task, but its
+task status, result text, goal judge, run summary, and hook outcome are host
+observations only. They can never write a Decision Ledger entry, closure token,
+readiness verdict, delivery acceptance, or ResearchRun lifecycle state.
+
+The Hermes adapter is stateless in normal alpha2 operation. It consumes one
+bounded observation or one coordinator projection and emits canonical JSON; it
+does not create `.research-tree-hermes`, maintain batches, inspect reports, or
+infer completion. The alpha1 Hermes checkpoint remains migration input only.
+Generated Hermes packages may contain shared protocol translation code, but
+their setup, native references, hook renderer, recovery commands, and tests
+remain Hermes-specific rather than copying Codex or Claude package layouts.
+
+| Hermes observation | HostEvent projection | Canonical effect |
+| --- | --- | --- |
+| goal/Kanban task accepted for dispatch | `dispatch_requested` | records dispatch observation only |
+| Kanban run or delegated child starts | `attempt_started` | advances the exact lease to running |
+| Finding Pack artifact is submitted | `finding_submitted` | makes the exact output reviewable |
+| independent review finishes | `review_completed` | records review result; core still evaluates closure |
+| provider/model exhausts an attempt | `provider_failed` | retryable, unknown, or terminal attempt disposition |
+| restart finds an in-flight or stale host run | `attempt_unknown` | requires reconciliation before retry or success |
+| policy selects retry, provider fallback, or method switch | `retry_requested` | preserves predecessor and authorizes a new identity |
+| child/Kanban run ends | `worker_finished` | records terminal worker observation, never run completion |
+| goal judge, hook, completed wave, or Kanban board claims completion | `completion_claimed` | stores and rejects the non-authoritative claim |
+| host snapshot differs from the ledger | `reconciliation_detected` | records conflict and selected recovery action |
+
+Provider failure normalization retains only provider identity, model identity,
+retry category, bounded opaque code, attempt identity in the envelope, and a
+safe log locator or digest. Raw exception text, response bodies, prompts,
+credentials, and gateway-log content never enter events, checkpoints, or chat.
+
+Recovery is deterministic from the canonical ledger plus a fresh Hermes
+snapshot. A matching terminal host run with a valid Finding Pack is submitted
+for review; a running, stale, missing, or ambiguous run becomes `unknown`;
+a retryable provider failure selects the same method first, then a configured
+fallback provider, then one method switch according to AttemptPolicy. Each
+retry has a new attempt and dispatch digest. Permission, integrity, authority,
+or exhausted-policy failures do not retry. Missing hooks never change this
+decision table because restart reconciliation compares host observations with
+canonical attempts directly.
+
 ### 8. Delivery is compiled, co-primary, and revision-accepted
 
 The existing DeliveryCompiler remains the canonical renderer. It produces a Technical Research Package and Human Research Report from the same exact Working Brief, Blueprint Target, Finding Packs, Decision Ledger entries, and Readiness record. Arbitrary worker Markdown and adapter byte/heading gates are removed.
