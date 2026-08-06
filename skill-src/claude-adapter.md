@@ -40,13 +40,13 @@ another host merely because they appear in examples.
   inspect decisive evidence, and reconcile contradictions before updating the
   shared ledger. Keep auto-memory and conversation resume as secondary context;
   the workspace checkpoint is authoritative after compaction or restart.
-- After handoff, use `scripts/native_execution_adapter.py` with host argument
-  `claude` for atomic task attempts, crash recovery, Finding Pack validation,
-  and delivery-candidate preparation when Python is available. The native task
-  list mirrors this host execution state; neither surface owns canonical run
-  completion.
+- After handoff, use `scripts/claude_execution_adapter.py` with `emit` only to
+  translate a Claude-native observation into one HostEvent. Feed that exact
+  JSON to the canonical `research-tree run ingest` command. The adapter and
+  native task list own no task ledger, evidence verdict, readiness, report, or
+  completion state.
 - The installed package contains `SKILL.md`, bundled references/assets, and the
-  dependency-free native execution adapter. It does not contain the repository
+  dependency-free HostEvent translator. It does not contain the repository
   Python runtime, lifecycle hooks, builder, or evaluation corpus.
 
 ### Source checkout development boundary

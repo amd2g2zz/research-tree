@@ -1,0 +1,44 @@
+name: Host adapter parity
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/host-adapter-parity.yml"
+      - "scripts/build_skill_packages.py"
+      - "scripts/*execution_adapter.py"
+      - "packages/codex/**"
+      - "packages/claude-code/**"
+      - "src/research_tree/contracts.py"
+      - "src/research_tree/host_events.py"
+      - "tests/test_alpha2_native_event_emission.py"
+      - "tests/test_alpha2_host_parity.py"
+      - "tests/test_skill_packages.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-adapters:
+    name: Native adapters (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          python-version: "3.11"
+          enable-cache: true
+          cache-python: true
+      - name: Verify generated packages
+        run: uv run --frozen python scripts/build_skill_packages.py --check
+      - name: Test source, installed package, and semantic parity contracts
+        run: >-
+          uv run --frozen pytest -q
+          tests/test_alpha2_native_event_emission.py
+          tests/test_alpha2_host_parity.py
+          tests/test_skill_packages.py

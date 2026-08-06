@@ -15,7 +15,7 @@ self-contained Agent Skill with Claude Code frontmatter:
 - `disable-model-invocation: false` allows Claude Code to select the Skill when
   its description matches.
 
-The package includes the dependency-free `scripts/native_execution_adapter.py`
+The package includes the dependency-free `scripts/host_event_adapter.py`
 but not the repository Python runtime, hooks, builder, or evaluation corpus.
 Those remain development assets in the source checkout:
 

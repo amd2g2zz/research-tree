@@ -56,39 +56,27 @@ Use the native wait mechanism only after useful coordinator work is exhausted.
 Messages can refine a running agent; interrupt only when its task is obsolete
 or unsafe.
 
-## Executable state adapter
+## Stateless HostEvent adapter
 
-After strategy handoff, initialize and advance durable state with the bundled
-adapter. Use a unique run ID and workspace-relative Finding Pack paths:
+After strategy handoff, canonical state remains in the SQLite RunLedger. The
+bundled adapter translates one native observation at a time and writes only the
+HostEvent JSON to standard output:
 
 ```bash
-python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . init --run-id <run-id> --handoff .research-tree-alignment/<alignment-run>/handoff.json
-python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . add-task --run-id <run-id> --task-id <task-id> --decision-slot <slot> --phase landscape --artifact <finding.json>
-python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . start --run-id <run-id> --task-id <task-id> --worker-id <agent-id>
-python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . finish --run-id <run-id> --task-id <task-id> --result submitted
-python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . verify --run-id <run-id> --task-id <task-id> --reviewer-id coordinator --checked-anchor <opened-ref> --review-note <evidence-check>
-python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . status --run-id <run-id>
-python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . prepare-delivery --run-id <run-id> --technical-report technical-research-package.md --human-report human-research-report.md
+python "<skill-dir>/scripts/codex_execution_adapter.py" emit --input host-event-input.json > host-event.json
+uv run research-tree run ingest --workspace . --event host-event.json
 ```
 
 Resolve `<skill-dir>` from the host-supplied Skill path, never from the task
-workspace. `init` requires the persisted, digest-confirmed handoff and copies
-its Decision Slots, authority, scope, and success oracles into durable execution
-state. `add-task` rejects slots absent from that handoff. Add each dependency
-with `--depends-on`. Give the worker the
-`attempt_id` returned by `start`; its Finding Pack must repeat that ID. On
-restart, run `recover` before dispatch; it converts in-flight attempts to
-`unknown`. It also reopens a missing or hash-mismatched artifact and recursively
-reopens executed dependents, so corrupt evidence cannot release more work.
-`finish` only records a schema-valid submission. The parent calls
-`verify` only after checking evidence, which then releases dependent tasks.
-Repeat `--checked-anchor` for every observation anchor actually inspected.
-`prepare-delivery` records digest-bound candidates after every local task is
-verified. It never marks the canonical run complete. The legacy `complete`
-command fails with a migration message; exact delivery acceptance belongs to
-the canonical coordinator.
-The coordinator serializes mutating adapter commands; do not update one state
-file from parallel tool calls.
+workspace. The input object contains `event_id`, `event_type`, `run_id`,
+`round_id`, optional Slot/action/attempt/causation/correlation ids, `sequence`,
+`expected_revision`, UTC `emitted_at`, and the event-specific `payload`. Obtain
+the attempt identity, next host sequence, and expected revision from the
+canonical coordinator. The wrapper injects `host=codex`, normalizes canonical
+JSON, and computes the payload digest. It creates no `.research-tree-native`
+state and cannot verify a Finding Pack, close a Slot, register delivery, or
+complete a run. Coordinator ingestion performs the authoritative schema,
+attempt, revision, evidence, and lifecycle checks.
 
 ## Ingestion
 

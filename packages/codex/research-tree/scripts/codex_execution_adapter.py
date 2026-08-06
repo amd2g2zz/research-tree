@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Codex-native entrypoint for the shared execution/event runtime."""
+"""Codex-native entrypoint for the stateless HostEvent translator."""
 
 from __future__ import annotations
 
 import sys
 
-from native_execution_adapter import main as _runtime_main
+from host_event_adapter import main as _runtime_main
 
 
 def main(argv: list[str] | None = None) -> int:

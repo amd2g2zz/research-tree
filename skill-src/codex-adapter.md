@@ -23,8 +23,7 @@
 - Treat applicable `AGENTS.md` files as scoped execution constraints. After a
   resume, fork, or context compaction, reload the workspace checkpoint and
   re-check external side effects before retrying unknown work.
-- After handoff, use `scripts/native_execution_adapter.py` with host argument
-  `codex` for atomic task attempts, crash recovery, Finding Pack validation, and
-  delivery-candidate preparation when Python is available. This executable
-  state is authoritative over the visible plan only for host task execution;
-  it never owns canonical run completion.
+- After handoff, use `scripts/codex_execution_adapter.py` with `emit` only to translate
+  a Codex-native observation into one HostEvent. Feed that exact JSON to the
+  canonical `research-tree run ingest` command. The adapter is stateless: it
+  owns no task ledger, evidence verdict, readiness, report, or completion state.

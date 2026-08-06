@@ -61,39 +61,28 @@ than topic: scout, adversary, and validator. Prefer inherited model selection
 unless evidence quality demonstrably needs a different model. Restrict tools
 only when the task remains achievable with that restriction.
 
-## Executable state adapter
+## Stateless HostEvent adapter
 
-After strategy handoff, initialize and advance durable state with the bundled
-adapter:
+After strategy handoff, canonical state remains in the SQLite RunLedger. The
+bundled adapter translates one Claude-native observation at a time and writes
+only the HostEvent JSON to standard output:
 
 ```bash
-python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . init --run-id <run-id> --handoff .research-tree-alignment/<alignment-run>/handoff.json
-python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . add-task --run-id <run-id> --task-id <task-id> --decision-slot <slot> --phase landscape --artifact <finding.json>
-python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . start --run-id <run-id> --task-id <task-id> --worker-id <agent-id>
-python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . finish --run-id <run-id> --task-id <task-id> --result submitted
-python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . verify --run-id <run-id> --task-id <task-id> --reviewer-id coordinator --checked-anchor <opened-ref> --review-note <evidence-check>
-python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . status --run-id <run-id>
-python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . prepare-delivery --run-id <run-id> --technical-report technical-research-package.md --human-report human-research-report.md
+python "<skill-dir>/scripts/claude_execution_adapter.py" emit --input host-event-input.json > host-event.json
+uv run research-tree run ingest --workspace . --event host-event.json
 ```
 
 Resolve `<skill-dir>` from `${CLAUDE_SKILL_DIR}` when present or the injected
-Skill path, never from the task workspace. `init` requires the persisted,
-digest-confirmed handoff and copies its Decision Slots, authority, scope, and
-success oracles into durable execution state. `add-task` rejects slots absent
-from that handoff. Add dependencies with `--depends-on`
-and give each worker the `attempt_id` returned by `start`. Run `recover` after a
-crash, uncertain resume, or integrity error. It reopens corrupt artifacts and
-their executed dependents so invalid evidence cannot release new work. `finish`
-records a schema-valid submission; only the
-parent's evidence review followed by `verify` releases dependent work. The
-parent repeats `--checked-anchor` for every observation anchor it inspected. The
-adapter hashes accepted artifacts. `prepare-delivery` fails while any task or
-integrity check remains open and emits only a non-authoritative candidate. The
-legacy `complete` command is rejected; canonical readiness and exact user
-acceptance remain coordinator decisions. Mirror these transitions into the
-native task list rather than updating two independent truths.
-The parent serializes mutating adapter commands; parallel agents write only
-their separate Finding Pack paths.
+Skill path, never from the task workspace. The input object contains
+`event_id`, `event_type`, `run_id`, `round_id`, optional
+Slot/action/attempt/causation/correlation ids, `sequence`,
+`expected_revision`, UTC `emitted_at`, and the event-specific `payload`. Obtain
+the attempt identity, next host sequence, and expected revision from the
+canonical coordinator. The wrapper injects `host=claude-code`, normalizes
+canonical JSON, and computes the payload digest. It creates no
+`.research-tree-native` state and cannot verify a Finding Pack, close a Slot,
+register delivery, or complete a run. Coordinator ingestion performs the
+authoritative schema, attempt, revision, evidence, and lifecycle checks.
 
 ## Coordinator and verification
 

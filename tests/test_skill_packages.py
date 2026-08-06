@@ -80,13 +80,14 @@ def test_only_claude_package_contains_claude_compatibility_material() -> None:
         assert not (package / "references" / "claude-code-compatibility.md").exists()
         assert not (package / "references" / "claude-native-orchestration.md").exists()
         if package == hermes:
-            assert not (package / "scripts" / "native_execution_adapter.py").exists()
+            assert not (package / "scripts" / "host_event_adapter.py").exists()
 
     claude_skill = (claude / "SKILL.md").read_text(encoding="utf-8")
     assert "Claude Code runtime adapter" in claude_skill
     assert (claude / "references" / "claude-code-compatibility.md").is_file()
     assert (claude / "references" / "claude-native-orchestration.md").is_file()
-    assert (claude / "scripts" / "native_execution_adapter.py").is_file()
+    assert (claude / "scripts" / "host_event_adapter.py").is_file()
+    assert not (claude / "scripts" / "native_execution_adapter.py").exists()
 
 
 def test_only_codex_package_contains_codex_compatibility_material() -> None:
@@ -105,7 +106,8 @@ def test_only_codex_package_contains_codex_compatibility_material() -> None:
     codex_ref = codex / "references" / "codex-cli-compatibility.md"
     assert codex_ref.is_file()
     assert (codex / "references" / "codex-native-orchestration.md").is_file()
-    assert (codex / "scripts" / "native_execution_adapter.py").is_file()
+    assert (codex / "scripts" / "host_event_adapter.py").is_file()
+    assert not (codex / "scripts" / "native_execution_adapter.py").exists()
     assert "request_user_input" in codex_ref.read_text(encoding="utf-8")
 
 
@@ -141,12 +143,12 @@ def test_codex_and_claude_expose_distinct_native_orchestration() -> None:
             / package_name
             / "research-tree"
             / "scripts"
-            / "native_execution_adapter.py"
+            / "host_event_adapter.py"
         ).read_text(encoding="utf-8")
-        assert '"observations"' in adapter
-        assert '"option_effects"' in adapter
         assert '"attempt_id"' in adapter
-        assert 'task["status"] = "submitted"' in adapter
+        assert '"expected_revision"' in adapter
+        assert "payload_digest" in adapter
+        assert ".research-tree-native" not in adapter
 
 
 def test_host_question_references_name_only_their_native_capability() -> None:
