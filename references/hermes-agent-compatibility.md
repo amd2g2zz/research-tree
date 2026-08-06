@@ -10,6 +10,14 @@ Hermes follows the Agent Skills open format and accepts this Skill's minimal
 directory when a skill is loaded and enumerates files under `references/`,
 `templates/`, `scripts/`, and `assets/`.
 
+### Explicit body loading
+
+Use `/research-tree` or `/skill research-tree` after the skill directory has
+been loaded. A manual `skill_view` or ordinary file read can load supporting
+text but does not establish that the Skill entrypoint was injected for the
+turn. Confirm a fresh Hermes session with `/research-tree --activation-probe`;
+the only accepted response is `research-tree activation: RT-ACTIVE-V1-HERMES`.
+
 Adapt these host differences:
 
 - Load supporting files with `skill_view(name="research-tree",
@@ -62,6 +70,13 @@ expansion. Start a new session or run `/reload-skills`, then invoke:
 Hermes also supports `/skill research-tree` for explicit loading. A name
 collision between a local skill and this external directory must be resolved;
 Hermes intentionally refuses to guess between duplicate names.
+
+A raw file URL, a `SKILL.md` path, or an ordinary message mentioning the skill
+does not establish multi-file package activation. After installation or a
+configuration change, run `/reload-skills` or start a new session, then use
+`/research-tree --activation-probe`. The exact Hermes sentinel is live
+activation evidence; `research-tree-setup activation --host hermes --source .`
+only proves the package and installation target.
 
 Validate the Hermes package before loading it:
 

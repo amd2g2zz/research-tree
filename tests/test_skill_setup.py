@@ -7,8 +7,10 @@ from pathlib import Path
 import pytest
 
 from research_tree.skill_setup import (
+    ACTIVATION_SENTINELS,
     SkillSetupError,
     _create_link,
+    activation_status,
     install_skill,
     main,
     resolve_package,
@@ -171,6 +173,58 @@ def test_legacy_repository_link_is_migrated_to_host_package(tmp_path: Path) -> N
 
     assert result["installations"][0]["action"] == "migrated"
     assert target.resolve() == resolve_package(ROOT, "hermes").resolve()
+
+
+def test_stale_host_link_requires_explicit_refresh(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    stale_source = tmp_path / "old-checkout" / "packages" / "codex" / "research-tree"
+    stale_source.mkdir(parents=True)
+    (stale_source / "SKILL.md").write_text(
+        "---\nname: research-tree\ndescription: old\n---\n", encoding="utf-8"
+    )
+    target = home / ".codex" / "skills" / "research-tree"
+    _create_link(stale_source, target)
+
+    with pytest.raises(SkillSetupError, match="--refresh-stale-link"):
+        install_skill(
+            ("codex",),
+            source=ROOT,
+            scope="user",
+            mode="link",
+            home=home,
+            project_root=tmp_path / "project",
+        )
+
+    result = install_skill(
+        ("codex",),
+        source=ROOT,
+        scope="user",
+        mode="link",
+        home=home,
+        project_root=tmp_path / "project",
+        refresh_stale_link=True,
+    )
+    assert result["installations"][0]["action"] == "refreshed_stale_link"
+    assert target.resolve() == resolve_package(ROOT, "codex").resolve()
+
+
+def test_activation_status_reports_static_proof_and_live_probe(tmp_path: Path) -> None:
+    result = activation_status(
+        ("codex",),
+        source=ROOT,
+        scope="user",
+        home=tmp_path / "home",
+        project_root=tmp_path / "project",
+    )
+
+    installation = result["installations"][0]
+    assert installation["static_readiness"] == "blocked"
+    assert installation["installation_status"] == "missing"
+    assert installation["static_contract"]["sentinel"] == ACTIVATION_SENTINELS["codex"]
+    assert installation["manual_probe"]["expected_response"].endswith(
+        ACTIVATION_SENTINELS["codex"]
+    )
+    assert "model context" in installation["does_not_prove"][0]
 
 
 def test_codex_home_override_is_used_for_user_scope(tmp_path: Path) -> None:

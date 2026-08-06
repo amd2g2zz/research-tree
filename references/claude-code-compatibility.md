@@ -37,12 +37,27 @@ Claude Code may expose that directory through `${CLAUDE_SKILL_DIR}`. A source
 checkout path or the user's current working directory is not a substitute for
 the installed Skill directory.
 
+### Explicit body loading
+
+Use the native `/research-tree` command in a fresh Claude Code session. Reading
+`SKILL.md` through an ordinary file tool is not equivalent to Skill activation,
+and wrappers that disable slash commands cannot claim this body's instructions
+were injected. Confirm a session with `/research-tree --activation-probe`; the
+only accepted response is `research-tree activation: RT-ACTIVE-V1-CLAUDE`.
+
 ## Invocation and alignment
 
 Use `/research-tree <request>` for explicit invocation. Claude Code's current
 tool set is session-dependent, so the Skill must use ordinary dialogue unless a
 structured question tool is actually exposed. Do not assume Codex or Hermes
 tool names.
+
+A Markdown link, a `SKILL.md` path, or `$research-tree` text is not the Claude
+Code invocation contract. Start a new Claude Code session after an install or
+refresh, then run `/research-tree --activation-probe`. The exact Claude
+sentinel is evidence that the loaded session saw this package body;
+`research-tree-setup activation --host claude --source .` only proves the
+generated package and configured target.
 
 The Skill owns research alignment and report production; Claude Code owns
 model calls, repository inspection, web access, shell execution, permissions,

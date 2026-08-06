@@ -8,6 +8,32 @@ user-invocable: true
 
 # research-tree
 
+## Activation Receipt
+
+<!-- research-tree-activation: claude:RT-ACTIVE-V1-CLAUDE -->
+
+Do not claim that `research-tree` is active merely because a similarly named
+file was opened. This body is the activation authority for this turn.
+
+When the requester sends `/research-tree --activation-probe`, reply with
+exactly `research-tree activation: RT-ACTIVE-V1-CLAUDE` and do no research,
+file inspection, or tool call. This is a host-loading diagnostic, not a
+research request.
+
+Before the first external search, delegation, or research-delivery claim in a
+normal run, when a Python command runner and writable workspace are available,
+record a package-only activation receipt with:
+
+```text
+python "<skill-dir>/scripts/activation_receipt.py" --host claude --workspace "<task-workspace>"
+```
+
+Resolve `<skill-dir>` from `${CLAUDE_SKILL_DIR}` or the active Skill location,
+not from the task workspace. The bundled `scripts/activation_receipt.py`
+contains only package identity and digest. If the runner or workspace is
+unavailable, do not fabricate a receipt; continue with the host-visible
+activation marker and record the limitation in debug output.
+
 ## Purpose
 
 Use `research-tree` when the requester is still discovering the problem as well
@@ -33,6 +59,56 @@ Produce two final outputs:
    human decision, not a shallow summary.
 
 Create OpenSpec artifacts only when explicitly requested.
+
+## Non-negotiable control contract
+
+Treat the workflow as a state machine. Do not improvise a later state because
+the request sounds familiar or because an internal checklist appears complete.
+
+```text
+ACTIVATE -> INTAKE -> RECONNAISSANCE -> CO_EVOLVE -> HANDOFF
+  -> EXECUTE_BATCH -> INGEST_AND_REPLAN -> VERIFY -> DELIVER
+```
+
+The following transitions are hard boundaries:
+
+- `ACTIVATE`: prove that this skill body and its host adapter are loaded before
+  reading references, inspecting a repository, searching, or proposing a plan.
+  A file read is not activation evidence. If activation cannot be proven, say
+  so and do not claim that the protocol ran.
+- `INTAKE`: create one run-scoped Living Brief and Context Pack. The initial
+  request is an input, not a settled task. Do not import a prior task, project,
+  or technical vertical unless it is present in the current Context Pack.
+- `RECONNAISSANCE`: perform a small evidence batch before detailed questions.
+  The first response must teach one useful distinction and ask at most one
+  open-ended question.
+- `CO_EVOLVE`: every user correction, confusion signal, or scope change is a
+  state event. Mark the affected beliefs and strategy as `reopened`, create a
+  successor revision, and invalidate dependent handoff decisions before doing
+  more planning. Never merely append the correction to prose.
+- `HANDOFF`: require explicit confirmation of outcome, scope, authority,
+  success oracle, and the transition to autonomous research. Agent-written
+  evidence cannot substitute for a requester decision on a human-only field.
+- `EXECUTE_BATCH`: dispatch only the current dependency-ready frontier. A
+  static wave list, an empty task list, or one worker's summary is never proof
+  of completion.
+- `INGEST_AND_REPLAN`: after every Finding Pack, failure, contradiction, or
+  meaningful user correction, ingest evidence, update the brief and tree,
+  recalculate the next frontier, and persist the successor state before any
+  new dispatch. Do not continue a stale plan.
+- `VERIFY` and `DELIVER`: verify source anchors, counterevidence, closure
+  oracles, and both required reports. A brief, Blind-Spot Packet, diagnosis,
+  or strategy projection is an interim artifact, never final delivery.
+
+When a required runtime command, persistence store, host tool, or evidence
+oracle is unavailable, downgrade the claim to `unverified` and record the
+limitation. Never simulate a command result, activation receipt, handoff, or
+completion state in prose.
+
+Do not attribute a behavior to a model, host, library, or provider from one
+transcript. Record it as an observation. A model-specific claim requires a
+controlled comparison with the same brief, context, tools, and success oracle;
+otherwise label the cause `unresolved`.
 
 ## Load the bundled resources
 
@@ -248,6 +324,18 @@ an ordinary research run.
 - Treat user feedback as part of the Living Brief. When feedback reveals an
   agent error, record the correction and revise the intent, scope, or tree;
   never reduce it to a cosmetic report edit.
+- A correction is a control event, not ordinary evidence. First identify which
+  current belief, scope boundary, strategy, or handoff field it invalidates;
+  mark that state `reopened` or `superseded`, persist the successor revision,
+  and only then continue. Do not defend, summarize, or extend an invalidated
+  plan before this transition is recorded.
+- Keep task identity separate from domain identity. A repository, product, or
+  technical name mentioned while diagnosing a failure is not automatically the
+  subject of the research. Re-derive the current outcome from the active
+  Context Pack after every material correction.
+- Treat reports from workers and prior runs as claims requiring inspection.
+  A worker saying that it searched, verified, converged, or is blocked is not
+  evidence until its Finding Pack, raw anchors, and closure oracle are checked.
 - Do not ask for facts that can be learned from supplied material, repository
   inspection, proportionate external research, or a safe experiment.
 - Never choose a familiar technical vertical, target, user, tool, or

@@ -366,3 +366,49 @@ def test_packages_expose_runtime_depth_and_insight_contract() -> None:
         assert "Insight Digest" in skill
         assert "Do not hand a broad track to" in skill
         assert "workers re-delegate" in skill
+
+
+def test_each_host_package_exposes_a_distinct_activation_probe() -> None:
+    expected = {
+        "codex": "RT-ACTIVE-V1-CODEX",
+        "claude-code": "RT-ACTIVE-V1-CLAUDE",
+        "hermes": "RT-ACTIVE-V1-HERMES",
+    }
+    for package_name, sentinel in expected.items():
+        package = ROOT / "packages" / package_name / "research-tree"
+        skill = (package / "SKILL.md").read_text(encoding="utf-8")
+        host = "claude" if package_name == "claude-code" else package_name
+        assert f"research-tree-activation: {host}:{sentinel}" in skill
+        assert f"research-tree activation: {sentinel}" in skill
+        assert (package / "scripts" / "activation_receipt.py").is_file()
+
+
+def test_activation_receipt_probe_verifies_all_checked_in_packages(tmp_path: Path) -> None:
+    expected = {
+        "codex": "codex",
+        "claude-code": "claude",
+        "hermes": "hermes",
+    }
+    for package_name, host in expected.items():
+        package = ROOT / "packages" / package_name / "research-tree"
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(package / "scripts" / "activation_receipt.py"),
+                "--host",
+                host,
+                "--skill-dir",
+                str(package),
+                "--verify-only",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+        result = json.loads(completed.stdout)
+        assert result["verified"] is True
+        assert result["evidence"]["sentinel"] == (
+            f"RT-ACTIVE-V1-{host.upper()}"
+        )
