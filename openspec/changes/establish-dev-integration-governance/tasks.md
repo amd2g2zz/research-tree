@@ -7,12 +7,12 @@
 
 ## 2. Executable Governance Checker (#90)
 
-- [ ] 2.1 Add contract tests for policy and bootstrap semantic validation.
-- [ ] 2.2 Add preflight tests and deterministic read-only implementation.
-- [ ] 2.3 Add PR gate tests and implementation, including release ancestry and review limits.
-- [ ] 2.4 Add generated-package drift and separate-commit verification.
-- [ ] 2.5 Add deterministic inventory and non-destructive cleanup planning.
-- [ ] 2.6 Verify Windows path normalization and POSIX-compatible Git output parsing.
+- [x] 2.1 Add contract tests for policy and bootstrap semantic validation.
+- [x] 2.2 Add preflight tests and deterministic read-only implementation.
+- [x] 2.3 Add PR gate tests and implementation, including release ancestry and review limits.
+- [x] 2.4 Add generated-package drift and separate-commit verification.
+- [x] 2.5 Add deterministic inventory and non-destructive cleanup planning.
+- [x] 2.6 Verify Windows path normalization and POSIX-compatible Git output parsing.
 
 ## 3. CI and Contributor Workflow (#91)
 
