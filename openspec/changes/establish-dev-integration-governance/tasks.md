@@ -16,10 +16,10 @@
 
 ## 3. CI and Contributor Workflow (#91)
 
-- [ ] 3.1 Add a GitHub Actions workflow that runs the PR delivery gate for pull requests to `dev` and `master`.
-- [ ] 3.2 Run generated-package parity independently in CI.
-- [ ] 3.3 Document `dev` development, release promotion, worktree creation, exception review, and post-merge cleanup.
-- [ ] 3.4 Link the contributor workflow from the repository README.
+- [x] 3.1 Add a GitHub Actions workflow that runs the PR delivery gate for pull requests to `dev` and `master`.
+- [x] 3.2 Run generated-package parity independently in CI.
+- [x] 3.3 Document `dev` development, release promotion, worktree creation, exception review, and post-merge cleanup.
+- [x] 3.4 Link the contributor workflow from the repository README.
 
 ## 4. Verification and Delivery
 
