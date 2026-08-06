@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/permission-profile-v1.json",
+  "title": "Alpha2 permission profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["profile_id", "read_roots", "write_roots", "network", "code_execution", "secret_policy", "timeout_seconds", "safety_tier"],
+  "properties": {
+    "profile_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "read_roots": { "type": "array", "items": { "type": "string" } },
+    "write_roots": { "type": "array", "items": { "type": "string" } },
+    "network": { "type": "string", "enum": ["none", "allowlist", "recorded", "unrestricted"] },
+    "code_execution": { "type": "string", "enum": ["none", "sandbox", "workspace", "host"] },
+    "secret_policy": { "type": "string", "enum": ["deny", "redact", "allowlisted"] },
+    "timeout_seconds": { "type": "integer", "minimum": 1 },
+    "safety_tier": { "type": "string", "enum": ["read_only", "sandboxed_write", "isolated_execute", "authority_sensitive"] }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/slot-closure-assessment-v1.json",
+  "title": "Alpha2 SlotClosureAssessment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["slot_id", "assessment_revision", "required_evidence_results", "independence_groups", "counterevidence_search", "contradiction_disposition", "oracle_refs", "fallback", "reversal_condition", "assessor_version", "status", "token_digest"],
+  "properties": {
+    "slot_id": { "type": "string", "minLength": 1 },
+    "assessment_revision": { "type": "integer", "minimum": 1 },
+    "required_evidence_results": { "type": "array", "items": { "type": "object" } },
+    "independence_groups": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "counterevidence_search": { "type": "object" },
+    "contradiction_disposition": { "type": "object" },
+    "oracle_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "fallback": { "type": "string", "minLength": 1 },
+    "reversal_condition": { "type": "string", "minLength": 1 },
+    "assessor_version": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["open", "passed", "failed", "stale", "revoked"] },
+    "token_digest": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+  }
+}

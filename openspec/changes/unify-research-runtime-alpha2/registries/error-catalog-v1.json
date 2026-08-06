@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "exit_codes": {
+    "ok": 0,
+    "invalid_input": 2,
+    "stale_revision": 3,
+    "blocked": 4,
+    "retryable_provider": 5,
+    "permission_denied": 6,
+    "integrity_failure": 7,
+    "unsupported_schema": 8,
+    "canonical_store_unavailable": 9,
+    "terminal_rejection": 10
+  },
+  "errors": [
+    { "code": "invalid_input", "category": "input", "retryability": "never", "exit_code": 2, "state_effect": "none" },
+    { "code": "stale_revision", "category": "concurrency", "retryability": "safe_after_refresh", "exit_code": 3, "state_effect": "none" },
+    { "code": "event_id_conflict", "category": "integrity", "retryability": "never", "exit_code": 7, "state_effect": "audit_required" },
+    { "code": "unverifiable_work_item", "category": "contract", "retryability": "after_oracle_added", "exit_code": 2, "state_effect": "none" },
+    { "code": "provider_retryable", "category": "provider", "retryability": "automatic", "exit_code": 5, "state_effect": "attempt_retryable" },
+    { "code": "provider_unknown", "category": "provider", "retryability": "reconcile", "exit_code": 4, "state_effect": "attempt_unknown" },
+    { "code": "permission_denied", "category": "safety", "retryability": "never", "exit_code": 6, "state_effect": "blocked" },
+    { "code": "unresolved_evidence", "category": "evidence", "retryability": "after_acquisition", "exit_code": 4, "state_effect": "slot_open" },
+    { "code": "failed_oracle", "category": "verification", "retryability": "method_switch", "exit_code": 4, "state_effect": "slot_contested" },
+    { "code": "unsupported_schema_version", "category": "compatibility", "retryability": "migration_required", "exit_code": 8, "state_effect": "none" },
+    { "code": "canonical_store_unavailable", "category": "runtime", "retryability": "resume", "exit_code": 9, "state_effect": "paused" },
+    { "code": "authority_blocked", "category": "authority", "retryability": "human_decision", "exit_code": 10, "state_effect": "authority_blocked" }
+  ],
+  "result_fields": ["code", "category", "retryability", "run_id", "attempt_id", "safe_message", "unmet_obligations", "evidence_refs", "next_action"]
+}

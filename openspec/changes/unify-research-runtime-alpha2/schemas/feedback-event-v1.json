@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/feedback-event-v1.json",
+  "title": "Alpha2 feedback event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["feedback_id", "run_id", "actor", "kind", "message", "target_refs", "materiality", "created_at"],
+  "properties": {
+    "feedback_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "run_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "actor": { "type": "string", "minLength": 1 },
+    "kind": { "type": "string", "enum": ["correction", "priority_change", "scope_change", "authority_change", "success_change", "depth_request", "rejection", "approval"] },
+    "message": { "type": "string", "minLength": 1 },
+    "target_refs": { "type": "array", "items": { "type": "string" } },
+    "materiality": { "type": "string", "enum": ["informational", "material", "terminal"] },
+    "created_at": { "type": "string", "format": "date-time" }
+    ,"contradicted_refs": { "type": "array", "items": { "type": "string" } }
+    ,"affected_fields": { "type": "array", "items": { "type": "string" } }
+    ,"invalidated_refs": { "type": "array", "items": { "type": "string" } }
+    ,"successor_refs": { "type": "array", "items": { "type": "string" } }
+    ,"impact_class": { "type": "string", "enum": ["none", "alignment", "strategy", "attempt", "delivery", "terminal"] }
+    ,"task_identity_disposition": { "type": "string", "enum": ["unchanged", "rederived", "superseded", "unknown"] }
+  }
+}

@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "precedence": [
+    "accepted-product-contract",
+    "accepted-architecture-decision",
+    "active-openspec-change",
+    "host-compatibility-contract",
+    "user-guide",
+    "operational-note",
+    "historical-record",
+    "generated-copy"
+  ],
+  "entries": [
+    {
+      "path": "PRODUCT.md",
+      "class": "normative",
+      "authority": "product",
+      "audience": "contributors-and-agents",
+      "owner": "product",
+      "lifecycle": "active",
+      "canonical_edit": "PRODUCT.md",
+      "update_trigger": "accepted product behavior change",
+      "superseded_by": null
+    },
+    {
+      "path": "README.md",
+      "class": "user-guide",
+      "authority": "discoverability",
+      "audience": "users-and-installers",
+      "owner": "maintainers",
+      "lifecycle": "active",
+      "canonical_edit": "README.md",
+      "update_trigger": "supported workflow or layout change",
+      "superseded_by": null
+    },
+    {
+      "path": "openspec/changes/",
+      "class": "active-change",
+      "authority": "implementation-plan",
+      "audience": "implementers-and-reviewers",
+      "owner": "change-owner",
+      "lifecycle": "active-per-change",
+      "canonical_edit": "the selected change directory",
+      "update_trigger": "scope, contract, or task change",
+      "superseded_by": "openspec archive plus ADR/product sync"
+    },
+    {
+      "path": "docs/adr/",
+      "class": "architecture-decision",
+      "authority": "architecture",
+      "audience": "implementers-and-reviewers",
+      "owner": "maintainers",
+      "lifecycle": "active-or-superseded",
+      "canonical_edit": "new ADR or explicit supersession",
+      "update_trigger": "irreversible architecture choice",
+      "superseded_by": "successor ADR"
+    },
+    {
+      "path": "docs/specs/",
+      "class": "historical-specification",
+      "authority": "historical",
+      "audience": "maintainers-and-auditors",
+      "owner": "maintainers",
+      "lifecycle": "historical-unless-indexed",
+      "canonical_edit": "new active spec, not in-place rewrite",
+      "update_trigger": "historical correction only",
+      "superseded_by": "registry entry and successor contract"
+    },
+    {
+      "path": "references/",
+      "class": "normative-reference",
+      "authority": "runtime-contract",
+      "audience": "skill-authors-and-agents",
+      "owner": "runtime",
+      "lifecycle": "active",
+      "canonical_edit": "references source file",
+      "update_trigger": "runtime behavior or host contract change",
+      "superseded_by": "new reference with explicit link"
+    },
+    {
+      "path": "skill-src/",
+      "class": "authoring-source",
+      "authority": "skill-source",
+      "audience": "skill-maintainers",
+      "owner": "skill",
+      "lifecycle": "active",
+      "canonical_edit": "skill-src, assets, or references source",
+      "update_trigger": "skill behavior or host adapter change",
+      "superseded_by": null
+    },
+    {
+      "path": "packages/",
+      "class": "generated-copy",
+      "authority": "distribution",
+      "audience": "host-installers",
+      "owner": "release",
+      "lifecycle": "rebuildable",
+      "canonical_edit": "registered package source and builder",
+      "update_trigger": "source or builder digest change",
+      "superseded_by": "new generated revision"
+    }
+  ]
+}

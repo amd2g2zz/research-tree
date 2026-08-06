@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/oracle-spec-v1.json",
+  "title": "Alpha2 OracleSpec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["oracle_spec_id", "version", "objective", "input_schema_digest", "invocation_adapter", "permissions", "resource_limits", "timeout_seconds", "expected_result_schema_digest", "retry_policy", "flaky_policy", "isolation_profile", "human_only"],
+  "properties": {
+    "oracle_spec_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "version": { "type": "integer", "minimum": 1 },
+    "objective": { "type": "string", "minLength": 1 },
+    "input_schema_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "invocation_adapter": { "type": "string", "minLength": 1 },
+    "permissions": { "type": "object", "additionalProperties": false, "required": ["read_roots", "write_roots", "network", "commands"], "properties": { "read_roots": { "type": "array", "items": { "type": "string" } }, "write_roots": { "type": "array", "items": { "type": "string" } }, "network": { "type": "string", "enum": ["none", "allowlist", "recorded", "unrestricted"] }, "commands": { "type": "array", "items": { "type": "string" } } } },
+    "resource_limits": { "type": "object", "additionalProperties": false, "required": ["cpu_seconds", "memory_bytes", "output_bytes"], "properties": { "cpu_seconds": { "type": "integer", "minimum": 1 }, "memory_bytes": { "type": "integer", "minimum": 1 }, "output_bytes": { "type": "integer", "minimum": 1 } } },
+    "timeout_seconds": { "type": "integer", "minimum": 1 },
+    "expected_result_schema_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "retry_policy": { "type": "object", "additionalProperties": false, "required": ["max_attempts", "backoff_seconds", "switch_method_after"], "properties": { "max_attempts": { "type": "integer", "minimum": 1 }, "backoff_seconds": { "type": "array", "items": { "type": "number", "minimum": 0 } }, "switch_method_after": { "type": "integer", "minimum": 1 } } },
+    "flaky_policy": { "type": "string", "enum": ["fail_closed", "repeat_once_then_inconclusive", "repeat_until_stable"] },
+    "isolation_profile": { "type": "string", "minLength": 1 },
+    "human_only": { "type": "boolean" }
+  }
+}
