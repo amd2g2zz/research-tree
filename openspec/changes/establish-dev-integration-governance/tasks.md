@@ -24,5 +24,5 @@
 ## 4. Verification and Delivery
 
 - [x] 4.1 Run strict OpenSpec validation, full regression, package parity, and `git diff --check` for the #88 specification/bootstrap slice.
-- [ ] 4.2 Open one PR for #88 with base `dev`, resolve all review threads, and merge only after current-head CI passes.
-- [ ] 4.3 Deliver #90 and #91 sequentially from fresh `origin/dev` worktrees.
+- [x] 4.2 Open and merge the #88 specification/bootstrap PR to `dev` under the then-active branch protection.
+- [x] 4.3 Deliver #90 and #91 sequentially from fresh `origin/dev` worktrees.
