@@ -245,6 +245,7 @@ def test_release_promotion_targets_master_and_is_derived_from_dev() -> None:
         non_generated_lines=10,
         commit_file_sets=[{"CHANGELOG.md"}],
         release_derived_from_dev=True,
+        release_has_unintegrated_commits=False,
     )
     assert accepted.passed is True
 
@@ -258,8 +259,23 @@ def test_release_promotion_targets_master_and_is_derived_from_dev() -> None:
         non_generated_lines=10,
         commit_file_sets=[{"CHANGELOG.md"}],
         release_derived_from_dev=False,
+        release_has_unintegrated_commits=False,
     )
     assert "release_not_derived_from_dev" in wrong_source.errors
+
+    extra_commits = evaluate_pull_request(
+        policy=policy,
+        base_branch="master",
+        head_branch="release/0.0.1-a2",
+        title="release: 0.0.1-a2",
+        body="Promote dev plus an unintegrated feature.",
+        changed_files=["src/unintegrated.py"],
+        non_generated_lines=10,
+        commit_file_sets=[{"src/unintegrated.py"}],
+        release_derived_from_dev=True,
+        release_has_unintegrated_commits=True,
+    )
+    assert "release_contains_unintegrated_commits" in extra_commits.errors
 
 
 def test_review_threshold_warns_and_approved_exception_allows_hard_limit() -> None:

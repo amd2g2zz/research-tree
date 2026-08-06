@@ -431,6 +431,7 @@ def evaluate_pull_request(
     commit_file_sets: Sequence[set[str]],
     approved_exception: bool = False,
     release_derived_from_dev: bool | None = None,
+    release_has_unintegrated_commits: bool | None = None,
 ) -> PullRequestResult:
     del title
     errors: list[str] = []
@@ -441,6 +442,8 @@ def evaluate_pull_request(
             errors.append("invalid_release_base")
         if release_derived_from_dev is not True:
             errors.append("release_not_derived_from_dev")
+        if release_has_unintegrated_commits is not False:
+            errors.append("release_contains_unintegrated_commits")
     elif base_branch != policy.integration_branch:
         errors.append("invalid_base_branch")
 
@@ -499,6 +502,7 @@ def evaluate_pull_request(
             "generated_files": len(generated),
             "non_generated_lines": non_generated_lines,
             "release_derived_from_dev": release_derived_from_dev,
+            "release_has_unintegrated_commits": release_has_unintegrated_commits,
         },
     )
 
@@ -879,6 +883,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                         args.repo,
                         f"origin/{policy.integration_branch}",
                         "HEAD",
+                    )
+                    if re.fullmatch(policy.release_branch_pattern, head)
+                    else None
+                ),
+                release_has_unintegrated_commits=(
+                    bool(
+                        _git(
+                            args.repo,
+                            "rev-list",
+                            "--count",
+                            f"origin/{policy.integration_branch}..HEAD",
+                        )
+                        != "0"
                     )
                     if re.fullmatch(policy.release_branch_pattern, head)
                     else None
