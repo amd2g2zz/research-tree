@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "repository": "amd2g2zz/research-tree",
+  "repository_default_branch": "master",
+  "integration_branch": "dev",
+  "source_ref": "origin/master",
+  "source_sha": "db7e256b3d0f261487cce8455971244eaf5986bd",
+  "created_at": "2026-08-06T18:49:00+08:00",
+  "validation_results": [
+    {
+      "command": "uv run pytest -q",
+      "exit_code": 0,
+      "summary": "227 passed in 53.18s"
+    },
+    {
+      "command": "openspec validate unify-research-runtime-alpha2 --strict",
+      "exit_code": 0,
+      "summary": "Change 'unify-research-runtime-alpha2' is valid"
+    },
+    {
+      "command": "uv run python scripts/build_skill_packages.py --check",
+      "exit_code": 0,
+      "summary": "Codex, Claude Code, and Hermes packages valid"
+    }
+  ],
+  "unavailable_baseline_checks": [
+    {
+      "command": "uv run python scripts/check_docs.py",
+      "reason": "The specification-only bootstrap revision does not yet contain the #68 implementation."
+    },
+    {
+      "command": "uv run python scripts/check_evaluation_assets.py",
+      "reason": "The specification-only bootstrap revision does not yet contain the #69 implementation."
+    },
+    {
+      "command": "uv run python scripts/check_repository_layout.py",
+      "reason": "The specification-only bootstrap revision does not yet contain the #70 implementation."
+    }
+  ],
+  "branch_protection": {
+    "dev": {
+      "required_pull_request": true,
+      "allow_force_pushes": false,
+      "allow_deletions": false,
+      "required_conversation_resolution": true
+    },
+    "master": {
+      "required_pull_request": true,
+      "allow_force_pushes": false,
+      "allow_deletions": false,
+      "required_conversation_resolution": true
+    }
+  },
+  "bootstrap_exception": "The dev ref did not exist, so its initial creation could not be delivered through a PR whose base was dev."
+}
