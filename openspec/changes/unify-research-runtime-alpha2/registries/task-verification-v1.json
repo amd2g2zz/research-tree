@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "groups": [
-    { "group": 1, "state": "planned" },
+    { "group": 1, "state": "in_progress" },
     { "group": 2, "state": "planned" },
     { "group": 3, "state": "planned" },
     { "group": 4, "state": "planned" },
