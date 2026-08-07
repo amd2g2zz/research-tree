@@ -40,6 +40,6 @@ This draft delivers the next reviewable Alpha1 adversarial-baseline slices:
 
 - This PR must remain draft/open: seven of nine issue #55 defects are explicitly pending and no Alpha2 fix is claimed.
 - `tests/test_alpha1_baseline.py` now satisfies the registered group-1 acceptance command without pretending pending cases are green.
-- The local delivery gate reports `split_review_required` (20 non-generated files / 1,373 non-generated lines); split the remaining defect cases into reviewable commits.
+- The local delivery gate currently reports `hard_review_limit_exceeded` (24 non-generated files / 1,612 non-generated lines). A maintainer-approved exception is required by policy; none exists, so this draft is not ready for review. Split the remaining defect cases and/or obtain an explicit recorded exception before requesting review.
 - Push/PR creation is blocked by remote permission: `git push --dry-run` returned HTTP 403 (`Permission to amd2g2zz/research-tree.git denied to edmserver`).
 - Next slices: missing-evidence independent case, state/trace cases, provider/crash boundaries, raw/redacted receipt migration, and cleanup help reconciliation.
