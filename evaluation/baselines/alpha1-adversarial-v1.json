@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "corpus_id": "alpha1-adversarial-v1",
+  "baseline": {
+    "tag": "0.0.1-a1",
+    "commit": "8ab91ea4eb55c98441b5ee6001b80922a56ecdd1"
+  },
+  "cases": [
+    {
+      "case_id": "forged-validation",
+      "status": "executable",
+      "fixture": "evaluation/fixtures/alpha1-adversarial-v1/forged-validation/finding.json",
+      "harness": "evaluation/harness/alpha1_adversarial_forged_validation.py",
+      "receipt": "evaluation/results/alpha1-adversarial-v1/forged-validation.json",
+      "semantic_predicate": "legacy_native_adapter_accepted_passed_validation_with_unresolvable_evidence"
+    },
+    {
+      "case_id": "missing-evidence",
+      "status": "pending",
+      "reason": "Requires a separate case-bound completion receipt; forged-validation must not be counted twice."
+    },
+    {
+      "case_id": "filler-report",
+      "status": "executable",
+      "fixture": "evaluation/fixtures/alpha1-adversarial-v1/filler-report/finding.json",
+      "harness": "evaluation/harness/alpha1_adversarial.py",
+      "receipt": "evaluation/results/alpha1-adversarial-v1/filler-report.json",
+      "semantic_predicate": "legacy_hermes_completed_heading_padding_reports"
+    },
+    {
+      "case_id": "empty-frontier",
+      "status": "pending",
+      "reason": "No clean-checkout semantic oracle binds an empty frontier to unsafe completion yet."
+    },
+    {
+      "case_id": "active-contradiction",
+      "status": "pending",
+      "reason": "No executable fixture currently binds active contradictory evidence to a completion decision."
+    },
+    {
+      "case_id": "repeated-reconnaissance",
+      "status": "pending",
+      "reason": "Observed duplicate-batch symptoms need a case-bound predicate distinguishing replay from independent research."
+    },
+    {
+      "case_id": "adapter-only-completion",
+      "status": "pending",
+      "reason": "Observed adapter completion needs a separate receipt proving core closure obligations were bypassed."
+    },
+    {
+      "case_id": "provider-failure",
+      "status": "pending",
+      "reason": "A provider failure fixture must record the lost obligation and expected recovery action."
+    },
+    {
+      "case_id": "crash-recovery",
+      "status": "pending",
+      "reason": "A process-boundary replay must prove whether an obligation is lost or recovered after crash."
+    }
+  ]
+}

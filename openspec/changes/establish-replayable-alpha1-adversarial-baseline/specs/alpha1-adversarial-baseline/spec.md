@@ -48,3 +48,17 @@ SHALL be recorded as `vulnerability_reproduced`, never as fix confirmation.
 - **AND** the receipt records `evidence_resolves` equal to `false`
 - **AND** the receipt contains command, environment, package, input, and output digests
 - **AND** the receipt does not contain `fix_confirmed`
+
+### Requirement: The adversarial corpus has one governed nine-defect manifest
+The Alpha1 adversarial corpus SHALL publish one versioned manifest containing
+exactly the nine issue #55 defect identifiers. Each entry SHALL declare either
+`executable` with a fixture, harness, receipt, and semantic predicate, or
+`pending` with an explicit reason and no reproduction claim. Pending entries
+SHALL NOT count toward baseline coverage.
+
+#### Scenario: Corpus coverage is machine-checkable
+- **WHEN** the group-1 acceptance test loads the adversarial manifest
+- **THEN** it finds exactly the nine named defect identifiers
+- **AND** every executable entry resolves its fixture, harness, and redacted receipt
+- **AND** every executable receipt has `status` equal to `vulnerability_reproduced`
+- **AND** the manifest reports pending entries without treating them as reproduced

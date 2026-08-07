@@ -44,7 +44,7 @@
 
 ## Adversarial review follow-ups
 
-- [ ] 3.4a Replace the two-case accumulation with one governed manifest covering
+- [x] 3.4a Replace the two-case accumulation with one governed manifest covering
   all nine named #55 defects; executable cases count only when their semantic
   predicate and redacted receipt exist.
 - [ ] 3.4b Migrate legacy receipts so raw and redacted stdout/stderr digests are

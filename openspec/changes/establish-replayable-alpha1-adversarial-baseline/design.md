@@ -99,3 +99,5 @@ no such path; its real replay contract is covered by
 to make the registry command green. Until the registry is deliberately adapted
 in its owning change, group 1 is formally unmet even though this issue-scoped
 focused suite is executable and green.
+
+The governed `evaluation/baselines/alpha1-adversarial-v1.json` manifest provides the registered group-1 contract test with all nine defect IDs, explicitly separating executable receipts from pending cases.
