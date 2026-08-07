@@ -1,0 +1,148 @@
+{
+  "baseline": {
+    "commit": "8ab91ea4eb55c98441b5ee6001b80922a56ecdd1",
+    "tag": "0.0.1-a1"
+  },
+  "case_id": "missing-evidence",
+  "commands": [
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' init --run-id alpha1-missing-evidence --handoff '<workspace>/handoff.json'",
+      "name": "init",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "f0415954e21102a07483da4fe14e58e34037c8eaec9bd3d01e1fa4fb6397f537",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "1378b9453bbef579406362e35122dcfed76f6a7cd19a5c98393fed9102d42878",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"schema\": 1,\n  \"host\": \"claude\",\n  \"run_id\": \"alpha1-missing-evidence\",\n  \"status\": \"aligned\",\n  \"revision\": 1,\n  \"created_at\": \"2026-08-07T11:35:50.320151+00:00\",\n  \"updated_at\": \"2026-08-07T11:35:50.321912+00:00\",\n  \"handoff_path\": \"<workspace>/handoff.json\",\n  \"handoff_sha256\": \"b6fd7d10df0e3b2361fe13d14881946542bf92aef2f7cc1f88ffc24591c54d56\",\n  \"alignment_run_id\": \"alpha1-missing-evidence-alignment\",\n  \"decision_slots\": {\n    \"slot-missing-evidence\": {\n      \"question\": \"Can a completed task and run be trusted when its reviewed evidence anchor does not resolve?\"\n    }\n  },\n  \"execution_context\": {\n    \"authority\": [\n      \"local deterministic replay only\"\n    ]\n  },\n  \"deliverables\": {\n    \"technical_research_package\": {\n      \"status\": \"pending\"\n    },\n    \"human_research_report\": {\n      \"status\": \"pending\"\n    }\n  },\n  \"tasks\": {}\n}\n",
+      "stdout_sha256": "f0415954e21102a07483da4fe14e58e34037c8eaec9bd3d01e1fa4fb6397f537"
+    },
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' add-task --run-id alpha1-missing-evidence --task-id missing-evidence-task --decision-slot slot-missing-evidence --phase deep_dive --artifact '<workspace>/finding.json'",
+      "name": "add-task",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "45b6edfc2cc1f2fc7c69ac7661a5202e4c22380a2d1941c0c7fffd6bbc2dcd4f",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "b9b8ccea26932b902bf7526bfac9699a11d334e24dfdc0f047733fb12dbc82c8",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"task_id\": \"missing-evidence-task\",\n  \"decision_slot\": \"slot-missing-evidence\",\n  \"phase\": \"deep_dive\",\n  \"artifact\": \"<workspace>/finding.json\",\n  \"dependencies\": [],\n  \"status\": \"pending\",\n  \"attempt\": 0,\n  \"attempt_id\": null,\n  \"worker_id\": null,\n  \"verified\": false,\n  \"artifact_sha256\": null,\n  \"failure_reason\": null,\n  \"started_at\": null,\n  \"submitted_at\": null,\n  \"reviewed_at\": null,\n  \"reviewed_by\": null,\n  \"review_note\": null,\n  \"checked_anchors\": []\n}\n",
+      "stdout_sha256": "45b6edfc2cc1f2fc7c69ac7661a5202e4c22380a2d1941c0c7fffd6bbc2dcd4f"
+    },
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' start --run-id alpha1-missing-evidence --task-id missing-evidence-task --worker-id worker-missing-evidence",
+      "name": "start",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "285a9a9690d88d178c92d3b43081d995e58e59fac910674a55642c41ce439580",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "d913aa8b32198b83e266ba2956da120cb25b160e7eb49cb4529e431da7561ec1",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"artifact\": \"<workspace>/finding.json\",\n  \"artifact_sha256\": null,\n  \"attempt\": 1,\n  \"attempt_id\": \"attempt-be52bacbca2d4f71baa32df7ad23a3a2\",\n  \"checked_anchors\": [],\n  \"decision_slot\": \"slot-missing-evidence\",\n  \"dependencies\": [],\n  \"failure_reason\": null,\n  \"phase\": \"deep_dive\",\n  \"review_note\": null,\n  \"reviewed_at\": null,\n  \"reviewed_by\": null,\n  \"started_at\": \"2026-08-07T11:35:51.078185+00:00\",\n  \"status\": \"running\",\n  \"submitted_at\": null,\n  \"task_id\": \"missing-evidence-task\",\n  \"verified\": false,\n  \"worker_id\": \"worker-missing-evidence\"\n}\n",
+      "stdout_sha256": "285a9a9690d88d178c92d3b43081d995e58e59fac910674a55642c41ce439580"
+    },
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' finish --run-id alpha1-missing-evidence --task-id missing-evidence-task --result submitted",
+      "name": "finish",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "5940fa4c865f89b17cdeb851707cbd150cb12f301f3a538b5be7ee9a27e22e2f",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "fb78643775592c2a91ae111f73ec580126690872513fecb7b380bb1b71594e8d",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"artifact\": \"<workspace>/finding.json\",\n  \"artifact_sha256\": \"fe82aa2f938e0a3d90012651f51b5dc1f53fe29877096ca09887111f89755014\",\n  \"attempt\": 1,\n  \"attempt_id\": \"attempt-be52bacbca2d4f71baa32df7ad23a3a2\",\n  \"checked_anchors\": [],\n  \"decision_slot\": \"slot-missing-evidence\",\n  \"dependencies\": [],\n  \"failure_reason\": null,\n  \"phase\": \"deep_dive\",\n  \"review_note\": null,\n  \"reviewed_at\": null,\n  \"reviewed_by\": null,\n  \"started_at\": \"2026-08-07T11:35:51.078185+00:00\",\n  \"status\": \"submitted\",\n  \"submitted_at\": \"2026-08-07T11:35:51.477449+00:00\",\n  \"task_id\": \"missing-evidence-task\",\n  \"verified\": false,\n  \"worker_id\": null\n}\n",
+      "stdout_sha256": "5940fa4c865f89b17cdeb851707cbd150cb12f301f3a538b5be7ee9a27e22e2f"
+    },
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' verify --run-id alpha1-missing-evidence --task-id missing-evidence-task --reviewer-id reviewer-missing-evidence --review-note 'Checked the declared experiment anchor.' --checked-anchor evidence/missing-experiment.json",
+      "name": "verify",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "a5bcb8e716a0bc613e136309596fbff70b05ecb7fccfdc805f47219a68741b8d",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "4785510e983b78aa5132b642ed7c137ca7355e516e4e8507ba1004019c941a40",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"artifact\": \"<workspace>/finding.json\",\n  \"artifact_sha256\": \"fe82aa2f938e0a3d90012651f51b5dc1f53fe29877096ca09887111f89755014\",\n  \"attempt\": 1,\n  \"attempt_id\": \"attempt-be52bacbca2d4f71baa32df7ad23a3a2\",\n  \"checked_anchors\": [\n    \"evidence/missing-experiment.json\"\n  ],\n  \"decision_slot\": \"slot-missing-evidence\",\n  \"dependencies\": [],\n  \"failure_reason\": null,\n  \"phase\": \"deep_dive\",\n  \"review_note\": \"Checked the declared experiment anchor.\",\n  \"reviewed_at\": \"2026-08-07T11:35:51.878758+00:00\",\n  \"reviewed_by\": \"reviewer-missing-evidence\",\n  \"started_at\": \"2026-08-07T11:35:51.078185+00:00\",\n  \"status\": \"completed\",\n  \"submitted_at\": \"2026-08-07T11:35:51.477449+00:00\",\n  \"task_id\": \"missing-evidence-task\",\n  \"verified\": true,\n  \"worker_id\": null\n}\n",
+      "stdout_sha256": "a5bcb8e716a0bc613e136309596fbff70b05ecb7fccfdc805f47219a68741b8d"
+    },
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' status --run-id alpha1-missing-evidence",
+      "name": "status",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "ea7c242a6c4a40298b3c625474275379012b7676c7626851a52494660fc6c2ed",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "ea7c242a6c4a40298b3c625474275379012b7676c7626851a52494660fc6c2ed",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"run_id\": \"alpha1-missing-evidence\",\n  \"host\": \"claude\",\n  \"status\": \"running\",\n  \"revision\": 5,\n  \"counts\": {\n    \"pending\": 0,\n    \"running\": 0,\n    \"submitted\": 0,\n    \"completed\": 1,\n    \"failed\": 0,\n    \"unknown\": 0\n  },\n  \"ready\": [],\n  \"complete\": true,\n  \"integrity_errors\": [],\n  \"recovery_required\": []\n}\n",
+      "stdout_sha256": "ea7c242a6c4a40298b3c625474275379012b7676c7626851a52494660fc6c2ed"
+    },
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' complete --run-id alpha1-missing-evidence --technical-report '<workspace>/technical.md' --human-report '<workspace>/human.md'",
+      "name": "complete",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "77d4b80967b33c241e40b0d744b874d960a22a4b13e1d3422a594139223ed276",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "77d4b80967b33c241e40b0d744b874d960a22a4b13e1d3422a594139223ed276",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"run_id\": \"alpha1-missing-evidence\",\n  \"host\": \"claude\",\n  \"status\": \"complete\",\n  \"revision\": 6,\n  \"counts\": {\n    \"pending\": 0,\n    \"running\": 0,\n    \"submitted\": 0,\n    \"completed\": 1,\n    \"failed\": 0,\n    \"unknown\": 0\n  },\n  \"ready\": [],\n  \"complete\": true,\n  \"integrity_errors\": [],\n  \"recovery_required\": []\n}\n",
+      "stdout_sha256": "77d4b80967b33c241e40b0d744b874d960a22a4b13e1d3422a594139223ed276"
+    }
+  ],
+  "environment": {
+    "implementation": "cpython",
+    "network": "disabled-by-design; local Git object and fixture only",
+    "platform": "darwin",
+    "python": "3.13.7"
+  },
+  "host": "claude",
+  "host_package": {
+    "path": "packages/claude-code/research-tree",
+    "sha256": "967912c55da78f34e97292ae76b72e8dac2e5d37d4df1ec9e12ec696cd8a2401"
+  },
+  "inputs": {
+    "finding": {
+      "bytes": 1046,
+      "sha256": "fe82aa2f938e0a3d90012651f51b5dc1f53fe29877096ca09887111f89755014"
+    },
+    "finding_template": {
+      "bytes": 1020,
+      "sha256": "766e7748dde4613a4ce4b79b84b783eba28afddc369c659abe843b6e95fd22be"
+    },
+    "handoff": {
+      "bytes": 369,
+      "sha256": "b6fd7d10df0e3b2361fe13d14881946542bf92aef2f7cc1f88ffc24591c54d56"
+    },
+    "human": {
+      "bytes": 1281,
+      "sha256": "c1d1243181aacc5ec3b7ed63c9d68f3e83ae66b120dad73e3f2244c38c77ad57"
+    },
+    "technical": {
+      "bytes": 2264,
+      "sha256": "6669a7ffe4f694c172f457bd77084804cb97fdecfb486b494f41c331fb51ec65"
+    }
+  },
+  "limitations": [
+    "baseline reproduction is not fix confirmation"
+  ],
+  "observed": {
+    "evidence_anchor": "evidence/missing-experiment.json",
+    "evidence_resolves": false,
+    "finding_validation_result_present": false,
+    "reviewed_task_status": "completed",
+    "reviewed_task_verified": true,
+    "run_complete": true,
+    "run_status": "complete"
+  },
+  "schema_version": 1,
+  "semantic_predicate": "legacy_native_adapter_completed_run_after_unresolvable_review_anchor",
+  "status": "vulnerability_reproduced"
+}

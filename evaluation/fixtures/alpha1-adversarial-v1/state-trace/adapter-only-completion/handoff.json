@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "alignment-handoff",
+  "run_id": "alpha1-adapter-only-alignment",
+  "decision_slots": {
+    "slot-adapter-boundary": {
+      "question": "Does the host delegate and return a semantic Finding Pack?"
+    }
+  },
+  "execution_context": {
+    "authority": [
+      "Research only within the declared decision slot."
+    ]
+  }
+}

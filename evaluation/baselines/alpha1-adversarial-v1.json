@@ -16,8 +16,11 @@
     },
     {
       "case_id": "missing-evidence",
-      "status": "pending",
-      "reason": "Requires a separate case-bound completion receipt; forged-validation must not be counted twice."
+      "status": "executable",
+      "fixture": "evaluation/fixtures/alpha1-adversarial-v1/missing-evidence/finding.json",
+      "harness": "evaluation/harness/alpha1_adversarial_missing_evidence.py",
+      "receipt": "evaluation/results/alpha1-adversarial-v1/missing-evidence.json",
+      "semantic_predicate": "legacy_native_adapter_completed_run_after_unresolvable_review_anchor"
     },
     {
       "case_id": "filler-report",
@@ -30,32 +33,53 @@
     {
       "case_id": "empty-frontier",
       "status": "pending",
-      "reason": "No clean-checkout semantic oracle binds an empty frontier to unsafe completion yet."
+      "reason": "Pinned Alpha1 blocked rather than completing unsafely with an empty frontier; the unsafe completion predicate was not reproduced.",
+      "fixture": "evaluation/fixtures/alpha1-adversarial-v1/state-trace/empty-frontier.json",
+      "harness": "evaluation/harness/alpha1_adversarial_state_trace.py",
+      "receipt": "evaluation/results/alpha1-adversarial-v1/state-trace/empty-frontier.json",
+      "semantic_predicate": "alpha1_empty_frontier_did_not_complete"
     },
     {
       "case_id": "active-contradiction",
-      "status": "pending",
-      "reason": "No executable fixture currently binds active contradictory evidence to a completion decision."
+      "status": "executable",
+      "fixture": "evaluation/fixtures/alpha1-adversarial-v1/state-trace/active-contradiction.json",
+      "harness": "evaluation/harness/alpha1_adversarial_state_trace.py",
+      "receipt": "evaluation/results/alpha1-adversarial-v1/state-trace/active-contradiction.json",
+      "semantic_predicate": "alpha1_closed_slot_while_active_contradiction_remained"
     },
     {
       "case_id": "repeated-reconnaissance",
-      "status": "pending",
-      "reason": "Observed duplicate-batch symptoms need a case-bound predicate distinguishing replay from independent research."
+      "status": "executable",
+      "fixture": "evaluation/fixtures/alpha1-adversarial-v1/state-trace/repeated-reconnaissance.json",
+      "harness": "evaluation/harness/alpha1_adversarial_state_trace.py",
+      "receipt": "evaluation/results/alpha1-adversarial-v1/state-trace/repeated-reconnaissance.json",
+      "semantic_predicate": "alpha1_repeated_reconnaissance_without_attempt_consumption"
     },
     {
       "case_id": "adapter-only-completion",
-      "status": "pending",
-      "reason": "Observed adapter completion needs a separate receipt proving core closure obligations were bypassed."
+      "status": "executable",
+      "fixture": "evaluation/fixtures/alpha1-adversarial-v1/state-trace/adapter-only-completion",
+      "harness": "evaluation/harness/alpha1_adversarial_state_trace.py",
+      "receipt": "evaluation/results/alpha1-adversarial-v1/state-trace/adapter-only-completion.json",
+      "semantic_predicate": "alpha1_adapter_completed_without_delegation_or_semantic_finding"
     },
     {
       "case_id": "provider-failure",
       "status": "pending",
-      "reason": "A provider failure fixture must record the lost obligation and expected recovery action."
+      "reason": "Pinned Alpha1 preserved the failed obligation and allowed a new attempt; the lost-obligation predicate was not reproduced.",
+      "fixture": "evaluation/fixtures/alpha1-adversarial-v1/recovery/provider-failure.json",
+      "harness": "evaluation/harness/alpha1_adversarial_recovery.py",
+      "receipt": "evaluation/results/alpha1-adversarial-v1/recovery/provider-failure.json",
+      "semantic_predicate": "legacy_native_adapter_lost_provider_failed_obligation"
     },
     {
       "case_id": "crash-recovery",
       "status": "pending",
-      "reason": "A process-boundary replay must prove whether an obligation is lost or recovered after crash."
+      "reason": "Pinned Alpha1 reopened the in-flight obligation as unknown, made it ready, and allowed one retry; the lost-obligation predicate was not reproduced.",
+      "fixture": "evaluation/fixtures/alpha1-adversarial-v1/recovery/crash-recovery.json",
+      "harness": "evaluation/harness/alpha1_adversarial_recovery.py",
+      "receipt": "evaluation/results/alpha1-adversarial-v1/recovery/crash-recovery.json",
+      "semantic_predicate": "legacy_native_adapter_lost_in_flight_obligation_after_process_boundary"
     }
   ]
 }

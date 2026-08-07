@@ -21,23 +21,29 @@
 
 ## 3. Remaining confirmed Alpha1 defects
 
-- [ ] 3.1 Add executable semantic fixtures for forged validation and missing
+- [x] 3.1 Add executable semantic fixtures for forged validation and missing
   evidence; do not treat opaque strings as oracle/evidence proof.
   - [x] 3.1a Replay Alpha1 native validation accepting `passed` with an
     unresolvable evidence reference.
-  - [ ] 3.1b Replay missing-evidence completion as a separate case.
-- [ ] 3.2 Add executable state/trace fixtures for empty frontier, active
-  contradiction, repeated reconnaissance, and adapter-only completion.
-- [ ] 3.3 Add deterministic provider-failure and crash-recovery boundary
-  fixtures with an explicit lost/recovered obligation predicate.
-- [ ] 3.4 Ensure all nine named #55 defects have a clean-checkout command,
-  environment, package/input/output digests, and redacted receipt.
+  - [x] 3.1b Replay missing-evidence completion as a separate case.
+- [x] 3.2 Add executable state/trace fixtures for empty frontier, active
+  contradiction, repeated reconnaissance, and adapter-only completion. Empty
+  frontier remains a governed pending counterexample because unsafe completion
+  was not observed.
+- [x] 3.3 Add deterministic provider-failure and crash-recovery boundary
+  fixtures with an explicit lost/recovered obligation predicate. Both remain
+  pending because Alpha1 preserved retryable obligations.
+- [x] 3.4 Ensure all nine named #55 defects have a clean-checkout command,
+  environment, package/input/output digests, and redacted receipt. Pending
+  receipts are evidence of a non-reproduced unsafe predicate and do not count
+  toward reproduced coverage.
 
 ## 4. Delivery
 
-- [ ] 4.1 Run focused replay/contract tests, full pytest, strict OpenSpec,
-  governance, package parity, and local PR checks.
-- [ ] 4.2 Run post-implementation operational and evaluation black-box replay;
+- [x] 4.1 Run focused replay/contract tests, full pytest, strict OpenSpec,
+  governance, package parity, and local PR checks. All substantive gates pass;
+  `check-pr` remains blocked only by the hard review-size limit.
+- [x] 4.2 Run post-implementation operational and evaluation black-box replay;
   record gaps without calling baseline reproduction a fix confirmation.
 - [ ] 4.3 Push this branch and create a Draft PR to `dev` when GitHub WRITE
   permission is available.
@@ -50,6 +56,6 @@
 - [x] 3.4b Migrate legacy receipts so raw and redacted stdout/stderr digests are
   distinct or point at a governed original stream; do not claim a redacted
   stream independently proves its raw digest.
-- [ ] 3.4c Reconcile replay CLI help with cleanup behavior: the caller-owned
+- [x] 3.4c Reconcile replay CLI help with cleanup behavior: the caller-owned
   `work_root` remains an empty reusable directory after default cleanup, while
   generated workspace and detached checkout are removed.

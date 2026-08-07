@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "case_id": "provider-failure",
+  "run_id": "alpha1-provider-failure",
+  "task_id": "provider-failure-task",
+  "decision_slot": "slot-recovery",
+  "phase": "deep_dive",
+  "artifact": "provider-failure-finding.json",
+  "worker_id": "worker-provider-failure",
+  "retry_worker_id": "worker-provider-retry",
+  "failure_reason": "provider unavailable",
+  "semantic_predicate": "legacy_native_adapter_lost_provider_failed_obligation",
+  "predicates": {
+    "lost_obligation": {
+      "predicate": "failed_task_absent_or_not_retryable_after_provider_failure"
+    },
+    "recovered_obligation": {
+      "predicate": "failed_task_remains_ready_and_can_start_a_new_attempt"
+    }
+  }
+}

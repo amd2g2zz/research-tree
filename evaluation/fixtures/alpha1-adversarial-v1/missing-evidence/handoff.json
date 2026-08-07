@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "alignment-handoff",
+  "run_id": "alpha1-missing-evidence-alignment",
+  "decision_slots": {
+    "slot-missing-evidence": {
+      "question": "Can a completed task and run be trusted when its reviewed evidence anchor does not resolve?"
+    }
+  },
+  "execution_context": {
+    "authority": [
+      "local deterministic replay only"
+    ]
+  }
+}

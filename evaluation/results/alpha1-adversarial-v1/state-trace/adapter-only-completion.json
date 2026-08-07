@@ -1,0 +1,85 @@
+{
+  "baseline": {
+    "commit": "8ab91ea4eb55c98441b5ee6001b80922a56ecdd1",
+    "tag": "0.0.1-a1"
+  },
+  "case_id": "adapter-only-completion",
+  "commands": [
+    {
+      "command": "'<python>' '<alpha1-checkout>/packages/hermes/research-tree/scripts/hermes_execution_adapter.py' --workspace '<workspace>' init --run-id alpha1-adapter-only-completion --handoff '<workspace>/handoff.json'",
+      "name": "init",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "66ecbeecae23d29e8bca901366ad4779d95857f2bf88ecb60cff46ab231141b1",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "9bfaae8e2c7688a714f3185656f5c294349087564fd75ee1a5876c653136890d",
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "{\n  \"alignment_run_id\": \"alpha1-adapter-only-alignment\",\n  \"batches\": {},\n  \"created_at\": \"2026-08-07T15:22:08.691326+00:00\",\n  \"decision_slots\": {\n    \"slot-adapter-boundary\": {\n      \"question\": \"Does the host delegate and return a semantic Finding Pack?\"\n    }\n  },\n  \"deliverables\": {\n    \"human_research_report\": {\n      \"status\": \"pending\"\n    },\n    \"technical_research_package\": {\n      \"status\": \"pending\"\n    }\n  },\n  \"execution_context\": {\n    \"authority\": [\n      \"Research only within the declared decision slot.\"\n    ]\n  },\n  \"handoff_path\": \"<workspace>/handoff.json\",\n  \"handoff_sha256\": \"5f1c76a9617cfc7346f4f850aa0f0291ae5f0ebe0edab288565cfdbd6cd649c3\",\n  \"revision\": 1,\n  \"run_id\": \"alpha1-adapter-only-completion\",\n  \"schema\": 1,\n  \"status\": \"aligned\",\n  \"updated_at\": \"2026-08-07T15:22:08.692544+00:00\"\n}\n"
+    },
+    {
+      "command": "'<python>' '<alpha1-checkout>/packages/hermes/research-tree/scripts/hermes_execution_adapter.py' --workspace '<workspace>' record-batch --run-id alpha1-adapter-only-completion --batch-id batch-1 --status verified --finding '<workspace>/finding.txt'",
+      "name": "record-batch",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "c18b35dc5e876d90b5f8d8a8b8212536ff5bd8ffeef926dc61b74e12743ca0a3",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "7305b63caf0481e0062a71aa3db34e80055e9268320025dd0001ed71f3852a21",
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "{\n  \"alignment_run_id\": \"alpha1-adapter-only-alignment\",\n  \"batches\": {\n    \"batch-1\": {\n      \"batch_id\": \"batch-1\",\n      \"delegation_ids\": [],\n      \"finding_paths\": [\n        \"<workspace>/finding.txt\"\n      ],\n      \"recorded_at\": \"2026-08-07T15:22:08.907508+00:00\",\n      \"status\": \"verified\"\n    }\n  },\n  \"created_at\": \"2026-08-07T15:22:08.691326+00:00\",\n  \"decision_slots\": {\n    \"slot-adapter-boundary\": {\n      \"question\": \"Does the host delegate and return a semantic Finding Pack?\"\n    }\n  },\n  \"deliverables\": {\n    \"human_research_report\": {\n      \"status\": \"pending\"\n    },\n    \"technical_research_package\": {\n      \"status\": \"pending\"\n    }\n  },\n  \"execution_context\": {\n    \"authority\": [\n      \"Research only within the declared decision slot.\"\n    ]\n  },\n  \"handoff_path\": \"<workspace>/handoff.json\",\n  \"handoff_sha256\": \"5f1c76a9617cfc7346f4f850aa0f0291ae5f0ebe0edab288565cfdbd6cd649c3\",\n  \"revision\": 2,\n  \"run_id\": \"alpha1-adapter-only-completion\",\n  \"schema\": 1,\n  \"status\": \"researching\",\n  \"updated_at\": \"2026-08-07T15:22:08.908171+00:00\"\n}\n"
+    },
+    {
+      "command": "'<python>' '<alpha1-checkout>/packages/hermes/research-tree/scripts/hermes_execution_adapter.py' --workspace '<workspace>' complete --run-id alpha1-adapter-only-completion --technical-report '<workspace>/technical.md' --human-report '<workspace>/human.md'",
+      "name": "complete",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "2752050876737933b4b89e4a2724e09566019ed6fbcbbc4e59f0b671bb4e8597",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "99a331c7f34be644f8a7b08c9af2745c8bb6872c1acb983e3d168c45b90e6355",
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "{\n  \"alignment_run_id\": \"alpha1-adapter-only-alignment\",\n  \"batches\": {\n    \"batch-1\": {\n      \"batch_id\": \"batch-1\",\n      \"delegation_ids\": [],\n      \"finding_paths\": [\n        \"<workspace>/finding.txt\"\n      ],\n      \"recorded_at\": \"2026-08-07T15:22:08.907508+00:00\",\n      \"status\": \"verified\"\n    }\n  },\n  \"created_at\": \"2026-08-07T15:22:08.691326+00:00\",\n  \"decision_slots\": {\n    \"slot-adapter-boundary\": {\n      \"question\": \"Does the host delegate and return a semantic Finding Pack?\"\n    }\n  },\n  \"deliverables\": {\n    \"human_research_report\": {\n      \"bytes\": 653,\n      \"heading_count\": 2,\n      \"kind\": \"human_research_report\",\n      \"path\": \"<workspace>/human.md\",\n      \"sha256\": \"914fb21688051b7f0cafcd854a2d466a00f23a6ef00e753a795949c384c22e67\",\n      \"status\": \"verified\"\n    },\n    \"technical_research_package\": {\n      \"bytes\": 1634,\n      \"heading_count\": 3,\n      \"kind\": \"technical_research_package\",\n      \"path\": \"<workspace>/technical.md\",\n      \"sha256\": \"df5f8a624365a353f9c9e5925c94e514964d2cf58c63fe7294443271210baf1d\",\n      \"status\": \"verified\"\n    }\n  },\n  \"execution_context\": {\n    \"authority\": [\n      \"Research only within the declared decision slot.\"\n    ]\n  },\n  \"handoff_path\": \"<workspace>/handoff.json\",\n  \"handoff_sha256\": \"5f1c76a9617cfc7346f4f850aa0f0291ae5f0ebe0edab288565cfdbd6cd649c3\",\n  \"revision\": 3,\n  \"run_id\": \"alpha1-adapter-only-completion\",\n  \"schema\": 1,\n  \"status\": \"complete\",\n  \"updated_at\": \"2026-08-07T15:22:09.140122+00:00\"\n}\n"
+    }
+  ],
+  "environment": {
+    "implementation": "cpython",
+    "network": "disabled-by-design; local Git object and fixtures only",
+    "platform": "darwin",
+    "python": "3.13.7"
+  },
+  "host": "hermes",
+  "host_package": {
+    "path": "packages/hermes/research-tree",
+    "sha256": "6b39afbbe2078d3e0db4338ac7fdc865f3a9e8f287d0efd0cb21b77eb3f50923"
+  },
+  "inputs": {
+    "finding.txt": {
+      "bytes": 105,
+      "sha256": "342d12cfcaa2fb929d4a861663bcc20c61a8c59596b1ab0c37acac0984788512"
+    },
+    "handoff.json": {
+      "bytes": 349,
+      "sha256": "5f1c76a9617cfc7346f4f850aa0f0291ae5f0ebe0edab288565cfdbd6cd649c3"
+    },
+    "human.md": {
+      "bytes": 653,
+      "sha256": "914fb21688051b7f0cafcd854a2d466a00f23a6ef00e753a795949c384c22e67"
+    },
+    "technical.md": {
+      "bytes": 1634,
+      "sha256": "df5f8a624365a353f9c9e5925c94e514964d2cf58c63fe7294443271210baf1d"
+    }
+  },
+  "limitations": [
+    "baseline reproduction is not fix confirmation"
+  ],
+  "observed": {
+    "batch_status": "verified",
+    "delegation_ids": [],
+    "finding_is_json": false,
+    "finding_path_count": 1,
+    "predicate_satisfied": true,
+    "status": "complete"
+  },
+  "schema_version": 1,
+  "semantic_predicate": "alpha1_adapter_completed_without_delegation_or_semantic_finding",
+  "status": "vulnerability_reproduced"
+}

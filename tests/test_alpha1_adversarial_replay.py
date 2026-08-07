@@ -245,3 +245,11 @@ def test_recorded_forged_validation_receipt_has_resolvable_oracle_metadata() -> 
     assert result["commands"][0]["stderr_sha256"]
     assert "/private/" not in json.dumps(result)
     assert "fix_confirmed" not in json.dumps(result)
+
+
+def test_replay_cli_help_describes_caller_owned_work_root_cleanup() -> None:
+    completed = _run_replay_cli("--help")
+
+    assert completed.returncode == 0
+    assert "caller-owned" in completed.stdout
+    assert "left empty" in completed.stdout

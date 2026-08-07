@@ -1,0 +1,154 @@
+{
+  "baseline": {
+    "commit": "8ab91ea4eb55c98441b5ee6001b80922a56ecdd1",
+    "tag": "0.0.1-a1"
+  },
+  "case_id": "crash-recovery",
+  "commands": [
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' init --run-id alpha1-crash-recovery --handoff '<workspace>/handoff.json'",
+      "name": "init",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "c488c19e24b4e153d6c9f5501948baa0a97dcfe62d8b5ad5c2582930b7a509d9",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "3e5cd3f2a87aead4adfae041e4a942109aae2dc429229edf87f7825f9c57718d",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"schema\": 1,\n  \"host\": \"claude\",\n  \"run_id\": \"alpha1-crash-recovery\",\n  \"status\": \"aligned\",\n  \"revision\": 1,\n  \"created_at\": \"2026-08-07T14:53:32.716037+00:00\",\n  \"updated_at\": \"2026-08-07T14:53:32.717658+00:00\",\n  \"handoff_path\": \"<workspace>/handoff.json\",\n  \"handoff_sha256\": \"9e12bcf0cfeaeffe21fc7d584be86441924379999fc0890f33296ee42aa257db\",\n  \"alignment_run_id\": \"alpha1-recovery-alignment\",\n  \"decision_slots\": {\n    \"slot-recovery\": {\n      \"question\": \"Does a provider failure or process boundary preserve the unfinished research obligation?\"\n    }\n  },\n  \"execution_context\": {\n    \"authority\": [\n      \"local deterministic replay only\"\n    ]\n  },\n  \"deliverables\": {\n    \"technical_research_package\": {\n      \"status\": \"pending\"\n    },\n    \"human_research_report\": {\n      \"status\": \"pending\"\n    }\n  },\n  \"tasks\": {}\n}\n",
+      "stdout_sha256": "c488c19e24b4e153d6c9f5501948baa0a97dcfe62d8b5ad5c2582930b7a509d9"
+    },
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' add-task --run-id alpha1-crash-recovery --task-id crash-recovery-task --decision-slot slot-recovery --phase deep_dive --artifact crash-recovery-finding.json",
+      "name": "add-task",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "f1cca46b93fe66f03315b503d033a11d6c587692bb0fccd874d0f355fa32298d",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "8dd05ffacdc5924f995bee31efccac09d48015c8dc0b6b4e95bfc16ea6bfb907",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"task_id\": \"crash-recovery-task\",\n  \"decision_slot\": \"slot-recovery\",\n  \"phase\": \"deep_dive\",\n  \"artifact\": \"<workspace>/crash-recovery-finding.json\",\n  \"dependencies\": [],\n  \"status\": \"pending\",\n  \"attempt\": 0,\n  \"attempt_id\": null,\n  \"worker_id\": null,\n  \"verified\": false,\n  \"artifact_sha256\": null,\n  \"failure_reason\": null,\n  \"started_at\": null,\n  \"submitted_at\": null,\n  \"reviewed_at\": null,\n  \"reviewed_by\": null,\n  \"review_note\": null,\n  \"checked_anchors\": []\n}\n",
+      "stdout_sha256": "f1cca46b93fe66f03315b503d033a11d6c587692bb0fccd874d0f355fa32298d"
+    },
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' start --run-id alpha1-crash-recovery --task-id crash-recovery-task --worker-id worker-before-crash",
+      "name": "start",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "9c7f08d589a6273446f1dbfbc650558728090e028e6605af518bb16541601768",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "1637a5b53cd3784d8eb206d98f1044a3f22294fe7ff56ff11f908867c6d01165",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"artifact\": \"<workspace>/crash-recovery-finding.json\",\n  \"artifact_sha256\": null,\n  \"attempt\": 1,\n  \"attempt_id\": \"attempt-53bc34fbdc094dd6999f1f0fd1a4c862\",\n  \"checked_anchors\": [],\n  \"decision_slot\": \"slot-recovery\",\n  \"dependencies\": [],\n  \"failure_reason\": null,\n  \"phase\": \"deep_dive\",\n  \"review_note\": null,\n  \"reviewed_at\": null,\n  \"reviewed_by\": null,\n  \"started_at\": \"2026-08-07T14:53:33.690415+00:00\",\n  \"status\": \"running\",\n  \"submitted_at\": null,\n  \"task_id\": \"crash-recovery-task\",\n  \"verified\": false,\n  \"worker_id\": \"worker-before-crash\"\n}\n",
+      "stdout_sha256": "9c7f08d589a6273446f1dbfbc650558728090e028e6605af518bb16541601768"
+    },
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' recover --run-id alpha1-crash-recovery",
+      "name": "recover",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "d97a3ee9a1ee5170019519b60ed04c8cc22043e0dc7ddda4fe57899c598cadb1",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "d97a3ee9a1ee5170019519b60ed04c8cc22043e0dc7ddda4fe57899c598cadb1",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"recovered_to_unknown\": [\n    \"crash-recovery-task\"\n  ],\n  \"reasons\": {\n    \"crash-recovery-task\": \"in-flight attempt has unknown outcome\"\n  },\n  \"revision\": 4\n}\n",
+      "stdout_sha256": "d97a3ee9a1ee5170019519b60ed04c8cc22043e0dc7ddda4fe57899c598cadb1"
+    },
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' recover --run-id alpha1-crash-recovery",
+      "name": "recover",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "001c3c85f8100ce18e9ba496649b584eb3d1e501bc9920f240e3610cdfcfdaf1",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "001c3c85f8100ce18e9ba496649b584eb3d1e501bc9920f240e3610cdfcfdaf1",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"recovered_to_unknown\": [],\n  \"reasons\": {},\n  \"revision\": 4\n}\n",
+      "stdout_sha256": "001c3c85f8100ce18e9ba496649b584eb3d1e501bc9920f240e3610cdfcfdaf1"
+    },
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' status --run-id alpha1-crash-recovery",
+      "name": "status",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "fb40c77114fd074cc4bd84ca841cf6ce1828eec2302db51b0f324b87041ac9f1",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "fb40c77114fd074cc4bd84ca841cf6ce1828eec2302db51b0f324b87041ac9f1",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"run_id\": \"alpha1-crash-recovery\",\n  \"host\": \"claude\",\n  \"status\": \"running\",\n  \"revision\": 4,\n  \"counts\": {\n    \"pending\": 0,\n    \"running\": 0,\n    \"submitted\": 0,\n    \"completed\": 0,\n    \"failed\": 0,\n    \"unknown\": 1\n  },\n  \"ready\": [\n    \"crash-recovery-task\"\n  ],\n  \"complete\": false,\n  \"integrity_errors\": [],\n  \"recovery_required\": []\n}\n",
+      "stdout_sha256": "fb40c77114fd074cc4bd84ca841cf6ce1828eec2302db51b0f324b87041ac9f1"
+    },
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' start --run-id alpha1-crash-recovery --task-id crash-recovery-task --worker-id worker-after-recovery",
+      "name": "start",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "6fdd77b8ab506da6718bc6e5bc9a85c616506062f26128f06afe0b6f10f7f5da",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "9a5c38d762bc1490e8de44223a91468e849ae45fb58fdab169f2b3f00f58d097",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"artifact\": \"<workspace>/crash-recovery-finding.json\",\n  \"artifact_sha256\": null,\n  \"attempt\": 2,\n  \"attempt_id\": \"attempt-607a905a902749ec8b12fb4c618a896c\",\n  \"checked_anchors\": [],\n  \"decision_slot\": \"slot-recovery\",\n  \"dependencies\": [],\n  \"failure_reason\": null,\n  \"phase\": \"deep_dive\",\n  \"review_note\": null,\n  \"reviewed_at\": null,\n  \"reviewed_by\": null,\n  \"started_at\": \"2026-08-07T14:53:35.722514+00:00\",\n  \"status\": \"running\",\n  \"submitted_at\": null,\n  \"task_id\": \"crash-recovery-task\",\n  \"verified\": false,\n  \"worker_id\": \"worker-after-recovery\"\n}\n",
+      "stdout_sha256": "6fdd77b8ab506da6718bc6e5bc9a85c616506062f26128f06afe0b6f10f7f5da"
+    }
+  ],
+  "environment": {
+    "implementation": "cpython",
+    "network": "disabled-by-design; local Git object and fixture only",
+    "platform": "darwin",
+    "python": "3.13.7"
+  },
+  "host": "claude",
+  "host_package": {
+    "path": "packages/claude-code/research-tree",
+    "sha256": "967912c55da78f34e97292ae76b72e8dac2e5d37d4df1ec9e12ec696cd8a2401"
+  },
+  "inputs": {
+    "case": {
+      "bytes": 662,
+      "sha256": "3a5c3d90ee46fa40451e0dd59ca7fd5bffd39ebae62c82476c6045547c43cba4"
+    },
+    "handoff": {
+      "bytes": 350,
+      "sha256": "9e12bcf0cfeaeffe21fc7d584be86441924379999fc0890f33296ee42aa257db"
+    }
+  },
+  "limitations": [
+    "pinned Alpha1 public behavior only; this is not fix confirmation",
+    "pending means the lost-obligation predicate was not proven"
+  ],
+  "observed": {
+    "attempt_id_changed": true,
+    "first_recovery": [
+      "crash-recovery-task"
+    ],
+    "ready_after_recovery": [
+      "crash-recovery-task"
+    ],
+    "recovery_revision_stable": true,
+    "retry_attempt": 2,
+    "retry_status": "running",
+    "second_recovery": [],
+    "status_after_recovery": "running",
+    "unknown_tasks_after_recovery": 1
+  },
+  "predicates": {
+    "lost_obligation": {
+      "holds": false,
+      "predicate": "in_flight_task_absent_or_not_retryable_after_recovery"
+    },
+    "recovered_obligation": {
+      "holds": true,
+      "predicate": "recover_reopens_in_flight_task_as_unknown_ready_for_retry"
+    }
+  },
+  "reason": "Pinned Alpha1 behavior reopened the in-flight obligation as unknown, made it ready, and allowed one retry; the lost-obligation predicate is not reproduced.",
+  "schema_version": 1,
+  "semantic_predicate": "legacy_native_adapter_lost_in_flight_obligation_after_process_boundary",
+  "status": "pending"
+}

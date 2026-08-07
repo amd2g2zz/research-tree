@@ -1,0 +1,12 @@
+{
+  "round_id": "alpha1-empty-frontier",
+  "tree_id": "alpha1-empty-frontier-tree",
+  "decision_slots": {
+    "slot-architecture": {
+      "question": "Which architecture should the research select?",
+      "priority": "P1",
+      "status": "closed",
+      "uncertainty": "medium"
+    }
+  }
+}

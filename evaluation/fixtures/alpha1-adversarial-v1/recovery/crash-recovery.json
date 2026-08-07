@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "case_id": "crash-recovery",
+  "run_id": "alpha1-crash-recovery",
+  "task_id": "crash-recovery-task",
+  "decision_slot": "slot-recovery",
+  "phase": "deep_dive",
+  "artifact": "crash-recovery-finding.json",
+  "worker_id": "worker-before-crash",
+  "retry_worker_id": "worker-after-recovery",
+  "semantic_predicate": "legacy_native_adapter_lost_in_flight_obligation_after_process_boundary",
+  "predicates": {
+    "lost_obligation": {
+      "predicate": "in_flight_task_absent_or_not_retryable_after_recovery"
+    },
+    "recovered_obligation": {
+      "predicate": "recover_reopens_in_flight_task_as_unknown_ready_for_retry"
+    }
+  }
+}

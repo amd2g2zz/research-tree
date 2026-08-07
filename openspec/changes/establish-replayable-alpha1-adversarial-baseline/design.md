@@ -49,13 +49,16 @@ resolvable, case-bound evidence receipt. This baseline harness never returns
 
 ## Incremental plan
 
-The filler-report slice remains complete. The next minimal slice adds an
-executable forged-validation replay for the pinned Claude native adapter and
-records its receipt. Missing-evidence remains a separate pending case rather
-than being inferred from the same fixture. The other issue-named defects remain
-pending until exact state/trace predicates are added for empty frontier, active
-contradiction, repeated reconnaissance, adapter-only completion, provider
-failure, and crash recovery.
+The corpus now has independent executable receipts for filler-report,
+forged-validation, missing-evidence, active-contradiction,
+repeated-reconnaissance, and adapter-only completion. Empty-frontier executes
+against the pinned Alpha1 research state but remains pending because Alpha1
+blocked rather than completing unsafely. Provider-failure and crash-recovery
+also remain pending because their explicit lost/recovered-obligation predicates
+show that Alpha1 preserves a retryable obligation. These pending receipts are
+counterevidence and do not count as reproduced defects; they remain governed so
+all nine issue identifiers have replayable evidence rather than speculative
+claims.
 
 ## Operator replay contract
 
@@ -102,3 +105,27 @@ the registered group-1 contract test with all nine defect IDs, explicitly
 separating executable receipts from pending cases. Legacy filler receipts now
 retain raw stdout/stderr digests and add distinct redacted stdout/stderr digests,
 so a redacted stream is not misrepresented as proof of the raw digest.
+
+## Expanded replay commands
+
+The remaining evaluator-only CLIs are:
+
+```bash
+uv run --frozen python -m evaluation.harness.alpha1_adversarial_missing_evidence \
+  --repository-root . --work-root /tmp/alpha1-missing-evidence \
+  --receipt /tmp/alpha1-missing-evidence.json
+uv run --frozen python -m evaluation.harness.alpha1_adversarial_state_trace \
+  --repository-root . --work-root /tmp/alpha1-state-trace \
+  --results-dir /tmp/alpha1-state-trace-results
+uv run --frozen python -m evaluation.harness.alpha1_adversarial_recovery \
+  --case provider-failure --repository-root . \
+  --work-root /tmp/alpha1-provider-failure \
+  --receipt /tmp/alpha1-provider-failure.json
+uv run --frozen python -m evaluation.harness.alpha1_adversarial_recovery \
+  --case crash-recovery --repository-root . \
+  --work-root /tmp/alpha1-crash-recovery \
+  --receipt /tmp/alpha1-crash-recovery.json
+```
+
+The caller owns each `work_root`. Default cleanup removes the generated detached
+checkout and runtime workspace, leaving the reusable root directory empty.

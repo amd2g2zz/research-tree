@@ -285,7 +285,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--work-root",
         type=Path,
         required=True,
-        help="empty temporary execution root; removed after the replay by default",
+        help="caller-owned temporary execution root; generated contents are removed and the root is left empty after the replay by default",
     )
     parser.add_argument(
         "--receipt",

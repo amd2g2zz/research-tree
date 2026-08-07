@@ -18,6 +18,15 @@ EXPECTED_DEFECTS = {
     "provider-failure",
     "crash-recovery",
 }
+EXPECTED_EXECUTABLE = {
+    "filler-report",
+    "forged-validation",
+    "missing-evidence",
+    "active-contradiction",
+    "repeated-reconnaissance",
+    "adapter-only-completion",
+}
+EXPECTED_PENDING = EXPECTED_DEFECTS - EXPECTED_EXECUTABLE
 
 
 def test_alpha1_adversarial_manifest_is_complete_and_truthful() -> None:
@@ -34,23 +43,36 @@ def test_alpha1_adversarial_manifest_is_complete_and_truthful() -> None:
 
     executable = [case for case in cases.values() if case["status"] == "executable"]
     pending = [case for case in cases.values() if case["status"] == "pending"]
-    assert {case["case_id"] for case in executable} == {
-        "filler-report",
-        "forged-validation",
-    }
-    assert len(pending) == 7
+    assert {case["case_id"] for case in executable} == EXPECTED_EXECUTABLE
+    assert {case["case_id"] for case in pending} == EXPECTED_PENDING
 
-    for case in executable:
+    for case in cases.values():
         for key in ("fixture", "harness", "receipt", "semantic_predicate"):
             assert case[key]
         for relative in (case["fixture"], case["harness"], case["receipt"]):
-            assert (ROOT / relative).is_file(), relative
+            assert (ROOT / relative).exists(), relative
         receipt = json.loads((ROOT / case["receipt"]).read_text(encoding="utf-8"))
         assert receipt["case_id"] == case["case_id"]
-        assert receipt["status"] == "vulnerability_reproduced"
         assert receipt["semantic_predicate"] == case["semantic_predicate"]
+        assert receipt["commands"]
+        assert receipt["environment"]
+        assert receipt["inputs"]
+        source_identity = receipt.get("host_package") or receipt.get("source_package")
+        assert source_identity and source_identity["path"] and source_identity["sha256"]
+        for command in receipt["commands"]:
+            assert command["returncode"] == 0
+            assert command["raw_stdout_sha256"]
+            assert command["raw_stderr_sha256"]
+            assert command["redacted_stdout_sha256"]
+            assert command["redacted_stderr_sha256"]
         assert "fix_confirmed" not in json.dumps(receipt)
+
+    for case in executable:
+        receipt = json.loads((ROOT / case["receipt"]).read_text(encoding="utf-8"))
+        assert receipt["status"] == "vulnerability_reproduced"
 
     for case in pending:
         assert case["reason"]
-        assert "receipt" not in case
+        receipt = json.loads((ROOT / case["receipt"]).read_text(encoding="utf-8"))
+        assert receipt["status"] == "pending"
+        assert receipt.get("reason") or receipt["limitations"]
