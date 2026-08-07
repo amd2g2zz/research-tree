@@ -1,0 +1,61 @@
+## 1. Discovery and SDD
+
+- [x] 1.1 Create an independent #55 branch from clean
+  `origin/dev@904ca6f9e1c254587e50bd5235be9b7b4997f396`.
+- [x] 1.2 Run operational and evaluation-auditor black-box reviews of the prior
+  candidate and record its non-replayable failure.
+- [x] 1.3 Complete root-cause/TDD review; identify filler-report as the first
+  real Alpha1 semantic replay.
+
+## 2. TDD slice: replayable filler-report baseline
+
+- [x] 2.1 Add a failing contract/replay test for a clean pinned Alpha1 checkout,
+  actual Hermes package identity, headings-plus-padding fixture, and semantic
+  `vulnerability_reproduced` receipt.
+- [x] 2.2 Implement evaluator-only checkout, command receipt, fixture integrity,
+  and Hermes filler-report replay without host package dependency.
+- [x] 2.3 Record the redacted filler-report baseline output and rerun the focused
+  replay suite.
+- [x] 2.4 Add a disposable-by-default replay workspace and an explicit CLI
+  with receipt output, stable errors, and opt-in workspace retention.
+
+## 3. Remaining confirmed Alpha1 defects
+
+- [x] 3.1 Add executable semantic fixtures for forged validation and missing
+  evidence; do not treat opaque strings as oracle/evidence proof.
+  - [x] 3.1a Replay Alpha1 native validation accepting `passed` with an
+    unresolvable evidence reference.
+  - [x] 3.1b Replay missing-evidence completion as a separate case.
+- [x] 3.2 Add executable state/trace fixtures for empty frontier, active
+  contradiction, repeated reconnaissance, and adapter-only completion. Empty
+  frontier remains a governed pending counterexample because unsafe completion
+  was not observed.
+- [x] 3.3 Add deterministic provider-failure and crash-recovery boundary
+  fixtures with an explicit lost/recovered obligation predicate. Both remain
+  pending because Alpha1 preserved retryable obligations.
+- [x] 3.4 Ensure all nine named #55 defects have a clean-checkout command,
+  environment, package/input/output digests, and redacted receipt. Pending
+  receipts are evidence of a non-reproduced unsafe predicate and do not count
+  toward reproduced coverage.
+
+## 4. Delivery
+
+- [x] 4.1 Run focused replay/contract tests, full pytest, strict OpenSpec,
+  governance, package parity, and local PR checks. All substantive gates pass;
+  `check-pr` remains blocked only by the hard review-size limit.
+- [x] 4.2 Run post-implementation operational and evaluation black-box replay;
+  record gaps without calling baseline reproduction a fix confirmation.
+- [ ] 4.3 Push this branch and create a Draft PR to `dev` when GitHub WRITE
+  permission is available.
+
+## Adversarial review follow-ups
+
+- [x] 3.4a Replace the two-case accumulation with one governed manifest covering
+  all nine named #55 defects; executable cases count only when their semantic
+  predicate and redacted receipt exist.
+- [x] 3.4b Migrate legacy receipts so raw and redacted stdout/stderr digests are
+  distinct or point at a governed original stream; do not claim a redacted
+  stream independently proves its raw digest.
+- [x] 3.4c Reconcile replay CLI help with cleanup behavior: the caller-owned
+  `work_root` remains an empty reusable directory after default cleanup, while
+  generated workspace and detached checkout are removed.

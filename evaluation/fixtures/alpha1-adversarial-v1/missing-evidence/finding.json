@@ -1,0 +1,32 @@
+{
+  "id": "finding-missing-evidence",
+  "work_item_id": "missing-evidence-task",
+  "decision_slot_id": "slot-missing-evidence",
+  "attempt_id": "__ATTEMPT_ID__",
+  "phase": "deep_dive",
+  "observations": [
+    {
+      "claim": "The missing experiment is recorded as though it had been reviewed.",
+      "anchor": {
+        "kind": "experiment",
+        "ref": "evidence/missing-experiment.json"
+      },
+      "applicability": "This anchor is the only claimed evidence for the active task.",
+      "confidence": "low",
+      "limitation": "The referenced evidence artifact is intentionally absent from the replay workspace."
+    }
+  ],
+  "option_effects": [
+    {
+      "option": "accept-task-without-evidence",
+      "effect": "limits"
+    }
+  ],
+  "implementation_implications": [
+    "A reviewer-supplied anchor string must not substitute for a resolvable evidence artifact."
+  ],
+  "remaining_uncertainties": [
+    "No experiment output exists to support or falsify the claim."
+  ],
+  "research_continuations": []
+}

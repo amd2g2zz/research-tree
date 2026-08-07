@@ -1,0 +1,14 @@
+{
+  "run_id": "alpha1-repeated-reconnaissance",
+  "fingerprint": "same-state",
+  "graph": {
+    "gaps": [
+      {
+        "id": "gap-architecture",
+        "summary": "Resolve the highest-impact architecture decision.",
+        "impact": 5,
+        "human_only": true
+      }
+    ]
+  }
+}

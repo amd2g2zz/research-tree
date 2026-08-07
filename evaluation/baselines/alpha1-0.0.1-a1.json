@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "baseline_id": "alpha1-0.0.1-a1",
+  "git": {
+    "tag": "0.0.1-a1",
+    "commit": "8ab91ea4eb55c98441b5ee6001b80922a56ecdd1"
+  },
+  "environment": {
+    "python": "caller-supplied CPython; recorded in each receipt",
+    "network": "not required: replay uses only local Git objects and local fixture paths",
+    "checkout": "temporary detached git worktree"
+  },
+  "host_packages": {
+    "codex": {
+      "path": "packages/codex/research-tree",
+      "sha256": "f60b219e0d8f851b303a87753674884ae44b15021099bc0d91e65076ebf51166"
+    },
+    "claude-code": {
+      "path": "packages/claude-code/research-tree",
+      "sha256": "967912c55da78f34e97292ae76b72e8dac2e5d37d4df1ec9e12ec696cd8a2401"
+    },
+    "hermes": {
+      "path": "packages/hermes/research-tree",
+      "sha256": "6b39afbbe2078d3e0db4338ac7fdc865f3a9e8f287d0efd0cb21b77eb3f50923"
+    }
+  }
+}

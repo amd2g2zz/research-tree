@@ -1,0 +1,1 @@
+Worker says the task is done. This is deliberately plain text, not a semantic Finding Pack and not JSON.

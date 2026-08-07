@@ -1,0 +1,52 @@
+{
+  "baseline": {
+    "commit": "8ab91ea4eb55c98441b5ee6001b80922a56ecdd1",
+    "tag": "0.0.1-a1"
+  },
+  "case_id": "empty-frontier",
+  "commands": [
+    {
+      "command": "'<python>' '<workspace>/state_probe.py' '<alpha1-checkout>/src' empty-frontier '<workspace>/empty-frontier.json'",
+      "name": "state-probe",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "db051765e738520820a55e8f80e889f9361b5c7d2ed23568321abfe54d09beb2",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "db051765e738520820a55e8f80e889f9361b5c7d2ed23568321abfe54d09beb2",
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "{\"consumed_finding_ids\": [], \"frontier_node_ids\": [], \"slot_status\": \"filtered_out\", \"status\": \"blocked\", \"stop_reason\": \"no executable frontier remains\"}\n"
+    }
+  ],
+  "environment": {
+    "implementation": "cpython",
+    "network": "disabled-by-design; local Git object and fixtures only",
+    "platform": "darwin",
+    "python": "3.13.7"
+  },
+  "inputs": {
+    "fixture": {
+      "bytes": 293,
+      "sha256": "4c7c4658b904d3308fa6587d78b48b9bee8cb900e12ba9f714a13ad1ff7e6e96"
+    }
+  },
+  "limitations": [
+    "Alpha1 blocked rather than completed with an empty frontier, so the unsafe completion claim is not reproduced.",
+    "baseline observation is not fix confirmation"
+  ],
+  "observed": {
+    "consumed_finding_ids": [],
+    "frontier_node_ids": [],
+    "predicate_satisfied": true,
+    "slot_status": "filtered_out",
+    "status": "blocked",
+    "stop_reason": "no executable frontier remains"
+  },
+  "reason": "Pinned Alpha1 blocked rather than completing unsafely with an empty frontier.",
+  "schema_version": 1,
+  "semantic_predicate": "alpha1_empty_frontier_did_not_complete",
+  "source_package": {
+    "path": "src/research_tree",
+    "sha256": "38eef2828fe3b81adc0c57d568ed7c1fb4db2c7d9e7c4f678e6b0b30737c1219"
+  },
+  "status": "pending"
+}

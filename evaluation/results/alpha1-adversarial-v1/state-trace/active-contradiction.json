@@ -1,0 +1,61 @@
+{
+  "baseline": {
+    "commit": "8ab91ea4eb55c98441b5ee6001b80922a56ecdd1",
+    "tag": "0.0.1-a1"
+  },
+  "case_id": "active-contradiction",
+  "commands": [
+    {
+      "command": "'<python>' '<workspace>/state_probe.py' '<alpha1-checkout>/src' active-contradiction '<workspace>/active-contradiction.json'",
+      "name": "state-probe",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "d16753cc7f240376be8e623c86bd195013eb3ae15ab2d8dd1ddd4995d265842b",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "d16753cc7f240376be8e623c86bd195013eb3ae15ab2d8dd1ddd4995d265842b",
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "{\"anchor_count\": 2, \"consumed_finding_ids\": [\"finding-contradicts-candidate-a\", \"finding-supports-candidate-a\"], \"contradiction_count\": 1, \"finding_ids\": [\"finding-supports-candidate-a\", \"finding-contradicts-candidate-a\"], \"frontier_node_ids\": [], \"research_node_id\": \"root:slot-architecture\", \"slot_status\": \"closed\", \"status\": \"delivery_pending\", \"stop_reason\": \"decision slots closed; both research deliverables are still pending\"}\n"
+    }
+  ],
+  "environment": {
+    "implementation": "cpython",
+    "network": "disabled-by-design; local Git object and fixtures only",
+    "platform": "darwin",
+    "python": "3.13.7"
+  },
+  "inputs": {
+    "contradiction_count": 1,
+    "fixture": {
+      "bytes": 1248,
+      "sha256": "dd8a5e4000c53d029cb138bfeb9b27825d99aa1489c9493803baaef1e8052d1f"
+    }
+  },
+  "limitations": [
+    "baseline reproduction is not fix confirmation"
+  ],
+  "observed": {
+    "anchor_count": 2,
+    "consumed_finding_ids": [
+      "finding-contradicts-candidate-a",
+      "finding-supports-candidate-a"
+    ],
+    "contradiction_count": 1,
+    "finding_ids": [
+      "finding-supports-candidate-a",
+      "finding-contradicts-candidate-a"
+    ],
+    "frontier_node_ids": [],
+    "predicate_satisfied": true,
+    "research_node_id": "root:slot-architecture",
+    "slot_status": "closed",
+    "status": "delivery_pending",
+    "stop_reason": "decision slots closed; both research deliverables are still pending"
+  },
+  "schema_version": 1,
+  "semantic_predicate": "alpha1_closed_slot_while_active_contradiction_remained",
+  "source_package": {
+    "path": "src/research_tree",
+    "sha256": "38eef2828fe3b81adc0c57d568ed7c1fb4db2c7d9e7c4f678e6b0b30737c1219"
+  },
+  "status": "vulnerability_reproduced"
+}

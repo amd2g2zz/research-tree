@@ -1,0 +1,136 @@
+{
+  "baseline": {
+    "commit": "8ab91ea4eb55c98441b5ee6001b80922a56ecdd1",
+    "tag": "0.0.1-a1"
+  },
+  "case_id": "provider-failure",
+  "commands": [
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' init --run-id alpha1-provider-failure --handoff '<workspace>/handoff.json'",
+      "name": "init",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "ea65149ef73e218d105709c9198ae63afe05558526b5b1a6f2e0c3f98ef0cbf5",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "0e6547cf9dbd9101c152c01d78e01953bad29c6e6b20877898f9df4610614899",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"schema\": 1,\n  \"host\": \"claude\",\n  \"run_id\": \"alpha1-provider-failure\",\n  \"status\": \"aligned\",\n  \"revision\": 1,\n  \"created_at\": \"2026-08-07T14:53:27.681732+00:00\",\n  \"updated_at\": \"2026-08-07T14:53:27.683225+00:00\",\n  \"handoff_path\": \"<workspace>/handoff.json\",\n  \"handoff_sha256\": \"9e12bcf0cfeaeffe21fc7d584be86441924379999fc0890f33296ee42aa257db\",\n  \"alignment_run_id\": \"alpha1-recovery-alignment\",\n  \"decision_slots\": {\n    \"slot-recovery\": {\n      \"question\": \"Does a provider failure or process boundary preserve the unfinished research obligation?\"\n    }\n  },\n  \"execution_context\": {\n    \"authority\": [\n      \"local deterministic replay only\"\n    ]\n  },\n  \"deliverables\": {\n    \"technical_research_package\": {\n      \"status\": \"pending\"\n    },\n    \"human_research_report\": {\n      \"status\": \"pending\"\n    }\n  },\n  \"tasks\": {}\n}\n",
+      "stdout_sha256": "ea65149ef73e218d105709c9198ae63afe05558526b5b1a6f2e0c3f98ef0cbf5"
+    },
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' add-task --run-id alpha1-provider-failure --task-id provider-failure-task --decision-slot slot-recovery --phase deep_dive --artifact provider-failure-finding.json",
+      "name": "add-task",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "f0fa52014a4c67babe88f0d3e2ef36fadf9be995fb9e41c2174047ad3607f923",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "90bfa4c2aa7b01e15d8bd627ab27fe18c5d5110c324398e64e11449ff8de5c97",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"task_id\": \"provider-failure-task\",\n  \"decision_slot\": \"slot-recovery\",\n  \"phase\": \"deep_dive\",\n  \"artifact\": \"<workspace>/provider-failure-finding.json\",\n  \"dependencies\": [],\n  \"status\": \"pending\",\n  \"attempt\": 0,\n  \"attempt_id\": null,\n  \"worker_id\": null,\n  \"verified\": false,\n  \"artifact_sha256\": null,\n  \"failure_reason\": null,\n  \"started_at\": null,\n  \"submitted_at\": null,\n  \"reviewed_at\": null,\n  \"reviewed_by\": null,\n  \"review_note\": null,\n  \"checked_anchors\": []\n}\n",
+      "stdout_sha256": "f0fa52014a4c67babe88f0d3e2ef36fadf9be995fb9e41c2174047ad3607f923"
+    },
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' start --run-id alpha1-provider-failure --task-id provider-failure-task --worker-id worker-provider-failure",
+      "name": "start",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "18a36cc6fb88ce0bbe63a75a336b4800a042be005073ab13cd6427b1fd42d5e4",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "50cfdf9468454e9fce3b75074627f095118083dfa62d55681f2b63436ecb3583",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"artifact\": \"<workspace>/provider-failure-finding.json\",\n  \"artifact_sha256\": null,\n  \"attempt\": 1,\n  \"attempt_id\": \"attempt-fb7f590014384f6db7f18906f9d6b6af\",\n  \"checked_anchors\": [],\n  \"decision_slot\": \"slot-recovery\",\n  \"dependencies\": [],\n  \"failure_reason\": null,\n  \"phase\": \"deep_dive\",\n  \"review_note\": null,\n  \"reviewed_at\": null,\n  \"reviewed_by\": null,\n  \"started_at\": \"2026-08-07T14:53:28.657407+00:00\",\n  \"status\": \"running\",\n  \"submitted_at\": null,\n  \"task_id\": \"provider-failure-task\",\n  \"verified\": false,\n  \"worker_id\": \"worker-provider-failure\"\n}\n",
+      "stdout_sha256": "18a36cc6fb88ce0bbe63a75a336b4800a042be005073ab13cd6427b1fd42d5e4"
+    },
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' finish --run-id alpha1-provider-failure --task-id provider-failure-task --result failed --reason 'provider unavailable'",
+      "name": "finish",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "64bd81daf20f9ffa7bd510d67ef36c1327677666bba55b8d1004ff4f731073ae",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "ce84d890f43ad1e2667e195a3af5fef662144424177c03d36562ed3191de1333",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"artifact\": \"<workspace>/provider-failure-finding.json\",\n  \"artifact_sha256\": null,\n  \"attempt\": 1,\n  \"attempt_id\": \"attempt-fb7f590014384f6db7f18906f9d6b6af\",\n  \"checked_anchors\": [],\n  \"decision_slot\": \"slot-recovery\",\n  \"dependencies\": [],\n  \"failure_reason\": \"provider unavailable\",\n  \"phase\": \"deep_dive\",\n  \"review_note\": null,\n  \"reviewed_at\": null,\n  \"reviewed_by\": null,\n  \"started_at\": \"2026-08-07T14:53:28.657407+00:00\",\n  \"status\": \"failed\",\n  \"submitted_at\": null,\n  \"task_id\": \"provider-failure-task\",\n  \"verified\": false,\n  \"worker_id\": null\n}\n",
+      "stdout_sha256": "64bd81daf20f9ffa7bd510d67ef36c1327677666bba55b8d1004ff4f731073ae"
+    },
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' status --run-id alpha1-provider-failure",
+      "name": "status",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "3d82bdb0c82141f68dd3d4d20f7fc5e7ba9c7e53024f1d8ee50069bf637a1e94",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "3d82bdb0c82141f68dd3d4d20f7fc5e7ba9c7e53024f1d8ee50069bf637a1e94",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"run_id\": \"alpha1-provider-failure\",\n  \"host\": \"claude\",\n  \"status\": \"running\",\n  \"revision\": 4,\n  \"counts\": {\n    \"pending\": 0,\n    \"running\": 0,\n    \"submitted\": 0,\n    \"completed\": 0,\n    \"failed\": 1,\n    \"unknown\": 0\n  },\n  \"ready\": [\n    \"provider-failure-task\"\n  ],\n  \"complete\": false,\n  \"integrity_errors\": [],\n  \"recovery_required\": []\n}\n",
+      "stdout_sha256": "3d82bdb0c82141f68dd3d4d20f7fc5e7ba9c7e53024f1d8ee50069bf637a1e94"
+    },
+    {
+      "command": "'<python>' packages/claude-code/research-tree/scripts/native_execution_adapter.py --host claude --workspace '<workspace>' start --run-id alpha1-provider-failure --task-id provider-failure-task --worker-id worker-provider-retry",
+      "name": "start",
+      "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_stdout_sha256": "444cb03deb2a863b1b67f034b346f64927e84b517796e37396b1ba11e32e62aa",
+      "redacted_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "redacted_stdout_sha256": "409067b4b3cbbb4ab3a6b361d7e7fcd249bc6809bb1c926adc897e7c01008d64",
+      "returncode": 0,
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "{\n  \"artifact\": \"<workspace>/provider-failure-finding.json\",\n  \"artifact_sha256\": null,\n  \"attempt\": 2,\n  \"attempt_id\": \"attempt-c45ec7be30c34afbb4a928d4f08989d1\",\n  \"checked_anchors\": [],\n  \"decision_slot\": \"slot-recovery\",\n  \"dependencies\": [],\n  \"failure_reason\": null,\n  \"phase\": \"deep_dive\",\n  \"review_note\": null,\n  \"reviewed_at\": null,\n  \"reviewed_by\": null,\n  \"started_at\": \"2026-08-07T14:53:30.165264+00:00\",\n  \"status\": \"running\",\n  \"submitted_at\": null,\n  \"task_id\": \"provider-failure-task\",\n  \"verified\": false,\n  \"worker_id\": \"worker-provider-retry\"\n}\n",
+      "stdout_sha256": "444cb03deb2a863b1b67f034b346f64927e84b517796e37396b1ba11e32e62aa"
+    }
+  ],
+  "environment": {
+    "implementation": "cpython",
+    "network": "disabled-by-design; local Git object and fixture only",
+    "platform": "darwin",
+    "python": "3.13.7"
+  },
+  "host": "claude",
+  "host_package": {
+    "path": "packages/claude-code/research-tree",
+    "sha256": "967912c55da78f34e97292ae76b72e8dac2e5d37d4df1ec9e12ec696cd8a2401"
+  },
+  "inputs": {
+    "case": {
+      "bytes": 702,
+      "sha256": "1221dd3dfcc78a0be3b42e072ff07b5bd8603565f2ffa58fb15aae3311d1abab"
+    },
+    "handoff": {
+      "bytes": 350,
+      "sha256": "9e12bcf0cfeaeffe21fc7d584be86441924379999fc0890f33296ee42aa257db"
+    }
+  },
+  "limitations": [
+    "pinned Alpha1 public behavior only; this is not fix confirmation",
+    "pending means the lost-obligation predicate was not proven"
+  ],
+  "observed": {
+    "attempt_id_changed": true,
+    "failed_status": "failed",
+    "failure_reason": "provider unavailable",
+    "ready_after_failure": [
+      "provider-failure-task"
+    ],
+    "retry_attempt": 2,
+    "retry_status": "running"
+  },
+  "predicates": {
+    "lost_obligation": {
+      "holds": false,
+      "predicate": "failed_task_absent_or_not_retryable_after_provider_failure"
+    },
+    "recovered_obligation": {
+      "holds": true,
+      "predicate": "failed_task_remains_ready_and_can_start_a_new_attempt"
+    }
+  },
+  "reason": "Pinned Alpha1 behavior preserved the failed obligation and allowed a new attempt; the lost-obligation predicate is not reproduced.",
+  "schema_version": 1,
+  "semantic_predicate": "legacy_native_adapter_lost_provider_failed_obligation",
+  "status": "pending"
+}

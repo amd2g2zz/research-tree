@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "alignment-handoff",
+  "run_id": "alpha1-recovery-alignment",
+  "decision_slots": {
+    "slot-recovery": {
+      "question": "Does a provider failure or process boundary preserve the unfinished research obligation?"
+    }
+  },
+  "execution_context": {
+    "authority": [
+      "local deterministic replay only"
+    ]
+  }
+}

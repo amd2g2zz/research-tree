@@ -1,0 +1,52 @@
+{
+  "round_id": "alpha1-active-contradiction",
+  "tree_id": "alpha1-active-contradiction-tree",
+  "decision_slots": {
+    "slot-architecture": {
+      "question": "Should candidate A be selected?",
+      "priority": "P1",
+      "status": "open",
+      "uncertainty": "medium"
+    }
+  },
+  "baseline_finding": {
+    "id": "finding-supports-candidate-a",
+    "decision_slot_id": "slot-architecture",
+    "observations": [
+      {
+        "claim": "The primary source supports candidate A.",
+        "anchor": {
+          "kind": "source",
+          "ref": "source:alpha1-primary"
+        }
+      }
+    ],
+    "option_effects": [
+      {
+        "option": "candidate-a",
+        "effect": "supports"
+      }
+    ],
+    "remaining_uncertainties": []
+  },
+  "contradictory_finding": {
+    "id": "finding-contradicts-candidate-a",
+    "decision_slot_id": "slot-architecture",
+    "observations": [
+      {
+        "claim": "An independent execution contradicts candidate A.",
+        "anchor": {
+          "kind": "experiment",
+          "ref": "experiment:alpha1-independent"
+        }
+      }
+    ],
+    "option_effects": [
+      {
+        "option": "candidate-a",
+        "effect": "contradicts"
+      }
+    ],
+    "remaining_uncertainties": []
+  }
+}
