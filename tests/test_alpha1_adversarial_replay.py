@@ -155,6 +155,10 @@ def test_recorded_filler_report_receipt_is_redacted_and_not_fix_confirmation() -
     assert result["observed"]["status"] == "complete"
     assert result["host_package"]["path"] == "packages/hermes/research-tree"
     assert result["commands"][-1]["name"] == "complete"
+    assert result["commands"][-1]["raw_stdout_sha256"] == result["commands"][-1]["stdout_sha256"]
+    assert result["commands"][-1]["redacted_stdout_sha256"]
+    assert result["commands"][-1]["raw_stderr_sha256"] == result["commands"][-1]["stderr_sha256"]
+    assert result["commands"][-1]["redacted_stderr_sha256"]
     assert "<workspace>" in result["commands"][-1]["stdout"]
     assert "/private/" not in json.dumps(result)
     assert "fix_confirmed" not in json.dumps(result)

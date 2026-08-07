@@ -146,15 +146,21 @@ def _redact_command(receipt: dict[str, Any], *, checkout: Path, workspace: Path)
     def redact_output(value: str) -> str:
         return value.replace(str(workspace), "<workspace>").replace(str(checkout), "<alpha1-checkout>")
 
+    redacted_stdout = redact_output(receipt["stdout"])
+    redacted_stderr = redact_output(receipt["stderr"])
     command = next((item for item in argv if item in {"init", "record-batch", "complete"}), "unknown")
     return {
         "command": shlex.join(rendered),
         "name": command,
         "returncode": receipt["returncode"],
-        "stdout": redact_output(receipt["stdout"]),
-        "stderr": redact_output(receipt["stderr"]),
+        "stdout": redacted_stdout,
+        "stderr": redacted_stderr,
         "stdout_sha256": receipt["stdout_sha256"],
         "stderr_sha256": receipt["stderr_sha256"],
+        "raw_stdout_sha256": receipt["stdout_sha256"],
+        "raw_stderr_sha256": receipt["stderr_sha256"],
+        "redacted_stdout_sha256": _sha256_bytes(redacted_stdout.encode("utf-8")),
+        "redacted_stderr_sha256": _sha256_bytes(redacted_stderr.encode("utf-8")),
     }
 
 
