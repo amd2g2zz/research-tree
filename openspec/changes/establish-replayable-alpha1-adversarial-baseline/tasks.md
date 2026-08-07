@@ -9,12 +9,12 @@
 
 ## 2. TDD slice: replayable filler-report baseline
 
-- [ ] 2.1 Add a failing contract/replay test for a clean pinned Alpha1 checkout,
+- [x] 2.1 Add a failing contract/replay test for a clean pinned Alpha1 checkout,
   actual Hermes package identity, headings-plus-padding fixture, and semantic
   `vulnerability_reproduced` receipt.
-- [ ] 2.2 Implement evaluator-only checkout, command receipt, fixture integrity,
+- [x] 2.2 Implement evaluator-only checkout, command receipt, fixture integrity,
   and Hermes filler-report replay without host package dependency.
-- [ ] 2.3 Record the redacted filler-report baseline output and rerun the focused
+- [x] 2.3 Record the redacted filler-report baseline output and rerun the focused
   replay suite.
 
 ## 3. Remaining confirmed Alpha1 defects

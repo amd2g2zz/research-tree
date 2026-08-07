@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "case_id": "filler-report",
+  "status": "vulnerability_reproduced",
+  "semantic_predicate": "legacy_hermes_completed_heading_padding_reports",
+  "baseline": {
+    "tag": "0.0.1-a1",
+    "commit": "8ab91ea4eb55c98441b5ee6001b80922a56ecdd1"
+  },
+  "host": "hermes",
+  "host_package": {
+    "path": "packages/hermes/research-tree",
+    "sha256": "6b39afbbe2078d3e0db4338ac7fdc865f3a9e8f287d0efd0cb21b77eb3f50923"
+  },
+  "inputs": {
+    "handoff": {
+      "sha256": "a3d5df7d24d43c0a22ed1f417ce29b90882b6de765a40a7e2f83ae92801d9acc",
+      "bytes": 181
+    },
+    "finding": {
+      "sha256": "fc18392f78bab7199ecfc2f2a8a9b4ac52785a1407b8cc51fc8df2c3b2351396",
+      "bytes": 31
+    },
+    "technical": {
+      "sha256": "5c2001e41f5730d68731221caac7811b219d059bd47089ce394e99c2de100a88",
+      "bytes": 1140
+    },
+    "human": {
+      "sha256": "b2c0867945c2823b27c23b0c1d0e63cb6be1164e75aba560595d266b8cd046e7",
+      "bytes": 622
+    }
+  },
+  "environment": {
+    "python": "3.13.7",
+    "implementation": "cpython",
+    "platform": "darwin"
+  },
+  "commands": [
+    {
+      "command": "'<python>' packages/hermes/research-tree/scripts/hermes_execution_adapter.py --workspace '<workspace>' init --run-id alpha1-filler --handoff '<workspace>/handoff.json'",
+      "name": "init",
+      "returncode": 0,
+      "stdout": "{\n  \"alignment_run_id\": \"alpha1-alignment\",\n  \"batches\": {},\n  \"created_at\": \"2026-08-07T06:31:32.829698+00:00\",\n  \"decision_slots\": {\n    \"slot-a\": {\n      \"question\": \"Bound a decision.\"\n    }\n  },\n  \"deliverables\": {\n    \"human_research_report\": {\n      \"status\": \"pending\"\n    },\n    \"technical_research_package\": {\n      \"status\": \"pending\"\n    }\n  },\n  \"execution_context\": {\n    \"authority\": [\n      \"research only\"\n    ]\n  },\n  \"handoff_path\": \"<workspace>/handoff.json\",\n  \"handoff_sha256\": \"a3d5df7d24d43c0a22ed1f417ce29b90882b6de765a40a7e2f83ae92801d9acc\",\n  \"revision\": 1,\n  \"run_id\": \"alpha1-filler\",\n  \"schema\": 1,\n  \"status\": \"aligned\",\n  \"updated_at\": \"2026-08-07T06:31:32.830045+00:00\"\n}\n",
+      "stderr": "",
+      "stdout_sha256": "d4de732b003704e6a3cc349d4768fb4fc44708eb4bb2e7a769016147f6afbfb3",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "'<python>' packages/hermes/research-tree/scripts/hermes_execution_adapter.py --workspace '<workspace>' record-batch --run-id alpha1-filler --batch-id batch-1 --status verified --finding '<workspace>/finding.json'",
+      "name": "record-batch",
+      "returncode": 0,
+      "stdout": "{\n  \"alignment_run_id\": \"alpha1-alignment\",\n  \"batches\": {\n    \"batch-1\": {\n      \"batch_id\": \"batch-1\",\n      \"delegation_ids\": [],\n      \"finding_paths\": [\n        \"<workspace>/finding.json\"\n      ],\n      \"recorded_at\": \"2026-08-07T06:31:32.901642+00:00\",\n      \"status\": \"verified\"\n    }\n  },\n  \"created_at\": \"2026-08-07T06:31:32.829698+00:00\",\n  \"decision_slots\": {\n    \"slot-a\": {\n      \"question\": \"Bound a decision.\"\n    }\n  },\n  \"deliverables\": {\n    \"human_research_report\": {\n      \"status\": \"pending\"\n    },\n    \"technical_research_package\": {\n      \"status\": \"pending\"\n    }\n  },\n  \"execution_context\": {\n    \"authority\": [\n      \"research only\"\n    ]\n  },\n  \"handoff_path\": \"<workspace>/handoff.json\",\n  \"handoff_sha256\": \"a3d5df7d24d43c0a22ed1f417ce29b90882b6de765a40a7e2f83ae92801d9acc\",\n  \"revision\": 2,\n  \"run_id\": \"alpha1-filler\",\n  \"schema\": 1,\n  \"status\": \"researching\",\n  \"updated_at\": \"2026-08-07T06:31:32.901879+00:00\"\n}\n",
+      "stderr": "",
+      "stdout_sha256": "00781996e61c25cf241b207bbc00fe4ea3451b2fc41a4ded29607002fbffb301",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "'<python>' packages/hermes/research-tree/scripts/hermes_execution_adapter.py --workspace '<workspace>' complete --run-id alpha1-filler --technical-report '<workspace>/technical.md' --human-report '<workspace>/human.md'",
+      "name": "complete",
+      "returncode": 0,
+      "stdout": "{\n  \"alignment_run_id\": \"alpha1-alignment\",\n  \"batches\": {\n    \"batch-1\": {\n      \"batch_id\": \"batch-1\",\n      \"delegation_ids\": [],\n      \"finding_paths\": [\n        \"<workspace>/finding.json\"\n      ],\n      \"recorded_at\": \"2026-08-07T06:31:32.901642+00:00\",\n      \"status\": \"verified\"\n    }\n  },\n  \"created_at\": \"2026-08-07T06:31:32.829698+00:00\",\n  \"decision_slots\": {\n    \"slot-a\": {\n      \"question\": \"Bound a decision.\"\n    }\n  },\n  \"deliverables\": {\n    \"human_research_report\": {\n      \"bytes\": 622,\n      \"heading_count\": 2,\n      \"kind\": \"human_research_report\",\n      \"path\": \"<workspace>/human.md\",\n      \"sha256\": \"b2c0867945c2823b27c23b0c1d0e63cb6be1164e75aba560595d266b8cd046e7\",\n      \"status\": \"verified\"\n    },\n    \"technical_research_package\": {\n      \"bytes\": 1140,\n      \"heading_count\": 3,\n      \"kind\": \"technical_research_package\",\n      \"path\": \"<workspace>/technical.md\",\n      \"sha256\": \"5c2001e41f5730d68731221caac7811b219d059bd47089ce394e99c2de100a88\",\n      \"status\": \"verified\"\n    }\n  },\n  \"execution_context\": {\n    \"authority\": [\n      \"research only\"\n    ]\n  },\n  \"handoff_path\": \"<workspace>/handoff.json\",\n  \"handoff_sha256\": \"a3d5df7d24d43c0a22ed1f417ce29b90882b6de765a40a7e2f83ae92801d9acc\",\n  \"revision\": 3,\n  \"run_id\": \"alpha1-filler\",\n  \"schema\": 1,\n  \"status\": \"complete\",\n  \"updated_at\": \"2026-08-07T06:31:32.973990+00:00\"\n}\n",
+      "stderr": "",
+      "stdout_sha256": "76294bc539f45fde2850af170b0edf129ff57dcd9b8413cc0aaf3c6ca0638993",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "observed": {
+    "status": "complete"
+  },
+  "limitations": [
+    "baseline reproduction is not fix confirmation"
+  ]
+}
