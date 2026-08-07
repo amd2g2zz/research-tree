@@ -158,3 +158,86 @@ def test_recorded_filler_report_receipt_is_redacted_and_not_fix_confirmation() -
     assert "<workspace>" in result["commands"][-1]["stdout"]
     assert "/private/" not in json.dumps(result)
     assert "fix_confirmed" not in json.dumps(result)
+
+
+def test_pinned_alpha1_native_adapter_accepts_forged_validation_without_resolvable_evidence(
+    tmp_path: Path,
+) -> None:
+    from evaluation.harness.alpha1_adversarial_forged_validation import (
+        replay_forged_validation,
+    )
+
+    receipt = replay_forged_validation(repository_root=ROOT, work_root=tmp_path)
+
+    assert receipt["baseline"]["commit"] == "8ab91ea4eb55c98441b5ee6001b80922a56ecdd1"
+    assert receipt["host"] == "claude"
+    assert receipt["status"] == "vulnerability_reproduced"
+    assert receipt["semantic_predicate"] == (
+        "legacy_native_adapter_accepted_passed_validation_with_unresolvable_evidence"
+    )
+    assert receipt["observed"] == {
+        "validation_status": "passed",
+        "evidence_ref": "evidence/not-present.json",
+        "evidence_resolves": False,
+    }
+    assert receipt["commands"][-1]["name"] == "validate-finding"
+    assert receipt["commands"][-1]["returncode"] == 0
+    assert receipt["commands"][-1]["stdout"]
+    assert str(tmp_path) not in json.dumps(receipt)
+    assert "fix_confirmed" not in json.dumps(receipt)
+    assert receipt["host_package"]["path"] == "packages/claude-code/research-tree"
+    assert receipt["inputs"]["finding"]["bytes"] > 0
+    assert not (tmp_path / "alpha1-checkout").exists()
+    assert not (tmp_path / "forged-validation-workspace").exists()
+
+
+def test_forged_validation_cli_writes_redacted_semantic_receipt(tmp_path: Path) -> None:
+    work_root = tmp_path / "work"
+    receipt_path = tmp_path / "receipt.json"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "evaluation.harness.alpha1_adversarial_forged_validation",
+            "--repository-root",
+            str(ROOT),
+            "--work-root",
+            str(work_root),
+            "--receipt",
+            str(receipt_path),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    receipt = json.loads(completed.stdout)
+    assert json.loads(receipt_path.read_text()) == receipt
+    assert receipt["observed"]["evidence_resolves"] is False
+    assert receipt["commands"][0]["stdout_sha256"]
+    assert receipt["commands"][0]["stderr_sha256"]
+    assert receipt["commands"][0]["raw_stdout_sha256"] == receipt["commands"][0]["stdout_sha256"]
+    assert receipt["commands"][0]["redacted_stdout_sha256"]
+    assert str(tmp_path) not in json.dumps(receipt)
+    assert not (work_root / "alpha1-checkout").exists()
+    assert not (work_root / "forged-validation-workspace").exists()
+
+
+def test_recorded_forged_validation_receipt_has_resolvable_oracle_metadata() -> None:
+    result = json.loads(
+        (ROOT / "evaluation/results/alpha1-adversarial-v1/forged-validation.json").read_text()
+    )
+    baseline = json.loads((ROOT / "evaluation/baselines/alpha1-0.0.1-a1.json").read_text())
+
+    assert result["status"] == "vulnerability_reproduced"
+    assert result["host_package"] == baseline["host_packages"]["claude-code"]
+    assert result["observed"]["validation_status"] == "passed"
+    assert result["observed"]["evidence_resolves"] is False
+    assert result["commands"][0]["name"] == "validate-finding"
+    assert result["commands"][0]["returncode"] == 0
+    assert result["commands"][0]["stdout_sha256"]
+    assert result["commands"][0]["stderr_sha256"]
+    assert "/private/" not in json.dumps(result)
+    assert "fix_confirmed" not in json.dumps(result)

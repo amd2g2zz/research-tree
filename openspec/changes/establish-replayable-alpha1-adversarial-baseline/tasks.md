@@ -23,6 +23,9 @@
 
 - [ ] 3.1 Add executable semantic fixtures for forged validation and missing
   evidence; do not treat opaque strings as oracle/evidence proof.
+  - [x] 3.1a Replay Alpha1 native validation accepting `passed` with an
+    unresolvable evidence reference.
+  - [ ] 3.1b Replay missing-evidence completion as a separate case.
 - [ ] 3.2 Add executable state/trace fixtures for empty frontier, active
   contradiction, repeated reconnaissance, and adapter-only completion.
 - [ ] 3.3 Add deterministic provider-failure and crash-recovery boundary
@@ -38,3 +41,15 @@
   record gaps without calling baseline reproduction a fix confirmation.
 - [ ] 4.3 Push this branch and create a Draft PR to `dev` when GitHub WRITE
   permission is available.
+
+## Adversarial review follow-ups
+
+- [ ] 3.4a Replace the two-case accumulation with one governed manifest covering
+  all nine named #55 defects; executable cases count only when their semantic
+  predicate and redacted receipt exist.
+- [ ] 3.4b Migrate legacy receipts so raw and redacted stdout/stderr digests are
+  distinct or point at a governed original stream; do not claim a redacted
+  stream independently proves its raw digest.
+- [ ] 3.4c Reconcile replay CLI help with cleanup behavior: the caller-owned
+  `work_root` remains an empty reusable directory after default cleanup, while
+  generated workspace and detached checkout are removed.

@@ -17,3 +17,31 @@ classifier accepted caller-provided unsafe booleans / arbitrary evidence strings
 The first production-quality regression is therefore a real replay of that
 filler-report behavior. Other named defects remain pending until their semantic
 replay predicates are demonstrated.
+
+## Agent 1 post-implementation gaps to carry forward
+
+The independent black-box review reports that the prior submitted HEAD covered
+only 1 of 9 named issue defects. After the forged-validation slice in this
+worktree, the executable count is 2 of 9; missing evidence, empty frontier,
+active contradiction, repeated reconnaissance, adapter-only completion,
+provider failure, and crash recovery remain pending.
+
+The review also identifies three receipt/contract gaps that this slice does not
+silently claim to solve:
+
+1. The corpus still needs one governed nine-defect manifest. A pair of executable
+   receipts is not a complete issue inventory.
+2. Existing filler-report receipts label `stdout_sha256` as the digest of the raw
+   stream while retaining only redacted stdout. That is not independently
+   reproducible from the committed artifact. Future receipt work must either
+   retain a governed raw stream reference or explicitly distinguish raw and
+   redacted digests. The new forged-validation receipt records both namespaced
+   digest forms; the legacy filler receipt remains pending migration.
+3. The replay CLI help says the execution workspace is removed, while the
+   implementation removes only the generated workspace subdirectory and the
+   detached checkout, leaving the caller-owned empty `work_root`. Help text and
+   cleanup semantics need to be reconciled without changing disposable-root
+   safety.
+
+These are recorded as follow-up acceptance gaps, not converted into green
+claims for the forged-validation oracle.

@@ -33,3 +33,18 @@ requires a case-bound, resolvable, independently reviewed execution receipt.
 - **WHEN** a baseline case executes
 - **THEN** its status is `vulnerability_reproduced` or `inconclusive`
 - **AND** it is never reported as a confirmed fix
+
+### Requirement: Forged validation is not evidence
+The Alpha1 forged-validation fixture SHALL be executable against the pinned
+Claude native adapter and SHALL independently prove that its declared evidence
+reference does not resolve. A successful parser result with `status: passed`
+SHALL be recorded as `vulnerability_reproduced`, never as fix confirmation.
+
+#### Scenario: Native adapter accepts an unresolvable passed validation
+- **WHEN** the clean Alpha1 checkout validates the versioned Finding Pack
+- **AND** the harness resolves its `evidence_ref` under the isolated workspace
+- **AND** no evidence artifact exists at that path
+- **THEN** the historical command still exits zero and returns `validation_result.status` equal to `passed`
+- **AND** the receipt records `evidence_resolves` equal to `false`
+- **AND** the receipt contains command, environment, package, input, and output digests
+- **AND** the receipt does not contain `fix_confirmed`
