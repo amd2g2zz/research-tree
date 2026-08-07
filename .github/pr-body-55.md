@@ -61,8 +61,8 @@ No HIGH or CRITICAL blast radius was reported.
   `empty-frontier` blocked instead of completing, and provider/crash recovery
   preserved retryable obligations. The corpus therefore has six reproduced
   unsafe predicates and three non-reproduced pending predicates.
-- The local PR gate reports `hard_review_limit_exceeded`: **24 non-generated
-  files / 1,628 non-generated lines**. Policy requires a maintainer-approved
+- The local PR gate reports `hard_review_limit_exceeded`: **52 non-generated
+  files / 5,017 non-generated lines**. Policy requires a maintainer-approved
   exception above 1,500 lines; none is recorded. This branch is not ready for
   review until the change is split or an explicit approved exception is added.
 - Push/PR creation is blocked by remote permission: `git push --dry-run` for
