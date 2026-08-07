@@ -92,12 +92,13 @@ independently observed `evidence_resolves: false` predicate.
 
 ## Registry acceptance boundary
 
-The root Alpha2 task registry currently names group 1's acceptance command as
-`uv run pytest -q tests/test_alpha1_baseline.py`. This issue-scoped branch has
-no such path; its real replay contract is covered by
-`tests/test_alpha1_adversarial_replay.py`. We must not add an empty alias merely
-to make the registry command green. Until the registry is deliberately adapted
-in its owning change, group 1 is formally unmet even though this issue-scoped
-focused suite is executable and green.
+The root Alpha2 task registry names group 1's acceptance command as
+`uv run pytest -q tests/test_alpha1_baseline.py`. This issue-scoped branch now
+provides that real contract test; it validates the governed nine-defect manifest
+and does not use an empty alias or count pending cases as green.
 
-The governed `evaluation/baselines/alpha1-adversarial-v1.json` manifest provides the registered group-1 contract test with all nine defect IDs, explicitly separating executable receipts from pending cases.
+The governed `evaluation/baselines/alpha1-adversarial-v1.json` manifest provides
+the registered group-1 contract test with all nine defect IDs, explicitly
+separating executable receipts from pending cases. Legacy filler receipts now
+retain raw stdout/stderr digests and add distinct redacted stdout/stderr digests,
+so a redacted stream is not misrepresented as proof of the raw digest.

@@ -37,3 +37,18 @@ reproductions. Both executable receipts are required to be
 
 This slice closes task 3.4a only. It does not claim that the seven pending
 defects have been reproduced.
+
+## Legacy receipt digest follow-up
+
+The filler receipt now carries both the original command-stream digest and the
+digest of the path-redacted stream:
+
+```text
+raw_stdout_sha256 == stdout_sha256
+redacted_stdout_sha256 !=/or independently verifies the stored redacted stdout
+raw_stderr_sha256 == stderr_sha256
+redacted_stderr_sha256 !=/or independently verifies the stored redacted stderr
+```
+
+The recorded receipt and focused regression assert these fields. This closes
+follow-up 3.4b; cleanup/help reconciliation remains pending as 3.4c.
