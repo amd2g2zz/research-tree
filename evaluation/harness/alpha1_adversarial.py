@@ -7,6 +7,7 @@ from the current checkout, and returns redacted command receipts.
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import shlex
@@ -14,7 +15,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 
 ALPHA1_TAG = "0.0.1-a1"
@@ -93,6 +94,19 @@ def _remove_worktree(repository_root: Path, checkout: Path) -> None:
         _git(repository_root, "worktree", "remove", "--force", str(checkout))
 
 
+def _remove_workspace(workspace: Path) -> None:
+    if workspace.exists():
+        shutil.rmtree(workspace)
+
+
+def _inside(parent: Path, candidate: Path) -> bool:
+    try:
+        candidate.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
 def _copy_fixture(repository_root: Path, workspace: Path) -> dict[str, Path]:
     fixture = repository_root / FIXTURE_RELATIVE
     names = ("handoff.json", "finding.json", "technical.md", "human.md")
@@ -144,12 +158,21 @@ def _redact_command(receipt: dict[str, Any], *, checkout: Path, workspace: Path)
     }
 
 
-def replay_filler_report(*, repository_root: str | Path, work_root: str | Path) -> dict[str, Any]:
+def replay_filler_report(
+    *,
+    repository_root: str | Path,
+    work_root: str | Path,
+    keep_workspace: bool = False,
+) -> dict[str, Any]:
     """Replay Alpha1 Hermes structural-only completion using only filler reports.
 
     A successful legacy completion is deliberately classified as a vulnerability
     reproduction. This is not candidate validation and cannot produce
     ``fix_confirmed``.
+
+    The temporary execution workspace is removed on success and failure by
+    default. Set ``keep_workspace`` only when the generated state is needed for
+    inspection; a kept work root must be replaced or emptied before rerunning.
     """
 
     repository = Path(repository_root).resolve()
@@ -235,4 +258,78 @@ def replay_filler_report(*, repository_root: str | Path, work_root: str | Path) 
             "limitations": ["baseline reproduction is not fix confirmation"],
         }
     finally:
-        _remove_worktree(repository, checkout)
+        try:
+            _remove_worktree(repository, checkout)
+        finally:
+            if not keep_workspace:
+                _remove_workspace(workspace)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Replay the pinned Alpha1 Hermes adversarial baseline."
+    )
+    parser.add_argument(
+        "--repository-root",
+        type=Path,
+        required=True,
+        help="repository containing tag 0.0.1-a1",
+    )
+    parser.add_argument(
+        "--work-root",
+        type=Path,
+        required=True,
+        help="empty temporary execution root; removed after the replay by default",
+    )
+    parser.add_argument(
+        "--receipt",
+        type=Path,
+        required=True,
+        help="path for the redacted JSON receipt",
+    )
+    parser.add_argument(
+        "--keep-workspace",
+        action="store_true",
+        help="retain the execution workspace for inspection; use a fresh work root for reruns",
+    )
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = build_parser()
+    arguments = parser.parse_args(argv)
+    repository_root = arguments.repository_root.expanduser().resolve()
+    work_root = arguments.work_root.expanduser().resolve()
+    receipt_path = arguments.receipt.expanduser().resolve()
+
+    if not arguments.keep_workspace and _inside(work_root, receipt_path):
+        print(
+            json.dumps(
+                {"error": "--receipt must be outside --work-root unless --keep-workspace is used"},
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        receipt = replay_filler_report(
+            repository_root=repository_root,
+            work_root=work_root,
+            keep_workspace=arguments.keep_workspace,
+        )
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.write_text(
+            json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    except (Alpha1ReplayError, OSError, ValueError) as error:
+        print(json.dumps({"error": str(error)}, ensure_ascii=False), file=sys.stderr)
+        return 2
+
+    print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

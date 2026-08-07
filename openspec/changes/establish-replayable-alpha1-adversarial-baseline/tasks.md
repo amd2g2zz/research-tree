@@ -16,6 +16,8 @@
   and Hermes filler-report replay without host package dependency.
 - [x] 2.3 Record the redacted filler-report baseline output and rerun the focused
   replay suite.
+- [x] 2.4 Add a disposable-by-default replay workspace and an explicit CLI
+  with receipt output, stable errors, and opt-in workspace retention.
 
 ## 3. Remaining confirmed Alpha1 defects
 

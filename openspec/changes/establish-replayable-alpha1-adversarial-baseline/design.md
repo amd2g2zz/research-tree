@@ -50,3 +50,22 @@ claimed as a reproduction. Subsequent slices must introduce exact state/trace
 predicates for forged validation, missing evidence, empty frontier, active
 contradiction, repeated reconnaissance, adapter-only completion, provider
 failure, and crash recovery.
+
+## Operator replay contract
+
+The filler replay is also exposed as an evaluator-only module CLI:
+
+```bash
+uv run --frozen python -m evaluation.harness.alpha1_adversarial \
+  --repository-root . \
+  --work-root /tmp/research-tree-alpha1-replay \
+  --receipt /tmp/research-tree-alpha1-filler-receipt.json
+```
+
+The default execution root is disposable: both the detached Alpha1 checkout and
+its generated runtime workspace are removed on success and failure. An operator
+may pass `--keep-workspace` for forensic inspection; that is an explicit
+non-default retention choice and requires a fresh work root for the next replay.
+The receipt is written outside the execution root, contains redacted command and
+stdout evidence, and uses a non-zero JSON error response for operational input or
+replay failures.
