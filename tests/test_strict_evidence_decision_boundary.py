@@ -28,6 +28,7 @@ from research_tree import (
 )
 from research_tree.work_items import WORK_ITEM_KIND
 from research_tree.domain import thaw_json
+from research_tree.readiness import _strict_findings_are_authoritative
 
 
 def _migrate_run_store(source_store, round_record, ledger: RunLedger) -> None:
@@ -307,6 +308,78 @@ def test_canonical_finding_and_decision_preserve_strict_evidence_parents(tmp_pat
             revision_reason="Stale evidence must fail.",
             expected_revision=6,
         )
+
+
+def test_canonical_selected_decision_requires_strict_finding_at_any_priority(tmp_path: Path) -> None:
+    ledger, _store, _target, _work, _content, _evidence, _reference, resolver = _environment(tmp_path)
+    low_target = ledger.append_artifact(
+        "run-strict",
+        "target-low",
+        "blueprint-target",
+        {
+            "slots": [
+                {
+                    "id": "slot-low",
+                    "alternatives": ["option-a", "option-b"],
+                    "priority": "P1",
+                    "repository_touchpoints": [],
+                }
+            ]
+        },
+        expected_revision=3,
+    )
+    with pytest.raises(InvalidDecisionLedgerError, match="requires at least one strict Finding Pack"):
+        CanonicalDecisionLedgerCompiler(ledger, resolver).converge(
+            round_id="run-strict",
+            decision_id="decision-low",
+            blueprint_target=low_target,
+            decision_slot_id="slot-low",
+            finding_packs=[],
+            status="selected",
+            selected_option="option-a",
+            alternatives=[{"option": "option-b", "disposition": "deferred", "reason": "Needs evidence."}],
+            anchors=[],
+            design_consequence="Use option-a.",
+            repository_touchpoints=[],
+            validation={"kind": "test", "oracle": "fixture test passes"},
+            change_tasks=[],
+            assumptions=[],
+            fallback="Keep option-b available.",
+            reversal_condition="Contrary evidence appears.",
+            revision_reason="Missing strict evidence must fail.",
+            expected_revision=4,
+        )
+
+
+def test_strict_readiness_rejects_empty_finding_and_unlinked_selected_decision(tmp_path: Path) -> None:
+    ledger, _store, target, _work, _content, _evidence, _reference, resolver = _environment(tmp_path)
+    empty_finding = ledger.append_artifact(
+        "run-strict",
+        "finding-empty",
+        "finding-pack",
+        {
+            "blueprint_target_id": target.id,
+            "decision_slot_id": "slot-one",
+            "evidence_mode": "strict",
+            "observations": [],
+        },
+        parent_refs=(ArtifactRef("run-strict", target.id, target.revision),),
+        expected_revision=3,
+    )
+    decision = ledger.append_artifact(
+        "run-strict",
+        "decision-unlinked",
+        "decision-ledger-entry",
+        {"decision_slot_id": "slot-one", "status": "selected"},
+        parent_refs=(ArtifactRef("run-strict", target.id, target.revision),),
+        expected_revision=4,
+    )
+    diagnostics: list[dict[str, object]] = []
+    assert not _strict_findings_are_authoritative(
+        [empty_finding], [decision], resolver, diagnostics
+    )
+    assert any("no strict observations" in item["summary"] for item in diagnostics)
+    assert any("strict Finding Pack parent lineage" in item["summary"] for item in diagnostics)
 
 
 def test_legacy_compiler_cannot_claim_strict_evidence_or_enter_canonical_decision(tmp_path: Path) -> None:

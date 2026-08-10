@@ -477,7 +477,11 @@ def _strict_findings_are_authoritative(
             authoritative = False
             continue
         observations = finding.payload.get("observations")
-        if isinstance(observations, (str, bytes)) or not isinstance(observations, Sequence):
+        if (
+            isinstance(observations, (str, bytes))
+            or not isinstance(observations, Sequence)
+            or not observations
+        ):
             diagnostics.append(
                 _diagnostic(
                     "decision_closure",
@@ -514,6 +518,20 @@ def _strict_findings_are_authoritative(
         linked_findings = [
             reference for reference in decision.parent_refs if reference in evidence_by_finding
         ]
+        if decision.payload.get("status") in {"selected", "conditional"} and not linked_findings:
+            diagnostics.append(
+                _diagnostic(
+                    "decision_closure",
+                    "fail",
+                    f"Decision {decision.id} lacks a strict Finding Pack parent lineage.",
+                    slot_id=decision.payload.get("decision_slot_id")
+                    if isinstance(decision.payload.get("decision_slot_id"), str)
+                    else None,
+                    decision_id=decision.id,
+                )
+            )
+            authoritative = False
+            continue
         for finding_ref in linked_findings:
             missing = set(evidence_by_finding[finding_ref]) - set(decision.parent_refs)
             if missing:

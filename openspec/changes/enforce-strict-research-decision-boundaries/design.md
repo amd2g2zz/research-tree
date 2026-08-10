@@ -34,8 +34,10 @@ remain separate Alpha2 work and are not invented here.
 It requires an exact `ArtifactRef`, verifies the immutable evidence payload,
 the bound CAS content, and the latest artifact revision. Repository locators
 require both an evidence source revision and a caller-supplied current
-revision oracle. Selector validation is fail-closed when its declared bounds
-are absent.
+revision oracle. That oracle is a trusted host/repository-adapter boundary:
+the resolver compares against it but does not itself prove a filesystem or VCS
+revision. Selector validation is fail-closed when its declared bounds are
+absent.
 
 The legacy in-memory resolver is retained only for historic readers. It cannot
 be used by the canonical Finding/Decision/Readiness path.
@@ -45,16 +47,20 @@ be used by the canonical Finding/Decision/Readiness path.
 `CanonicalFindingPackCompiler` and `CanonicalDecisionLedgerCompiler` append
 to the same RunLedger using an expected revision. A strict Finding Pack stores
 typed anchors and adds every exact evidence reference to its parent lineage.
-The canonical decision rejects any supplied finding that is not strict or
-lacks its evidence parent. Legacy RunStore compilation requires explicit
-`legacy_mode=True` and never claims strict evidence.
+Every selected or conditional canonical Decision requires at least one strict
+Finding Pack, its Finding anchor, and an evidence-backed effect for the chosen
+option. The canonical decision rejects any supplied finding that is not strict
+or lacks its evidence parent. The legacy RunStore compiler remains compatible
+but always emits `legacy_unverified` evidence and can never enter this path.
 
 ### Strict readiness rechecks evidence
 
 `CanonicalReadinessVerifier` uses RunLedger plus a matching strict resolver.
-It re-resolves findings in the technical package and turns evidence failure
-into a failing closure/readiness gate. This closes the historical bypass where
-a generic legacy anchor could appear in an otherwise passing readiness record.
+It re-resolves non-empty findings in the technical package, and verifies that
+every selected or conditional Decision retains those Findings and their exact
+evidence parents. Any evidence failure turns closure/readiness into a failure.
+This closes the historical bypass where a generic legacy anchor could appear in
+an otherwise passing readiness record.
 
 ## Risks / Trade-offs
 

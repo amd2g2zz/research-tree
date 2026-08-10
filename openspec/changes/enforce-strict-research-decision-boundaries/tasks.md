@@ -23,8 +23,8 @@
 
 ## 4. Verification and handoff
 
-- [ ] 4.1 Run focused resolver and canonical-boundary tests plus relevant
+- [x] 4.1 Run focused resolver and canonical-boundary tests plus relevant
   regression suite.
-- [ ] 4.2 Run strict OpenSpec validation, full repository regression, and
+- [x] 4.2 Run strict OpenSpec validation, full repository regression, and
   delivery workflow checks for issue #108.
 - [ ] 4.3 Commit/push the scoped work on the #108 branch and open its only PR.

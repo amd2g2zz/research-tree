@@ -25,6 +25,8 @@ out-of-range evidence before it affects canonical research state.
 The system SHALL compile strict Finding Packs and Decisions only through the
 RunLedger. Each consequential strict observation MUST contain a typed anchor
 and its exact evidence reference MUST appear in Finding Pack parent lineage.
+Every selected or conditional canonical Decision MUST retain at least one
+non-empty strict Finding Pack and that Finding Pack's exact evidence parents.
 A canonical Decision MUST reject non-strict findings.
 
 #### Scenario: A generic legacy finding is supplied to canonical convergence
@@ -32,11 +34,20 @@ A canonical Decision MUST reject non-strict findings.
 - **WHEN** a caller supplies a legacy or caller-map "strict" finding
 - **THEN** canonical decision convergence SHALL reject it
 
+#### Scenario: A lower-priority selected decision lacks strict evidence
+
+- **WHEN** a caller selects or conditions any Decision Slot without a strict
+  Finding Pack
+- **THEN** canonical decision convergence SHALL reject it regardless of the
+  slot priority
+
 ### Requirement: Strict readiness cannot be satisfied by legacy evidence
 
-The system SHALL re-resolve consequential evidence for canonical readiness.
-Legacy history MAY remain readable through its compatibility path, but it
-MUST NOT produce a passing strict closure/readiness result.
+The system SHALL re-resolve consequential evidence for canonical readiness and
+verify that each selected or conditional Decision has a strict Finding Pack
+parent plus its exact evidence parent closure. Legacy history MAY remain
+readable through its compatibility path, but it MUST NOT produce a passing
+strict closure/readiness result.
 
 #### Scenario: A legacy generic anchor appears in a technical package
 

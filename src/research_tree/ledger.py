@@ -464,7 +464,11 @@ class CanonicalDecisionLedgerCompiler:
                 target,
                 slot["id"],
             )
-            evidence_refs = _strict_finding_evidence_refs(findings, self._evidence_resolver)
+            evidence_refs = (
+                _strict_finding_evidence_refs(findings, self._evidence_resolver)
+                if normalized_status in {"selected", "conditional"} or findings
+                else ()
+            )
             selected = _normalize_selected_option(
                 selected_option,
                 normalized_status,
@@ -704,6 +708,10 @@ def _strict_evidence_refs(observations: Sequence[Mapping[str, Any]]) -> tuple[Ar
 def _strict_finding_evidence_refs(
     findings: Sequence[ArtifactRevision], resolver: EvidenceResolver
 ) -> tuple[ArtifactRef, ...]:
+    if not findings:
+        raise InvalidDecisionLedgerError(
+            "selected or conditional decision requires at least one strict Finding Pack"
+        )
     references: list[ArtifactRef] = []
     for finding in findings:
         if finding.payload.get("evidence_mode") != "strict":
@@ -716,6 +724,10 @@ def _strict_finding_evidence_refs(
             raise InvalidDecisionLedgerError(
                 f"Finding Pack {finding.id} has invalid strict evidence: {error}"
             ) from error
+        if not finding_refs:
+            raise InvalidDecisionLedgerError(
+                f"Finding Pack {finding.id} requires at least one strict observation"
+            )
         for reference in finding_refs:
             if reference not in finding.parent_refs:
                 raise InvalidDecisionLedgerError(
@@ -1041,13 +1053,13 @@ def _validate_decision_trace(
     payload: Mapping[str, Any],
     error_type: type[RuntimeStoreError],
 ) -> None:
-    if slot.get("priority") != "P0" or payload["status"] not in {"selected", "conditional"}:
+    if payload["status"] not in {"selected", "conditional"}:
         return
     finding_anchors = {
         anchor["ref"] for anchor in payload["anchors"] if anchor["kind"] == "finding"
     }
     if not findings or not finding_anchors:
-        raise error_type("P0 selected or conditional decision requires a supplied Finding Pack anchor")
+        raise error_type("selected or conditional decision requires a supplied Finding Pack anchor")
     selected_option = payload["selected_option"]
     effects = {
         effect["option"]
@@ -1057,8 +1069,10 @@ def _validate_decision_trace(
     }
     if selected_option not in effects:
         raise error_type(
-            "P0 selected or conditional decision requires a Finding Pack effect for selected_option"
+            "selected or conditional decision requires a Finding Pack effect for selected_option"
         )
+    if slot.get("priority") != "P0":
+        return
     if not payload["change_tasks"]:
         raise error_type("P0 selected or conditional decision requires at least one change task")
 
