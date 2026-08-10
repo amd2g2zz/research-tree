@@ -71,6 +71,9 @@ def verified_record(group_id: int) -> dict[str, object]:
             "exit_code": 0,
             "environment_digest": "a" * 64,
             "output_digest": "b" * 64,
+            "source_revision": "c" * 40,
+            "raw_output_ref": f"evidence/output-{group_id}.txt",
+            "recorded_at": "2026-08-10T00:00:00+00:00",
         },
         rollback="disable feature",
     )
@@ -143,6 +146,33 @@ def test_verified_group_requires_evidence_receipt_and_rollback(tmp_path: Path) -
     )
 
     assert report.valid is False
+    assert "verified_record_incomplete" in codes(report)
+
+
+def test_verified_group_rejects_a_substituted_or_source_less_command_receipt(tmp_path: Path) -> None:
+    forged = verified_record(1)
+    forged["command_receipt"] = {
+        **forged["command_receipt"],  # type: ignore[index]
+        "command": "true",
+    }
+    report = validate(
+        tmp_path,
+        groups=[group(1)],
+        verification=[forged],
+        issues=[issue(53, 1, "ledger")],
+        capabilities=[capability("ledger", 53, [1])],
+    )
+    assert "verified_record_incomplete" in codes(report)
+
+    missing_source = verified_record(1)
+    del missing_source["command_receipt"]["source_revision"]  # type: ignore[index]
+    report = validate(
+        tmp_path,
+        groups=[group(1)],
+        verification=[missing_source],
+        issues=[issue(53, 1, "ledger")],
+        capabilities=[capability("ledger", 53, [1])],
+    )
     assert "verified_record_incomplete" in codes(report)
 
 
