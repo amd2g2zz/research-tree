@@ -39,6 +39,7 @@ from .decision_map import (
     InvalidBlueprintTargetError,
 )
 from .delivery import (
+    CanonicalDeliveryCompiler,
     DeliveryArtifacts,
     DeliveryCompiler,
     DeliveryError,
@@ -249,6 +250,7 @@ __all__ = [
     "CANDIDATE_DISPOSITIONS",
     "CandidateContext",
     "CanonicalDecisionLedgerCompiler",
+    "CanonicalDeliveryCompiler",
     "CanonicalFindingPackCompiler",
     "CanonicalReadinessVerifier",
     "DataIntegrityError",
