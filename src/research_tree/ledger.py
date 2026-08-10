@@ -62,10 +62,6 @@ class FindingPackCompiler:
             raise InvalidFindingPackError(
                 "strict evidence requires CanonicalFindingPackCompiler and a RunLedger"
             )
-        if not legacy_mode:
-            raise InvalidFindingPackError(
-                "legacy Finding Pack compilation requires explicit legacy_mode=True"
-            )
         if evidence_resolver is not None:
             raise InvalidFindingPackError("legacy Finding Pack compiler cannot use an EvidenceResolver")
         if not isinstance(store, RunStore):

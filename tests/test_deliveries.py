@@ -279,7 +279,7 @@ def context(tmp_path: Path):
     )
     from research_tree import FindingPackCompiler
 
-    finding = FindingPackCompiler(store, legacy_mode=True).compile(
+    finding = FindingPackCompiler(store).compile(
         round_id=round_record.id,
         finding_id="finding-isolation",
         work_item=isolation_work,
