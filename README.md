@@ -526,6 +526,7 @@ Package validation checks that:
 ## Documentation
 
 - [Product specification](PRODUCT.md)
+- [Alpha2 architecture decisions](docs/adr/)
 - [Skill authoring template](skill-src/SKILL.template.md)
 - [Codex package](packages/codex/research-tree/SKILL.md)
 - [Claude Code package](packages/claude-code/research-tree/SKILL.md)
