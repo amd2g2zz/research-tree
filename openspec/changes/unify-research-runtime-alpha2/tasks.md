@@ -20,15 +20,14 @@ substitute for local evidence.
 - [ ] 1.5 Register hidden-oracle boundaries so worker-visible fixtures cannot access eventual patches or expected answers.
 - [ ] 1.6 Link each fixture and acceptance oracle back to the corresponding alpha2 capability requirement and GitHub issue.
 
-## 2. SQLite RunLedger and Content-Addressed Storage (#53)
+## 2. SQLite RunLedger Foundation (#53)
 
 - [ ] 2.1 Introduce a storage protocol that preserves the existing ArtifactRevision, parent-reference, round, and event operations without coupling domain services to filesystem paths.
-- [ ] 2.2 Define and migrate SQLite schema version 1 for runs, artifact revisions, artifact parents, events, action attempts, evidence metadata, oracle runs, and host events.
+- [ ] 2.2 Define and migrate the SQLite schema for runs, artifact revisions, artifact parents, and immutable events.
 - [ ] 2.3 Configure foreign keys, WAL, full synchronization, busy timeout, short transactions, and expected-revision conflict handling on every connection.
 - [ ] 2.4 Implement immutable artifact append, exact revision resolution, round reconstruction, event append, and lineage integrity checks in the SQLite backend.
-- [ ] 2.5 Implement the SHA-256 content-addressed store with atomic writes, digest verification, media metadata, and workspace-boundary enforcement.
-- [ ] 2.6 Add concurrency, stale-write, dangling-parent, tamper, restart, and deterministic-replay tests for SQLite and the CAS.
-- [ ] 2.7 Add an idempotent importer for filesystem RunStore rounds and verify repeated import produces no duplicate revisions or events.
+- [ ] 2.5 Add concurrency, stale-write, dangling-parent, restart, and deterministic-replay tests for the SQLite ledger.
+- [ ] 2.6 Keep content-addressed storage and filesystem RunStore import in their dedicated groups 33 and 34.
 
 ## 3. Resolvable Evidence Artifacts (#54)
 
