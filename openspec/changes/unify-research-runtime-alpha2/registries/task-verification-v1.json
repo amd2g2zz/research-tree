@@ -34,6 +34,6 @@
     { "group": 31, "state": "planned" },
     { "group": 32, "state": "planned" },
     { "group": 33, "state": "in_progress" },
-    { "group": 34, "state": "planned" }
+    { "group": 34, "state": "in_progress" }
   ]
 }
