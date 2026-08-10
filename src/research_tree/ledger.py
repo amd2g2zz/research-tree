@@ -14,6 +14,7 @@ from .domain import (
 )
 from .storage import RunStore
 from .work_items import WORK_ITEM_KIND
+from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
 
 
 FINDING_PACK_KIND = "finding-pack"
@@ -48,8 +49,9 @@ class InvalidDecisionLedgerError(DecisionLedgerError):
 class FindingPackCompiler:
     """Validate one work result as atomic, option-relevant observations."""
 
-    def __init__(self, store: RunStore) -> None:
+    def __init__(self, store: RunStore, evidence_resolver: EvidenceResolver | None = None) -> None:
         self._store = store
+        self._evidence_resolver = evidence_resolver
 
     def compile(
         self,
@@ -87,13 +89,16 @@ class FindingPackCompiler:
                 "slot alternatives",
                 error_type=InvalidFindingPackError,
             )
+            normalized_observations = _normalize_observations(observations, slot)
+            if self._evidence_resolver is not None:
+                _validate_resolvable_observations(normalized_observations, self._evidence_resolver)
             payload = {
                 "id": finding_id,
                 "round_id": round_id,
                 "work_item_id": work.id,
                 "blueprint_target_id": target.id,
                 "decision_slot_id": slot["id"],
-                "observations": _normalize_observations(observations, slot),
+                "observations": normalized_observations,
                 "option_effects": _normalize_option_effects(option_effects, options),
                 "implementation_implications": list(
                     _string_sequence(
@@ -355,13 +360,24 @@ def _normalize_observations(
             label,
             InvalidFindingPackError,
         )
-        anchor = _normalize_anchor(
-            observation["anchor"],
-            label,
-            OBSERVATION_ANCHOR_KINDS,
-            InvalidFindingPackError,
-        )
-        if anchor["kind"] == "repository":
+        raw_anchor = observation["anchor"]
+        if isinstance(raw_anchor, Mapping) and "artifact_digest" in raw_anchor:
+            _require_exact_keys(
+                raw_anchor,
+                {"artifact_digest", "artifact_revision", "selector_type", "selector_value", "extractor_version", "applicability", "confidence", "limitations"},
+                f"{label}.anchor",
+                InvalidFindingPackError,
+            )
+            anchor = dict(raw_anchor)
+            anchor["limitations"] = list(anchor["limitations"])
+        else:
+            anchor = _normalize_anchor(
+                raw_anchor,
+                label,
+                OBSERVATION_ANCHOR_KINDS,
+                InvalidFindingPackError,
+            )
+        if anchor.get("kind") == "repository":
             _validate_repository_anchor(anchor["ref"], slot, InvalidFindingPackError)
         normalized.append(
             {
@@ -386,6 +402,34 @@ def _normalize_observations(
             }
         )
     return normalized
+
+
+def _validate_resolvable_observations(
+    observations: Sequence[Mapping[str, Any]],
+    resolver: EvidenceResolver,
+) -> None:
+    for index, observation in enumerate(observations):
+        anchor = observation["anchor"]
+        if not isinstance(anchor, Mapping) or "artifact_digest" not in anchor:
+            raise InvalidFindingPackError(
+                f"observations[{index}].anchor must be an EvidenceAnchor"
+            )
+        try:
+            typed = EvidenceAnchor(
+                artifact_digest=anchor["artifact_digest"],
+                artifact_revision=anchor["artifact_revision"],
+                selector_type=anchor["selector_type"],
+                selector_value=anchor["selector_value"],
+                extractor_version=anchor["extractor_version"],
+                applicability=anchor["applicability"],
+                confidence=anchor["confidence"],
+                limitations=tuple(anchor["limitations"]),
+            )
+            resolver.resolve(typed)
+        except (KeyError, TypeError, EvidenceValidationError) as error:
+            raise InvalidFindingPackError(
+                f"observations[{index}].anchor is not resolvable: {error}"
+            ) from error
 
 
 def _normalize_option_effects(value: Any, options: tuple[str, ...]) -> list[dict[str, str]]:
