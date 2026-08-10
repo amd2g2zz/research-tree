@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "research-tree",
+  "version": "0.1.0",
+  "description": "Evidence-driven technical research for Claude Code.",
+  "owner": {
+    "name": "research-tree maintainers"
+  },
+  "plugins": [
+    {
+      "name": "research-tree",
+      "description": "Evidence-driven technical research that turns ambiguous requests into implementation-ready decisions.",
+      "version": "0.1.0",
+      "author": {
+        "name": "research-tree maintainers"
+      },
+      "homepage": "https://github.com/amd2g2zz/research-tree",
+      "source": "./packages/claude-code/research-tree",
+      "category": "productivity"
+    }
+  ]
+}

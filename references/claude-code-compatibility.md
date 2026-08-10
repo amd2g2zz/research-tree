@@ -3,17 +3,35 @@
 Use this reference when packaging or running the Claude Code variant. It is
 not needed for ordinary research unless the task involves Claude-specific
 installation or development.
-The verified baseline is Claude Code 2.1.221.
+The verified baseline is Claude Code 2.1.226.
 
 ## Package boundary
 
-The installable package is `packages/claude-code/research-tree/`. It is a
-self-contained Agent Skill with Claude Code frontmatter:
+The repository marketplace is `.claude-plugin/marketplace.json`. Its
+`research-tree` entry resolves to the plugin package
+`packages/claude-code/research-tree/`, which contains:
+
+```text
+.claude-plugin/plugin.json
+skills/research-tree/SKILL.md
+skills/research-tree/assets/
+skills/research-tree/references/
+skills/research-tree/scripts/
+```
+
+The nested Skill is self-contained and has Claude Code frontmatter:
 
 - `argument-hint` describes accepted request material;
-- `user-invocable: true` exposes `/research-tree`;
+- `user-invocable: true` exposes `/research-tree:research-tree` when loaded
+  through the marketplace plugin;
 - `disable-model-invocation: false` allows Claude Code to select the Skill when
   its description matches.
+
+`research-tree-setup install --host claude` is a separate direct-Skill
+compatibility path. It links or copies `skills/research-tree/` into a normal
+`.claude/skills/research-tree/` directory, where the explicit command remains
+`/research-tree`. Do not mix the direct-Skill command with the marketplace
+plugin command.
 
 The package includes the dependency-free `scripts/native_execution_adapter.py`
 but not the repository Python runtime, hooks, builder, or evaluation corpus.
@@ -39,10 +57,11 @@ the installed Skill directory.
 
 ## Invocation and alignment
 
-Use `/research-tree <request>` for explicit invocation. Claude Code's current
-tool set is session-dependent, so the Skill must use ordinary dialogue unless a
-structured question tool is actually exposed. Do not assume Codex or Hermes
-tool names.
+Use `/research-tree:research-tree <request>` after marketplace installation,
+or `/research-tree <request>` only for the direct-Skill compatibility path.
+Claude Code's current tool set is session-dependent, so the Skill must use
+ordinary dialogue unless a structured question tool is actually exposed. Do not
+assume Codex or Hermes tool names.
 
 The Skill owns research alignment and report production; Claude Code owns
 model calls, repository inspection, web access, shell execution, permissions,
@@ -83,8 +102,13 @@ From the source checkout:
 ```bash
 uv sync
 python scripts/build_skill_packages.py --check
+claude plugin validate packages/claude-code/research-tree --strict
 uv run pytest -q
 ```
+
+`claude plugin validate` proves the checked-in plugin is structurally valid. It
+does not prove a running model turn loaded or followed the Skill; live activation
+remains a separate host-native check.
 
 After changing the common template or Claude adapter, rebuild all host packages:
 
@@ -92,12 +116,15 @@ After changing the common template or Claude adapter, rebuild all host packages:
 python scripts/build_skill_packages.py
 ```
 
-Do not manually edit `packages/claude-code/research-tree/SKILL.md`; it is a
-generated artifact.
+Do not manually edit
+`packages/claude-code/research-tree/skills/research-tree/SKILL.md` or either
+generated manifest; they are generated artifacts.
 
 Primary documentation:
 
 - [Claude Code skills](https://code.claude.com/docs/en/skills)
+- [Claude Code plugins](https://code.claude.com/docs/en/plugins)
+- [Claude Code plugin marketplaces](https://code.claude.com/docs/en/plugin-marketplaces)
 - [Claude Code hooks](https://code.claude.com/docs/en/hooks)
 - [Claude Code settings](https://code.claude.com/docs/en/settings)
 - [Claude Code user input](https://code.claude.com/docs/en/agent-sdk/user-input)
