@@ -30,7 +30,7 @@
 - [x] 4.1 Run focused ledger/content and canonical-evidence tests plus the
   relevant SQLite regression
   suite from this clean worktree.
-- [ ] 4.2 Run strict OpenSpec validation and the repository delivery workflow
+- [x] 4.2 Run strict OpenSpec validation and the repository delivery workflow
   checks for issue #111.
 - [ ] 4.3 Commit the OpenSpec, tests, and implementation in small logical
   commits, then push only `feat/issue-111-ledger-binding` to origin.
