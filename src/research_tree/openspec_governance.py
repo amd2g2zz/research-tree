@@ -13,6 +13,7 @@ LIFECYCLE_STATES = frozenset(
     {"planned", "in_progress", "blocked", "unavailable", "verified", "superseded"}
 )
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
+_COMMIT = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 
 
 @dataclass(frozen=True)
@@ -292,24 +293,39 @@ def _find_cycles(groups: Mapping[int, GroupDefinition]) -> list[tuple[int, ...]]
     return sorted(cycles)
 
 
-def _verification_is_complete(record: VerificationRecord) -> bool:
+def _verification_is_complete(
+    record: VerificationRecord, definition: GroupDefinition | None
+) -> bool:
     if record.state != "verified":
         return True
     receipt = record.command_receipt
-    if not record.evidence_refs or not record.rollback or not isinstance(receipt, Mapping):
+    if (
+        definition is None
+        or not record.evidence_refs
+        or not record.rollback
+        or not isinstance(receipt, Mapping)
+    ):
         return False
     command = receipt.get("command")
     exit_code = receipt.get("exit_code")
     environment = receipt.get("environment_digest")
     output = receipt.get("output_digest")
+    source_revision = receipt.get("source_revision")
+    raw_output_ref = receipt.get("raw_output_ref")
+    recorded_at = receipt.get("recorded_at")
     return (
-        isinstance(command, str)
-        and bool(command)
+        command == definition.acceptance_command
         and exit_code == 0
         and isinstance(environment, str)
         and _DIGEST.fullmatch(environment) is not None
         and isinstance(output, str)
         and _DIGEST.fullmatch(output) is not None
+        and isinstance(source_revision, str)
+        and _COMMIT.fullmatch(source_revision) is not None
+        and isinstance(raw_output_ref, str)
+        and bool(raw_output_ref)
+        and isinstance(recorded_at, str)
+        and bool(recorded_at)
     )
 
 
@@ -401,7 +417,7 @@ def validate_governance(inputs: GovernanceInputs) -> GovernanceReport:
                 )
             )
             continue
-        if not _verification_is_complete(record):
+        if not _verification_is_complete(record, groups.get(group_id)):
             violations.append(
                 GovernanceViolation(
                     code="verified_record_incomplete",

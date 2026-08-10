@@ -6,7 +6,7 @@
   },
   "groups": [
     { "group": 1, "depends_on": [], "owner": "quality", "outputs": ["alpha1-fixture-manifest", "negative-semantic-fixtures"], "acceptance_command": "uv run pytest -q tests/test_alpha1_baseline.py", "rollback": "remove fixture revision only" },
-    { "group": 2, "depends_on": [1], "owner": "runtime", "outputs": ["sqlite-v1"], "acceptance_command": "uv run pytest -q tests/test_sqlite_ledger.py", "rollback": "disable alpha2 storage flag" },
+    { "group": 2, "depends_on": [1], "owner": "runtime", "outputs": ["sqlite-v1"], "acceptance_command": "uv run pytest -q tests/test_sqlite_ledger.py", "rollback": "disable Alpha2 SQLite ledger use and retain immutable rows read-only" },
     { "group": 3, "depends_on": [2], "owner": "evidence", "outputs": ["evidence-schemas", "anchor-resolver"], "acceptance_command": "uv run pytest -q tests/test_evidence_contract.py", "rollback": "retain imported evidence as read-only" },
     { "group": 4, "depends_on": [3], "owner": "evidence", "outputs": ["oracle-runner", "closure-assessor"], "acceptance_command": "uv run pytest -q tests/test_oracle_closure.py", "rollback": "revoke alpha2 closure tokens" },
     { "group": 5, "depends_on": [2, 4], "owner": "runtime", "outputs": ["coordinator", "state-machine"], "acceptance_command": "uv run pytest -q tests/test_coordinator.py tests/test_lifecycle.py", "rollback": "route reads to legacy projection" },
