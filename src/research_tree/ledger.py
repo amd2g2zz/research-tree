@@ -13,6 +13,7 @@ from .domain import (
     validate_identifier,
 )
 from .storage import RunStore
+from .run_ledger import RunLedger
 from .work_items import WORK_ITEM_KIND
 from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
 
@@ -49,9 +50,23 @@ class InvalidDecisionLedgerError(DecisionLedgerError):
 class FindingPackCompiler:
     """Validate one work result as atomic, option-relevant observations."""
 
-    def __init__(self, store: RunStore, evidence_resolver: EvidenceResolver | None = None) -> None:
+    def __init__(
+        self,
+        store: RunStore,
+        evidence_resolver: EvidenceResolver | None = None,
+        *,
+        legacy_mode: bool = False,
+        strict_evidence: bool = False,
+    ) -> None:
+        if strict_evidence:
+            raise InvalidFindingPackError(
+                "strict evidence requires CanonicalFindingPackCompiler and a RunLedger"
+            )
+        if evidence_resolver is not None:
+            raise InvalidFindingPackError("legacy Finding Pack compiler cannot use an EvidenceResolver")
+        if not isinstance(store, RunStore):
+            raise InvalidFindingPackError("legacy Finding Pack compiler requires a RunStore")
         self._store = store
-        self._evidence_resolver = evidence_resolver
 
     def compile(
         self,
@@ -89,9 +104,11 @@ class FindingPackCompiler:
                 "slot alternatives",
                 error_type=InvalidFindingPackError,
             )
-            normalized_observations = _normalize_observations(observations, slot)
-            if self._evidence_resolver is not None:
-                _validate_resolvable_observations(normalized_observations, self._evidence_resolver)
+            normalized_observations = _normalize_observations(
+                observations,
+                slot,
+                strict_evidence=False,
+            )
             payload = {
                 "id": finding_id,
                 "round_id": round_id,
@@ -128,6 +145,7 @@ class FindingPackCompiler:
                     research_continuations
                 ),
                 "validation_result": _normalize_validation_result(validation_result),
+                "evidence_mode": "legacy_unverified",
             }
         except (InvalidIdentifierError, TypeError, ValueError) as error:
             raise InvalidFindingPackError(str(error)) from error
@@ -140,6 +158,112 @@ class FindingPackCompiler:
             FINDING_PACK_KIND,
             payload,
             parent_refs=(work_ref, target_ref),
+        )
+
+
+class CanonicalFindingPackCompiler:
+    """Compile strict Finding Packs into the canonical RunLedger."""
+
+    def __init__(self, ledger: RunLedger, evidence_resolver: EvidenceResolver) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidFindingPackError("canonical Finding Pack compiler requires a RunLedger")
+        if not isinstance(evidence_resolver, EvidenceResolver) or evidence_resolver.ledger is not ledger:
+            raise InvalidFindingPackError(
+                "canonical Finding Pack compiler requires a matching ledger-backed EvidenceResolver"
+            )
+        self._ledger = ledger
+        self._evidence_resolver = evidence_resolver
+
+    def compile(
+        self,
+        *,
+        round_id: str,
+        finding_id: str,
+        work_item: ArtifactRevision,
+        observations: Sequence[Mapping[str, Any]],
+        option_effects: Sequence[Mapping[str, Any]],
+        implementation_implications: Sequence[str],
+        remaining_uncertainties: Sequence[str],
+        expected_revision: int,
+        research_node_id: str | None = None,
+        research_continuations: Sequence[Mapping[str, Any]] = (),
+        validation_result: Mapping[str, Any] | None = None,
+    ) -> ArtifactRevision:
+        try:
+            snapshot = self._ledger.load_run(round_id)
+            validate_identifier(finding_id, "finding_id")
+            _ensure_id_compatibility(snapshot.artifacts, finding_id, FINDING_PACK_KIND, InvalidFindingPackError)
+            work = _resolve_exact(
+                snapshot.artifacts,
+                work_item,
+                WORK_ITEM_KIND,
+                "work_item",
+                InvalidFindingPackError,
+            )
+            if work.round_id != round_id:
+                raise InvalidFindingPackError("work_item must belong to Finding Pack round")
+            target = _work_target(snapshot.artifacts, work, InvalidFindingPackError)
+            slot = _target_slot(target, work.payload.get("decision_slot_id"), InvalidFindingPackError)
+            options = _string_sequence(
+                slot.get("alternatives"),
+                "slot alternatives",
+                error_type=InvalidFindingPackError,
+            )
+            normalized_observations = _normalize_observations(
+                observations,
+                slot,
+                strict_evidence=True,
+            )
+            _validate_resolvable_observations(normalized_observations, self._evidence_resolver)
+            payload = {
+                "id": finding_id,
+                "round_id": round_id,
+                "work_item_id": work.id,
+                "blueprint_target_id": target.id,
+                "decision_slot_id": slot["id"],
+                "observations": normalized_observations,
+                "option_effects": _normalize_option_effects(option_effects, options),
+                "implementation_implications": list(
+                    _string_sequence(
+                        implementation_implications,
+                        "implementation_implications",
+                        error_type=InvalidFindingPackError,
+                    )
+                ),
+                "remaining_uncertainties": list(
+                    _string_sequence(
+                        remaining_uncertainties,
+                        "remaining_uncertainties",
+                        allow_empty=True,
+                        error_type=InvalidFindingPackError,
+                    )
+                ),
+                "research_node_id": (
+                    None
+                    if research_node_id is None
+                    else _nonempty_string(
+                        research_node_id,
+                        "research_node_id",
+                        InvalidFindingPackError,
+                    )
+                ),
+                "research_continuations": _normalize_research_continuations(research_continuations),
+                "validation_result": _normalize_validation_result(validation_result),
+                "evidence_mode": "strict",
+            }
+        except (InvalidIdentifierError, TypeError, ValueError) as error:
+            raise InvalidFindingPackError(str(error)) from error
+
+        work_ref = ArtifactRef(round_id, work.id, work.revision)
+        target_ref = ArtifactRef(round_id, target.id, target.revision)
+        evidence_refs = _strict_evidence_refs(normalized_observations)
+        return self._ledger.append_artifact(
+            round_id,
+            finding_id,
+            FINDING_PACK_KIND,
+            payload,
+            parent_refs=(work_ref, target_ref, *evidence_refs),
+            expected_revision=expected_revision,
         )
 
 
@@ -277,6 +401,143 @@ class DecisionLedgerCompiler:
         )
 
 
+class CanonicalDecisionLedgerCompiler:
+    """Converge strict canonical Finding Packs in the same RunLedger."""
+
+    def __init__(self, ledger: RunLedger, evidence_resolver: EvidenceResolver) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidDecisionLedgerError("canonical Decision Ledger compiler requires a RunLedger")
+        if not isinstance(evidence_resolver, EvidenceResolver) or evidence_resolver.ledger is not ledger:
+            raise InvalidDecisionLedgerError(
+                "canonical Decision Ledger compiler requires a matching ledger-backed EvidenceResolver"
+            )
+        self._ledger = ledger
+        self._evidence_resolver = evidence_resolver
+
+    def converge(
+        self,
+        *,
+        round_id: str,
+        decision_id: str,
+        blueprint_target: ArtifactRevision,
+        decision_slot_id: str,
+        finding_packs: Sequence[ArtifactRevision],
+        status: str,
+        selected_option: str | None,
+        alternatives: Sequence[Mapping[str, Any]],
+        anchors: Sequence[Mapping[str, Any]],
+        design_consequence: str,
+        repository_touchpoints: Sequence[Mapping[str, Any]],
+        validation: Mapping[str, Any],
+        change_tasks: Sequence[Mapping[str, Any]],
+        assumptions: Sequence[str],
+        fallback: str,
+        reversal_condition: str,
+        revision_reason: str,
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        try:
+            snapshot = self._ledger.load_run(round_id)
+            validate_identifier(decision_id, "decision_id")
+            _ensure_id_compatibility(
+                snapshot.artifacts,
+                decision_id,
+                DECISION_LEDGER_KIND,
+                InvalidDecisionLedgerError,
+            )
+            target = _resolve_exact(
+                snapshot.artifacts,
+                blueprint_target,
+                BLUEPRINT_TARGET_KIND,
+                "blueprint_target",
+                InvalidDecisionLedgerError,
+            )
+            if target.round_id != round_id:
+                raise InvalidDecisionLedgerError("blueprint_target must belong to decision round")
+            slot = _target_slot(target, decision_slot_id, InvalidDecisionLedgerError)
+            slot_options = _string_sequence(slot.get("alternatives"), "slot alternatives")
+            normalized_status = _enum(status, "status", DECISION_STATUSES, InvalidDecisionLedgerError)
+            findings = _resolve_findings(
+                snapshot.artifacts,
+                finding_packs,
+                round_id,
+                target,
+                slot["id"],
+            )
+            evidence_refs = (
+                _strict_finding_evidence_refs(findings, self._evidence_resolver)
+                if normalized_status in {"selected", "conditional"} or findings
+                else ()
+            )
+            selected = _normalize_selected_option(
+                selected_option,
+                normalized_status,
+                slot_options,
+            )
+            normalized_alternatives = _normalize_alternatives(
+                alternatives,
+                slot_options,
+                selected,
+            )
+            normalized_anchors = _normalize_decision_anchors(anchors, findings)
+            normalized_touchpoints = _normalize_touchpoints(repository_touchpoints, slot)
+            normalized_validation = _normalize_validation(validation)
+            normalized_tasks = _normalize_change_tasks(change_tasks, slot)
+            payload = {
+                "id": decision_id,
+                "round_id": round_id,
+                "blueprint_target_id": target.id,
+                "decision_slot_id": slot["id"],
+                "status": normalized_status,
+                "selected_option": selected,
+                "alternatives": normalized_alternatives,
+                "anchors": normalized_anchors,
+                "design_consequence": _nonempty_string(
+                    design_consequence,
+                    "design_consequence",
+                    InvalidDecisionLedgerError,
+                ),
+                "repository_touchpoints": normalized_touchpoints,
+                "validation": normalized_validation,
+                "change_tasks": normalized_tasks,
+                "assumptions": list(
+                    _string_sequence(assumptions, "assumptions", allow_empty=True)
+                ),
+                "fallback": _nonempty_string(fallback, "fallback", InvalidDecisionLedgerError),
+                "reversal_condition": _nonempty_string(
+                    reversal_condition,
+                    "reversal_condition",
+                    InvalidDecisionLedgerError,
+                ),
+                "revision_reason": _nonempty_string(
+                    revision_reason,
+                    "revision_reason",
+                    InvalidDecisionLedgerError,
+                ),
+            }
+            _validate_decision_trace(slot, findings, payload, InvalidDecisionLedgerError)
+            previous = _latest_artifact(snapshot.artifacts, decision_id, DECISION_LEDGER_KIND)
+        except (InvalidIdentifierError, TypeError, ValueError) as error:
+            raise InvalidDecisionLedgerError(str(error)) from error
+
+        target_ref = ArtifactRef(round_id, target.id, target.revision)
+        finding_refs = tuple(
+            ArtifactRef(round_id, finding.id, finding.revision) for finding in findings
+        )
+        parent_refs = (
+            (() if previous is None else (ArtifactRef(round_id, previous.id, previous.revision),))
+            + (target_ref, *finding_refs, *evidence_refs)
+        )
+        return self._ledger.append_artifact(
+            round_id,
+            decision_id,
+            DECISION_LEDGER_KIND,
+            payload,
+            parent_refs=_unique_artifact_refs(parent_refs),
+            expected_revision=expected_revision,
+        )
+
+
 def _ensure_id_compatibility(
     artifacts: Sequence[ArtifactRevision],
     artifact_id: str,
@@ -347,6 +608,8 @@ def _target_slot(
 def _normalize_observations(
     value: Any,
     slot: Mapping[str, Any],
+    *,
+    strict_evidence: bool,
 ) -> list[dict[str, Any]]:
     observations = _mapping_sequence(value, "observations", InvalidFindingPackError)
     if not observations:
@@ -362,15 +625,16 @@ def _normalize_observations(
         )
         raw_anchor = observation["anchor"]
         if isinstance(raw_anchor, Mapping) and "artifact_digest" in raw_anchor:
-            _require_exact_keys(
-                raw_anchor,
-                {"artifact_digest", "artifact_revision", "selector_type", "selector_value", "extractor_version", "applicability", "confidence", "limitations"},
-                f"{label}.anchor",
-                InvalidFindingPackError,
-            )
-            anchor = dict(raw_anchor)
-            anchor["limitations"] = list(anchor["limitations"])
+            try:
+                typed = EvidenceAnchor.from_dict(raw_anchor, allow_legacy=not strict_evidence)
+            except (TypeError, ValueError) as error:
+                raise InvalidFindingPackError(f"{label}.anchor is invalid: {error}") from error
+            if strict_evidence and not typed.is_strict:
+                raise InvalidFindingPackError(f"{label}.anchor must be an exact canonical EvidenceAnchor")
+            anchor = typed.to_dict()
         else:
+            if strict_evidence:
+                raise InvalidFindingPackError(f"{label}.anchor must be a canonical EvidenceAnchor")
             anchor = _normalize_anchor(
                 raw_anchor,
                 label,
@@ -415,21 +679,78 @@ def _validate_resolvable_observations(
                 f"observations[{index}].anchor must be an EvidenceAnchor"
             )
         try:
-            typed = EvidenceAnchor(
-                artifact_digest=anchor["artifact_digest"],
-                artifact_revision=anchor["artifact_revision"],
-                selector_type=anchor["selector_type"],
-                selector_value=anchor["selector_value"],
-                extractor_version=anchor["extractor_version"],
-                applicability=anchor["applicability"],
-                confidence=anchor["confidence"],
-                limitations=tuple(anchor["limitations"]),
-            )
+            typed = EvidenceAnchor.from_dict(anchor)
             resolver.resolve(typed)
         except (KeyError, TypeError, EvidenceValidationError) as error:
             raise InvalidFindingPackError(
                 f"observations[{index}].anchor is not resolvable: {error}"
             ) from error
+
+
+def _strict_evidence_refs(observations: Sequence[Mapping[str, Any]]) -> tuple[ArtifactRef, ...]:
+    references: list[ArtifactRef] = []
+    for index, observation in enumerate(observations):
+        try:
+            anchor = EvidenceAnchor.from_dict(observation["anchor"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise InvalidFindingPackError(
+                f"observations[{index}].anchor is not canonical evidence: {error}"
+            ) from error
+        if anchor.artifact_ref is None:
+            raise InvalidFindingPackError(
+                f"observations[{index}].anchor is missing its exact evidence reference"
+            )
+        if anchor.artifact_ref not in references:
+            references.append(anchor.artifact_ref)
+    return tuple(references)
+
+
+def _strict_finding_evidence_refs(
+    findings: Sequence[ArtifactRevision], resolver: EvidenceResolver
+) -> tuple[ArtifactRef, ...]:
+    if not findings:
+        raise InvalidDecisionLedgerError(
+            "selected or conditional decision requires at least one strict Finding Pack"
+        )
+    references: list[ArtifactRef] = []
+    for finding in findings:
+        if finding.payload.get("evidence_mode") != "strict":
+            raise InvalidDecisionLedgerError(
+                f"Finding Pack {finding.id} is not backed by strict evidence"
+            )
+        try:
+            finding_refs = _strict_evidence_refs(finding.payload.get("observations", ()))
+        except InvalidFindingPackError as error:
+            raise InvalidDecisionLedgerError(
+                f"Finding Pack {finding.id} has invalid strict evidence: {error}"
+            ) from error
+        if not finding_refs:
+            raise InvalidDecisionLedgerError(
+                f"Finding Pack {finding.id} requires at least one strict observation"
+            )
+        for reference in finding_refs:
+            if reference not in finding.parent_refs:
+                raise InvalidDecisionLedgerError(
+                    f"Finding Pack {finding.id} lacks parent lineage for {reference.artifact_id}"
+                )
+            if reference not in references:
+                references.append(reference)
+        for observation in finding.payload.get("observations", ()):
+            try:
+                resolver.resolve(EvidenceAnchor.from_dict(observation["anchor"]))
+            except (KeyError, TypeError, ValueError, EvidenceValidationError) as error:
+                raise InvalidDecisionLedgerError(
+                    f"Finding Pack {finding.id} evidence is not resolvable: {error}"
+                ) from error
+    return tuple(references)
+
+
+def _unique_artifact_refs(references: Sequence[ArtifactRef]) -> tuple[ArtifactRef, ...]:
+    unique: list[ArtifactRef] = []
+    for reference in references:
+        if reference not in unique:
+            unique.append(reference)
+    return tuple(unique)
 
 
 def _normalize_option_effects(value: Any, options: tuple[str, ...]) -> list[dict[str, str]]:
@@ -732,24 +1053,30 @@ def _validate_decision_trace(
     payload: Mapping[str, Any],
     error_type: type[RuntimeStoreError],
 ) -> None:
-    if slot.get("priority") != "P0" or payload["status"] not in {"selected", "conditional"}:
+    if payload["status"] not in {"selected", "conditional"}:
         return
     finding_anchors = {
         anchor["ref"] for anchor in payload["anchors"] if anchor["kind"] == "finding"
     }
     if not findings or not finding_anchors:
-        raise error_type("P0 selected or conditional decision requires a supplied Finding Pack anchor")
+        raise error_type("selected or conditional decision requires a supplied Finding Pack anchor")
     selected_option = payload["selected_option"]
-    effects = {
+    supported_options = {
         effect["option"]
         for finding in findings
         for effect in finding.payload.get("option_effects", ())
-        if isinstance(effect, Mapping) and isinstance(effect.get("option"), str)
-    }
-    if selected_option not in effects:
-        raise error_type(
-            "P0 selected or conditional decision requires a Finding Pack effect for selected_option"
+        if (
+            isinstance(effect, Mapping)
+            and effect.get("effect") == "supports"
+            and isinstance(effect.get("option"), str)
         )
+    }
+    if selected_option not in supported_options:
+        raise error_type(
+            "selected or conditional decision requires a Finding Pack support effect for selected_option"
+        )
+    if slot.get("priority") != "P0":
+        return
     if not payload["change_tasks"]:
         raise error_type("P0 selected or conditional decision requires at least one change task")
 

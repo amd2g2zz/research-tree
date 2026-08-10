@@ -197,6 +197,21 @@ class RunLedger:
             raise LedgerIntegrityError(f"artifact identity does not match its row: {reference}")
         return artifact
 
+    def is_latest_artifact(self, reference: ArtifactRef) -> bool:
+        """Return whether an exact artifact revision is current for its identity."""
+
+        self.initialize()
+        if not isinstance(reference, ArtifactRef):
+            raise LedgerIntegrityError("artifact reference must be an ArtifactRef")
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT MAX(revision) FROM artifacts WHERE run_id = ? AND artifact_id = ?",
+                (reference.round_id, reference.artifact_id),
+            ).fetchone()
+        if row is None or row[0] is None:
+            raise LedgerIntegrityError(f"artifact does not exist: {reference}")
+        return int(row[0]) == reference.revision
+
     def get_bound_content(self, reference: ArtifactRef) -> ContentObject:
         """Load the content metadata bound to one immutable artifact revision."""
 
