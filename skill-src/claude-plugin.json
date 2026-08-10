@@ -1,0 +1,16 @@
+{
+  "name": "research-tree",
+  "version": "0.1.0",
+  "description": "Evidence-driven technical research that turns ambiguous requests into implementation-ready decisions.",
+  "author": {
+    "name": "research-tree maintainers"
+  },
+  "homepage": "https://github.com/amd2g2zz/research-tree",
+  "repository": "https://github.com/amd2g2zz/research-tree",
+  "keywords": [
+    "research",
+    "technical-research",
+    "evidence",
+    "decision-support"
+  ]
+}

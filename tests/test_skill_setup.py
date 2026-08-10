@@ -12,6 +12,7 @@ from research_tree.skill_setup import (
     install_skill,
     main,
     resolve_package,
+    resolve_skill_source,
     resolve_target,
     skill_status,
 )
@@ -171,6 +172,45 @@ def test_legacy_repository_link_is_migrated_to_host_package(tmp_path: Path) -> N
 
     assert result["installations"][0]["action"] == "migrated"
     assert target.resolve() == resolve_package(ROOT, "hermes").resolve()
+
+
+def test_claude_direct_install_uses_nested_skill_and_reports_plugin_package(
+    tmp_path: Path,
+) -> None:
+    result = install_skill(
+        ("claude",),
+        source=ROOT,
+        scope="user",
+        mode="link",
+        home=tmp_path / "home",
+        project_root=tmp_path / "project",
+    )
+
+    installation = result["installations"][0]
+    target = Path(installation["target"])
+    assert target.resolve() == resolve_skill_source(ROOT, "claude").resolve()
+    assert (target / "SKILL.md").is_file()
+    assert Path(installation["package"]) == resolve_package(ROOT, "claude")
+    assert Path(installation["skill_source"]) == resolve_skill_source(ROOT, "claude")
+
+
+def test_legacy_claude_plugin_root_link_is_migrated_to_nested_skill(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    target = home / ".claude" / "skills" / "research-tree"
+    target.parent.mkdir(parents=True)
+    _create_link(resolve_package(ROOT, "claude"), target)
+
+    result = install_skill(
+        ("claude",),
+        source=ROOT,
+        scope="user",
+        mode="link",
+        home=home,
+        project_root=tmp_path / "project",
+    )
+
+    assert result["installations"][0]["action"] == "migrated"
+    assert target.resolve() == resolve_skill_source(ROOT, "claude").resolve()
 
 
 def test_codex_home_override_is_used_for_user_scope(tmp_path: Path) -> None:
