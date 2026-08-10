@@ -1,0 +1,9 @@
+{
+  "command": "uv run pytest -q tests/test_alpha1_baseline.py",
+  "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+  "exit_code": 0,
+  "output_digest": "30b93ba063c66ab48ca2344a932094302f5186163a9cc4c7c260c3abba8b9620",
+  "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/group-1-output.txt",
+  "recorded_at": "2026-08-10T03:22:20.174174+00:00",
+  "source_revision": "dcabcd5b11771d46ad9b00a3fc7ae5f437186996"
+}
