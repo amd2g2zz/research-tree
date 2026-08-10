@@ -137,6 +137,7 @@ Install the package for your host:
 uv run research-tree-setup install --host codex --source .
 
 # Claude Code
+# Direct-Skill compatibility installation
 uv run research-tree-setup install --host claude --source .
 
 # Hermes Agent
@@ -156,6 +157,7 @@ Then invoke the skill from the selected host:
 $research-tree Investigate how to build a fully autonomous reverse-engineering agent.
 
 # Claude Code
+# Direct-Skill compatibility invocation
 /research-tree Investigate how to build a fully autonomous reverse-engineering agent.
 
 # Hermes Agent
@@ -164,6 +166,28 @@ $research-tree Investigate how to build a fully autonomous reverse-engineering a
 
 The initial request can also include links, local files, prior reports, or a
 repository path.
+
+### Claude Code Marketplace
+
+Claude Code can also install the generated plugin through this repository's
+marketplace. This is distinct from the direct-Skill compatibility installation
+above:
+
+```bash
+claude plugin marketplace add amd2g2zz/research-tree
+claude plugin install research-tree@research-tree
+claude plugin validate packages/claude-code/research-tree --strict
+```
+
+After marketplace installation, invoke the namespaced plugin Skill with:
+
+```text
+/research-tree:research-tree Investigate how to build a fully autonomous reverse-engineering agent.
+```
+
+Run `/reload-plugins` after updating a local marketplace checkout. Manifest
+validation establishes static package structure; it does not prove the current
+model session has loaded the Skill body.
 
 ## Installation Instructions for Coding Agents
 
@@ -236,16 +260,16 @@ adaptation are intentionally different.
 | Host | Package | User installation | Project installation | Explicit invocation |
 | --- | --- | --- | --- | --- |
 | Codex | `packages/codex/research-tree` | `$CODEX_HOME/skills/research-tree` (defaults to `~/.codex/skills/research-tree`) | `.agents/skills/research-tree` | `$research-tree ...` |
-| Claude Code | `packages/claude-code/research-tree` | `~/.claude/skills/research-tree` | `.claude/skills/research-tree` | `/research-tree ...` |
+| Claude Code | `packages/claude-code/research-tree` plugin with `skills/research-tree` | `~/.claude/skills/research-tree` direct-Skill compatibility path | `.claude/skills/research-tree` direct-Skill compatibility path | Marketplace: `/research-tree:research-tree ...`; direct Skill: `/research-tree ...` |
 | Hermes Agent | `packages/hermes/research-tree` | `~/.hermes/skills/research-tree` | Configure `skills.external_dirs` | `/research-tree ...` |
 
 The formats are not interchangeable:
 
 - **Codex** uses the strict `SKILL.md` metadata contract and ships UI metadata
   in `agents/openai.yaml`.
-- **Claude Code** uses Claude-specific invocation controls in `SKILL.md`,
-  including `argument-hint`, `disable-model-invocation`, and
-  `user-invocable`.
+- **Claude Code** uses a marketplace manifest, plugin manifest, and a nested
+  `skills/research-tree/SKILL.md` with `argument-hint`,
+  `disable-model-invocation`, and `user-invocable`.
 - **Hermes Agent** uses minimal Agent Skills metadata plus a dedicated runtime
   adapter and compatibility reference. It does not assume that LangGraph or
   LangChain is installed.
@@ -267,7 +291,7 @@ otherwise:
 
 See the host compatibility references for the exact schemas and fallbacks:
 [Codex](packages/codex/research-tree/references/codex-cli-compatibility.md),
-[Claude Code](packages/claude-code/research-tree/references/claude-code-compatibility.md),
+[Claude Code](packages/claude-code/research-tree/skills/research-tree/references/claude-code-compatibility.md),
 and [Hermes](packages/hermes/research-tree/references/hermes-agent-compatibility.md).
 
 ## Installation Options
@@ -506,6 +530,7 @@ Verify that checked-in packages are current and isolated correctly:
 
 ```bash
 uv run python scripts/build_skill_packages.py --check
+claude plugin validate packages/claude-code/research-tree --strict
 ```
 
 Run the full test suite:
@@ -517,6 +542,8 @@ uv run pytest -q
 Package validation checks that:
 
 - generated files match their authoring sources;
+- the marketplace source resolves to the generated Claude plugin and both
+  manifests match the project version;
 - every referenced resource exists;
 - each package contains only its expected files;
 - Claude Code metadata does not leak into Codex or Hermes;
@@ -529,7 +556,9 @@ Package validation checks that:
 - [Alpha2 architecture decisions](docs/adr/)
 - [Skill authoring template](skill-src/SKILL.template.md)
 - [Codex package](packages/codex/research-tree/SKILL.md)
-- [Claude Code package](packages/claude-code/research-tree/SKILL.md)
+- [Claude Code plugin](packages/claude-code/research-tree/.claude-plugin/plugin.json)
+- [Claude Code Skill](packages/claude-code/research-tree/skills/research-tree/SKILL.md)
+- [Claude Code marketplace](.claude-plugin/marketplace.json)
 - [Hermes package](packages/hermes/research-tree/SKILL.md)
 - [Research quality playbook](references/research-quality-playbook.md)
 - [Product contracts](references/product-contracts.md)

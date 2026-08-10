@@ -10,6 +10,28 @@ ROOT = Path(__file__).resolve().parents[1]
 BUILDER = ROOT / "scripts" / "build_skill_packages.py"
 
 
+def _skill_dir(package: Path) -> Path:
+    return package / "skills" / "research-tree" if "claude-code" in package.parts else package
+
+
+def test_claude_code_plugin_registration_manifests_are_present() -> None:
+    marketplace = ROOT / ".claude-plugin" / "marketplace.json"
+    plugin = ROOT / "packages" / "claude-code" / "research-tree" / ".claude-plugin" / "plugin.json"
+    skill = ROOT / "packages" / "claude-code" / "research-tree" / "skills" / "research-tree" / "SKILL.md"
+
+    assert marketplace.is_file()
+    assert plugin.is_file()
+    assert skill.is_file()
+
+    marketplace_data = json.loads(marketplace.read_text(encoding="utf-8"))
+    plugin_data = json.loads(plugin.read_text(encoding="utf-8"))
+    entry = next(item for item in marketplace_data["plugins"] if item["name"] == "research-tree")
+    assert marketplace_data["owner"]["name"]
+    assert entry["source"] == "./packages/claude-code/research-tree"
+    assert plugin_data["name"] == "research-tree"
+    assert entry["version"] == plugin_data["version"] == marketplace_data["version"]
+
+
 def test_checked_in_host_packages_are_current_and_isolated() -> None:
     completed = subprocess.run(
         [sys.executable, str(BUILDER), "--check"],
@@ -27,6 +49,7 @@ def test_checked_in_host_packages_are_current_and_isolated() -> None:
         "hermes",
     }
     assert all(item["valid"] for item in result["packages"])
+    assert result["marketplace"]["valid"]
 
     codex = ROOT / "packages" / "codex" / "research-tree"
     claude = ROOT / "packages" / "claude-code" / "research-tree"
@@ -34,7 +57,7 @@ def test_checked_in_host_packages_are_current_and_isolated() -> None:
     assert codex.is_dir() and claude.is_dir() and hermes.is_dir()
     skill_bodies = {
         (codex / "SKILL.md").read_bytes(),
-        (claude / "SKILL.md").read_bytes(),
+        (_skill_dir(claude) / "SKILL.md").read_bytes(),
         (hermes / "SKILL.md").read_bytes(),
     }
     assert len(skill_bodies) == 3
@@ -46,12 +69,13 @@ def test_only_hermes_package_contains_hermes_compatibility_material() -> None:
     hermes = ROOT / "packages" / "hermes" / "research-tree"
 
     for package in (codex, claude):
-        skill = (package / "SKILL.md").read_text(encoding="utf-8")
+        skill_root = _skill_dir(package)
+        skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
         assert "Hermes runtime adapter" not in skill
-        assert not (package / "references" / "hermes-agent-compatibility.md").exists()
-        assert not (package / "references" / "hermes-native-orchestration.md").exists()
-        assert not (package / "scripts" / "hermes_runtime_hook.py").exists()
-        assert not (package / "scripts" / "hermes_skill_adapter.py").exists()
+        assert not (skill_root / "references" / "hermes-agent-compatibility.md").exists()
+        assert not (skill_root / "references" / "hermes-native-orchestration.md").exists()
+        assert not (skill_root / "scripts" / "hermes_runtime_hook.py").exists()
+        assert not (skill_root / "scripts" / "hermes_skill_adapter.py").exists()
 
     hermes_skill = (hermes / "SKILL.md").read_text(encoding="utf-8")
     assert "Hermes runtime adapter" in hermes_skill
@@ -82,11 +106,12 @@ def test_only_claude_package_contains_claude_compatibility_material() -> None:
         if package == hermes:
             assert not (package / "scripts" / "native_execution_adapter.py").exists()
 
-    claude_skill = (claude / "SKILL.md").read_text(encoding="utf-8")
+    claude_skill_root = _skill_dir(claude)
+    claude_skill = (claude_skill_root / "SKILL.md").read_text(encoding="utf-8")
     assert "Claude Code runtime adapter" in claude_skill
-    assert (claude / "references" / "claude-code-compatibility.md").is_file()
-    assert (claude / "references" / "claude-native-orchestration.md").is_file()
-    assert (claude / "scripts" / "native_execution_adapter.py").is_file()
+    assert (claude_skill_root / "references" / "claude-code-compatibility.md").is_file()
+    assert (claude_skill_root / "references" / "claude-native-orchestration.md").is_file()
+    assert (claude_skill_root / "scripts" / "native_execution_adapter.py").is_file()
 
 
 def test_only_codex_package_contains_codex_compatibility_material() -> None:
@@ -95,10 +120,11 @@ def test_only_codex_package_contains_codex_compatibility_material() -> None:
     hermes = ROOT / "packages" / "hermes" / "research-tree"
 
     for package in (claude, hermes):
-        skill = (package / "SKILL.md").read_text(encoding="utf-8")
+        skill_root = _skill_dir(package)
+        skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
         assert "Codex CLI runtime adapter" not in skill
-        assert not (package / "references" / "codex-cli-compatibility.md").exists()
-        assert not (package / "references" / "codex-native-orchestration.md").exists()
+        assert not (skill_root / "references" / "codex-cli-compatibility.md").exists()
+        assert not (skill_root / "references" / "codex-native-orchestration.md").exists()
 
     codex_skill = (codex / "SKILL.md").read_text(encoding="utf-8")
     assert "Codex CLI runtime adapter" in codex_skill
@@ -119,10 +145,7 @@ def test_codex_and_claude_expose_distinct_native_orchestration() -> None:
         / "codex-native-orchestration.md"
     ).read_text(encoding="utf-8")
     claude = (
-        ROOT
-        / "packages"
-        / "claude-code"
-        / "research-tree"
+        _skill_dir(ROOT / "packages" / "claude-code" / "research-tree")
         / "references"
         / "claude-native-orchestration.md"
     ).read_text(encoding="utf-8")
@@ -136,10 +159,7 @@ def test_codex_and_claude_expose_distinct_native_orchestration() -> None:
 
     for package_name in ("codex", "claude-code"):
         adapter = (
-            ROOT
-            / "packages"
-            / package_name
-            / "research-tree"
+            _skill_dir(ROOT / "packages" / package_name / "research-tree")
             / "scripts"
             / "native_execution_adapter.py"
         ).read_text(encoding="utf-8")
@@ -155,7 +175,7 @@ def test_host_question_references_name_only_their_native_capability() -> None:
     hermes = ROOT / "packages" / "hermes" / "research-tree"
 
     assert "AskUserQuestion" in (
-        claude / "references" / "claude-code-compatibility.md"
+        _skill_dir(claude) / "references" / "claude-code-compatibility.md"
     ).read_text(encoding="utf-8")
     assert "clarify" in (
         hermes / "references" / "hermes-agent-compatibility.md"
@@ -170,7 +190,7 @@ def test_feedback_reopens_research_and_requires_evidence_progress() -> None:
         encoding="utf-8"
     )
     claude = (
-        ROOT / "packages" / "claude-code" / "research-tree" / "SKILL.md"
+        _skill_dir(ROOT / "packages" / "claude-code" / "research-tree") / "SKILL.md"
     ).read_text(encoding="utf-8")
 
     for body in (template, claude):
@@ -192,9 +212,10 @@ def test_all_host_packages_expose_opt_in_debug_tracing() -> None:
     )
 
     for package in packages:
-        skill = (package / "SKILL.md").read_text(encoding="utf-8")
+        skill_root = _skill_dir(package)
+        skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
         assert "research-tree-debug" in skill
-        assert (package / "references" / "debug-tracing.md").is_file()
+        assert (skill_root / "references" / "debug-tracing.md").is_file()
 
 
 def test_host_adapters_direct_the_native_question_capability() -> None:
@@ -202,7 +223,7 @@ def test_host_adapters_direct_the_native_question_capability() -> None:
         encoding="utf-8"
     )
     claude = (
-        ROOT / "packages" / "claude-code" / "research-tree" / "SKILL.md"
+        _skill_dir(ROOT / "packages" / "claude-code" / "research-tree") / "SKILL.md"
     ).read_text(encoding="utf-8")
     hermes = (ROOT / "packages" / "hermes" / "research-tree" / "SKILL.md").read_text(
         encoding="utf-8"
@@ -228,8 +249,11 @@ def test_long_horizon_policy_is_cost_tolerant_and_resumable() -> None:
 
     for host in ("codex", "claude", "hermes"):
         skill = (
-            ROOT / "packages" / ("claude-code" if host == "claude" else host)
-            / "research-tree" / "SKILL.md"
+            _skill_dir(
+                ROOT / "packages" / ("claude-code" if host == "claude" else host)
+                / "research-tree"
+            )
+            / "SKILL.md"
         ).read_text(encoding="utf-8")
         assert "cost-tolerant" in skill
         assert "Autonomy envelope after strategy handoff" in skill
@@ -249,9 +273,9 @@ def test_intent_understanding_remains_live_during_research() -> None:
     assert "Intent understanding is never a one-time pre-research gate" in playbook
     for host in ("codex", "claude", "hermes"):
         package = "claude-code" if host == "claude" else host
-        skill = (ROOT / "packages" / package / "research-tree" / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
+        skill = (
+            _skill_dir(ROOT / "packages" / package / "research-tree") / "SKILL.md"
+        ).read_text(encoding="utf-8")
         assert "Intent understanding remains active throughout the round" in skill
 
 
@@ -341,7 +365,7 @@ def test_each_package_uses_only_its_hosts_metadata_format() -> None:
     hermes = ROOT / "packages" / "hermes" / "research-tree"
 
     codex_skill = (codex / "SKILL.md").read_text(encoding="utf-8")
-    claude_skill = (claude / "SKILL.md").read_text(encoding="utf-8")
+    claude_skill = (_skill_dir(claude) / "SKILL.md").read_text(encoding="utf-8")
     hermes_skill = (hermes / "SKILL.md").read_text(encoding="utf-8")
 
     assert (codex / "agents" / "openai.yaml").is_file()
@@ -352,16 +376,21 @@ def test_each_package_uses_only_its_hosts_metadata_format() -> None:
     assert "argument-hint:" in claude_skill
     assert "disable-model-invocation: false" in claude_skill
     assert "user-invocable: true" in claude_skill
+    assert (claude / ".claude-plugin" / "plugin.json").is_file()
+    assert (_skill_dir(claude) / "SKILL.md").is_file()
+    assert not (claude / "SKILL.md").exists()
     assert not (claude / "agents" / "openai.yaml").exists()
+    assert not (codex / ".claude-plugin").exists()
+    assert not (hermes / ".claude-plugin").exists()
     assert "argument-hint:" not in hermes_skill
     assert not (hermes / "agents" / "openai.yaml").exists()
 
 
 def test_packages_expose_runtime_depth_and_insight_contract() -> None:
     for package_name in ("codex", "claude-code", "hermes"):
-        skill = (ROOT / "packages" / package_name / "research-tree" / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
+        skill = (
+            _skill_dir(ROOT / "packages" / package_name / "research-tree") / "SKILL.md"
+        ).read_text(encoding="utf-8")
         assert "plan-to-execute" in skill
         assert "Insight Digest" in skill
         assert "Do not hand a broad track to" in skill

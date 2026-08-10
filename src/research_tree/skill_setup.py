@@ -119,12 +119,33 @@ def resolve_package(repository: Path, host: str) -> Path:
     except KeyError as exc:
         raise SkillSetupError(f"unsupported host: {host}") from exc
     package = repository.expanduser().resolve().joinpath(*layout.package_parts)
-    if not (package / "SKILL.md").is_file():
+    skill_source = package / "skills" / SKILL_NAME if host == "claude" else package
+    if host == "claude":
+        manifest = package / ".claude-plugin" / "plugin.json"
+        if not manifest.is_file():
+            raise SkillSetupError(
+                f"Claude plugin manifest is missing; run python scripts/build_skill_packages.py: "
+                f"{manifest}"
+            )
+        try:
+            metadata = json.loads(manifest.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise SkillSetupError(f"Claude plugin manifest is invalid JSON: {manifest}") from exc
+        if not isinstance(metadata, dict) or metadata.get("name") != SKILL_NAME:
+            raise SkillSetupError(
+                f"Claude plugin manifest does not name {SKILL_NAME!r}: {manifest}"
+            )
+    if not (skill_source / "SKILL.md").is_file():
         raise SkillSetupError(
             f"{host} package is missing; run python scripts/build_skill_packages.py: "
             f"{package}"
         )
     return package
+
+
+def resolve_skill_source(repository: Path, host: str) -> Path:
+    package = resolve_package(repository, host)
+    return package / "skills" / SKILL_NAME if host == "claude" else package
 
 
 def _read_payload(source: Path) -> tuple[Path, ...]:
@@ -172,12 +193,16 @@ def installation_status(
     source: Path,
     *,
     legacy_source: Path | None = None,
+    additional_legacy_sources: Iterable[Path] = (),
 ) -> str:
     if not _lexists(target):
         return "missing"
     if _same_source(target, source):
         return "current"
-    if legacy_source is not None and _same_source(target, legacy_source):
+    legacy_sources = tuple(additional_legacy_sources)
+    if legacy_source is not None:
+        legacy_sources = (legacy_source, *legacy_sources)
+    if any(_same_source(target, candidate) for candidate in legacy_sources):
         return "legacy"
     return "conflict"
 
@@ -251,7 +276,11 @@ def install_skill(
         raise SkillSetupError(f"unsupported install mode: {mode}")
 
     ordered_hosts = tuple(dict.fromkeys(hosts))
-    sources = {host: resolve_package(repository, host) for host in ordered_hosts}
+    packages = {host: resolve_package(repository, host) for host in ordered_hosts}
+    sources = {
+        host: package / "skills" / SKILL_NAME if host == "claude" else package
+        for host, package in packages.items()
+    }
     payloads = {host: _read_payload(package) for host, package in sources.items()}
     targets = {
         host: _absolute(resolve_target(
@@ -277,7 +306,10 @@ def install_skill(
 
     statuses = {
         host: installation_status(
-            target, sources[host], legacy_source=repository
+            target,
+            sources[host],
+            legacy_source=repository,
+            additional_legacy_sources=(packages[host],) if host == "claude" else (),
         )
         for host, target in targets.items()
     }
@@ -312,7 +344,8 @@ def install_skill(
                     "scope": scope,
                     "mode": mode,
                     "target": str(target),
-                    "package": str(sources[host]),
+                    "package": str(packages[host]),
+                    "skill_source": str(sources[host]),
                     "action": action,
                     "discovery": HOST_LAYOUTS[host].discovery,
                     "payload_files": [
@@ -351,7 +384,8 @@ def skill_status(
     installations = []
     for host in tuple(dict.fromkeys(hosts)):
         package = resolve_package(repository, host)
-        _read_payload(package)
+        skill_source = package / "skills" / SKILL_NAME if host == "claude" else package
+        _read_payload(skill_source)
         target = _absolute(resolve_target(
             host,
             scope=scope,
@@ -365,8 +399,12 @@ def skill_status(
                 "scope": scope,
                 "target": str(target),
                 "package": str(package),
+                "skill_source": str(skill_source),
                 "status": installation_status(
-                    target, package, legacy_source=repository
+                    target,
+                    skill_source,
+                    legacy_source=repository,
+                    additional_legacy_sources=(package,) if host == "claude" else (),
                 ),
                 "discovery": HOST_LAYOUTS[host].discovery,
             }
