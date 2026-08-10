@@ -5,6 +5,7 @@
   "status_values": ["planned", "in_progress", "verified", "blocked", "not_applicable"],
   "generation_rule": "scripts/generate_delivery_matrix.py parses every spec.md Requirement heading and emits exactly one row; release validation rejects missing, duplicate, or orphan rows",
   "capability_rows": [
+    { "capability": "alpha2-contract-ratification", "source_modules": ["docs/adr/", "openspec/changes/ratify-alpha2-runtime-contract/"], "public_surface": [], "task_groups": [14], "github_issue": "#66", "owner": "architecture" },
     { "capability": "canonical-runtime-contract", "source_modules": ["src/research_tree/coordinator.py", "src/research_tree/contracts/", "src/research_tree/ledger.py"], "public_surface": ["research-tree run"], "task_groups": [5, 14, 18], "github_issue": "#57", "owner": "runtime" },
     { "capability": "durable-research-runtime", "source_modules": ["src/research_tree/run_ledger.py"], "public_surface": ["run-ledger"], "task_groups": [2], "github_issue": "#53", "owner": "runtime" },
     { "capability": "content-addressed-artifacts", "source_modules": ["src/research_tree/content_store.py", "src/research_tree/run_ledger.py"], "public_surface": ["run-artifact"], "task_groups": [33], "github_issue": "#98", "owner": "runtime" },

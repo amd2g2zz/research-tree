@@ -443,6 +443,11 @@ dependent implementation require this human gate.
 
 ### 7.4 Optional OpenSpec conversion
 
+The active architecture decisions that constrain this conversion are the
+[Alpha2 ADR index](docs/adr/). OpenSpec capability specifications define
+behavior; ADRs record the accepted architectural boundaries; generated host
+packages are derived distribution artifacts and do not override either source.
+
 OpenSpec generation happens only when requested. The Technical Research Package
 maps to the standard OpenSpec flow:
 
