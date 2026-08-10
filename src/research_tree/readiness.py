@@ -446,6 +446,7 @@ def _evaluate_package(
         sources["decisions"],
         evidence_resolver,
         diagnostics,
+        package_target=target,
     ):
         states["decision_closure"] = "fail"
         states["implementation_readiness"] = "fail"
@@ -460,12 +461,35 @@ def _strict_findings_are_authoritative(
     decisions: Sequence[ArtifactRevision],
     resolver: EvidenceResolver,
     diagnostics: list[dict[str, Any]],
+    *,
+    package_target: ArtifactRevision,
 ) -> bool:
     authoritative = True
+    package_target_id = package_target.id
+    package_target_ref = ArtifactRef(
+        package_target.round_id,
+        package_target.id,
+        package_target.revision,
+    )
     evidence_by_finding: dict[ArtifactRef, tuple[ArtifactRef, ...]] = {}
     findings_by_ref: dict[ArtifactRef, ArtifactRevision] = {}
     for finding in findings:
         slot_id = finding.payload.get("decision_slot_id")
+        if (
+            finding.payload.get("blueprint_target_id") != package_target_id
+            or package_target_ref not in finding.parent_refs
+        ):
+            diagnostics.append(
+                _diagnostic(
+                    "decision_closure",
+                    "fail",
+                    f"Finding Pack {finding.id} is not rooted in exact package Blueprint "
+                    f"Target {package_target_id!r}@{package_target.revision}.",
+                    slot_id=slot_id if isinstance(slot_id, str) else None,
+                )
+            )
+            authoritative = False
+            continue
         if finding.payload.get("evidence_mode") != "strict":
             diagnostics.append(
                 _diagnostic(
@@ -525,6 +549,21 @@ def _strict_findings_are_authoritative(
         slot_id = decision.payload.get("decision_slot_id")
         target_id = decision.payload.get("blueprint_target_id")
         selected_option = decision.payload.get("selected_option")
+        if status in {"selected", "conditional"} and (
+            target_id != package_target_id or package_target_ref not in decision.parent_refs
+        ):
+            diagnostics.append(
+                _diagnostic(
+                    "decision_closure",
+                    "fail",
+                    f"Decision {decision.id} is not rooted in exact package Blueprint "
+                    f"Target {package_target_id!r}@{package_target.revision}.",
+                    slot_id=slot_id if isinstance(slot_id, str) else None,
+                    decision_id=decision.id,
+                )
+            )
+            authoritative = False
+            continue
         if status in {"selected", "conditional"} and not linked_findings:
             diagnostics.append(
                 _diagnostic(

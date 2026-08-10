@@ -337,7 +337,13 @@ def test_strict_readiness_rejects_empty_finding_and_unlinked_selected_decision(t
         expected_revision=3,
     )
     unlinked_decision = _raw_decision(
-        ledger, "decision-unlinked", {"decision_slot_id": "slot-one", "status": "selected"},
+        ledger,
+        "decision-unlinked",
+        {
+            "blueprint_target_id": target.id,
+            "decision_slot_id": "slot-one",
+            "status": "selected",
+        },
         (ArtifactRef("run-strict", target.id, target.revision),), 4,
     )
     strict_finding = CanonicalFindingPackCompiler(ledger, resolver).compile(
@@ -380,6 +386,7 @@ def test_strict_readiness_rejects_empty_finding_and_unlinked_selected_decision(t
         [unlinked_decision, mismatched_slot, unsupported],
         resolver,
         diagnostics,
+        package_target=target,
     )
     assert any("no strict observations" in item["summary"] for item in diagnostics)
     assert any("strict Finding Pack parent lineage" in item["summary"] for item in diagnostics)
@@ -417,7 +424,7 @@ def test_canonical_ledger_cannot_use_non_strict_readiness_verifier(tmp_path: Pat
         ReadinessVerifier(ledger)
 
 
-def test_strict_readiness_accepts_canonical_lineage_and_rejects_legacy_package(tmp_path: Path) -> None:
+def test_strict_readiness_rejects_legacy_and_foreign_target_packages(tmp_path: Path) -> None:
     source_store, round_record, legacy_package = greenfield_package(tmp_path / "legacy")
     ledger = RunLedger(tmp_path / "canonical")
     _migrate_run_store(source_store, round_record, ledger)
@@ -515,3 +522,151 @@ def test_strict_readiness_accepts_canonical_lineage_and_rejects_legacy_package(t
     legacy_gates = legacy_readiness.payload["delivery_readiness"]["gates"]
     assert legacy_gates["decision_closure"] == "fail"
     assert legacy_gates["implementation_readiness"] == "fail"
+
+    foreign_target_payload = deepcopy(thaw_json(target.payload))
+    foreign_target_payload["id"] = "foreign-target"
+    foreign_target = ledger.append_artifact(
+        round_record.id,
+        "foreign-target",
+        "blueprint-target",
+        foreign_target_payload,
+        parent_refs=target.parent_refs,
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    foreign_work_payload = thaw_json(work.payload)
+    foreign_work_payload["id"] = "work-foreign"
+    foreign_work_payload["blueprint_target_id"] = foreign_target.id
+    foreign_work = ledger.append_artifact(
+        round_record.id,
+        "work-foreign",
+        WORK_ITEM_KIND,
+        foreign_work_payload,
+        parent_refs=(ArtifactRef(round_record.id, foreign_target.id, foreign_target.revision),),
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    foreign_finding = CanonicalFindingPackCompiler(ledger, resolver).compile(
+        round_id=round_record.id,
+        finding_id="finding-greenfield",
+        work_item=foreign_work,
+        observations=[_observation(_anchor(reference, content.digest))],
+        option_effects=[{"option": "new-worker", "effect": "supports"}],
+        implementation_implications=["Create the isolated component."],
+        remaining_uncertainties=[],
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    foreign_decision = CanonicalDecisionLedgerCompiler(ledger, resolver).converge(
+        round_id=round_record.id,
+        decision_id="decision-greenfield",
+        blueprint_target=foreign_target,
+        decision_slot_id="slot-greenfield",
+        finding_packs=[foreign_finding],
+        status=decision_data["status"],
+        selected_option=decision_data["selected_option"],
+        alternatives=decision_data["alternatives"],
+        anchors=decision_data["anchors"],
+        design_consequence=decision_data["design_consequence"],
+        repository_touchpoints=decision_data["repository_touchpoints"],
+        validation=decision_data["validation"],
+        change_tasks=decision_data["change_tasks"],
+        assumptions=decision_data["assumptions"],
+        fallback=decision_data["fallback"],
+        reversal_condition=decision_data["reversal_condition"],
+        revision_reason="Foreign Target must not pass.",
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    foreign_document = deepcopy(document)
+    foreign_document["research_findings"][0]["revision"] = foreign_finding.revision
+    foreign_document["decision_records"][0]["revision"] = foreign_decision.revision
+    foreign_document["traceability"]["finding_refs"][0]["revision"] = foreign_finding.revision
+    foreign_document["traceability"]["decision_refs"][0]["revision"] = foreign_decision.revision
+    foreign_parent_refs = tuple(
+        ArtifactRef(
+            ref.round_id,
+            ref.artifact_id,
+            foreign_finding.revision if ref.artifact_id == foreign_finding.id
+            else foreign_decision.revision if ref.artifact_id == foreign_decision.id else ref.revision,
+        )
+        for ref in strict_package.parent_refs
+    )
+    foreign_package = ledger.append_artifact(
+        round_record.id,
+        "technical-package",
+        "technical-research-package",
+        {"document": foreign_document, "markdown": strict_package.payload["markdown"]},
+        parent_refs=foreign_parent_refs,
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    foreign_readiness = CanonicalReadinessVerifier(ledger, resolver).verify(
+        round_id=round_record.id,
+        readiness_id="foreign-target-readiness",
+        technical_package=foreign_package,
+        repository_roots={"input-repository": tmp_path / "legacy" / "repository"},
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    foreign_gates = foreign_readiness.payload["delivery_readiness"]["gates"]
+    assert foreign_gates["decision_closure"] == "fail"
+    assert foreign_gates["implementation_readiness"] == "fail"
+
+    forged_finding_payload = thaw_json(foreign_finding.payload)
+    forged_finding_payload["blueprint_target_id"] = target.id
+    forged_finding = ledger.append_artifact(
+        round_record.id,
+        foreign_finding.id,
+        "finding-pack",
+        forged_finding_payload,
+        parent_refs=foreign_finding.parent_refs,
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    forged_decision_payload = thaw_json(foreign_decision.payload)
+    forged_decision_payload["blueprint_target_id"] = target.id
+    forged_decision = ledger.append_artifact(
+        round_record.id,
+        foreign_decision.id,
+        "decision-ledger-entry",
+        forged_decision_payload,
+        parent_refs=tuple(
+            ArtifactRef(
+                ref.round_id,
+                ref.artifact_id,
+                forged_finding.revision
+                if ref.artifact_id == forged_finding.id
+                else ref.revision,
+            )
+            for ref in foreign_decision.parent_refs
+        ),
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    forged_document = deepcopy(foreign_document)
+    forged_document["research_findings"][0]["revision"] = forged_finding.revision
+    forged_document["decision_records"][0]["revision"] = forged_decision.revision
+    forged_document["traceability"]["finding_refs"][0]["revision"] = forged_finding.revision
+    forged_document["traceability"]["decision_refs"][0]["revision"] = forged_decision.revision
+    forged_package = ledger.append_artifact(
+        round_record.id,
+        "technical-package",
+        "technical-research-package",
+        {"document": forged_document, "markdown": strict_package.payload["markdown"]},
+        parent_refs=tuple(
+            ArtifactRef(
+                ref.round_id,
+                ref.artifact_id,
+                forged_finding.revision
+                if ref.artifact_id == forged_finding.id
+                else forged_decision.revision
+                if ref.artifact_id == forged_decision.id
+                else ref.revision,
+            )
+            for ref in foreign_package.parent_refs
+        ),
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    forged_readiness = CanonicalReadinessVerifier(ledger, resolver).verify(
+        round_id=round_record.id,
+        readiness_id="forged-target-parent-readiness",
+        technical_package=forged_package,
+        repository_roots={"input-repository": tmp_path / "legacy" / "repository"},
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    forged_gates = forged_readiness.payload["delivery_readiness"]["gates"]
+    assert forged_gates["decision_closure"] == "fail"
+    assert forged_gates["implementation_readiness"] == "fail"
