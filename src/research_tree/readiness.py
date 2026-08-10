@@ -19,6 +19,8 @@ from .domain import (
 )
 from .intent import INTENT_MODEL_KIND, WORKING_BRIEF_KIND
 from .ledger import DECISION_LEDGER_KIND, FINDING_PACK_KIND
+from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
+from .run_ledger import RunLedger
 from .storage import RunStore
 from .verification import (
     FAILURE_CATEGORY_GATES,
@@ -60,8 +62,30 @@ class InvalidReadinessError(ReadinessError):
 class ReadinessVerifier:
     """Check an immutable technical package without changing its research target."""
 
-    def __init__(self, store: RunStore) -> None:
+    def __init__(
+        self,
+        store: RunStore | RunLedger,
+        evidence_resolver: EvidenceResolver | None = None,
+        *,
+        strict_evidence: bool = False,
+    ) -> None:
+        if not isinstance(store, (RunStore, RunLedger)):
+            raise InvalidReadinessError("readiness verifier requires a RunStore or RunLedger")
+        if isinstance(store, RunLedger):
+            # A canonical ledger is never a compatibility path.  Do not let a
+            # caller opt out of evidence revalidation by selecting the base
+            # verifier instead of the strict facade.
+            strict_evidence = True
+        if strict_evidence:
+            if not isinstance(store, RunLedger):
+                raise InvalidReadinessError("strict readiness requires a canonical RunLedger")
+            if not isinstance(evidence_resolver, EvidenceResolver) or evidence_resolver.ledger is not store:
+                raise InvalidReadinessError(
+                    "strict readiness requires a matching ledger-backed EvidenceResolver"
+                )
         self._store = store
+        self._evidence_resolver = evidence_resolver
+        self._strict_evidence = strict_evidence
 
     def verify(
         self,
@@ -72,6 +96,7 @@ class ReadinessVerifier:
         repository_roots: Mapping[str, str | Path] | None = None,
         risk_tier: str = "default",
         verification_adapter: IsolatedVerificationAdapter | None = None,
+        expected_revision: int | None = None,
     ) -> ArtifactRevision:
         """Append one diagnostic readiness record for an exact package revision.
 
@@ -81,7 +106,14 @@ class ReadinessVerifier:
         """
 
         try:
-            snapshot = self._store.load_round(round_id)
+            if isinstance(self._store, RunLedger):
+                if expected_revision is None:
+                    raise InvalidReadinessError("canonical readiness requires expected_revision")
+                snapshot = self._store.load_run(round_id)
+            else:
+                if expected_revision is not None:
+                    raise InvalidReadinessError("RunStore readiness does not accept expected_revision")
+                snapshot = self._store.load_round(round_id)
             validate_identifier(readiness_id, "readiness_id")
             _ensure_id_compatibility(snapshot.artifacts, readiness_id)
             tier = _enum(risk_tier, "risk_tier", RISK_TIERS)
@@ -107,6 +139,7 @@ class ReadinessVerifier:
                 sources,
                 root_map,
                 tier,
+                evidence_resolver=self._evidence_resolver if self._strict_evidence else None,
             )
             assessment = assess_risk_verification(
                 round_id=round_id,
@@ -143,6 +176,16 @@ class ReadinessVerifier:
             (ArtifactRef(round_id, package.id, package.revision),)
             + tuple(ArtifactRef(round_id, item.id, item.revision) for item in sources["artifacts"])
         )
+        if isinstance(self._store, RunLedger):
+            assert expected_revision is not None
+            return self._store.append_artifact(
+                round_id,
+                readiness_id,
+                READINESS_RECORD_KIND,
+                payload,
+                parent_refs=parent_refs,
+                expected_revision=expected_revision,
+            )
         return self._store.append_artifact(
             round_id,
             readiness_id,
@@ -150,6 +193,13 @@ class ReadinessVerifier:
             payload,
             parent_refs=parent_refs,
         )
+
+
+class CanonicalReadinessVerifier(ReadinessVerifier):
+    """Strict readiness facade for the canonical RunLedger path."""
+
+    def __init__(self, ledger: RunLedger, evidence_resolver: EvidenceResolver) -> None:
+        super().__init__(ledger, evidence_resolver, strict_evidence=True)
 
 
 def readiness_for_delivery(record: ArtifactRevision) -> Mapping[str, Any]:
@@ -359,6 +409,8 @@ def _evaluate_package(
     sources: Mapping[str, Any],
     roots: Mapping[str, Path],
     tier: str,
+    *,
+    evidence_resolver: EvidenceResolver | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, str]]:
     target = sources["target"]
     slots = _slots(target)
@@ -389,10 +441,95 @@ def _evaluate_package(
     )
     states["traceability"] = trace_state
     states["implementation_readiness"] = implementation_state
+    if evidence_resolver is not None and not _strict_findings_are_authoritative(
+        sources["findings"],
+        sources["decisions"],
+        evidence_resolver,
+        diagnostics,
+    ):
+        states["decision_closure"] = "fail"
+        states["implementation_readiness"] = "fail"
     repository_state, checks = _evaluate_repository_fit(slots, records, sources, roots, diagnostics)
     states["repository_fit"] = repository_state
     states["operational_quality"] = _evaluate_operational(document, slots, tier, diagnostics)
     return diagnostics, checks, states
+
+
+def _strict_findings_are_authoritative(
+    findings: Sequence[ArtifactRevision],
+    decisions: Sequence[ArtifactRevision],
+    resolver: EvidenceResolver,
+    diagnostics: list[dict[str, Any]],
+) -> bool:
+    authoritative = True
+    evidence_by_finding: dict[ArtifactRef, tuple[ArtifactRef, ...]] = {}
+    for finding in findings:
+        slot_id = finding.payload.get("decision_slot_id")
+        if finding.payload.get("evidence_mode") != "strict":
+            diagnostics.append(
+                _diagnostic(
+                    "decision_closure",
+                    "fail",
+                    f"Finding Pack {finding.id} uses non-authoritative legacy evidence.",
+                    slot_id=slot_id if isinstance(slot_id, str) else None,
+                )
+            )
+            authoritative = False
+            continue
+        observations = finding.payload.get("observations")
+        if isinstance(observations, (str, bytes)) or not isinstance(observations, Sequence):
+            diagnostics.append(
+                _diagnostic(
+                    "decision_closure",
+                    "fail",
+                    f"Finding Pack {finding.id} has no strict observations.",
+                    slot_id=slot_id if isinstance(slot_id, str) else None,
+                )
+            )
+            authoritative = False
+            continue
+        references: list[ArtifactRef] = []
+        for index, observation in enumerate(observations):
+            try:
+                if not isinstance(observation, Mapping):
+                    raise EvidenceValidationError("observation is not a mapping")
+                anchor = EvidenceAnchor.from_dict(observation["anchor"])
+                if anchor.artifact_ref is None or anchor.artifact_ref not in finding.parent_refs:
+                    raise EvidenceValidationError("Finding Pack lacks exact evidence parent lineage")
+                resolver.resolve(anchor)
+                if anchor.artifact_ref not in references:
+                    references.append(anchor.artifact_ref)
+            except (KeyError, TypeError, ValueError, EvidenceValidationError) as error:
+                diagnostics.append(
+                    _diagnostic(
+                        "decision_closure",
+                        "fail",
+                        f"Finding Pack {finding.id} observation {index} is not authoritative: {error}",
+                        slot_id=slot_id if isinstance(slot_id, str) else None,
+                    )
+                )
+                authoritative = False
+        evidence_by_finding[ArtifactRef(finding.round_id, finding.id, finding.revision)] = tuple(references)
+    for decision in decisions:
+        linked_findings = [
+            reference for reference in decision.parent_refs if reference in evidence_by_finding
+        ]
+        for finding_ref in linked_findings:
+            missing = set(evidence_by_finding[finding_ref]) - set(decision.parent_refs)
+            if missing:
+                diagnostics.append(
+                    _diagnostic(
+                        "decision_closure",
+                        "fail",
+                        f"Decision {decision.id} lacks strict evidence parent lineage from {finding_ref.artifact_id}.",
+                        slot_id=decision.payload.get("decision_slot_id")
+                        if isinstance(decision.payload.get("decision_slot_id"), str)
+                        else None,
+                        decision_id=decision.id,
+                    )
+                )
+                authoritative = False
+    return authoritative
 
 
 def _apply_risk_verification(

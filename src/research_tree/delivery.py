@@ -16,6 +16,7 @@ from .domain import (
 )
 from .intake import INPUT_LEDGER_ARTIFACT_KIND
 from .intent import INTENT_MODEL_KIND, WORKING_BRIEF_KIND
+from .evidence import EvidenceAnchor, EvidenceValidationError
 from .ledger import (
     ALTERNATIVE_DISPOSITIONS,
     ANCHOR_KINDS,
@@ -918,6 +919,15 @@ def _validate_change_task_templates(value: Any, label: str) -> None:
 
 def _validate_anchor_template(value: Any, label: str, allowed_kinds: set[str]) -> None:
     anchor = _mapping_value(value, label)
+    # Canonical Finding Packs carry a typed, exact evidence anchor.  Delivery
+    # validation accepts it here; canonical delivery compilation itself remains
+    # a separate concern.
+    if "artifact_ref" in anchor:
+        try:
+            EvidenceAnchor.from_dict(anchor)
+        except (TypeError, ValueError, EvidenceValidationError) as error:
+            raise InvalidDeliveryError(f"{label} is not a valid canonical evidence anchor: {error}") from error
+        return
     _require_exact_keys(anchor, {"kind", "ref"}, label)
     _enum_value(anchor["kind"], f"{label}.kind", allowed_kinds)
     _nonempty_string(anchor["ref"], f"{label}.ref")
