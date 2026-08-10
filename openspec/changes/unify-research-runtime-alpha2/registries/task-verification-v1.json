@@ -2,7 +2,7 @@
   "schema_version": 1,
   "groups": [
     { "group": 1, "state": "in_progress" },
-    { "group": 2, "state": "planned" },
+    { "group": 2, "state": "in_progress" },
     { "group": 3, "state": "planned" },
     { "group": 4, "state": "planned" },
     { "group": 5, "state": "planned" },
@@ -32,6 +32,8 @@
     { "group": 29, "state": "planned" },
     { "group": 30, "state": "planned" },
     { "group": 31, "state": "planned" },
-    { "group": 32, "state": "planned" }
+    { "group": 32, "state": "planned" },
+    { "group": 33, "state": "planned" },
+    { "group": 34, "state": "planned" }
   ]
 }

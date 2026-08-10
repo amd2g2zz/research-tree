@@ -178,6 +178,7 @@ from .alignment_handoff import (
     initialize_research_from_alignment,
 )
 from .storage import RunStore
+from .run_ledger import LedgerConflictError, LedgerError, LedgerIntegrityError, RunLedger
 from .work_items import (
     InvalidWorkItemError,
     WorkItemCompiler,
@@ -296,6 +297,10 @@ __all__ = [
     "RESEARCH_STRATEGY_KIND",
     "ROUND_SUPERSESSION_KIND",
     "RunStore",
+    "RunLedger",
+    "LedgerError",
+    "LedgerConflictError",
+    "LedgerIntegrityError",
     "RuntimeStoreError",
     "VerificationError",
     "VerificationFailure",

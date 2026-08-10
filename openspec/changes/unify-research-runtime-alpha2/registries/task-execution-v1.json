@@ -6,7 +6,7 @@
   },
   "groups": [
     { "group": 1, "depends_on": [], "owner": "quality", "outputs": ["alpha1-fixture-manifest", "negative-semantic-fixtures"], "acceptance_command": "uv run pytest -q tests/test_alpha1_baseline.py", "rollback": "remove fixture revision only" },
-    { "group": 2, "depends_on": [1], "owner": "runtime", "outputs": ["sqlite-v1", "cas", "legacy-importer"], "acceptance_command": "uv run pytest -q tests/test_sqlite_ledger.py tests/test_migration.py", "rollback": "disable alpha2 storage flag" },
+    { "group": 2, "depends_on": [1], "owner": "runtime", "outputs": ["sqlite-v1"], "acceptance_command": "uv run pytest -q tests/test_sqlite_ledger.py", "rollback": "disable alpha2 storage flag" },
     { "group": 3, "depends_on": [2], "owner": "evidence", "outputs": ["evidence-schemas", "anchor-resolver"], "acceptance_command": "uv run pytest -q tests/test_evidence_contract.py", "rollback": "retain imported evidence as read-only" },
     { "group": 4, "depends_on": [3], "owner": "evidence", "outputs": ["oracle-runner", "closure-assessor"], "acceptance_command": "uv run pytest -q tests/test_oracle_closure.py", "rollback": "revoke alpha2 closure tokens" },
     { "group": 5, "depends_on": [2, 4], "owner": "runtime", "outputs": ["coordinator", "state-machine"], "acceptance_command": "uv run pytest -q tests/test_coordinator.py tests/test_lifecycle.py", "rollback": "route reads to legacy projection" },
@@ -36,6 +36,8 @@
     { "group": 29, "depends_on": [7, 28], "owner": "alignment", "outputs": ["project-preference-profile"], "acceptance_command": "uv run pytest -q tests/test_user_preference_profile.py", "rollback": "retain prior active profile" },
     { "group": 30, "depends_on": [1, 12, 20], "owner": "quality", "outputs": ["paired-alpha-benchmark"], "acceptance_command": "uv run python evaluation/harness/run_paired_benchmark.py", "rollback": "retain baseline and candidate evidence" },
     { "group": 31, "depends_on": [7], "owner": "alignment", "outputs": ["decision-frame", "intent-substitution-fixtures"], "acceptance_command": "uv run pytest -q tests/test_decision_frame.py", "rollback": "remain in alignment" },
-    { "group": 32, "depends_on": [8], "owner": "host-adapter", "outputs": ["activation-probes", "activation-receipts"], "acceptance_command": "uv run pytest -q tests/test_skill_activation.py", "rollback": "record host activation as unavailable" }
+    { "group": 32, "depends_on": [8], "owner": "host-adapter", "outputs": ["activation-probes", "activation-receipts"], "acceptance_command": "uv run pytest -q tests/test_skill_activation.py", "rollback": "record host activation as unavailable" },
+    { "group": 33, "depends_on": [2], "owner": "runtime", "outputs": ["content-addressed-artifacts"], "acceptance_command": "uv run pytest -q tests/test_content_addressed_store.py", "rollback": "disable CAS references and retain ledger metadata" },
+    { "group": 34, "depends_on": [2, 33], "owner": "runtime", "outputs": ["legacy-runstore-import"], "acceptance_command": "uv run pytest -q tests/test_legacy_runstore_import.py", "rollback": "disable importer and retain source RunStore read-only" }
   ]
 }
