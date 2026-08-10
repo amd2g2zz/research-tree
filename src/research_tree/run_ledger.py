@@ -18,6 +18,7 @@ from .domain import (
     canonical_json_bytes,
     validate_identifier,
 )
+from .content_store import ContentAddressedStore, ContentObject
 
 
 class LedgerError(Exception):
@@ -35,7 +36,7 @@ class LedgerIntegrityError(LedgerError, DataIntegrityError):
 class RunLedger:
     """Own canonical run lineage in a workspace-scoped SQLite database."""
 
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     def __init__(self, workspace: str | Path) -> None:
         self.workspace = Path(workspace).resolve()
@@ -91,6 +92,24 @@ class RunLedger:
                   ON events(run_id, created_at, event_id);
                 CREATE INDEX IF NOT EXISTS artifacts_by_run
                   ON artifacts(run_id, artifact_id, revision);
+                CREATE TABLE IF NOT EXISTS content_objects (
+                    digest TEXT PRIMARY KEY,
+                    media_type TEXT NOT NULL,
+                    byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
+                    locator TEXT NOT NULL,
+                    availability TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS artifact_contents (
+                    run_id TEXT NOT NULL,
+                    artifact_id TEXT NOT NULL,
+                    revision INTEGER NOT NULL,
+                    digest TEXT NOT NULL,
+                    PRIMARY KEY (run_id, artifact_id, revision),
+                    FOREIGN KEY (run_id, artifact_id, revision)
+                      REFERENCES artifacts(run_id, artifact_id, revision),
+                    FOREIGN KEY (digest) REFERENCES content_objects(digest)
+                );
                 """
             )
             connection.execute(
@@ -98,6 +117,82 @@ class RunLedger:
                 "VALUES(?, datetime('now'))",
                 (self.SCHEMA_VERSION,),
             )
+
+    def register_content(self, content: ContentObject) -> ContentObject:
+        """Register verified CAS metadata; repeated identical registration is idempotent."""
+        self.initialize()
+        with self._connect() as connection:
+            existing = connection.execute(
+                "SELECT media_type, byte_size, locator, availability, created_at "
+                "FROM content_objects WHERE digest = ?", (content.digest,)
+            ).fetchone()
+            if existing is not None:
+                if tuple(existing[:4]) != (content.media_type, content.byte_size, content.locator, content.availability):
+                    raise LedgerIntegrityError(f"content metadata conflict: {content.digest}")
+                return ContentObject(content.digest, *tuple(existing))
+            connection.execute(
+                "INSERT INTO content_objects(digest, media_type, byte_size, locator, availability, created_at) "
+                "VALUES(?, ?, ?, ?, ?, ?)",
+                (content.digest, content.media_type, content.byte_size, content.locator, content.availability, content.created_at),
+            )
+        return content
+
+    def bind_content(self, reference: ArtifactRef, content: ContentObject) -> None:
+        """Bind a registered digest to one immutable artifact revision."""
+        self.initialize()
+        with self._connect() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                if not self._artifact_exists(connection, reference):
+                    raise LedgerIntegrityError(f"artifact does not exist: {reference}")
+                row = connection.execute(
+                    "SELECT digest FROM content_objects WHERE digest = ?", (content.digest,)
+                ).fetchone()
+                if row is None:
+                    raise LedgerIntegrityError(f"content is not registered: {content.digest}")
+                current = connection.execute(
+                    "SELECT digest FROM artifact_contents WHERE run_id = ? AND artifact_id = ? AND revision = ?",
+                    (reference.round_id, reference.artifact_id, reference.revision),
+                ).fetchone()
+                if current is not None:
+                    if current[0] != content.digest:
+                        raise LedgerIntegrityError(f"artifact content conflict: {reference}")
+                    return
+                connection.execute(
+                    "INSERT INTO artifact_contents(run_id, artifact_id, revision, digest) VALUES(?, ?, ?, ?)",
+                    (reference.round_id, reference.artifact_id, reference.revision, content.digest),
+                )
+            except sqlite3.IntegrityError as error:
+                raise LedgerIntegrityError("content binding violated a ledger constraint") from error
+
+    def get_content(self, digest: str) -> ContentObject:
+        self.initialize()
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT digest, media_type, byte_size, locator, availability, created_at "
+                "FROM content_objects WHERE digest = ?", (digest,)
+            ).fetchone()
+        if row is None:
+            raise LedgerIntegrityError(f"content does not exist: {digest}")
+        return ContentObject(*tuple(row))
+
+    def resolve_content(self, reference: ArtifactRef, store: ContentAddressedStore) -> bytes:
+        """Resolve an artifact's bound content through metadata and CAS verification."""
+        self.initialize()
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT object.digest, object.media_type, object.byte_size, object.locator, "
+                "object.availability, object.created_at FROM artifact_contents binding "
+                "JOIN content_objects object ON object.digest = binding.digest "
+                "WHERE binding.run_id = ? AND binding.artifact_id = ? AND binding.revision = ?",
+                (reference.round_id, reference.artifact_id, reference.revision),
+            ).fetchone()
+        if row is None:
+            raise LedgerIntegrityError(f"artifact has no bound content: {reference}")
+        content = ContentObject(*tuple(row))
+        if content.availability != "available":
+            raise LedgerIntegrityError(f"content is not available: {content.digest}")
+        return store.read(content)
 
     def create_run(self, run_id: str, parent_run_id: str | None = None) -> RoundRecord:
         self.initialize()

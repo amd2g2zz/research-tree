@@ -37,7 +37,7 @@
     { "group": 30, "depends_on": [1, 12, 20], "owner": "quality", "outputs": ["paired-alpha-benchmark"], "acceptance_command": "uv run python evaluation/harness/run_paired_benchmark.py", "rollback": "retain baseline and candidate evidence" },
     { "group": 31, "depends_on": [7], "owner": "alignment", "outputs": ["decision-frame", "intent-substitution-fixtures"], "acceptance_command": "uv run pytest -q tests/test_decision_frame.py", "rollback": "remain in alignment" },
     { "group": 32, "depends_on": [8], "owner": "host-adapter", "outputs": ["activation-probes", "activation-receipts"], "acceptance_command": "uv run pytest -q tests/test_skill_activation.py", "rollback": "record host activation as unavailable" },
-    { "group": 33, "depends_on": [2], "owner": "runtime", "outputs": ["content-addressed-artifacts"], "acceptance_command": "uv run pytest -q tests/test_content_addressed_store.py", "rollback": "disable CAS references and retain ledger metadata" },
+    { "group": 33, "depends_on": [2], "owner": "runtime", "outputs": ["content-addressed-artifacts"], "acceptance_command": "uv run pytest -q tests/test_content_store.py", "rollback": "disable CAS references and retain ledger metadata" },
     { "group": 34, "depends_on": [2, 33], "owner": "runtime", "outputs": ["legacy-runstore-import"], "acceptance_command": "uv run pytest -q tests/test_legacy_runstore_import.py", "rollback": "disable importer and retain source RunStore read-only" }
   ]
 }
