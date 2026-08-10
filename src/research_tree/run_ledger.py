@@ -205,6 +205,8 @@ class RunLedger:
             try:
                 connection.execute("BEGIN IMMEDIATE")
                 current = self._require_expected_revision(connection, run_id, expected_revision)
+                if event.artifact_ref is not None:
+                    self._require_artifact(connection, event.artifact_ref)
                 self._insert_event(connection, event)
                 self._increment_revision(connection, run_id, current)
                 self._before_commit()

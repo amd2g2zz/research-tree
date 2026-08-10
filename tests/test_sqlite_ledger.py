@@ -109,6 +109,26 @@ def test_corrupt_or_dangling_lineage_is_rejected_on_load(tmp_path: Path) -> None
         ledger.load_run("run-1")
 
 
+def test_event_rejects_missing_artifact_before_commit(tmp_path: Path) -> None:
+    RunLedger, _, LedgerIntegrityError = api()
+    ledger = RunLedger(tmp_path)
+    ledger.initialize()
+    ledger.create_run("run-1")
+    event = LineageEvent(
+        id="event-1",
+        round_id="run-1",
+        kind="evidence-linked",
+        created_at="2026-01-01T00:00:00+00:00",
+        artifact_ref=ArtifactRef("run-1", "missing", 1),
+    )
+
+    with pytest.raises(LedgerIntegrityError, match="artifact parent does not exist"):
+        ledger.append_event("run-1", event, expected_revision=0)
+
+    assert ledger.get_revision("run-1") == 0
+    assert [item.id for item in ledger.load_run("run-1").lineage_events] != [event.id]
+
+
 def test_failed_append_rolls_back_before_commit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     RunLedger, _, _ = api()
     ledger = RunLedger(tmp_path)
