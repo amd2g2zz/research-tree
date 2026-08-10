@@ -352,7 +352,7 @@ def test_canonical_selected_decision_requires_strict_finding_at_any_priority(tmp
 
 
 def test_strict_readiness_rejects_empty_finding_and_unlinked_selected_decision(tmp_path: Path) -> None:
-    ledger, _store, target, _work, _content, _evidence, _reference, resolver = _environment(tmp_path)
+    ledger, _store, target, work, content, _evidence, reference, resolver = _environment(tmp_path)
     empty_finding = ledger.append_artifact(
         "run-strict",
         "finding-empty",
@@ -366,7 +366,7 @@ def test_strict_readiness_rejects_empty_finding_and_unlinked_selected_decision(t
         parent_refs=(ArtifactRef("run-strict", target.id, target.revision),),
         expected_revision=3,
     )
-    decision = ledger.append_artifact(
+    unlinked_decision = ledger.append_artifact(
         "run-strict",
         "decision-unlinked",
         "decision-ledger-entry",
@@ -374,12 +374,61 @@ def test_strict_readiness_rejects_empty_finding_and_unlinked_selected_decision(t
         parent_refs=(ArtifactRef("run-strict", target.id, target.revision),),
         expected_revision=4,
     )
+    strict_finding = CanonicalFindingPackCompiler(ledger, resolver).compile(
+        round_id="run-strict",
+        finding_id="finding-valid",
+        work_item=work,
+        observations=[_observation(_anchor(reference, content.digest))],
+        option_effects=[{"option": "option-a", "effect": "supports"}],
+        implementation_implications=["Use the supported option."],
+        remaining_uncertainties=[],
+        expected_revision=5,
+    )
+    mismatched_slot = ledger.append_artifact(
+        "run-strict",
+        "decision-mismatched-slot",
+        "decision-ledger-entry",
+        {
+            "blueprint_target_id": target.id,
+            "decision_slot_id": "slot-other",
+            "status": "selected",
+            "selected_option": "option-a",
+        },
+        parent_refs=(
+            ArtifactRef("run-strict", target.id, target.revision),
+            ArtifactRef("run-strict", strict_finding.id, strict_finding.revision),
+            reference,
+        ),
+        expected_revision=6,
+    )
+    unsupported = ledger.append_artifact(
+        "run-strict",
+        "decision-unsupported-option",
+        "decision-ledger-entry",
+        {
+            "blueprint_target_id": target.id,
+            "decision_slot_id": "slot-one",
+            "status": "conditional",
+            "selected_option": "option-b",
+        },
+        parent_refs=(
+            ArtifactRef("run-strict", target.id, target.revision),
+            ArtifactRef("run-strict", strict_finding.id, strict_finding.revision),
+            reference,
+        ),
+        expected_revision=7,
+    )
     diagnostics: list[dict[str, object]] = []
     assert not _strict_findings_are_authoritative(
-        [empty_finding], [decision], resolver, diagnostics
+        [empty_finding, strict_finding],
+        [unlinked_decision, mismatched_slot, unsupported],
+        resolver,
+        diagnostics,
     )
     assert any("no strict observations" in item["summary"] for item in diagnostics)
     assert any("strict Finding Pack parent lineage" in item["summary"] for item in diagnostics)
+    assert any("do not share a Blueprint Target" in item["summary"] for item in diagnostics)
+    assert any("support for its selected option" in item["summary"] for item in diagnostics)
 
 
 def test_legacy_compiler_cannot_claim_strict_evidence_or_enter_canonical_decision(tmp_path: Path) -> None:

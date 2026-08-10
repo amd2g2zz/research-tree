@@ -48,17 +48,17 @@ be used by the canonical Finding/Decision/Readiness path.
 to the same RunLedger using an expected revision. A strict Finding Pack stores
 typed anchors and adds every exact evidence reference to its parent lineage.
 Every selected or conditional canonical Decision requires at least one strict
-Finding Pack, its Finding anchor, and an evidence-backed effect for the chosen
-option. The canonical decision rejects any supplied finding that is not strict
-or lacks its evidence parent. The legacy RunStore compiler remains compatible
+Finding Pack for its exact Target and Slot, with a support effect for the chosen
+option and exact evidence parent. The canonical decision rejects any supplied
+finding that is not strict or lacks its evidence parent. The legacy RunStore compiler remains compatible
 but always emits `legacy_unverified` evidence and can never enter this path.
 
 ### Strict readiness rechecks evidence
 
 `CanonicalReadinessVerifier` uses RunLedger plus a matching strict resolver.
 It re-resolves non-empty findings in the technical package, and verifies that
-every selected or conditional Decision retains those Findings and their exact
-evidence parents. Any evidence failure turns closure/readiness into a failure.
+every selected or conditional Decision retains matching Findings, selected-option
+support, and exact evidence parents. Any evidence failure turns closure/readiness into a failure.
 This closes the historical bypass where a generic legacy anchor could appear in
 an otherwise passing readiness record.
 

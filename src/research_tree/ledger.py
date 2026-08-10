@@ -1061,15 +1061,19 @@ def _validate_decision_trace(
     if not findings or not finding_anchors:
         raise error_type("selected or conditional decision requires a supplied Finding Pack anchor")
     selected_option = payload["selected_option"]
-    effects = {
+    supported_options = {
         effect["option"]
         for finding in findings
         for effect in finding.payload.get("option_effects", ())
-        if isinstance(effect, Mapping) and isinstance(effect.get("option"), str)
+        if (
+            isinstance(effect, Mapping)
+            and effect.get("effect") == "supports"
+            and isinstance(effect.get("option"), str)
+        )
     }
-    if selected_option not in effects:
+    if selected_option not in supported_options:
         raise error_type(
-            "selected or conditional decision requires a Finding Pack effect for selected_option"
+            "selected or conditional decision requires a Finding Pack support effect for selected_option"
         )
     if slot.get("priority") != "P0":
         return

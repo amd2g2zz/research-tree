@@ -463,6 +463,7 @@ def _strict_findings_are_authoritative(
 ) -> bool:
     authoritative = True
     evidence_by_finding: dict[ArtifactRef, tuple[ArtifactRef, ...]] = {}
+    findings_by_ref: dict[ArtifactRef, ArtifactRevision] = {}
     for finding in findings:
         slot_id = finding.payload.get("decision_slot_id")
         if finding.payload.get("evidence_mode") != "strict":
@@ -513,25 +514,70 @@ def _strict_findings_are_authoritative(
                     )
                 )
                 authoritative = False
-        evidence_by_finding[ArtifactRef(finding.round_id, finding.id, finding.revision)] = tuple(references)
+        finding_ref = ArtifactRef(finding.round_id, finding.id, finding.revision)
+        evidence_by_finding[finding_ref] = tuple(references)
+        findings_by_ref[finding_ref] = finding
     for decision in decisions:
         linked_findings = [
             reference for reference in decision.parent_refs if reference in evidence_by_finding
         ]
-        if decision.payload.get("status") in {"selected", "conditional"} and not linked_findings:
+        status = decision.payload.get("status")
+        slot_id = decision.payload.get("decision_slot_id")
+        target_id = decision.payload.get("blueprint_target_id")
+        selected_option = decision.payload.get("selected_option")
+        if status in {"selected", "conditional"} and not linked_findings:
             diagnostics.append(
                 _diagnostic(
                     "decision_closure",
                     "fail",
                     f"Decision {decision.id} lacks a strict Finding Pack parent lineage.",
-                    slot_id=decision.payload.get("decision_slot_id")
-                    if isinstance(decision.payload.get("decision_slot_id"), str)
-                    else None,
+                    slot_id=slot_id if isinstance(slot_id, str) else None,
                     decision_id=decision.id,
                 )
             )
             authoritative = False
             continue
+        if status in {"selected", "conditional"}:
+            matching_finding = False
+            supports_selected_option = False
+            for finding_ref in linked_findings:
+                finding = findings_by_ref[finding_ref]
+                if (
+                    not isinstance(target_id, str)
+                    or not isinstance(slot_id, str)
+                    or finding.payload.get("blueprint_target_id") != target_id
+                    or finding.payload.get("decision_slot_id") != slot_id
+                ):
+                    diagnostics.append(
+                        _diagnostic(
+                            "decision_closure",
+                            "fail",
+                            f"Decision {decision.id} and Finding Pack {finding.id} do not share a Blueprint Target and Decision Slot.",
+                            slot_id=slot_id if isinstance(slot_id, str) else None,
+                            decision_id=decision.id,
+                        )
+                    )
+                    authoritative = False
+                    continue
+                matching_finding = True
+                if isinstance(selected_option, str) and any(
+                    isinstance(effect, Mapping)
+                    and effect.get("option") == selected_option
+                    and effect.get("effect") == "supports"
+                    for effect in finding.payload.get("option_effects", ())
+                ):
+                    supports_selected_option = True
+            if not matching_finding or not supports_selected_option:
+                diagnostics.append(
+                    _diagnostic(
+                        "decision_closure",
+                        "fail",
+                        f"Decision {decision.id} lacks strict Finding Pack support for its selected option.",
+                        slot_id=slot_id if isinstance(slot_id, str) else None,
+                        decision_id=decision.id,
+                    )
+                )
+                authoritative = False
         for finding_ref in linked_findings:
             missing = set(evidence_by_finding[finding_ref]) - set(decision.parent_refs)
             if missing:
@@ -540,9 +586,7 @@ def _strict_findings_are_authoritative(
                         "decision_closure",
                         "fail",
                         f"Decision {decision.id} lacks strict evidence parent lineage from {finding_ref.artifact_id}.",
-                        slot_id=decision.payload.get("decision_slot_id")
-                        if isinstance(decision.payload.get("decision_slot_id"), str)
-                        else None,
+                        slot_id=slot_id if isinstance(slot_id, str) else None,
                         decision_id=decision.id,
                     )
                 )
