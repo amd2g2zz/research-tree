@@ -1,11 +1,11 @@
 ## Context
 
-`RunLedger` already stores immutable artifact revisions, `content_objects`,
-`artifact_contents`, and lineage events, but callers currently append an
-artifact, register content, and bind content through separate transactions.
-The content-addressed store owns byte publication and integrity checks. This
-issue adds the SQLite publication boundary; it does not introduce evidence
-domain objects.
+`RunLedger` stores immutable artifact revisions, `content_objects`,
+`artifact_contents`, and lineage events. The content-addressed store owns byte
+publication and integrity checks. This change makes publication atomic and
+defines the canonical evidence identity that consumes that primitive. It does
+not decide whether an anchor is sufficient for a claim; that policy belongs to
+the next strict-boundary slice.
 
 ## Goals / Non-Goals
 
@@ -17,13 +17,16 @@ domain objects.
   authoritative.
 - Make the exact committed artifact and its binding readable after restart.
 - Preserve distinct artifact identity when two captures use identical bytes.
+- Serialize the evidence identity inside the immutable artifact revision and
+  bind an authoritative anchor to its exact `ArtifactRef`.
 
 **Non-Goals:**
 
-- Define `EvidenceArtifact`, `EvidenceAnchor`, selectors, or resolver logic.
 - Change existing legacy registration/binding APIs or migrate prior rows.
 - Make filesystem publication and SQLite commit one cross-filesystem
   transaction. Unbound CAS objects remain non-authoritative.
+- Resolve selectors, validate repository state, or alter Finding/Decision/
+  Readiness/Delivery behavior.
 
 ## Decisions
 
@@ -46,8 +49,18 @@ is `artifact-content-appended` and references the exact new `ArtifactRef`.
 No evidence-specific table or payload schema is introduced; a later issue can
 use kind `evidence-artifact` through this generic primitive.
 
-An evidence-specific API was rejected because it would couple the durable
-storage primitive to a model that is intentionally owned by a later issue.
+The generic primitive remains reusable. `EvidenceRepository` is a thin domain
+adapter that uses it with kind `evidence-artifact`; it does not add a new table
+or a second durability path.
+
+### Canonical identity uses exact ArtifactRef, not digest lookup
+
+`EvidenceArtifact.to_dict()` is the immutable payload stored in the ledger.
+`EvidenceAnchor` includes the resulting `ArtifactRef`, digest, and revision.
+The exact reference distinguishes two legitimate captures that share a digest
+but differ in locator, provenance, or acquisition context. A generic anchor
+can still be decoded only through the explicit legacy compatibility path and
+is marked `legacy_unverified`.
 
 ### Use optimistic revision checks for both run and artifact identity
 

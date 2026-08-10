@@ -50,3 +50,38 @@ their distinct payload/provenance metadata.
   different artifact identifiers or payload metadata
 - **THEN** each exact artifact reference SHALL resolve after restart and both
   bindings SHALL retain the shared digest without replacing either artifact
+
+### Requirement: Canonical evidence identity is an immutable ledger artifact
+
+The system SHALL serialize an authoritative `EvidenceArtifact` inside one
+immutable `evidence-artifact` ledger revision. A canonical `EvidenceAnchor`
+MUST carry the exact resulting `ArtifactRef`, digest, and revision. The
+repository SHALL reject evidence whose declared content digest, byte size, or
+media type does not match the supplied verified CAS object.
+
+#### Scenario: A canonical capture is published and reopened
+
+- **WHEN** a caller provides an explicit evidence class and matching CAS
+  content to the evidence repository
+- **THEN** reopening the ledger SHALL reconstruct the same artifact metadata
+  from the anchor's exact `ArtifactRef`
+
+#### Scenario: Equal bytes arrive from distinct sources
+
+- **WHEN** two canonical evidence artifacts bind the same digest with distinct
+  locators or provenance groups
+- **THEN** their exact artifact references and serialized provenance SHALL
+  remain distinct
+
+### Requirement: Generic legacy anchors remain explicitly non-authoritative
+
+The system SHALL encode a non-canonical anchor as `legacy_unverified` and
+MUST require an explicit compatibility-reader opt-in to deserialize it. The
+system MUST NOT implicitly convert a generic legacy anchor into a canonical
+`ArtifactRef` anchor.
+
+#### Scenario: A caller reads imported generic evidence
+
+- **WHEN** the caller requests legacy compatibility explicitly
+- **THEN** the anchor SHALL remain marked `legacy_unverified` and contain no
+  authoritative artifact reference

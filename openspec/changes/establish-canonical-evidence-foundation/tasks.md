@@ -16,11 +16,21 @@
 - [x] 2.3 Preserve the existing registration and binding APIs without changing
   their legacy behavior.
 
-## 3. Verification and handoff
+## 3. Canonical evidence identity
 
-- [x] 3.1 Run focused ledger/content tests and the relevant SQLite regression
+- [x] 3.1 Add red tests for canonical artifact serialization, exact
+  `ArtifactRef` anchors, explicit legacy compatibility, restart, and equal
+  bytes with distinct provenance.
+- [x] 3.2 Add canonical `EvidenceArtifact`/`EvidenceAnchor` payloads and an
+  `EvidenceRepository` using the atomic ledger primitive.
+- [x] 3.3 Update the canonical anchor schema and example registry.
+
+## 4. Verification and handoff
+
+- [x] 4.1 Run focused ledger/content and canonical-evidence tests plus the
+  relevant SQLite regression
   suite from this clean worktree.
-- [x] 3.2 Run strict OpenSpec validation and the repository delivery workflow
+- [ ] 4.2 Run strict OpenSpec validation and the repository delivery workflow
   checks for issue #111.
-- [x] 3.3 Commit the OpenSpec, tests, and implementation in small logical
+- [ ] 4.3 Commit the OpenSpec, tests, and implementation in small logical
   commits, then push only `feat/issue-111-ledger-binding` to origin.
