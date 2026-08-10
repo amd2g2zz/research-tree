@@ -26,4 +26,4 @@
 - [x] 4.1 Run focused strict-delivery, ledger, readiness, evidence, and delivery regression tests.
 - [x] 4.2 Run the complete `uv run pytest -q`, OpenSpec strict validation, package/build checks, and repository delivery gate.
 - [x] 4.3 Update the issue-scoped evidence receipt and mark only these tasks complete with command evidence.
-- [ ] 4.4 Create one signed-off PR targeting `dev`, link only #110, and keep the diff within review limits.
+- [x] 4.4 Create one signed-off PR targeting `dev`, link only #110, and keep the diff within review limits.
