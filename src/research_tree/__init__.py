@@ -179,6 +179,7 @@ from .alignment_handoff import (
 )
 from .storage import RunStore
 from .run_ledger import LedgerConflictError, LedgerError, LedgerIntegrityError, RunLedger
+from .content_store import ContentAddressedStore, ContentIntegrityError, ContentObject, ContentPathError, ContentStoreError
 from .work_items import (
     InvalidWorkItemError,
     WorkItemCompiler,
@@ -298,6 +299,11 @@ __all__ = [
     "ROUND_SUPERSESSION_KIND",
     "RunStore",
     "RunLedger",
+    "ContentAddressedStore",
+    "ContentIntegrityError",
+    "ContentObject",
+    "ContentPathError",
+    "ContentStoreError",
     "LedgerError",
     "LedgerConflictError",
     "LedgerIntegrityError",
