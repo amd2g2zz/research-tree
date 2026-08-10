@@ -155,6 +155,27 @@ def _observation(anchor: EvidenceAnchor) -> dict[str, object]:
     }
 
 
+def _converge(ledger, resolver, *, target, decision_id, findings, expected_revision, slot_id="slot-one", status="conditional", selected="option-a", change_tasks=()):
+    return CanonicalDecisionLedgerCompiler(ledger, resolver).converge(
+        round_id=target.round_id, decision_id=decision_id, blueprint_target=target,
+        decision_slot_id=slot_id, finding_packs=findings, status=status,
+        selected_option=selected,
+        alternatives=[{"option": "option-b", "disposition": "deferred", "reason": "Needs further evidence."}],
+        anchors=[{"kind": "finding", "ref": finding.id} for finding in findings],
+        design_consequence="Use option-a behind a guard.", repository_touchpoints=[],
+        validation={"kind": "test", "oracle": "fixture test passes"}, change_tasks=change_tasks,
+        assumptions=[], fallback="Keep option-b available.", reversal_condition="Contrary evidence appears.",
+        revision_reason="Strict decision fixture.", expected_revision=expected_revision,
+    )
+
+
+def _raw_decision(ledger, decision_id, payload, parent_refs, expected_revision):
+    return ledger.append_artifact(
+        "run-strict", decision_id, "decision-ledger-entry", payload,
+        parent_refs=parent_refs, expected_revision=expected_revision,
+    )
+
+
 def test_strict_resolver_requires_exact_current_lineage_and_source_revision(tmp_path: Path) -> None:
     ledger, store, _target, _work, content, evidence, reference, resolver = _environment(tmp_path)
 
@@ -252,25 +273,9 @@ def test_canonical_finding_and_decision_preserve_strict_evidence_parents(tmp_pat
     )
 
     assert reference in finding.parent_refs
-    decision = CanonicalDecisionLedgerCompiler(ledger, resolver).converge(
-        round_id="run-strict",
-        decision_id="decision-one",
-        blueprint_target=target,
-        decision_slot_id="slot-one",
-        finding_packs=[finding],
-        status="conditional",
-        selected_option="option-a",
-        alternatives=[{"option": "option-b", "disposition": "deferred", "reason": "Needs further evidence."}],
-        anchors=[{"kind": "finding", "ref": finding.id}],
-        design_consequence="Use option-a behind a guard.",
-        repository_touchpoints=[],
-        validation={"kind": "test", "oracle": "fixture test passes"},
+    decision = _converge(
+        ledger, resolver, target=target, decision_id="decision-one", findings=[finding], expected_revision=4,
         change_tasks=[{"id": "task-one", "description": "Implement guard.", "acceptance_oracle": "fixture test passes", "repository_touchpoints": []}],
-        assumptions=[],
-        fallback="Keep option-b available.",
-        reversal_condition="Contrary evidence appears.",
-        revision_reason="Initial strict decision.",
-        expected_revision=4,
     )
 
     assert reference in decision.parent_refs
@@ -288,26 +293,7 @@ def test_canonical_finding_and_decision_preserve_strict_evidence_parents(tmp_pat
         expected_run_revision=5,
     )
     with pytest.raises(InvalidDecisionLedgerError, match="not resolvable"):
-        CanonicalDecisionLedgerCompiler(ledger, resolver).converge(
-            round_id="run-strict",
-            decision_id="decision-stale",
-            blueprint_target=target,
-            decision_slot_id="slot-one",
-            finding_packs=[finding],
-            status="conditional",
-            selected_option="option-a",
-            alternatives=[{"option": "option-b", "disposition": "deferred", "reason": "Needs further evidence."}],
-            anchors=[{"kind": "finding", "ref": finding.id}],
-            design_consequence="Use option-a behind a guard.",
-            repository_touchpoints=[],
-            validation={"kind": "test", "oracle": "fixture test passes"},
-            change_tasks=[{"id": "task-two", "description": "Retry guard.", "acceptance_oracle": "fixture test passes", "repository_touchpoints": []}],
-            assumptions=[],
-            fallback="Keep option-b available.",
-            reversal_condition="Contrary evidence appears.",
-            revision_reason="Stale evidence must fail.",
-            expected_revision=6,
-        )
+        _converge(ledger, resolver, target=target, decision_id="decision-stale", findings=[finding], expected_revision=6)
 
 
 def test_canonical_selected_decision_requires_strict_finding_at_any_priority(tmp_path: Path) -> None:
@@ -329,25 +315,9 @@ def test_canonical_selected_decision_requires_strict_finding_at_any_priority(tmp
         expected_revision=3,
     )
     with pytest.raises(InvalidDecisionLedgerError, match="requires at least one strict Finding Pack"):
-        CanonicalDecisionLedgerCompiler(ledger, resolver).converge(
-            round_id="run-strict",
-            decision_id="decision-low",
-            blueprint_target=low_target,
-            decision_slot_id="slot-low",
-            finding_packs=[],
-            status="selected",
-            selected_option="option-a",
-            alternatives=[{"option": "option-b", "disposition": "deferred", "reason": "Needs evidence."}],
-            anchors=[],
-            design_consequence="Use option-a.",
-            repository_touchpoints=[],
-            validation={"kind": "test", "oracle": "fixture test passes"},
-            change_tasks=[],
-            assumptions=[],
-            fallback="Keep option-b available.",
-            reversal_condition="Contrary evidence appears.",
-            revision_reason="Missing strict evidence must fail.",
-            expected_revision=4,
+        _converge(
+            ledger, resolver, target=low_target, decision_id="decision-low", findings=[], expected_revision=4,
+            slot_id="slot-low", status="selected",
         )
 
 
@@ -366,13 +336,9 @@ def test_strict_readiness_rejects_empty_finding_and_unlinked_selected_decision(t
         parent_refs=(ArtifactRef("run-strict", target.id, target.revision),),
         expected_revision=3,
     )
-    unlinked_decision = ledger.append_artifact(
-        "run-strict",
-        "decision-unlinked",
-        "decision-ledger-entry",
-        {"decision_slot_id": "slot-one", "status": "selected"},
-        parent_refs=(ArtifactRef("run-strict", target.id, target.revision),),
-        expected_revision=4,
+    unlinked_decision = _raw_decision(
+        ledger, "decision-unlinked", {"decision_slot_id": "slot-one", "status": "selected"},
+        (ArtifactRef("run-strict", target.id, target.revision),), 4,
     )
     strict_finding = CanonicalFindingPackCompiler(ledger, resolver).compile(
         round_id="run-strict",
@@ -384,39 +350,29 @@ def test_strict_readiness_rejects_empty_finding_and_unlinked_selected_decision(t
         remaining_uncertainties=[],
         expected_revision=5,
     )
-    mismatched_slot = ledger.append_artifact(
-        "run-strict",
-        "decision-mismatched-slot",
-        "decision-ledger-entry",
+    parent_refs = (
+        ArtifactRef("run-strict", target.id, target.revision),
+        ArtifactRef("run-strict", strict_finding.id, strict_finding.revision), reference,
+    )
+    mismatched_slot = _raw_decision(
+        ledger, "decision-mismatched-slot",
         {
             "blueprint_target_id": target.id,
             "decision_slot_id": "slot-other",
             "status": "selected",
             "selected_option": "option-a",
         },
-        parent_refs=(
-            ArtifactRef("run-strict", target.id, target.revision),
-            ArtifactRef("run-strict", strict_finding.id, strict_finding.revision),
-            reference,
-        ),
-        expected_revision=6,
+        parent_refs, 6,
     )
-    unsupported = ledger.append_artifact(
-        "run-strict",
-        "decision-unsupported-option",
-        "decision-ledger-entry",
+    unsupported = _raw_decision(
+        ledger, "decision-unsupported-option",
         {
             "blueprint_target_id": target.id,
             "decision_slot_id": "slot-one",
             "status": "conditional",
             "selected_option": "option-b",
         },
-        parent_refs=(
-            ArtifactRef("run-strict", target.id, target.revision),
-            ArtifactRef("run-strict", strict_finding.id, strict_finding.revision),
-            reference,
-        ),
-        expected_revision=7,
+        parent_refs, 7,
     )
     diagnostics: list[dict[str, object]] = []
     assert not _strict_findings_are_authoritative(
@@ -451,26 +407,7 @@ def test_legacy_compiler_cannot_claim_strict_evidence_or_enter_canonical_decisio
         expected_revision=3,
     )
     with pytest.raises(InvalidDecisionLedgerError, match="strict evidence"):
-        CanonicalDecisionLedgerCompiler(ledger, _resolver).converge(
-            round_id="run-strict",
-            decision_id="decision-legacy",
-            blueprint_target=target,
-            decision_slot_id="slot-one",
-            finding_packs=[legacy],
-            status="conditional",
-            selected_option="option-a",
-            alternatives=[{"option": "option-b", "disposition": "deferred", "reason": "Needs further evidence."}],
-            anchors=[{"kind": "finding", "ref": legacy.id}],
-            design_consequence="Use option-a behind a guard.",
-            repository_touchpoints=[],
-            validation={"kind": "test", "oracle": "fixture test passes"},
-            change_tasks=[{"id": "task-one", "description": "Implement guard.", "acceptance_oracle": "fixture test passes", "repository_touchpoints": []}],
-            assumptions=[],
-            fallback="Keep option-b available.",
-            reversal_condition="Contrary evidence appears.",
-            revision_reason="Must reject legacy evidence.",
-            expected_revision=4,
-        )
+        _converge(ledger, _resolver, target=target, decision_id="decision-legacy", findings=[legacy], expected_revision=4)
 
 
 def test_canonical_ledger_cannot_use_non_strict_readiness_verifier(tmp_path: Path) -> None:
