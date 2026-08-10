@@ -31,5 +31,5 @@
   validation, package parity, and the delivery workflow.
 - [x] 4.2 Run `claude plugin validate` when the Claude CLI is available and
   record unavailable host tooling honestly when it is not.
-- [ ] 4.3 Commit the completed slice atomically, push the issue branch, and
+- [x] 4.3 Commit the completed slice atomically, push the issue branch, and
   open one PR targeting `dev` with `Refs #70`.
