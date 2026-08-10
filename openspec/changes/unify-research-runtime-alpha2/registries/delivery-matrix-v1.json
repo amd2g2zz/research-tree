@@ -7,7 +7,7 @@
   "capability_rows": [
     { "capability": "canonical-runtime-contract", "source_modules": ["src/research_tree/coordinator.py", "src/research_tree/contracts/", "src/research_tree/ledger.py"], "public_surface": ["research-tree run"], "task_groups": [5, 14, 18], "github_issue": "#57", "owner": "runtime" },
     { "capability": "durable-research-runtime", "source_modules": ["src/research_tree/run_ledger.py"], "public_surface": ["run-ledger"], "task_groups": [2], "github_issue": "#53", "owner": "runtime" },
-    { "capability": "content-addressed-artifacts", "source_modules": ["src/research_tree/cas.py"], "public_surface": ["run-artifact"], "task_groups": [33], "github_issue": "#98", "owner": "runtime" },
+    { "capability": "content-addressed-artifacts", "source_modules": ["src/research_tree/content_store.py", "src/research_tree/run_ledger.py"], "public_surface": ["run-artifact"], "task_groups": [33], "github_issue": "#98", "owner": "runtime" },
     { "capability": "legacy-runstore-import", "source_modules": ["src/research_tree/migrations.py"], "public_surface": ["run-import"], "task_groups": [34], "github_issue": "#99", "owner": "runtime" },
     { "capability": "evidence-verification", "source_modules": ["src/research_tree/evidence.py", "src/research_tree/oracles.py", "src/research_tree/closure.py"], "public_surface": ["run ingest", "run verify"], "task_groups": [3, 4], "github_issue": "#54", "owner": "evidence" },
     { "capability": "adaptive-research-execution", "source_modules": ["src/research_tree/policy.py", "src/research_tree/scheduler.py"], "public_surface": ["run next"], "task_groups": [6, 16], "github_issue": "#58", "owner": "research" },
