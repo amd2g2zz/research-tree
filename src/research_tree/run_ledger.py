@@ -134,20 +134,7 @@ class RunLedger:
         """Register verified CAS metadata; repeated identical registration is idempotent."""
         self.initialize()
         with self._connect() as connection:
-            existing = connection.execute(
-                "SELECT media_type, byte_size, locator, availability, created_at "
-                "FROM content_objects WHERE digest = ?", (content.digest,)
-            ).fetchone()
-            if existing is not None:
-                if tuple(existing[:4]) != (content.media_type, content.byte_size, content.locator, content.availability):
-                    raise LedgerIntegrityError(f"content metadata conflict: {content.digest}")
-                return ContentObject(content.digest, *tuple(existing))
-            connection.execute(
-                "INSERT INTO content_objects(digest, media_type, byte_size, locator, availability, created_at) "
-                "VALUES(?, ?, ?, ?, ?, ?)",
-                (content.digest, content.media_type, content.byte_size, content.locator, content.availability, content.created_at),
-            )
-        return content
+            return self._register_content_row(connection, content)
 
     def bind_content(self, reference: ArtifactRef, content: ContentObject) -> None:
         """Bind a registered digest to one immutable artifact revision."""
@@ -188,20 +175,50 @@ class RunLedger:
             raise LedgerIntegrityError(f"content does not exist: {digest}")
         return ContentObject(*tuple(row))
 
-    def resolve_content(self, reference: ArtifactRef, store: ContentAddressedStore) -> bytes:
-        """Resolve an artifact's bound content through metadata and CAS verification."""
+    def get_artifact(self, reference: ArtifactRef) -> ArtifactRevision:
+        """Load one immutable artifact revision by exact identity."""
+
         self.initialize()
+        if not isinstance(reference, ArtifactRef):
+            raise LedgerIntegrityError("artifact reference must be an ArtifactRef")
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT artifact_json FROM artifacts "
+                "WHERE run_id = ? AND artifact_id = ? AND revision = ?",
+                (reference.round_id, reference.artifact_id, reference.revision),
+            ).fetchone()
+        if row is None:
+            raise LedgerIntegrityError(f"artifact does not exist: {reference}")
+        try:
+            artifact = ArtifactRevision.from_dict(json.loads(row[0]))
+        except (TypeError, ValueError, KeyError, json.JSONDecodeError) as error:
+            raise LedgerIntegrityError(f"corrupt artifact row: {reference}") from error
+        if ArtifactRef(artifact.round_id, artifact.id, artifact.revision) != reference:
+            raise LedgerIntegrityError(f"artifact identity does not match its row: {reference}")
+        return artifact
+
+    def get_bound_content(self, reference: ArtifactRef) -> ContentObject:
+        """Load the content metadata bound to one immutable artifact revision."""
+
+        self.initialize()
+        if not isinstance(reference, ArtifactRef):
+            raise LedgerIntegrityError("artifact reference must be an ArtifactRef")
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT object.digest, object.media_type, object.byte_size, object.locator, "
-                "object.availability, object.created_at FROM artifact_contents binding "
+                "object.availability, object.created_at "
+                "FROM artifact_contents binding "
                 "JOIN content_objects object ON object.digest = binding.digest "
                 "WHERE binding.run_id = ? AND binding.artifact_id = ? AND binding.revision = ?",
                 (reference.round_id, reference.artifact_id, reference.revision),
             ).fetchone()
         if row is None:
             raise LedgerIntegrityError(f"artifact has no bound content: {reference}")
-        content = ContentObject(*tuple(row))
+        return ContentObject(*tuple(row))
+
+    def resolve_content(self, reference: ArtifactRef, store: ContentAddressedStore) -> bytes:
+        """Resolve an artifact's bound content through metadata and CAS verification."""
+        content = self.get_bound_content(reference)
         if content.availability != "available":
             raise LedgerIntegrityError(f"content is not available: {content.digest}")
         return store.read(content)
@@ -316,6 +333,97 @@ class RunLedger:
                 raise LedgerIntegrityError("artifact append violated a ledger constraint") from error
         return artifact
 
+    def append_artifact_with_content(
+        self,
+        run_id: str,
+        artifact_id: str,
+        kind: str,
+        payload: Any,
+        content: ContentObject,
+        store: ContentAddressedStore,
+        *,
+        parent_refs: Iterable[ArtifactRef] = (),
+        expected_revision: int,
+        expected_artifact_revision: int | None = None,
+    ) -> ArtifactRevision:
+        """Atomically append an artifact and bind verified CAS content.
+
+        CAS publication predates this operation, so a failed transaction can
+        leave an unbound object on disk. That object is not authoritative until
+        this transaction commits its metadata and exact artifact binding.
+        """
+
+        self.initialize()
+        run_id = validate_identifier(run_id, "run_id")
+        if not isinstance(content, ContentObject):
+            raise LedgerIntegrityError("content must be a ContentObject")
+        if not isinstance(store, ContentAddressedStore):
+            raise LedgerIntegrityError("store must be a ContentAddressedStore")
+        if content.availability != "available":
+            raise LedgerIntegrityError(f"content is not available: {content.digest}")
+        if expected_artifact_revision is not None:
+            if (
+                isinstance(expected_artifact_revision, bool)
+                or not isinstance(expected_artifact_revision, int)
+                or expected_artifact_revision < 1
+            ):
+                raise LedgerIntegrityError("expected_artifact_revision must be a positive integer")
+
+        verified_bytes = store.read(content)
+        if len(verified_bytes) != content.byte_size:
+            raise LedgerIntegrityError(f"CAS byte-size mismatch: {content.digest}")
+        parent_refs = tuple(parent_refs)
+        with self._connect() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                current = self._require_expected_revision(connection, run_id, expected_revision)
+                registered = self._register_content_row(connection, content)
+                for reference in parent_refs:
+                    self._require_artifact(connection, reference)
+                next_revision = self._next_artifact_revision(connection, run_id, artifact_id)
+                if expected_artifact_revision is not None and next_revision != expected_artifact_revision:
+                    raise LedgerConflictError(
+                        "stale artifact revision: "
+                        f"expected {expected_artifact_revision}, current {next_revision}"
+                    )
+                artifact = ArtifactRevision.create(
+                    artifact_id=artifact_id,
+                    round_id=run_id,
+                    revision=next_revision,
+                    kind=kind,
+                    payload=payload,
+                    parent_refs=parent_refs,
+                )
+                connection.execute(
+                    "INSERT INTO artifacts(run_id, artifact_id, revision, artifact_json, content_hash) "
+                    "VALUES(?, ?, ?, ?, ?)",
+                    (run_id, artifact.id, artifact.revision, _json(artifact.to_dict()), artifact.content_hash),
+                )
+                for reference in parent_refs:
+                    connection.execute(
+                        "INSERT INTO artifact_parents(run_id, artifact_id, revision, parent_run_id, "
+                        "parent_artifact_id, parent_revision) VALUES(?, ?, ?, ?, ?, ?)",
+                        (run_id, artifact.id, artifact.revision, reference.round_id, reference.artifact_id, reference.revision),
+                    )
+                artifact_ref = ArtifactRef(run_id, artifact.id, artifact.revision)
+                connection.execute(
+                    "INSERT INTO artifact_contents(run_id, artifact_id, revision, digest) VALUES(?, ?, ?, ?)",
+                    (run_id, artifact.id, artifact.revision, registered.digest),
+                )
+                self._insert_event(
+                    connection,
+                    LineageEvent.create(
+                        round_id=run_id,
+                        kind="artifact-content-appended",
+                        artifact_ref=artifact_ref,
+                    ),
+                )
+                self._increment_revision(connection, run_id, current)
+                self._before_commit()
+            except sqlite3.IntegrityError as error:
+                raise LedgerIntegrityError("artifact content append violated a ledger constraint") from error
+        return artifact
+
     def append_event(
         self, run_id: str, event: LineageEvent, *, expected_revision: int
     ) -> LineageEvent:
@@ -390,6 +498,36 @@ class RunLedger:
     @staticmethod
     def _before_commit() -> None:
         """Fault-injection seam; production has no work here."""
+
+    @staticmethod
+    def _register_content_row(connection: sqlite3.Connection, content: ContentObject) -> ContentObject:
+        existing = connection.execute(
+            "SELECT media_type, byte_size, locator, availability, created_at "
+            "FROM content_objects WHERE digest = ?",
+            (content.digest,),
+        ).fetchone()
+        if existing is not None:
+            if tuple(existing[:4]) != (
+                content.media_type,
+                content.byte_size,
+                content.locator,
+                content.availability,
+            ):
+                raise LedgerIntegrityError(f"content metadata conflict: {content.digest}")
+            return ContentObject(content.digest, *tuple(existing))
+        connection.execute(
+            "INSERT INTO content_objects(digest, media_type, byte_size, locator, availability, created_at) "
+            "VALUES(?, ?, ?, ?, ?, ?)",
+            (
+                content.digest,
+                content.media_type,
+                content.byte_size,
+                content.locator,
+                content.availability,
+                content.created_at,
+            ),
+        )
+        return content
 
     @staticmethod
     def _run_exists(connection: sqlite3.Connection, run_id: str) -> bool:

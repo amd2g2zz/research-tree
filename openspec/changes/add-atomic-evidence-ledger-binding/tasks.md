@@ -1,0 +1,26 @@
+## 1. Contract and red tests
+
+- [x] 1.1 Add focused failing tests for atomic artifact-plus-content publication,
+  exact binding reads after restart, equal digest with distinct artifact
+  payloads, stale revisions, and injected pre-commit rollback.
+- [x] 1.2 Add a failing test proving tampered or unavailable CAS content cannot
+  create an artifact, content binding, event, or run-revision increment.
+
+## 2. Atomic ledger primitive
+
+- [x] 2.1 Refactor content registration into a transaction-local helper and add
+  exact artifact and bound-content read helpers with integrity checks.
+- [x] 2.2 Implement `append_artifact_with_content` with CAS verification,
+  optimistic revision checks, artifact/parent/event writes, exact content
+  binding, and one transaction boundary.
+- [x] 2.3 Preserve the existing registration and binding APIs without changing
+  their legacy behavior.
+
+## 3. Verification and handoff
+
+- [x] 3.1 Run focused ledger/content tests and the relevant SQLite regression
+  suite from this clean worktree.
+- [ ] 3.2 Run strict OpenSpec validation and the repository delivery workflow
+  checks for issue #111.
+- [ ] 3.3 Commit the OpenSpec, tests, and implementation in small logical
+  commits, then push only `feat/issue-111-ledger-binding` to origin.
