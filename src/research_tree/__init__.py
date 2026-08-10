@@ -181,6 +181,7 @@ from .storage import RunStore
 from .run_ledger import LedgerConflictError, LedgerError, LedgerIntegrityError, RunLedger
 from .legacy_import import LegacyImportError, LegacyImportReceipt, LegacyImportResult, LegacyRunStoreImporter
 from .content_store import ContentAddressedStore, ContentIntegrityError, ContentObject, ContentPathError, ContentStoreError
+from .evidence import EvidenceAnchor, EvidenceArtifact, EvidenceResolver, EvidenceValidationError, provenance_group_for
 from .work_items import (
     InvalidWorkItemError,
     WorkItemCompiler,
@@ -305,6 +306,11 @@ __all__ = [
     "ContentObject",
     "ContentPathError",
     "ContentStoreError",
+    "EvidenceAnchor",
+    "EvidenceArtifact",
+    "EvidenceResolver",
+    "EvidenceValidationError",
+    "provenance_group_for",
     "LegacyImportError",
     "LegacyImportReceipt",
     "LegacyImportResult",
