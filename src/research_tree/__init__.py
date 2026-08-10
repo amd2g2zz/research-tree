@@ -179,6 +179,7 @@ from .alignment_handoff import (
 )
 from .storage import RunStore
 from .run_ledger import LedgerConflictError, LedgerError, LedgerIntegrityError, RunLedger
+from .legacy_import import LegacyImportError, LegacyImportReceipt, LegacyImportResult, LegacyRunStoreImporter
 from .content_store import ContentAddressedStore, ContentIntegrityError, ContentObject, ContentPathError, ContentStoreError
 from .work_items import (
     InvalidWorkItemError,
@@ -304,6 +305,10 @@ __all__ = [
     "ContentObject",
     "ContentPathError",
     "ContentStoreError",
+    "LegacyImportError",
+    "LegacyImportReceipt",
+    "LegacyImportResult",
+    "LegacyRunStoreImporter",
     "LedgerError",
     "LedgerConflictError",
     "LedgerIntegrityError",
