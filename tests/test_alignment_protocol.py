@@ -150,3 +150,43 @@ def test_feedback_classifies_material_change_as_successor_and_method_change_as_r
 
     assert successor["classification"] == "successor_request"
     assert replan["classification"] == "same_round_replan"
+
+
+@pytest.mark.parametrize(
+    ("scenario", "kind", "human_exclusive", "researchable"),
+    [
+        ("vague-brief", "reconnaissance", False, True),
+        ("impossible-goal", "disagreement", False, True),
+        ("wrong-human-premise", "disagreement", True, False),
+        ("wrong-agent-premise", "disagreement", False, True),
+        ("repeated-planning", "reconnaissance", False, True),
+        ("generic-acknowledgement", "question", True, False),
+    ],
+)
+def test_black_box_briefs_keep_actions_bounded_and_digest_bound(
+    tmp_path: Path,
+    scenario: str,
+    kind: str,
+    human_exclusive: bool,
+    researchable: bool,
+) -> None:
+    service = protocol(tmp_path)
+    option = candidate(
+        f"{scenario}-action",
+        kind=kind,
+        human_exclusive=human_exclusive,
+        researchable=researchable,
+    )
+    planned = service.plan([option], seed=5)
+    assert planned["action"]["kind"] == kind
+    if scenario == "repeated-planning":
+        assert service.plan([option], seed=5) == planned
+    if scenario == "generic-acknowledgement":
+        message = service.message(
+            mirror="The request remains requester-controlled.",
+            evidence_refs=[],
+            consequence="The answer changes the research boundary.",
+            prompt=None,
+        )
+        with pytest.raises(AlignmentProtocolError, match="generic acknowledgement"):
+            service.confirm("okay", expected_digest=message["belief_digest"])

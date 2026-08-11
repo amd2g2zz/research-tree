@@ -78,7 +78,7 @@ substitute for local evidence.
 - [x] 7.5 Enforce one short open prompt per user turn while preserving unresolved internal gaps across turns.
 - [x] 7.6 Require semantic readiness, displayed digest freshness, and contextual user confirmation before autonomous handoff.
 - [x] 7.7 Route material post-handoff target, priority, authority, or success changes through feedback lineage and successor-round creation.
-- [ ] 7.8 Add black-box alignment tests for vague briefs, impossible goals, wrong human premises, wrong agent premises, repeated planning, and generic acknowledgement.
+- [x] 7.8 Add black-box alignment tests for vague briefs, impossible goals, wrong human premises, wrong agent premises, repeated planning, and generic acknowledgement.
 - [x] 7.9 Add focused action, belief, message, handoff, feedback, replay, and
   authority-bypass tests; each slice records `pytest`, `ruff check`, and
   `ruff format --check` evidence over its changed files.
