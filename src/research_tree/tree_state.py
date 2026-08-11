@@ -135,11 +135,12 @@ def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
         "penalty_history",
         "stop_reason",
     }
-    if not isinstance(value, Mapping) or set(value) != required:
+    allowed = required | {"compatibility_projection"}
+    if not isinstance(value, Mapping) or not required <= set(value) or set(value) - allowed:
         actual = set(value) if isinstance(value, Mapping) else set()
         raise ResearchTreeStateError(
             f"tree state has unexpected keys; missing={sorted(required - actual)}, "
-            f"extra={sorted(actual - required)}"
+            f"extra={sorted(actual - allowed)}"
         )
     if value.get("schema") != 1:
         raise ResearchTreeStateError("tree state schema must be 1")
@@ -156,6 +157,9 @@ def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
     ):
         if not isinstance(value.get(key), Mapping):
             raise ResearchTreeStateError(f"tree state {key} must be a mapping")
+    projection = value.get("compatibility_projection", {})
+    if not isinstance(projection, Mapping):
+        raise ResearchTreeStateError("tree state compatibility_projection must be a mapping")
     for key in ("frontier_node_ids", "consumed_finding_ids", "delta_history", "penalty_history"):
         if isinstance(value.get(key), (str, bytes)) or not isinstance(value.get(key), Sequence):
             raise ResearchTreeStateError(f"tree state {key} must be a sequence")
@@ -176,6 +180,13 @@ def _normalized_state(
         raise ResearchTreeStateError("tree state must be a mapping")
     payload["id"] = tree_id
     payload["round_id"] = round_id
+    payload.setdefault(
+        "compatibility_projection",
+        {
+            "authority": "coordinator_only",
+            "blocked_reasons": ["legacy state has no canonical completion authority"],
+        },
+    )
     validate_tree_state_payload(payload)
     if payload["transition_index"] != expected_transition:
         raise ResearchTreeStateError(

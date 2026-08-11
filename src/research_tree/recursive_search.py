@@ -401,8 +401,14 @@ def finalize_research_delivery(
             human_report, kind="human_research_report", minimum_bytes=512, minimum_headings=2
         ),
     }
-    result["status"] = "complete"
-    result["stop_reason"] = "decision-slot closure and both research deliverables verified"
+    for manifest in result["deliverables"].values():
+        manifest["status"] = "observed"
+    result["status"] = "delivery_pending"
+    result["stop_reason"] = "report manifests observed; coordinator must verify delivery and acceptance"
+    result["compatibility_projection"] = {
+        "authority": "coordinator_only",
+        "blocked_reasons": ["delivery_and_completion_are_canonical_coordinator_obligations"],
+    }
     return result
 
 
@@ -417,27 +423,26 @@ def evaluate_research_stop(state: Mapping[str, Any]) -> dict[str, Any]:
             for node in result["nodes"].values()
             if node["decision_slot_id"] == slot_id and node["status"] == "frontier"
         ]
+        slot["status"] = "researching"
         if _slot_has_minimum_evidence(slot) and not open_nodes and (
             not slot["validation_required"] or slot["validation_passed"]
         ):
-            slot["status"] = "closed"
-        else:
-            slot["status"] = "researching"
-            if not _slot_has_minimum_evidence(slot):
-                blockers.append(f"{slot_id}: independent evidence is insufficient")
-            if slot["validation_required"] and not slot["validation_passed"]:
-                blockers.append(f"{slot_id}: validation oracle has not passed")
-            if open_nodes:
-                blockers.append(f"{slot_id}: {len(open_nodes)} frontier action(s) remain")
+            blockers.append(f"{slot_id}: closure candidate requires coordinator assessment")
+        if not _slot_has_minimum_evidence(slot):
+            blockers.append(f"{slot_id}: independent evidence is insufficient")
+        if slot["validation_required"] and not slot["validation_passed"]:
+            blockers.append(f"{slot_id}: validation oracle has not passed")
+        if open_nodes:
+            blockers.append(f"{slot_id}: {len(open_nodes)} frontier action(s) remain")
+    result["compatibility_projection"] = {
+        "authority": "coordinator_only",
+        "blocked_reasons": sorted(set(blockers)) or ["canonical closure is not a local projection"],
+    }
     if result["decision_slots"] and all(
         slot["status"] == "closed" for slot in result["decision_slots"].values()
     ):
-        if _deliverables_ready(result["deliverables"]):
-            result["status"] = "complete"
-            result["stop_reason"] = "decision-slot closure and both research deliverables verified"
-        else:
-            result["status"] = "delivery_pending"
-            result["stop_reason"] = "decision slots closed; both research deliverables are still pending"
+        result["status"] = "delivery_pending"
+        result["stop_reason"] = "coordinator must assess slot closure and delivery obligations"
     elif result["frontier_node_ids"]:
         result["status"] = "searching"
         result["stop_reason"] = None
