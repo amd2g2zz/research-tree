@@ -64,8 +64,8 @@ def test_group_35_owns_integrated_receipt_and_future_gaps_remain_unverified() ->
     report = validate_governance(inputs)
 
     assert report.valid is True
-    assert report.verified_groups == (1, 2, 3, 33, 34, 35)
-    assert report.unverified_groups == tuple(range(4, 33))
+    assert report.verified_groups == (1, 2, 3, 4, 33, 34, 35)
+    assert report.unverified_groups == tuple(range(5, 33))
 
     issue_map = json.loads(
         (REGISTRY_ROOT / "issue-execution-map-v1.json").read_text(encoding="utf-8")
@@ -85,5 +85,5 @@ def test_group_35_owns_integrated_receipt_and_future_gaps_remain_unverified() ->
         ).read_text(encoding="utf-8")
     )
     assert gaps["schema_version"] == 1
-    assert {item["group"] for item in gaps["gaps"]} == set(range(4, 33))
+    assert {item["group"] for item in gaps["gaps"]} == set(range(5, 33))
     assert all(item["state"] == "planned" for item in gaps["gaps"])
