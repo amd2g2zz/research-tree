@@ -14,9 +14,7 @@ from research_tree.openspec_governance import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REGISTRY_ROOT = (
-    ROOT / "openspec" / "changes" / "unify-research-runtime-alpha2" / "registries"
-)
+REGISTRY_ROOT = ROOT / "openspec" / "changes" / "unify-research-runtime-alpha2" / "registries"
 
 
 def write_json(path: Path, payload: object) -> Path:
@@ -196,8 +194,7 @@ def test_verified_group_rejects_direct_and_transitive_incomplete_dependencies(
     )
 
     violations = {
-        violation.subject: violation for violation in report.violations
-        if violation.code == "unverified_dependency"
+        violation.subject: violation for violation in report.violations if violation.code == "unverified_dependency"
     }
     assert violations[2].path == (2, 1)
     assert violations[3].path == (3, 2, 1)
@@ -265,13 +262,16 @@ def test_report_is_deterministic_and_uses_structured_violations(tmp_path: Path) 
         capabilities=[capability("evidence", 54, [2]), capability("ledger", 53, [1])],
     )
 
-    assert report.as_dict() == validate(
-        tmp_path,
-        groups=[group(1), group(2, [1])],
-        verification=[record(1, "planned"), record(2, "planned")],
-        issues=[issue(53, 1, "ledger"), issue(54, 2, "evidence")],
-        capabilities=[capability("ledger", 53, [1]), capability("evidence", 54, [2])],
-    ).as_dict()
+    assert (
+        report.as_dict()
+        == validate(
+            tmp_path,
+            groups=[group(1), group(2, [1])],
+            verification=[record(1, "planned"), record(2, "planned")],
+            issues=[issue(53, 1, "ledger"), issue(54, 2, "evidence")],
+            capabilities=[capability("ledger", 53, [1]), capability("evidence", 54, [2])],
+        ).as_dict()
+    )
     assert all(isinstance(item, GovernanceViolation) for item in report.violations)
 
 
@@ -287,8 +287,8 @@ def test_alpha2_registry_has_resolvable_ownership_and_noncyclic_boundaries() -> 
 
     assert report.valid is True
     assert report.release_ready is False
-    assert report.verified_groups == (1, 2, 3, 4, 5, 6, 7, 8, 9, 16, 33, 34, 35)
-    assert report.unverified_groups == tuple(group for group in range(6, 33) if group not in {6, 7, 8, 9, 16})
+    assert report.verified_groups == (1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 16, 33, 34, 35)
+    assert report.unverified_groups == tuple(group for group in range(6, 33) if group not in {6, 7, 8, 9, 11, 16})
 
 
 def test_cli_emits_deterministic_real_registry_report(capsys: pytest.CaptureFixture[str]) -> None:
@@ -297,13 +297,11 @@ def test_cli_emits_deterministic_real_registry_report(capsys: pytest.CaptureFixt
     payload = json.loads(capsys.readouterr().out)
     assert payload["valid"] is True
     assert payload["release_ready"] is False
-    assert payload["verified_groups"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 16, 33, 34, 35]
-    assert payload["unverified_groups"] == [group for group in range(6, 33) if group not in {6, 7, 8, 9, 16}]
+    assert payload["verified_groups"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 16, 33, 34, 35]
+    assert payload["unverified_groups"] == [group for group in range(6, 33) if group not in {6, 7, 8, 9, 11, 16}]
 
 
-def test_cli_returns_nonzero_for_semantic_violation(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_cli_returns_nonzero_for_semantic_violation(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     paths = inputs(
         tmp_path,
         groups=[group(1)],
@@ -312,18 +310,21 @@ def test_cli_returns_nonzero_for_semantic_violation(
         capabilities=[capability("ledger", 53, [1])],
     )
 
-    assert main(
-        [
-            "--task-registry",
-            str(paths[0]),
-            "--verification",
-            str(paths[1]),
-            "--issue-map",
-            str(paths[2]),
-            "--delivery-matrix",
-            str(paths[3]),
-        ]
-    ) == 1
+    assert (
+        main(
+            [
+                "--task-registry",
+                str(paths[0]),
+                "--verification",
+                str(paths[1]),
+                "--issue-map",
+                str(paths[2]),
+                "--delivery-matrix",
+                str(paths[3]),
+            ]
+        )
+        == 1
+    )
     assert "verified_record_incomplete" in capsys.readouterr().out
 
 
