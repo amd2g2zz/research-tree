@@ -31,7 +31,7 @@
 
 ## 4. Evidence and acceptance
 
-- [ ] 4.1 Update group 8 task/verification registry with protocol, focused pytest,
+- [x] 4.1 Update group 8 task/verification registry with protocol, focused pytest,
   Ruff, package, and crash fixture receipts.
 - [x] 4.2 Run focused suite, full pytest, strict OpenSpec, package parity,
   governance, delivery validation, and `git diff --check`.
