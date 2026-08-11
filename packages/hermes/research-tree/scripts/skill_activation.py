@@ -498,6 +498,8 @@ def run_native_probes(
         kwargs: dict[str, object] = {
             "capture_output": True,
             "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
             "check": False,
             "timeout": 120,
         }
@@ -515,7 +517,7 @@ def run_native_probes(
             }
             continue
         returncode = getattr(completed, "returncode", None)
-        stdout = getattr(completed, "stdout", "")
+        stdout = getattr(completed, "stdout", "") or ""
         if returncode != 0:
             results[host] = {
                 "host": host,
