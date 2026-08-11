@@ -155,8 +155,18 @@ from .orchestration import (
 from .insights import synthesize_insights, validate_insight_digest
 from .evidence_delta import (
     EvidenceBaseline,
+    RealizedDelta,
     baseline_from_finding_packs,
     measure_realized_delta,
+)
+from .policy import (
+    AdaptiveResearchPolicy,
+    DecisionSlotDeficit,
+    InsightSignal,
+    PolicyConfiguration,
+    PolicyDisposition,
+    PolicyProposal,
+    VerifiedEvidence,
 )
 from .recursive_search import (
     RecursiveResearchCoordinator,
@@ -267,8 +277,16 @@ __all__ = [
     "synthesize_insights",
     "validate_insight_digest",
     "EvidenceBaseline",
+    "RealizedDelta",
     "baseline_from_finding_packs",
     "measure_realized_delta",
+    "AdaptiveResearchPolicy",
+    "DecisionSlotDeficit",
+    "InsightSignal",
+    "PolicyConfiguration",
+    "PolicyDisposition",
+    "PolicyProposal",
+    "VerifiedEvidence",
     "RecursiveSearchConfig",
     "RecursiveResearchCoordinator",
     "initialize_research_state",

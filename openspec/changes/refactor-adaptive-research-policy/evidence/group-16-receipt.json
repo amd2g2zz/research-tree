@@ -1,0 +1,9 @@
+{
+  "command": "uv run pytest -q tests/test_insight_digest.py tests/test_policy_replay.py && uv run ruff check src/research_tree/policy.py src/research_tree/insights.py tests/test_insight_digest.py tests/test_policy_replay.py && uv run ruff format --check src/research_tree/policy.py src/research_tree/insights.py tests/test_insight_digest.py tests/test_policy_replay.py",
+  "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+  "exit_code": 0,
+  "output_digest": "5ac90e2ff0734f62fc02934ab04189f66ec4a2112c2448d102eda4a06a0b2691",
+  "raw_output_ref": "openspec/changes/refactor-adaptive-research-policy/evidence/group-16-output.txt",
+  "recorded_at": "2026-08-11T13:35:45.729050+00:00",
+  "source_revision": "b098948e68d557ee7cf6047b97349a6ad931f56c"
+}
