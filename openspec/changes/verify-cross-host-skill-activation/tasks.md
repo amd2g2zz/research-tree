@@ -24,4 +24,4 @@
 ## 5. Delivery
 - [x] 5.1 Run focused pytest, Ruff lint over all changed Python, and `uv run ruff format --check src/research_tree/skill_activation.py scripts/check_skill_activation.py tests/test_skill_activation.py`.
 - [x] 5.2 Run full pytest, both strict OpenSpec validations, package check, governance, delivery, and `git diff --check`.
-- [ ] 5.3 Inspect hard limits/generated separation, push, and open one `dev` PR with `Closes #71`; do not merge.
+- [x] 5.3 Inspect hard limits/generated separation, push, and open one `dev` PR with `Closes #71`; do not merge.
