@@ -21,5 +21,5 @@
 - [x] 4.1 Run `uv run pytest -q tests/test_debug_trace.py tests/test_replay.py tests/test_research_run_coordinator.py`.
 - [x] 4.2 Run `uv run ruff check src/research_tree/debug_trace.py tests/test_debug_trace.py tests/test_replay.py` on every touched Python file.
 - [x] 4.3 Run `uv run ruff format --check src/research_tree/debug_trace.py tests/test_debug_trace.py tests/test_replay.py`; pytest plus both Ruff commands form one required gate.
-- [ ] 4.4 Run full pytest, strict OpenSpec validation, package parity, delivery workflow, and `git diff --check`.
-- [ ] 4.5 Record source-bound group-11 execution/verification receipts, isolate generated output if any, and inspect the final diff before PR delivery.
+- [x] 4.4 Run full pytest, strict OpenSpec validation, package parity, delivery workflow, and `git diff --check`.
+- [x] 4.5 Record source-bound group-11 execution/verification receipts, isolate generated output if any, and inspect the final diff before PR delivery.
