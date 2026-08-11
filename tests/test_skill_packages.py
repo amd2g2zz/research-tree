@@ -76,6 +76,7 @@ def test_only_hermes_package_contains_hermes_compatibility_material() -> None:
         assert not (skill_root / "references" / "hermes-native-orchestration.md").exists()
         assert not (skill_root / "scripts" / "hermes_runtime_hook.py").exists()
         assert not (skill_root / "scripts" / "hermes_skill_adapter.py").exists()
+        assert not (skill_root / "scripts" / "hermes_event_adapter.py").exists()
 
     hermes_skill = (hermes / "SKILL.md").read_text(encoding="utf-8")
     assert "Hermes runtime adapter" in hermes_skill
@@ -84,6 +85,15 @@ def test_only_hermes_package_contains_hermes_compatibility_material() -> None:
     assert (hermes / "references" / "hermes-native-orchestration.md").is_file()
     assert (hermes / "scripts" / "hermes_runtime_hook.py").is_file()
     assert (hermes / "scripts" / "hermes_skill_adapter.py").is_file()
+    assert (hermes / "scripts" / "host_event_protocol.py").read_bytes() == (
+        ROOT / "scripts" / "host_event_protocol.py"
+    ).read_bytes()
+    assert (hermes / "scripts" / "hermes_event_adapter.py").read_bytes() == (
+        ROOT / "scripts" / "hermes_event_adapter.py"
+    ).read_bytes()
+    assert (hermes / "scripts" / "hermes_execution_adapter.py").read_bytes() == (
+        ROOT / "scripts" / "hermes_execution_adapter.py"
+    ).read_bytes()
     assert len(hermes_skill) <= 20_000
     for phase in (
         "hermes-alignment.md",

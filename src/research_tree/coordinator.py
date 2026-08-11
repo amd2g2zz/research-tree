@@ -600,32 +600,52 @@ class ResearchRunCoordinator:
     def ingest_host_event(self, event: HostEvent | Mapping[str, Any]) -> ArtifactRevision:
         """Validate and atomically persist one non-authoritative host event."""
 
+        return self.ingest_host_events((event,))[0]
+
+    def ingest_host_events(self, events: Sequence[HostEvent | Mapping[str, Any]]) -> tuple[ArtifactRevision, ...]:
+        """Atomically persist an ordered host-event batch and its projections."""
+
         try:
-            envelope = HostEvent.from_value(event)
+            envelopes = tuple(HostEvent.from_value(event) for event in events)
         except HostEventError as error:
             raise CoordinatorConflictError(str(error)) from error
-        run_id = envelope.run_id
-        existing = next(
-            (
-                item
-                for item in self.ledger.load_run(run_id).artifacts
-                if item.kind == HOST_EVENT_KIND and item.id == envelope.event_id
-            ),
-            None,
-        )
-        if existing is not None:
-            if existing.payload.get("payload_digest") != envelope.payload_digest:
-                raise CoordinatorEventConflictError("event_id_conflict")
-            return existing
+        if not envelopes:
+            raise CoordinatorConflictError("host_event_batch_empty")
+        if len({event.event_id for event in envelopes}) != len(envelopes):
+            raise CoordinatorEventConflictError("event_id_conflict")
+        run_id = envelopes[0].run_id
+        attempt_id = envelopes[0].attempt_id
+        expected_revision = envelopes[0].expected_revision
+        if any(
+            event.run_id != run_id or event.attempt_id != attempt_id or event.expected_revision != expected_revision
+            for event in envelopes
+        ):
+            raise CoordinatorConflictError("host_event_batch_lineage")
+        artifacts = self.ledger.load_run(run_id).artifacts
+        existing_by_id = {
+            item.id: item
+            for item in artifacts
+            if item.kind == HOST_EVENT_KIND and item.id in {e.event_id for e in envelopes}
+        }
+        if existing_by_id:
+            if len(existing_by_id) != len(envelopes):
+                raise CoordinatorEventConflictError("partial_event_batch")
+            replay = []
+            for envelope in envelopes:
+                existing = existing_by_id[envelope.event_id]
+                if existing.payload.get("payload_digest") != envelope.payload_digest:
+                    raise CoordinatorEventConflictError("event_id_conflict")
+                replay.append(existing)
+            return tuple(replay)
         current_revision = self.ledger.get_revision(run_id)
-        if envelope.expected_revision != current_revision:
+        if expected_revision != current_revision:
             raise CoordinatorConflictError("stale_revision")
         current = self._latest_state(run_id)
         lease_candidates = [
             item
-            for item in self.ledger.load_run(run_id).artifacts
+            for item in artifacts
             if item.kind == LEASE_KIND
-            and item.id == envelope.attempt_id
+            and item.id == attempt_id
             and self.ledger.is_latest_artifact(self._artifact_ref(item))
         ]
         lease = max(lease_candidates, key=lambda item: item.revision, default=None)
@@ -633,54 +653,55 @@ class ResearchRunCoordinator:
             raise CoordinatorConflictError("unknown_attempt")
         previous_sequences = [
             int(item.payload.get("sequence", 0))
-            for item in self.ledger.load_run(run_id).artifacts
-            if item.kind == HOST_EVENT_KIND and item.payload.get("attempt_id") == envelope.attempt_id
+            for item in artifacts
+            if item.kind == HOST_EVENT_KIND and item.payload.get("attempt_id") == attempt_id
         ]
         expected_sequence = max(previous_sequences, default=0) + 1
-        if envelope.sequence != expected_sequence:
-            raise HostEventSequenceError(f"host event sequence must be {expected_sequence}; got {envelope.sequence}")
-        event_payload = {
-            **envelope.to_dict(),
-            "semantic_digest": envelope.semantic_digest,
-            "authoritative": False,
-        }
-        event_ref = ArtifactRef(run_id, envelope.event_id, 1)
-        projection_id = f"host-projection-{envelope.event_id}"
-        projection_payload = {
-            "event_ref": event_ref.to_dict(),
-            "attempt_id": envelope.attempt_id,
-            "sequence": envelope.sequence,
-            "kind": envelope.kind,
-            "status": "observed",
-            "authoritative": False,
-            "semantic_digest": envelope.semantic_digest,
-        }
-        try:
-            created = self.ledger.append_artifact_batch(
-                run_id,
+        specs = []
+        for offset, envelope in enumerate(envelopes):
+            required_sequence = expected_sequence + offset
+            if envelope.sequence != required_sequence:
+                raise HostEventSequenceError(
+                    f"host event sequence must be {required_sequence}; got {envelope.sequence}"
+                )
+            event_ref = ArtifactRef(run_id, envelope.event_id, 1)
+            specs.extend(
                 (
                     (
                         envelope.event_id,
                         HOST_EVENT_KIND,
-                        event_payload,
+                        {
+                            **envelope.to_dict(),
+                            "semantic_digest": envelope.semantic_digest,
+                            "authoritative": False,
+                        },
                         (ArtifactRef(run_id, current.id, current.revision),),
                     ),
                     (
-                        projection_id,
+                        f"host-projection-{envelope.event_id}",
                         HOST_EVENT_PROJECTION_KIND,
-                        projection_payload,
+                        {
+                            "event_ref": event_ref.to_dict(),
+                            "attempt_id": envelope.attempt_id,
+                            "sequence": envelope.sequence,
+                            "kind": envelope.kind,
+                            "status": "observed",
+                            "authoritative": False,
+                            "semantic_digest": envelope.semantic_digest,
+                        },
                         (
                             ArtifactRef(run_id, current.id, current.revision),
                             event_ref,
                             ArtifactRef(run_id, lease.id, lease.revision),
                         ),
                     ),
-                ),
-                expected_revision=current_revision,
+                )
             )
+        try:
+            created = self.ledger.append_artifact_batch(run_id, tuple(specs), expected_revision=current_revision)
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
-        return created[0]
+        return tuple(created[::2])
 
     def dispatch(
         self,

@@ -51,6 +51,8 @@ HERMES_FILES = (
     Path("scripts/hermes_runtime_hook.py"),
     Path("scripts/hermes_skill_adapter.py"),
     Path("scripts/hermes_execution_adapter.py"),
+    Path("scripts/host_event_protocol.py"),
+    Path("scripts/hermes_event_adapter.py"),
 )
 CLAUDE_FILES = (
     Path("references/claude-code-compatibility.md"),
