@@ -19,6 +19,10 @@ from .evidence_delta import (
 from .tree_state import ResearchTreeStateService
 
 
+_WORKER_VALIDATION_STATUSES = frozenset({"passed", "failed", "inconclusive"})
+_WORKER_VALIDATION_NODE_MARKER = "worker_validation_continuation"
+
+
 @dataclass(frozen=True, slots=True)
 class RecursiveSearchConfig:
     max_depth: int = 5
@@ -207,14 +211,10 @@ def prune_research_state(state: Mapping[str, Any]) -> dict[str, Any]:
 
     result = _mutable_state(state)
     cfg = RecursiveSearchConfig(**result["config"])
-    seen: dict[tuple[str, str, str], dict[str, Any]] = {}
+    seen: dict[tuple[str, str, str, str], dict[str, Any]] = {}
     for node_id in list(result["frontier_node_ids"]):
         node = result["nodes"][node_id]
-        key = (
-            node["decision_slot_id"],
-            node["action_kind"],
-            _normalize(node["question"]),
-        )
+        key = _node_equivalence_key(node)
         prior = seen.get(key)
         if prior is None:
             seen[key] = node
@@ -467,6 +467,7 @@ def _slot_state(slot_id: str, slot: Mapping[str, Any]) -> dict[str, Any]:
         "validation_status": "pending",
         "validation_attempts": 0,
         "validation_failures": 0,
+        "worker_validation_continuation_epoch": 0,
         "stagnation_count": 0,
         "residual_risk": _priority_value(priority),
     }
@@ -574,13 +575,81 @@ def _grow_from_finding(
             estimated_cost=_positive_float(continuation.get("estimated_cost", 1.0)),
         )
     validation = payload.get("validation_result")
-    if isinstance(validation, Mapping):
-        status = str(validation.get("status", "inconclusive"))
-        slot["validation_status"] = status
-        slot["validation_attempts"] = int(slot.get("validation_attempts", 0)) + 1
-        slot["validation_passed"] = status == "passed"
-        if status == "failed":
-            slot["validation_failures"] = int(slot.get("validation_failures", 0)) + 1
+    if not isinstance(validation, Mapping):
+        return
+    raw_status = validation.get("status")
+    if not isinstance(raw_status, str):
+        return
+    status = raw_status.strip()
+    if status not in _WORKER_VALIDATION_STATUSES:
+        return
+    slot["validation_status"] = (
+        "reported_passed_untrusted" if status == "passed" else status
+    )
+    slot["validation_attempts"] = int(slot.get("validation_attempts", 0)) + 1
+    if status == "failed":
+        slot["validation_failures"] = int(slot.get("validation_failures", 0)) + 1
+    if status == "passed" and not bool(slot.get("validation_passed", False)):
+        _ensure_worker_validation_continuation(
+            state,
+            parent=parent,
+            slot=slot,
+            trigger_ref=(
+                f"baseline:{_finding_id(finding)}:worker-reported-pass"
+                if baseline_event
+                else f"finding:{_finding_id(finding)}:worker-reported-pass"
+            ),
+        )
+
+
+def _ensure_worker_validation_continuation(
+    state: dict[str, Any],
+    *,
+    parent: Mapping[str, Any],
+    slot: Mapping[str, Any],
+    trigger_ref: str,
+) -> None:
+    """Keep a worker pass as an active, independently verifiable obligation."""
+
+    active = [
+        node
+        for node in state["nodes"].values()
+        if (
+            node.get("decision_slot_id") == slot["id"]
+            and node.get("action_kind") == "validation"
+            and node.get(_WORKER_VALIDATION_NODE_MARKER) is True
+            and node.get("status") in {"frontier", "running"}
+        )
+    ]
+    if active:
+        return
+    epoch = int(slot.get("worker_validation_continuation_epoch", 0)) + 1
+    slot["worker_validation_continuation_epoch"] = epoch
+    _add_node(
+        state,
+        parent=parent,
+        slot=slot,
+        question=(
+            "Produce verifier-needed proof for the worker-reported validation pass "
+            f"(continuation epoch {epoch})."
+        ),
+        action_kind="validation",
+        trigger_ref=trigger_ref,
+        evidence_needed=(
+            "An evaluator-owned or independently verified receipt bound to the "
+            "reported claim."
+        ),
+        oracle=slot["validation_oracle"] or (
+            "An independent validation oracle produces a source-bound result."
+        ),
+        estimated_cost=1.0,
+        mandatory=True,
+        identity_namespace="worker-validation",
+        metadata={
+            _WORKER_VALIDATION_NODE_MARKER: True,
+            "worker_validation_continuation_epoch": epoch,
+        },
+    )
 
 
 def _add_node(
@@ -595,17 +664,23 @@ def _add_node(
     oracle: str,
     estimated_cost: float,
     mandatory: bool = False,
-) -> None:
+    identity_namespace: str = "question",
+    metadata: Mapping[str, Any] | None = None,
+) -> dict[str, Any] | None:
     normalized_kind = action_kind if action_kind in {
         "deep_dive", "adversarial", "validation", "method_switch"
     } else "deep_dive"
+    namespace = str(identity_namespace).strip() or "question"
+    identity = _normalize(question)
+    if namespace != "question":
+        identity = f"{namespace}:{identity}"
     digest = hashlib.sha256(
-        f"{slot['id']}:{normalized_kind}:{_normalize(question)}".encode("utf-8")
+        f"{slot['id']}:{normalized_kind}:{identity}".encode("utf-8")
     ).hexdigest()[:16]
     node_id = f"node:{slot['id']}:{digest}"
     if node_id in state["nodes"]:
-        return
-    state["nodes"][node_id] = _node(
+        return state["nodes"][node_id]
+    node = _node(
         node_id=node_id,
         parent_id=parent["id"],
         slot_id=slot["id"],
@@ -617,8 +692,13 @@ def _add_node(
         depth=int(parent["depth"]) + 1,
         estimated_cost=estimated_cost,
         mandatory=mandatory,
+        identity_namespace=namespace,
     )
-    state["nodes"][node_id]["decision_oracle"] = slot["validation_oracle"]
+    if metadata:
+        node.update(copy.deepcopy(dict(metadata)))
+    node["decision_oracle"] = slot["validation_oracle"]
+    state["nodes"][node_id] = node
+    return node
 
 
 def _ensure_slot_frontier(
@@ -682,6 +762,7 @@ def _node(**values: Any) -> dict[str, Any]:
         "decision_slot_id": values["slot_id"],
         "question": values["question"],
         "action_kind": values["action_kind"],
+        "identity_namespace": values.get("identity_namespace", "question"),
         "trigger_ref": values["trigger_ref"],
         "evidence_needed": values["evidence_needed"],
         "oracle": values["oracle"],
@@ -731,12 +812,21 @@ def _resolve_parent(
 
 
 def _has_completed_equivalent(state: Mapping[str, Any], node: Mapping[str, Any]) -> bool:
-    key = (node["decision_slot_id"], node["action_kind"], _normalize(node["question"]))
+    key = _node_equivalence_key(node)
     return any(
         other["id"] != node["id"]
         and other["status"] == "completed"
-        and (other["decision_slot_id"], other["action_kind"], _normalize(other["question"])) == key
+        and _node_equivalence_key(other) == key
         for other in state["nodes"].values()
+    )
+
+
+def _node_equivalence_key(node: Mapping[str, Any]) -> tuple[str, str, str, str]:
+    return (
+        str(node["decision_slot_id"]),
+        str(node["action_kind"]),
+        str(node.get("identity_namespace", "question")),
+        _normalize(str(node["question"])),
     )
 
 
@@ -792,7 +882,8 @@ def _slot_has_minimum_evidence(slot: Mapping[str, Any]) -> bool:
 
 def _has_open_node(state: Mapping[str, Any], slot_id: str) -> bool:
     return any(
-        node["decision_slot_id"] == slot_id and node["status"] == "frontier"
+        node["decision_slot_id"] == slot_id
+        and node["status"] in {"frontier", "running"}
         for node in state["nodes"].values()
     )
 

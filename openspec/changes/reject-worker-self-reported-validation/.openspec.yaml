@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-08-11
+goal: "Close #109 with a narrow compatibility defense while retaining canonical
+  OracleRun migration for the Alpha2 runtime."
