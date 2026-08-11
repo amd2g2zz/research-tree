@@ -23,5 +23,5 @@
 ## 4. Evidence and delivery
 
 - [x] 4.1 Update group 9 execution/verification registries with focused pytest, Ruff, package, sanitization, retry, and crash receipts.
-- [ ] 4.2 Run the issue acceptance suite, full pytest, strict OpenSpec, package parity, governance, delivery validation, and `git diff --check`.
-- [ ] 4.3 Review scope, bind the receipt to the exact source revision, and keep #63/#71/#80/#82/#83 out of the PR.
+- [x] 4.2 Run the issue acceptance suite, full pytest, strict OpenSpec, package parity, governance, delivery validation, and `git diff --check`.
+- [x] 4.3 Review scope, bind the receipt to the exact source revision, and keep #63/#71/#80/#82/#83 out of the PR.
