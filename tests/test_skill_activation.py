@@ -177,12 +177,12 @@ def test_native_probe_results_are_independent_and_unavailable_is_not_passed(tmp_
     }
 
     def find_executable(name: str) -> str | None:
-        return None if name == "claude" else f"/tools/{name}"
+        return None if name == "hermes" else f"/tools/{name}"
 
     def runner(command: list[str], **kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(
             returncode=0,
-            stdout=expected_sentinel("hermes", "run-hermes"),
+            stdout=None,
             stderr="",
         )
 
@@ -197,11 +197,11 @@ def test_native_probe_results_are_independent_and_unavailable_is_not_passed(tmp_
     )
 
     assert results["codex"]["status"] == "live_verified"
-    assert results["hermes"]["status"] == "live_verified"
-    assert results["claude"] == {
-        "host": "claude",
+    assert results["claude"] == {"host": "claude", "status": "failed", "diagnostic": "sentinel_mismatch"}
+    assert results["hermes"] == {
+        "host": "hermes",
         "status": "unavailable",
-        "missing_capability": "executable:claude",
+        "missing_capability": "executable:hermes",
     }
     assert all(result.get("status") != "passed" for result in results.values())
 
