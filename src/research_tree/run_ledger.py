@@ -40,7 +40,7 @@ class LedgerIntegrityError(LedgerError, DataIntegrityError):
 class RunLedger:
     """Own canonical run lineage in a workspace-scoped SQLite database."""
 
-    SCHEMA_VERSION = 3
+    SCHEMA_VERSION = 4
 
     def __init__(self, workspace: str | Path) -> None:
         self.workspace = Path(workspace).resolve()
@@ -122,13 +122,106 @@ class RunLedger:
                     detail_json BLOB NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS decision_frames (
+                    run_id TEXT NOT NULL,
+                    frame_id TEXT NOT NULL,
+                    artifact_revision INTEGER NOT NULL CHECK (artifact_revision > 0),
+                    status TEXT NOT NULL,
+                    primary_decision_id TEXT NOT NULL,
+                    requester_wording_digest TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    payload_json BLOB NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (run_id, frame_id, artifact_revision),
+                    FOREIGN KEY (run_id, frame_id, artifact_revision)
+                      REFERENCES artifacts(run_id, artifact_id, revision)
+                );
                 """
             )
             connection.execute(
-                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) "
-                "VALUES(?, datetime('now'))",
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(?, datetime('now'))",
                 (self.SCHEMA_VERSION,),
             )
+
+    def append_decision_frame(
+        self,
+        run_id: str,
+        frame_id: str,
+        payload: Any,
+        *,
+        parent_refs: Iterable[ArtifactRef] = (),
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        """Atomically append a canonical DecisionFrame and its v4 projection."""
+
+        self.initialize()
+        run_id = validate_identifier(run_id, "run_id")
+        frame_id = validate_identifier(frame_id, "frame_id")
+        if not isinstance(payload, dict):
+            raise LedgerIntegrityError("decision frame payload must be a mapping")
+        parent_refs = tuple(parent_refs)
+        with self._connect() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                current = self._require_expected_revision(connection, run_id, expected_revision)
+                for reference in parent_refs:
+                    self._require_artifact(connection, reference)
+                next_revision = self._next_artifact_revision(connection, run_id, frame_id)
+                artifact = ArtifactRevision.create(
+                    artifact_id=frame_id,
+                    round_id=run_id,
+                    revision=next_revision,
+                    kind="decision-frame",
+                    payload=payload,
+                    parent_refs=parent_refs,
+                )
+                artifact_json = _json(artifact.to_dict())
+                connection.execute(
+                    "INSERT INTO artifacts(run_id, artifact_id, revision, artifact_json, content_hash) "
+                    "VALUES(?, ?, ?, ?, ?)",
+                    (run_id, frame_id, next_revision, artifact_json, artifact.content_hash),
+                )
+                for reference in parent_refs:
+                    connection.execute(
+                        "INSERT INTO artifact_parents(run_id, artifact_id, revision, parent_run_id, "
+                        "parent_artifact_id, parent_revision) VALUES(?, ?, ?, ?, ?, ?)",
+                        (
+                            run_id,
+                            frame_id,
+                            next_revision,
+                            reference.round_id,
+                            reference.artifact_id,
+                            reference.revision,
+                        ),
+                    )
+                connection.execute(
+                    "INSERT INTO decision_frames(run_id, frame_id, artifact_revision, status, primary_decision_id, "
+                    "requester_wording_digest, content_hash, payload_json, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        run_id,
+                        frame_id,
+                        next_revision,
+                        payload["status"],
+                        payload["primary_decision"]["id"],
+                        _hash(_json(payload["requester_wording"])),
+                        payload["content_hash"],
+                        _json(payload),
+                        artifact.created_at,
+                    ),
+                )
+                self._insert_event(
+                    connection,
+                    LineageEvent.create(
+                        round_id=run_id,
+                        kind="artifact-appended",
+                        artifact_ref=ArtifactRef(run_id, frame_id, next_revision),
+                    ),
+                )
+                self._increment_revision(connection, run_id, current)
+                self._before_commit()
+            except sqlite3.IntegrityError as error:
+                raise LedgerIntegrityError("decision frame append violated a ledger constraint") from error
+        return artifact
 
     def register_content(self, content: ContentObject) -> ContentObject:
         """Register verified CAS metadata; repeated identical registration is idempotent."""
@@ -169,7 +262,8 @@ class RunLedger:
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT digest, media_type, byte_size, locator, availability, created_at "
-                "FROM content_objects WHERE digest = ?", (digest,)
+                "FROM content_objects WHERE digest = ?",
+                (digest,),
             ).fetchone()
         if row is None:
             raise LedgerIntegrityError(f"content does not exist: {digest}")
@@ -183,8 +277,7 @@ class RunLedger:
             raise LedgerIntegrityError("artifact reference must be an ArtifactRef")
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT artifact_json FROM artifacts "
-                "WHERE run_id = ? AND artifact_id = ? AND revision = ?",
+                "SELECT artifact_json FROM artifacts WHERE run_id = ? AND artifact_id = ? AND revision = ?",
                 (reference.round_id, reference.artifact_id, reference.revision),
             ).fetchone()
         if row is None:
@@ -243,14 +336,22 @@ class RunLedger:
         with self._connect() as connection:
             existing = connection.execute(
                 "SELECT source_locator, run_id, disposition, detail_json, created_at "
-                "FROM legacy_imports WHERE source_digest = ?", (receipt.source_digest,)
+                "FROM legacy_imports WHERE source_digest = ?",
+                (receipt.source_digest,),
             ).fetchone()
             if existing is not None:
                 return _legacy_import_receipt(receipt.source_digest, *tuple(existing))
             connection.execute(
                 "INSERT INTO legacy_imports(source_digest, source_locator, run_id, disposition, detail_json, created_at) "
                 "VALUES(?, ?, ?, ?, ?, ?)",
-                (receipt.source_digest, receipt.source_locator, receipt.run_id, receipt.disposition, receipt.detail_json, receipt.created_at),
+                (
+                    receipt.source_digest,
+                    receipt.source_locator,
+                    receipt.run_id,
+                    receipt.disposition,
+                    receipt.detail_json,
+                    receipt.created_at,
+                ),
             )
         return receipt
 
@@ -259,7 +360,8 @@ class RunLedger:
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT source_digest, source_locator, run_id, disposition, detail_json, created_at "
-                "FROM legacy_imports WHERE source_digest = ?", (source_digest,)
+                "FROM legacy_imports WHERE source_digest = ?",
+                (source_digest,),
             ).fetchone()
         return None if row is None else _legacy_import_receipt(*tuple(row))
 
@@ -269,17 +371,14 @@ class RunLedger:
         if parent_run_id is not None:
             parent_run_id = validate_identifier(parent_run_id, "parent_run_id")
         record = RoundRecord.create(run_id, parent_run_id)
-        event = LineageEvent.create(
-            round_id=run_id, kind="run-created", parent_round_id=parent_run_id
-        )
+        event = LineageEvent.create(round_id=run_id, kind="run-created", parent_round_id=parent_run_id)
         with self._connect() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
                 if parent_run_id is not None and not self._run_exists(connection, parent_run_id):
                     raise LedgerIntegrityError(f"parent run does not exist: {parent_run_id}")
                 connection.execute(
-                    "INSERT INTO runs(run_id, record_json, created_at, parent_run_id, revision) "
-                    "VALUES(?, ?, ?, ?, 0)",
+                    "INSERT INTO runs(run_id, record_json, created_at, parent_run_id, revision) VALUES(?, ?, ?, ?, 0)",
                     (run_id, _json(record.to_dict()), record.created_at, parent_run_id),
                 )
                 self._insert_event(connection, event)
@@ -335,13 +434,23 @@ class RunLedger:
                     connection.execute(
                         "INSERT INTO artifact_parents(run_id, artifact_id, revision, parent_run_id, "
                         "parent_artifact_id, parent_revision) VALUES(?, ?, ?, ?, ?, ?)",
-                        (run_id, artifact.id, artifact.revision, reference.round_id, reference.artifact_id, reference.revision),
+                        (
+                            run_id,
+                            artifact.id,
+                            artifact.revision,
+                            reference.round_id,
+                            reference.artifact_id,
+                            reference.revision,
+                        ),
                     )
-                self._insert_event(connection, LineageEvent.create(
-                    round_id=run_id,
-                    kind="artifact-appended",
-                    artifact_ref=ArtifactRef(run_id, artifact.id, artifact.revision),
-                ))
+                self._insert_event(
+                    connection,
+                    LineageEvent.create(
+                        round_id=run_id,
+                        kind="artifact-appended",
+                        artifact_ref=ArtifactRef(run_id, artifact.id, artifact.revision),
+                    ),
+                )
                 self._increment_revision(connection, run_id, current)
                 self._before_commit()
             except sqlite3.IntegrityError as error:
@@ -384,9 +493,7 @@ class RunLedger:
                     artifact_id, kind, payload, raw_parent_refs = entry
                     artifact_id = validate_identifier(artifact_id, f"artifact batch entry {index} id")
                     if not isinstance(raw_parent_refs, Iterable) or isinstance(raw_parent_refs, (str, bytes)):
-                        raise LedgerIntegrityError(
-                            f"artifact batch entry {index} parent_refs must be iterable"
-                    )
+                        raise LedgerIntegrityError(f"artifact batch entry {index} parent_refs must be iterable")
                     parent_refs = tuple(raw_parent_refs)
                     for reference in parent_refs:
                         if not isinstance(reference, ArtifactRef):
@@ -494,8 +601,7 @@ class RunLedger:
                 next_revision = self._next_artifact_revision(connection, run_id, artifact_id)
                 if expected_artifact_revision is not None and next_revision != expected_artifact_revision:
                     raise LedgerConflictError(
-                        "stale artifact revision: "
-                        f"expected {expected_artifact_revision}, current {next_revision}"
+                        f"stale artifact revision: expected {expected_artifact_revision}, current {next_revision}"
                     )
                 artifact = ArtifactRevision.create(
                     artifact_id=artifact_id,
@@ -514,7 +620,14 @@ class RunLedger:
                     connection.execute(
                         "INSERT INTO artifact_parents(run_id, artifact_id, revision, parent_run_id, "
                         "parent_artifact_id, parent_revision) VALUES(?, ?, ?, ?, ?, ?)",
-                        (run_id, artifact.id, artifact.revision, reference.round_id, reference.artifact_id, reference.revision),
+                        (
+                            run_id,
+                            artifact.id,
+                            artifact.revision,
+                            reference.round_id,
+                            reference.artifact_id,
+                            reference.revision,
+                        ),
                     )
                 artifact_ref = ArtifactRef(run_id, artifact.id, artifact.revision)
                 connection.execute(
@@ -535,9 +648,7 @@ class RunLedger:
                 raise LedgerIntegrityError("artifact content append violated a ledger constraint") from error
         return artifact
 
-    def append_event(
-        self, run_id: str, event: LineageEvent, *, expected_revision: int
-    ) -> LineageEvent:
+    def append_event(self, run_id: str, event: LineageEvent, *, expected_revision: int) -> LineageEvent:
         self.initialize()
         run_id = validate_identifier(run_id, "run_id")
         if event.round_id != run_id:
@@ -569,16 +680,13 @@ class RunLedger:
         self.initialize()
         run_id = validate_identifier(run_id, "run_id")
         with self._connect() as connection:
-            run_row = connection.execute(
-                "SELECT record_json FROM runs WHERE run_id = ?", (run_id,)
-            ).fetchone()
+            run_row = connection.execute("SELECT record_json FROM runs WHERE run_id = ?", (run_id,)).fetchone()
             if run_row is None:
                 raise LedgerIntegrityError(f"run does not exist: {run_id}")
             try:
                 record = RoundRecord.from_dict(json.loads(run_row[0]))
                 artifact_rows = connection.execute(
-                    "SELECT artifact_json FROM artifacts WHERE run_id = ? "
-                    "ORDER BY artifact_id, revision", (run_id,)
+                    "SELECT artifact_json FROM artifacts WHERE run_id = ? ORDER BY artifact_id, revision", (run_id,)
                 ).fetchall()
                 artifacts = tuple(ArtifactRevision.from_dict(json.loads(row[0])) for row in artifact_rows)
                 by_ref = {ArtifactRef(item.round_id, item.id, item.revision) for item in artifacts}
@@ -613,8 +721,7 @@ class RunLedger:
     @staticmethod
     def _register_content_row(connection: sqlite3.Connection, content: ContentObject) -> ContentObject:
         existing = connection.execute(
-            "SELECT media_type, byte_size, locator, availability, created_at "
-            "FROM content_objects WHERE digest = ?",
+            "SELECT media_type, byte_size, locator, availability, created_at FROM content_objects WHERE digest = ?",
             (content.digest,),
         ).fetchone()
         if existing is not None:
@@ -656,12 +763,17 @@ class RunLedger:
 
     @staticmethod
     def _increment_revision(connection: sqlite3.Connection, run_id: str, current: int) -> None:
-        connection.execute("UPDATE runs SET revision = ? WHERE run_id = ? AND revision = ?", (current + 1, run_id, current))
+        connection.execute(
+            "UPDATE runs SET revision = ? WHERE run_id = ? AND revision = ?", (current + 1, run_id, current)
+        )
 
     @staticmethod
     def _next_artifact_revision(connection: sqlite3.Connection, run_id: str, artifact_id: str) -> int:
         artifact_id = validate_identifier(artifact_id, "artifact_id")
-        row = connection.execute("SELECT COALESCE(MAX(revision), 0) FROM artifacts WHERE run_id = ? AND artifact_id = ?", (run_id, artifact_id)).fetchone()
+        row = connection.execute(
+            "SELECT COALESCE(MAX(revision), 0) FROM artifacts WHERE run_id = ? AND artifact_id = ?",
+            (run_id, artifact_id),
+        ).fetchone()
         return int(row[0]) + 1
 
     @classmethod
@@ -674,10 +786,13 @@ class RunLedger:
 
     @staticmethod
     def _artifact_exists(connection: sqlite3.Connection, reference: ArtifactRef) -> bool:
-        return connection.execute(
-            "SELECT 1 FROM artifacts WHERE run_id = ? AND artifact_id = ? AND revision = ?",
-            (reference.round_id, reference.artifact_id, reference.revision),
-        ).fetchone() is not None
+        return (
+            connection.execute(
+                "SELECT 1 FROM artifacts WHERE run_id = ? AND artifact_id = ? AND revision = ?",
+                (reference.round_id, reference.artifact_id, reference.revision),
+            ).fetchone()
+            is not None
+        )
 
     @classmethod
     def _require_artifact(cls, connection: sqlite3.Connection, reference: ArtifactRef) -> None:

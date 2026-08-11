@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "frame_id": "frame-1",
+  "run_id": "run-1",
+  "target_ref": null,
+  "requester_wording": "What business model should this app use?",
+  "primary_decision": { "id": "decision-model", "statement": "Choose the business model to validate", "success_signal": "A payer and measurable validation path are explicit" },
+  "hypotheses": [
+    { "id": "h-business", "interpretation": "Select and validate a payer/value proposition", "ambiguity": "payer and value are unspecified", "owner": "requester", "researchable": false, "decision_consequence": "changes the product decision", "source_refs": ["input-1"], "disposition": "unresolved", "next_action": "ask requester to choose the primary customer", "primary_decision_id": "decision-model", "material": true, "evidence_ranked": false, "no_progress": false },
+    { "id": "h-technical", "interpretation": "Choose an implementation stack", "ambiguity": "technical scope is not requested", "owner": "research", "researchable": true, "decision_consequence": "enables later feasibility work", "source_refs": ["input-1"], "disposition": "deferred", "next_action": "reconnaissance after intent is resolved", "primary_decision_id": "decision-model", "material": false, "evidence_ranked": false, "no_progress": false }
+  ],
+  "selected_hypothesis_id": null,
+  "status": "clarification_required",
+  "policy": { "action": "ask_user", "reason": "requester-owned material choice is not rankable", "hypothesis_ids": ["h-business"], "question": "Which customer and payer should the business model serve first?" },
+  "parent_refs": [],
+  "content_hash": "585ba1a6076d5e64ce860a776901b2a9aad8e2d31f417186c7634447e2804291"
+}
