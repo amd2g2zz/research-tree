@@ -7,7 +7,8 @@ from typing import Any, Mapping
 
 from host_event_protocol import build_host_event, normalize_path
 
-_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
+_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_MODEL_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
 _FAILURE_FIELDS = frozenset({"provider", "model", "retry_category", "error_code", "attempt", "gateway_log_path"})
 _RETRY_CATEGORIES = frozenset({"transient", "rate_limited", "provider_unavailable", "unknown"})
 
@@ -19,6 +20,12 @@ class HermesEventError(ValueError):
 def _identifier(value: Any, label: str) -> str:
     if not isinstance(value, str) or not _IDENTIFIER.fullmatch(value):
         raise HermesEventError(f"{label} must be a bounded identifier")
+    return value
+
+
+def _model_identifier(value: Any) -> str:
+    if not isinstance(value, str) or not _MODEL_IDENTIFIER.fullmatch(value):
+        raise HermesEventError("model must be a bounded identifier")
     return value
 
 
@@ -42,7 +49,7 @@ def sanitize_provider_failure(payload: Mapping[str, Any]) -> dict[str, Any]:
         raise HermesEventError(str(error)) from error
     return {
         "provider": _identifier(payload.get("provider"), "provider"),
-        "model": _identifier(payload.get("model"), "model"),
+        "model": _model_identifier(payload.get("model")),
         "category": category,
         "error_code": _identifier(payload.get("error_code"), "error code"),
         "attempt": attempt,
@@ -53,6 +60,17 @@ def sanitize_provider_failure(payload: Mapping[str, Any]) -> dict[str, Any]:
 def build_hermes_event(*, kind: str, payload: Mapping[str, Any], **envelope: Any) -> dict[str, Any]:
     """Build one validated Hermes observation without persisting local state."""
 
+    for field, label in (("event_id", "event id"), ("run_id", "run id"), ("attempt_id", "attempt id")):
+        _identifier(envelope.get(field), label)
+    for field, label in (("action_id", "action id"), ("decision_slot_id", "decision slot id")):
+        if envelope.get(field) is not None:
+            _identifier(envelope[field], label)
+    revision = envelope.get("expected_revision")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+        raise HermesEventError("expected revision must be a nonnegative integer")
+    sequence = envelope.get("sequence")
+    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
+        raise HermesEventError("sequence must be a positive integer")
     normalized = sanitize_provider_failure(payload) if kind == "provider_failure" else dict(payload)
     try:
         return build_host_event(kind=kind, actor="hermes", payload=normalized, **envelope)

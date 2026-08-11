@@ -622,18 +622,27 @@ class ResearchRunCoordinator:
         ):
             raise CoordinatorConflictError("host_event_batch_lineage")
         artifacts = self.ledger.load_run(run_id).artifacts
-        existing_by_id = {
-            item.id: item
-            for item in artifacts
-            if item.kind == HOST_EVENT_KIND and item.id in {e.event_id for e in envelopes}
-        }
+        event_ids = {event.event_id for event in envelopes}
+        existing_by_id = {item.id: item for item in artifacts if item.kind == HOST_EVENT_KIND and item.id in event_ids}
         if existing_by_id:
             if len(existing_by_id) != len(envelopes):
                 raise CoordinatorEventConflictError("partial_event_batch")
             replay = []
             for envelope in envelopes:
                 existing = existing_by_id[envelope.event_id]
-                if existing.payload.get("payload_digest") != envelope.payload_digest:
+                declared = envelope.to_dict()
+                identity_fields = (
+                    "kind",
+                    "run_id",
+                    "round_id",
+                    "decision_slot_id",
+                    "action_id",
+                    "attempt_id",
+                    "sequence",
+                    "actor",
+                    "payload_digest",
+                )
+                if any(existing.payload.get(field) != declared.get(field) for field in identity_fields):
                     raise CoordinatorEventConflictError("event_id_conflict")
                 replay.append(existing)
             return tuple(replay)

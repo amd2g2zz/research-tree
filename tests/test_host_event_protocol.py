@@ -149,6 +149,8 @@ def test_ingestion_is_atomic_replayable_and_non_authoritative(tmp_path) -> None:
                 }
             )
         )
+    with pytest.raises(CoordinatorEventConflictError, match="event_id_conflict"):
+        coordinator.ingest_host_event(HostEvent.from_value({**event.to_dict(), "actor": "hermes", "expected_revision": 0}))
 
 
 def test_sequence_gap_stale_revision_and_unknown_attempt_do_not_mutate(tmp_path) -> None:

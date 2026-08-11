@@ -74,6 +74,15 @@ def test_provider_failure_rejects_raw_or_unsafe_diagnostics(payload: dict[str, o
         sanitize_provider_failure(payload)
 
 
+def test_hermes_envelope_rejects_invalid_canonical_lineage() -> None:
+    with pytest.raises(HermesEventError, match="event id"):
+        build_hermes_event(kind="observation", payload={}, **{**BASE, "event_id": "../event"})
+    with pytest.raises(HermesEventError, match="expected revision"):
+        build_hermes_event(kind="observation", payload={}, **{**BASE, "expected_revision": -1})
+    with pytest.raises(HermesEventError, match="sequence"):
+        build_hermes_event(kind="observation", payload={}, **{**BASE, "sequence": 0})
+
+
 def test_action_projection_is_replaceable_and_non_authoritative() -> None:
     projection = project_hermes_action(
         {
