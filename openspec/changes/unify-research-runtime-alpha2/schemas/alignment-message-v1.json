@@ -4,16 +4,16 @@
   "title": "Alpha2 alignment message",
   "type": "object",
   "additionalProperties": false,
-  "required": ["message_id", "run_id", "belief_digest", "selected_action_id", "prompt", "evidence_refs", "consequence", "created_at", "response_binding"],
+  "required": ["message_id", "run_id", "belief_digest", "selected_action_id", "mirror", "prompt", "evidence_refs", "consequence", "created_at", "response_binding"],
   "properties": {
     "message_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
     "run_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
     "belief_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "selected_action_id": { "type": ["string", "null"] },
-    "mirror": { "type": "string", "minLength": 1 },
-    "prompt": { "type": ["string", "null"] },
-    "evidence_refs": { "type": "array", "items": { "type": "string" } },
-    "consequence": { "type": "string", "minLength": 1 },
+    "mirror": { "type": "string", "minLength": 1, "maxLength": 240 },
+    "prompt": { "type": ["string", "null"], "maxLength": 400 },
+    "evidence_refs": { "type": "array", "maxItems": 8, "items": { "type": "string" } },
+    "consequence": { "type": "string", "minLength": 1, "maxLength": 240 },
     "created_at": { "type": "string", "format": "date-time" },
     "response_binding": { "type": "object", "additionalProperties": false, "required": ["expected_digest", "status"], "properties": { "expected_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "status": { "type": "string", "enum": ["pending", "accepted", "rejected", "stale", "consumed"] } } }
   }

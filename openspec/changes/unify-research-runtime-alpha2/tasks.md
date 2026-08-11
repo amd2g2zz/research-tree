@@ -71,14 +71,17 @@ substitute for local evidence.
 
 ## 7. Evidence-Bearing Mutual Alignment (#59)
 
-- [ ] 7.1 Extend alignment persistence with action attempts, pending-action identity, belief basis, confidence, disagreement disposition, and supersession lineage.
-- [ ] 7.2 Implement candidate scoring for reconnaissance, one open question, constructive disagreement, and confirmation using recorded semantic factors.
-- [ ] 7.3 Ensure agent-verifiable ambiguity consumes a reconnaissance attempt before requesting the technical fact from the user when reconnaissance has expected value.
-- [ ] 7.4 Implement candidate-understanding repair and supported/refuted/not-enough-information disagreement handling without overwriting either participant's belief.
-- [ ] 7.5 Enforce one short open prompt per user turn while preserving unresolved internal gaps across turns.
-- [ ] 7.6 Require semantic readiness, displayed digest freshness, and contextual user confirmation before autonomous handoff.
-- [ ] 7.7 Route material post-handoff target, priority, authority, or success changes through feedback lineage and successor-round creation.
+- [x] 7.1 Extend alignment persistence with action attempts, pending-action identity, belief basis, confidence, disagreement disposition, and supersession lineage.
+- [x] 7.2 Implement candidate scoring for reconnaissance, one open question, constructive disagreement, and confirmation using recorded semantic factors.
+- [x] 7.3 Ensure agent-verifiable ambiguity consumes a reconnaissance attempt before requesting the technical fact from the user when reconnaissance has expected value.
+- [x] 7.4 Implement candidate-understanding repair and supported/refuted/not-enough-information disagreement handling without overwriting either participant's belief.
+- [x] 7.5 Enforce one short open prompt per user turn while preserving unresolved internal gaps across turns.
+- [x] 7.6 Require semantic readiness, displayed digest freshness, and contextual user confirmation before autonomous handoff.
+- [x] 7.7 Route material post-handoff target, priority, authority, or success changes through feedback lineage and successor-round creation.
 - [ ] 7.8 Add black-box alignment tests for vague briefs, impossible goals, wrong human premises, wrong agent premises, repeated planning, and generic acknowledgement.
+- [x] 7.9 Add focused action, belief, message, handoff, feedback, replay, and
+  authority-bypass tests; each slice records `pytest`, `ruff check`, and
+  `ruff format --check` evidence over its changed files.
 
 ## 8. Host Event Protocol and Native Adapters (#60, #82)
 
