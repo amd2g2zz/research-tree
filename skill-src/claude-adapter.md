@@ -5,16 +5,8 @@ and use only capabilities exposed by the current session; never call tools from
 another host merely because they appear in examples.
 
 ### Activation probe
-
 `research-tree-activation-contract:v1:claude`
-
-Read `references/skill-activation.md` before diagnosing activation. If and only if
-the native direct-Skill request is exactly
-`/research-tree activation-probe v1 <correlation-id>` (or the documented
-plugin-qualified equivalent), return only
-`research-tree-activation:v1:claude:<correlation-id>`. Do not call tools, start
-alignment or research, or add other text. A file path or Markdown link is
-`activation_unverified` and must not emit the sentinel.
+Follow `references/skill-activation.md`: only exact `/research-tree activation-probe v1 <correlation-id>` or its plugin-qualified form may return only `research-tree-activation:v1:claude:<correlation-id>` without tools; paths and links are `activation_unverified`.
 
 - Resolve bundled resources from the active skill directory, including
   `${CLAUDE_SKILL_DIR}` when the host provides it. Do not resolve

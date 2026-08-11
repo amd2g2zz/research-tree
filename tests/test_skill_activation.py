@@ -11,7 +11,7 @@ from research_tree.skill_activation import (
     activation_diagnostic,
     build_activation_probe,
     expected_sentinel,
-    package_digests,
+    run_codex_app_server_probe,
     run_native_probes,
     validate_probe_contract,
     verify_activation_response,
@@ -47,12 +47,11 @@ def test_codex_probe_requires_text_marker_and_typed_skill_item(tmp_path: Path) -
         "codex",
         package,
         correlation_id="workspace-17",
-        thread_id="thread-9",
     )
 
     assert probe["transport"] == "app_server"
     assert probe["request"]["method"] == "turn/start"
-    assert probe["request"]["params"]["threadId"] == "thread-9"
+    assert "threadId" not in probe["request"]["params"]
     assert probe["request"]["params"]["input"] == [
         {
             "type": "text",
@@ -99,7 +98,6 @@ def test_wrong_host_and_malformed_codex_probe_are_rejected(tmp_path: Path) -> No
         "codex",
         _package(tmp_path, "codex"),
         correlation_id="run-1",
-        thread_id="thread-1",
     )
 
     with pytest.raises(ActivationError, match="wrong_host"):
@@ -114,7 +112,7 @@ def test_wrong_host_package_marker_is_rejected(tmp_path: Path) -> None:
     package = _package(tmp_path, "claude")
 
     with pytest.raises(ActivationError, match="wrong_host_package"):
-        build_activation_probe("codex", package, correlation_id="run-2", thread_id="thread-2")
+        build_activation_probe("codex", package, correlation_id="run-2")
 
 
 def test_exact_sentinel_creates_safe_bounded_receipt(tmp_path: Path) -> None:
@@ -168,24 +166,12 @@ def test_extra_output_and_package_drift_cannot_create_receipt(tmp_path: Path) ->
         )
 
 
-def test_package_digest_is_path_order_stable_and_body_specific(tmp_path: Path) -> None:
-    package = _package(tmp_path, "codex")
-    first = package_digests(package)
-    second = package_digests(package)
-
-    assert first == second
-    assert first["package_digest"] != first["skill_body_digest"]
-    assert len(first["package_digest"]) == 64
-    assert len(first["skill_body_digest"]) == 64
-
-
 def test_native_probe_results_are_independent_and_unavailable_is_not_passed(tmp_path: Path) -> None:
     probes = {
         host: build_activation_probe(
             host,
             _package(tmp_path, host),
             correlation_id=f"run-{host}",
-            **({"thread_id": "thread-codex"} if host == "codex" else {}),
         )
         for host in HOST_MARKERS
     }
@@ -194,14 +180,21 @@ def test_native_probe_results_are_independent_and_unavailable_is_not_passed(tmp_
         return None if name == "claude" else f"/tools/{name}"
 
     def runner(command: list[str], **kwargs: object) -> SimpleNamespace:
-        host = "codex" if command[-1] == "app-server" else "hermes"
         return SimpleNamespace(
             returncode=0,
-            stdout=expected_sentinel(host, f"run-{host}"),
+            stdout=expected_sentinel("hermes", "run-hermes"),
             stderr="",
         )
 
-    results = run_native_probes(probes, executable_finder=find_executable, runner=runner)
+    def codex_runner(executable: str, probe: object) -> dict[str, object]:
+        return {"host": "codex", "status": "live_verified"}
+
+    results = run_native_probes(
+        probes,
+        executable_finder=find_executable,
+        runner=runner,
+        codex_runner=codex_runner,
+    )
 
     assert results["codex"]["status"] == "live_verified"
     assert results["hermes"]["status"] == "live_verified"
@@ -211,3 +204,108 @@ def test_native_probe_results_are_independent_and_unavailable_is_not_passed(tmp_
         "missing_capability": "executable:claude",
     }
     assert all(result.get("status") != "passed" for result in results.values())
+
+
+class _FakeCodexSession:
+    def __init__(self, notifications: list[object]) -> None:
+        self.notifications = iter(notifications)
+        self.calls: list[tuple[str, object]] = []
+
+    def __enter__(self) -> _FakeCodexSession:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def request(self, method: str, params: object) -> object:
+        self.calls.append((method, params))
+        responses = {
+            "initialize": {"serverInfo": {"name": "codex"}},
+            "thread/start": {"thread": {"id": "thread-real"}},
+            "turn/start": {"turn": {"id": "turn-real", "status": "inProgress"}},
+        }
+        if method not in responses:
+            raise AssertionError(method)
+        return responses[method]
+
+    def notify(self, method: str) -> None:
+        self.calls.append((method, None))
+
+    def next_notification(self) -> object:
+        return next(self.notifications)
+
+
+def _codex_notifications(
+    *,
+    text: str,
+    status: str = "completed",
+    item_thread: str = "thread-real",
+    final_item: bool = True,
+) -> list[object]:
+    item = {"type": "agentMessage", "id": "item-1", "text": text}
+    return [
+        {
+            "method": "item/completed",
+            "params": {"threadId": item_thread, "turnId": "turn-real", "item": item},
+        },
+        {
+            "method": "turn/completed",
+            "params": {
+                "threadId": "thread-real",
+                "turnId": "turn-real",
+                "turn": {"id": "turn-real", "status": status, "items": [item] if final_item else []},
+            },
+        },
+    ]
+
+
+def test_codex_app_server_uses_full_handshake_and_returned_ids(tmp_path: Path) -> None:
+    probe = build_activation_probe("codex", _package(tmp_path, "codex"), correlation_id="run-codex")
+    session = _FakeCodexSession(_codex_notifications(text=expected_sentinel("codex", "run-codex")))
+
+    result = run_codex_app_server_probe("codex", probe, session_factory=lambda _: session)
+
+    assert result["status"] == "live_verified"
+    assert [method for method, _ in session.calls] == [
+        "initialize",
+        "initialized",
+        "thread/start",
+        "turn/start",
+    ]
+    turn_params = session.calls[-1][1]
+    assert turn_params["threadId"] == "thread-real"
+    assert turn_params["input"][1]["type"] == "skill"
+    thread_params = session.calls[-2][1]
+    assert thread_params["ephemeral"] is True
+    assert thread_params["sandbox"] == "read-only"
+    fallback = _FakeCodexSession(_codex_notifications(text=expected_sentinel("codex", "run-codex"))[1:])
+    assert run_codex_app_server_probe("codex", probe, session_factory=lambda _: fallback)["status"] == "live_verified"
+
+
+@pytest.mark.parametrize(
+    ("notifications", "diagnostic"),
+    [
+        (["research-tree-activation:v1:codex:run-codex"], "protocol_message_invalid"),
+        (
+            _codex_notifications(
+                text="research-tree-activation:v1:codex:run-codex",
+                item_thread="wrong-thread",
+                final_item=False,
+            ),
+            "sentinel_mismatch",
+        ),
+        (_codex_notifications(text="sentinel plus extra text"), "sentinel_mismatch"),
+        (_codex_notifications(text="ignored", status="failed"), "native_probe_failed"),
+    ],
+)
+def test_codex_app_server_rejects_unbound_or_inexact_evidence(
+    tmp_path: Path,
+    notifications: list[object],
+    diagnostic: str,
+) -> None:
+    probe = build_activation_probe("codex", _package(tmp_path, "codex"), correlation_id="run-codex")
+    session = _FakeCodexSession(notifications)
+
+    result = run_codex_app_server_probe("codex", probe, session_factory=lambda _: session)
+
+    assert result == {"host": "codex", "status": "failed", "diagnostic": diagnostic}

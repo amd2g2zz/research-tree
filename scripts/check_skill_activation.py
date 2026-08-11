@@ -16,7 +16,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source", type=Path, default=Path.cwd())
     parser.add_argument("--host", action="append", choices=("all", *SUPPORTED_HOSTS))
     parser.add_argument("--correlation-prefix", default="activation-check")
-    parser.add_argument("--codex-thread-id", default="activation-probe-thread")
     parser.add_argument(
         "--execute",
         action="store_true",
@@ -39,7 +38,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             host,
             resolve_skill_source(source, host),
             correlation_id=f"{arguments.correlation_prefix}-{host}",
-            **({"thread_id": arguments.codex_thread_id} if host == "codex" else {}),
         )
         for host in _selected_hosts(arguments.host)
     }

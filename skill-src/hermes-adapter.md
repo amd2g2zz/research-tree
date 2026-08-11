@@ -1,15 +1,8 @@
 ## Hermes runtime adapter
 
 ### Activation probe
-
 `research-tree-activation-contract:v1:hermes`
-
-Read `references/skill-activation.md` before diagnosing activation. If and only if
-the native request is exactly `/research-tree activation-probe v1 <correlation-id>`
-or its documented `/skill research-tree` equivalent, return only
-`research-tree-activation:v1:hermes:<correlation-id>`. Do not call tools, start
-alignment or research, or add other text. A file path, Markdown link, or bare name is
-`activation_unverified` and must not emit the sentinel.
+Follow `references/skill-activation.md`: only exact `/research-tree activation-probe v1 <correlation-id>` or `/skill research-tree` equivalent may return only `research-tree-activation:v1:hermes:<correlation-id>` without tools; paths, links, and bare names are `activation_unverified`.
 
 - Resolve bundled paths from Hermes' injected `[Skill directory: ...]` value or
   load them with `skill_view`; never resolve them from the user's workspace.

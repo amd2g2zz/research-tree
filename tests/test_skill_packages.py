@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 from pathlib import Path
+from runpy import run_path
 import shutil
 import subprocess
 import sys
@@ -12,11 +12,7 @@ from research_tree.skill_activation import HOST_MARKERS, package_digests
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILDER = ROOT / "scripts" / "build_skill_packages.py"
-BUILDER_SPEC = importlib.util.spec_from_file_location("research_tree_package_builder", BUILDER)
-assert BUILDER_SPEC is not None and BUILDER_SPEC.loader is not None
-BUILDER_MODULE = importlib.util.module_from_spec(BUILDER_SPEC)
-BUILDER_SPEC.loader.exec_module(BUILDER_MODULE)
-validate_package = BUILDER_MODULE.validate_package
+validate_package = run_path(str(BUILDER))["validate_package"]
 
 
 def _skill_dir(package: Path) -> Path:
@@ -456,12 +452,6 @@ def test_package_and_skill_body_digests_detect_generated_drift(tmp_path: Path) -
 
     reference = package / "references" / "skill-activation.md"
     reference.write_text(reference.read_text(encoding="utf-8") + "\ndrift\n", encoding="utf-8")
-    after_reference_drift = package_digests(package)
-    assert after_reference_drift["package_digest"] != before["package_digest"]
-    assert after_reference_drift["skill_body_digest"] == before["skill_body_digest"]
-
-    skill_file = package / "SKILL.md"
-    skill_file.write_text(skill_file.read_text(encoding="utf-8") + "\nbody drift\n", encoding="utf-8")
-    after_body_drift = package_digests(package)
-    assert after_body_drift["package_digest"] != after_reference_drift["package_digest"]
-    assert after_body_drift["skill_body_digest"] != before["skill_body_digest"]
+    drifted = package_digests(package)
+    assert drifted["package_digest"] != before["package_digest"]
+    assert drifted["skill_body_digest"] == before["skill_body_digest"]

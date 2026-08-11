@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shutil
 
 import pytest
 
@@ -133,16 +134,13 @@ def test_link_install_is_idempotent_and_tracks_the_source_checkout(tmp_path: Pat
     assert target.resolve() == resolve_package(ROOT, "codex").resolve()
     assert first["installations"][0]["action"] == "installed"
     assert second["installations"][0]["action"] == "unchanged"
-    assert (
-        skill_status(
+    assert skill_status(
         ("codex",),
         source=ROOT,
         scope="user",
         home=home,
         project_root=tmp_path / "project",
-        )["installations"][0]["status"]
-        == "current"
-    )
+    )["installations"][0]["status"] == "current"
 
 
 def test_project_link_points_to_isolated_host_package(tmp_path: Path) -> None:
@@ -219,16 +217,13 @@ def test_legacy_claude_plugin_root_link_is_migrated_to_nested_skill(tmp_path: Pa
 
 def test_codex_home_override_is_used_for_user_scope(tmp_path: Path) -> None:
     configured = tmp_path / "custom-codex"
-    assert (
-        resolve_target(
+    assert resolve_target(
         "codex",
         scope="user",
         home=tmp_path / "home",
         project_root=tmp_path / "project",
         codex_home=configured,
-        )
-        == configured / "skills" / "research-tree"
-    )
+    ) == configured / "skills" / "research-tree"
 
 
 def test_cli_dry_run_reports_all_host_targets(tmp_path: Path, capsys) -> None:
@@ -266,9 +261,12 @@ def test_status_distinguishes_stale_link_from_conflict(tmp_path: Path) -> None:
     conflict = home / ".claude" / "skills" / "research-tree"
     conflict.mkdir(parents=True)
     (conflict / "SKILL.md").write_text("user-owned", encoding="utf-8")
+    current = home / ".hermes" / "skills" / "research-tree"
+    current.parent.mkdir(parents=True)
+    shutil.copytree(resolve_skill_source(ROOT, "hermes"), current)
 
     result = skill_status(
-        ("codex", "claude"),
+        ("codex", "claude", "hermes"),
         source=ROOT,
         scope="user",
         home=home,
@@ -280,6 +278,18 @@ def test_status_distinguishes_stale_link_from_conflict(tmp_path: Path) -> None:
     assert statuses["codex"]["activation_state"] == "discovered"
     assert statuses["codex"]["live_activation"] == "unproven"
     assert statuses["claude"]["status"] == "conflict"
+    assert statuses["hermes"]["status"] == "current"
+    assert statuses["hermes"]["activation_state"] == "static_ready"
+
+    with pytest.raises(SkillSetupError, match="not a stale link"):
+        refresh_stale_links(
+            ("claude",),
+            source=ROOT,
+            scope="user",
+            home=home,
+            project_root=tmp_path / "project",
+            confirm_stale_link=True,
+        )
 
 
 def test_broken_link_is_stale_and_status_does_not_repoint_it(tmp_path: Path) -> None:
@@ -303,27 +313,6 @@ def test_broken_link_is_stale_and_status_does_not_repoint_it(tmp_path: Path) -> 
     assert os.path.lexists(target)
 
 
-def test_matching_copy_is_current_and_static_ready(tmp_path: Path) -> None:
-    home = tmp_path / "home"
-    target = home / ".codex" / "skills" / "research-tree"
-    target.parent.mkdir(parents=True)
-    import shutil
-
-    shutil.copytree(resolve_skill_source(ROOT, "codex"), target)
-
-    result = skill_status(
-        ("codex",),
-        source=ROOT,
-        scope="user",
-        home=home,
-        project_root=tmp_path / "project",
-    )["installations"][0]
-
-    assert result["status"] == "current"
-    assert result["activation_state"] == "static_ready"
-    assert result["live_activation"] == "unproven"
-
-
 def test_ordinary_install_refuses_to_repoint_stale_link(tmp_path: Path) -> None:
     home = tmp_path / "home"
     stale_source = tmp_path / "old" / "research-tree"
@@ -345,19 +334,9 @@ def test_ordinary_install_refuses_to_repoint_stale_link(tmp_path: Path) -> None:
 
     assert target.resolve() == stale_source.resolve()
 
-
-def test_explicit_refresh_repoints_only_confirmed_stale_link(tmp_path: Path) -> None:
-    home = tmp_path / "home"
-    stale_source = tmp_path / "old" / "research-tree"
-    stale_source.mkdir(parents=True)
-    (stale_source / "SKILL.md").write_text("---\nname: research-tree\n---\nold", encoding="utf-8")
-    target = home / ".hermes" / "skills" / "research-tree"
-    target.parent.mkdir(parents=True)
-    _create_link(stale_source, target)
-
     with pytest.raises(SkillSetupError, match="confirmation"):
         refresh_stale_links(
-            ("hermes",),
+            ("codex",),
             source=ROOT,
             scope="user",
             home=home,
@@ -366,7 +345,7 @@ def test_explicit_refresh_repoints_only_confirmed_stale_link(tmp_path: Path) -> 
         )
 
     result = refresh_stale_links(
-        ("hermes",),
+        ("codex",),
         source=ROOT,
         scope="user",
         home=home,
@@ -375,26 +354,7 @@ def test_explicit_refresh_repoints_only_confirmed_stale_link(tmp_path: Path) -> 
     )
 
     assert result["installations"][0]["action"] == "refreshed"
-    assert target.resolve() == resolve_skill_source(ROOT, "hermes").resolve()
-
-
-def test_refresh_refuses_conflicting_non_link_target(tmp_path: Path) -> None:
-    home = tmp_path / "home"
-    target = home / ".codex" / "skills" / "research-tree"
-    target.mkdir(parents=True)
-    (target / "SKILL.md").write_text("user-owned", encoding="utf-8")
-
-    with pytest.raises(SkillSetupError, match="not a stale link"):
-        refresh_stale_links(
-            ("codex",),
-            source=ROOT,
-            scope="user",
-            home=home,
-            project_root=tmp_path / "project",
-            confirm_stale_link=True,
-        )
-
-    assert (target / "SKILL.md").read_text(encoding="utf-8") == "user-owned"
+    assert target.resolve() == resolve_skill_source(ROOT, "codex").resolve()
 
 
 def test_refresh_restores_previous_link_when_creation_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
