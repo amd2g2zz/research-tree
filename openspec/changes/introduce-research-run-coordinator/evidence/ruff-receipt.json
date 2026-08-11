@@ -1,0 +1,6 @@
+{
+  "command": "uv run ruff check src/research_tree/coordinator.py src/research_tree/__init__.py tests/test_research_run_coordinator.py",
+  "exit_code": 0,
+  "scope": "issue-57 changed Python boundary",
+  "source_revision": "69b36a629846bd72cf35a01c75b09d1906f926d7"
+}
