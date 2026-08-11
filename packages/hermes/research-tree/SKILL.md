@@ -204,11 +204,11 @@ evaluation.
   behavior; trace failure must never block research.
 - Use `scripts/hermes_skill_adapter.py` only for package validation, prompt-risk
   diagnosis, gateway-log diagnosis, hook rendering, or staging.
-- After handoff, use `scripts/hermes_execution_adapter.py` to initialize from
-  the persisted handoff, record each verified `delegate_task` wave, recover
-  in-flight waves as `unknown`, and register both deep reports before marking
-  the run complete. Hermes still owns delegation; this adapter owns durable
-  state and does not invent Hermes tool calls.
+- After handoff, use `scripts/hermes_execution_adapter.py` to translate
+  delegation/provider observations, project coordinator actions into Hermes,
+  and emit `unknown_outcome` before retrying interrupted attempts. The
+  coordinator ledger owns durable state and completion; the adapter never
+  infers either from waves, hooks, cards, empty work, or report shape.
 
 ## Completion standard
 
