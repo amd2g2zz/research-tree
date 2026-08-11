@@ -15,4 +15,4 @@
 
 - [x] 3.1 Cover forged pass, stale references, contradiction, manual bypass, and duplicate replay.
 - [x] 3.2 Reconcile the group-4 registry and delivery evidence.
-- [ ] 3.3 Run focused, regression, strict OpenSpec, package, governance, and delivery checks.
+- [x] 3.3 Run focused, regression, strict OpenSpec, package, governance, and delivery checks.

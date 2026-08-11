@@ -24,7 +24,7 @@
       "command": "openspec validate --changes --strict --no-interactive",
       "exit_code": 0,
       "name": "openspec_strict",
-      "output_digest": "084647996eb0b14b1b69ed29f8814d2b707d63b445d56bfe918527992c55882c",
+      "output_digest": "c7c20c27de7af7884b94449fb99bbc8b8c9d2203539da53a4f16c8e919de8ca4",
       "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/integrated-openspec-output.txt"
     },
     {

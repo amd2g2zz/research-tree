@@ -1,15 +1,6 @@
 {
   "gaps": [
     {
-      "acceptance_command": "uv run pytest -q tests/test_oracle_closure.py",
-      "group": 4,
-      "missing_paths": [
-        "tests/test_oracle_closure.py"
-      ],
-      "reason": "future task command is not evidence on the current clean-dev baseline",
-      "state": "planned"
-    },
-    {
       "acceptance_command": "uv run pytest -q tests/test_coordinator.py tests/test_lifecycle.py",
       "group": 5,
       "missing_paths": [
