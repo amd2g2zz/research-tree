@@ -33,7 +33,7 @@
 
 - [ ] 4.1 Update group 8 task/verification registry with protocol, focused pytest,
   Ruff, package, and crash fixture receipts.
-- [ ] 4.2 Run focused suite, full pytest, strict OpenSpec, package parity,
+- [x] 4.2 Run focused suite, full pytest, strict OpenSpec, package parity,
   governance, delivery validation, and `git diff --check`.
 - [ ] 4.3 Review scope and mark tasks only with source-bound evidence before one
   PR closing #60.
