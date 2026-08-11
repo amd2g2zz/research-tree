@@ -16,12 +16,12 @@
 
 - [x] 3.1 Add authoring activation rules and exact Codex/Claude/Hermes guidance through builder inputs only.
 - [x] 3.2 Add package tests for host markers, helper parity, package/body digests, wrong-host material, and drift.
-- [ ] 3.3 Run package/activation focused pytest and Ruff lint over the changed Python boundary; format-check the new activation module/script/test.
-- [ ] 3.4 Rebuild/check with `uv run python scripts/build_skill_packages.py`, isolating `packages/` in a generated-only commit.
+- [x] 3.3 Run package/activation focused pytest and Ruff lint over the changed Python boundary; format-check the new activation module/script/test.
+- [x] 3.4 Rebuild/check with `uv run python scripts/build_skill_packages.py`, isolating `packages/` in a generated-only commit.
 
 ## 4. Group 32 Evidence
 
-- [ ] 4.1 Run all native paths independently; real missing capabilities are `unavailable`.
+- [x] 4.1 Run all native paths independently; real missing capabilities are `unavailable`.
 - [ ] 4.2 Record source-bound output/receipt with exact three-command focused gate, revisions/digests, safe correlations, dispositions, and generated paths.
 - [ ] 4.3 Mark only Alpha2 rows 8.8-8.11 and group 32 complete.
 
