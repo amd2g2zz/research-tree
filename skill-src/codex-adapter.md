@@ -1,5 +1,16 @@
 ## Codex CLI runtime adapter
 
+### Activation probe
+
+`research-tree-activation-contract:v1:codex`
+
+Read `references/skill-activation.md` before diagnosing activation. If and only if
+the native request is exactly `$research-tree activation-probe v1 <correlation-id>`
+and Codex app-server supplied the matching typed `skill` input for this `SKILL.md`,
+return only `research-tree-activation:v1:codex:<correlation-id>`. Do not call tools,
+start alignment or research, or add other text. A plain marker, file path, or Markdown
+link is `activation_unverified` and must not emit the sentinel.
+
 - Read `references/codex-cli-compatibility.md` before host-specific alignment.
   Before repository execution, delegation, compaction, or recovery, also read
   `references/codex-native-orchestration.md`.

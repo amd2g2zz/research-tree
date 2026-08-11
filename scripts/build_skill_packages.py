@@ -26,6 +26,11 @@ PACKAGE_RELATIVES = {
     "claude": Path("packages/claude-code/research-tree"),
     "hermes": Path("packages/hermes/research-tree"),
 }
+ACTIVATION_MARKERS = {
+    "codex": "research-tree-activation-contract:v1:codex",
+    "claude": "research-tree-activation-contract:v1:claude",
+    "hermes": "research-tree-activation-contract:v1:hermes",
+}
 CLAUDE_SKILL_ROOT = Path("skills") / "research-tree"
 CLAUDE_PLUGIN_SOURCE = Path("skill-src/claude-plugin.json")
 CLAUDE_MARKETPLACE_SOURCE = Path("skill-src/claude-marketplace.json")
@@ -40,8 +45,12 @@ COMMON_FILES = (
     Path("references/research-tree-architecture.md"),
     Path("references/research-quality-playbook.md"),
     Path("references/alignment-controller.md"),
+    Path("references/skill-activation.md"),
 )
-COMMON_FILE_MAP = ((Path("src/research_tree/alignment_graph.py"), Path("scripts/alignment_controller.py")),)
+COMMON_FILE_MAP = (
+    (Path("src/research_tree/alignment_graph.py"), Path("scripts/alignment_controller.py")),
+    (Path("src/research_tree/skill_activation.py"), Path("scripts/skill_activation.py")),
+)
 HERMES_FILES = (
     Path("references/hermes-alignment.md"),
     Path("references/hermes-agent-compatibility.md"),
@@ -287,6 +296,10 @@ def validate_package(package: Path, host: str, root: Path = ROOT) -> dict[str, o
             errors.append("unexpanded host frontmatter marker")
         if text != _render_skill(host, root):
             errors.append("SKILL.md is stale relative to its host template")
+        expected_marker = ACTIVATION_MARKERS[host]
+        foreign_markers = [marker for candidate, marker in ACTIVATION_MARKERS.items() if candidate != host]
+        if text.count(expected_marker) != 1 or any(marker in text for marker in foreign_markers):
+            errors.append(f"wrong activation marker for {host}")
 
     expected_sources: dict[Path, Path] = {}
     for relative in COMMON_FILES:
