@@ -449,7 +449,6 @@ def test_package_and_skill_body_digests_detect_generated_drift(tmp_path: Path) -
     package = tmp_path / "research-tree"
     shutil.copytree(source, package)
     before = package_digests(package)
-
     reference = package / "references" / "skill-activation.md"
     reference.write_text(reference.read_text(encoding="utf-8") + "\ndrift\n", encoding="utf-8")
     drifted = package_digests(package)
