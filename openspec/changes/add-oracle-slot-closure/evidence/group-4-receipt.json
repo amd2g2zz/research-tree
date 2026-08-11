@@ -3,7 +3,7 @@
   "group": 4,
   "issue": 56,
   "state": "verified",
-  "source_revision": "adeac8f044796ce64b3051b339026ffe6019a661",
+  "source_revision": "1dc0f6519235e5e64316e2de8b075a7f775bec10",
   "command": "uv run pytest -q tests/test_oracle_slot_closure.py tests/test_oracles.py",
   "exit_code": 0,
   "environment_digest": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -14,7 +14,8 @@
     "tests/test_oracle_slot_closure.py",
     "tests/test_oracles.py",
     "src/research_tree/oracles.py",
-    "src/research_tree/closure.py"
+    "src/research_tree/closure.py",
+    "openspec/changes/add-oracle-slot-closure/evidence/full-regression-output.txt"
   ],
   "limitations": [],
   "verification_commands": [
@@ -35,6 +36,12 @@
     {
       "command": "uv run python scripts/check_delivery_workflow.py validate",
       "exit_code": 0
+    },
+    {
+      "command": "uv run pytest -q",
+      "exit_code": 0,
+      "output_digest": "8d77235fb4c7f74291cb11c02d387400d626071a1ea0a411258d4a4b3fc69cbd",
+      "raw_output_ref": "openspec/changes/add-oracle-slot-closure/evidence/full-regression-output.txt"
     }
   ]
 }

@@ -68,7 +68,7 @@
         "exit_code": 0,
         "environment_digest": "0000000000000000000000000000000000000000000000000000000000000000",
         "output_digest": "6d93f6965ff4938b33cc0c5486dbc4e87d94f29fd72440683cbf83ef07f7466f",
-        "source_revision": "adeac8f044796ce64b3051b339026ffe6019a661",
+        "source_revision": "1dc0f6519235e5e64316e2de8b075a7f775bec10",
         "raw_output_ref": "openspec/changes/add-oracle-slot-closure/evidence/group-4-output.txt",
         "recorded_at": "2026-08-11T16:00:00+08:00"
       },

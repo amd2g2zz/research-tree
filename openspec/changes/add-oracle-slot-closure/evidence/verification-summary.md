@@ -1,6 +1,6 @@
 # Issue #56 Verification
 
-Source implementation revision: `adeac8f044796ce64b3051b339026ffe6019a661`.
+Source implementation revision: `1dc0f6519235e5e64316e2de8b075a7f775bec10`.
 
 - Focused Oracle/closure suite: 17 passed.
 - OpenSpec strict validation: 17 changes passed.
