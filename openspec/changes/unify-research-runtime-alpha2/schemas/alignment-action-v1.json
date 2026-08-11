@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/alignment-action-v1.json",
+  "title": "Alpha2 revision-bound alignment action",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "action_id",
+    "kind",
+    "field",
+    "objective",
+    "trigger_refs",
+    "belief_refs",
+    "evidence_refs",
+    "score_factors",
+    "expected_ambiguity_reduction",
+    "closure_oracle",
+    "method_boundary",
+    "state_digest",
+    "policy_version",
+    "seed",
+    "status",
+    "score"
+  ],
+  "properties": {
+    "action_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "kind": { "type": "string", "enum": ["reconnaissance", "question", "disagreement", "confirmation"] },
+    "field": { "type": "string", "minLength": 1 },
+    "objective": { "type": "string", "minLength": 1 },
+    "trigger_refs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "belief_refs": { "type": "array", "items": { "type": "object" } },
+    "evidence_refs": { "type": "array", "items": { "type": "object" } },
+    "score_factors": { "type": "object", "additionalProperties": { "type": "number" } },
+    "expected_ambiguity_reduction": { "type": "number", "minimum": 0, "maximum": 1 },
+    "closure_oracle": { "type": "string", "minLength": 1 },
+    "method_boundary": { "type": "string", "minLength": 1 },
+    "state_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "policy_version": { "type": "string", "minLength": 1 },
+    "seed": { "type": "integer" },
+    "status": { "type": "string", "enum": ["selected"] },
+    "score": { "type": "number" }
+  }
+}

@@ -176,6 +176,24 @@ from .tree_state import (
     validate_tree_state_payload,
 )
 from .alignment_graph import AlignmentGraphError, AlignmentGraphStore
+from .alignment_protocol import (
+    ACTION_KINDS,
+    ALIGNMENT_ACTION_KIND,
+    ALIGNMENT_ATTEMPT_KIND,
+    ALIGNMENT_BELIEF_KIND,
+    ALIGNMENT_FEEDBACK_KIND,
+    ALIGNMENT_MESSAGE_KIND,
+    ALIGNMENT_READINESS_KIND,
+    ALIGNMENT_RESPONSE_KIND,
+    AlignmentAction,
+    AlignmentCandidate,
+    AlignmentConflictError,
+    AlignmentController,
+    AlignmentMessageError,
+    AlignmentProtocol,
+    AlignmentProtocolError,
+    AlignmentReadinessError,
+)
 from .alignment_handoff import (
     ALIGNMENT_GRAPH_KIND,
     ALIGNMENT_HANDOFF_KIND,
@@ -194,7 +212,13 @@ from .oracles import (
 )
 from .closure import ASSESSMENT_KIND, ClosureAssessmentError, OracleService, SlotClosureAssessor, SlotClosureAssessment
 from .legacy_import import LegacyImportError, LegacyImportReceipt, LegacyImportResult, LegacyRunStoreImporter
-from .content_store import ContentAddressedStore, ContentIntegrityError, ContentObject, ContentPathError, ContentStoreError
+from .content_store import (
+    ContentAddressedStore,
+    ContentIntegrityError,
+    ContentObject,
+    ContentPathError,
+    ContentStoreError,
+)
 from .coordinator import (
     COMPLETION_RECORD_KIND,
     CoordinatorConflictError,
@@ -260,6 +284,22 @@ __all__ = [
     "validate_tree_state_payload",
     "AlignmentGraphError",
     "AlignmentGraphStore",
+    "ACTION_KINDS",
+    "ALIGNMENT_ACTION_KIND",
+    "ALIGNMENT_ATTEMPT_KIND",
+    "ALIGNMENT_BELIEF_KIND",
+    "ALIGNMENT_FEEDBACK_KIND",
+    "ALIGNMENT_MESSAGE_KIND",
+    "ALIGNMENT_READINESS_KIND",
+    "ALIGNMENT_RESPONSE_KIND",
+    "AlignmentAction",
+    "AlignmentCandidate",
+    "AlignmentConflictError",
+    "AlignmentController",
+    "AlignmentMessageError",
+    "AlignmentProtocol",
+    "AlignmentProtocolError",
+    "AlignmentReadinessError",
     "ALIGNMENT_GRAPH_KIND",
     "ALIGNMENT_HANDOFF_KIND",
     "initialize_research_from_alignment",

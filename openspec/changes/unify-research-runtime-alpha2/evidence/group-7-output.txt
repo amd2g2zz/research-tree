@@ -1,0 +1,4 @@
+..................                                                                                                                                                                                                                  [100%]
+18 passed in 1.77s
+All checks passed!
+6 files already formatted
