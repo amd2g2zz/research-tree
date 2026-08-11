@@ -14,6 +14,7 @@ from hermes_event_adapter import (  # noqa: E402
     recovery_events,
     sanitize_provider_failure,
 )
+from host_event_protocol import build_host_event  # noqa: E402
 
 
 BASE = {
@@ -132,3 +133,20 @@ def test_recovery_emits_unknown_before_bounded_retry() -> None:
             authorized_methods={"documentation"},
             created_at="2026-08-11T00:00:00+00:00",
         )
+
+
+def test_equivalent_native_and_hermes_observations_share_payload_digest() -> None:
+    envelope = {
+        "event_id": "observation-1",
+        "kind": "observation",
+        "run_id": "run-hermes",
+        "attempt_id": "attempt-1",
+        "expected_revision": 12,
+        "sequence": 3,
+        "created_at": "2026-08-11T00:00:00+00:00",
+        "payload": {"result": "accepted", "artifact_path": r"findings\one.json"},
+    }
+    hermes = build_hermes_event(**envelope)
+    native = build_host_event(actor="codex", **envelope)
+    assert hermes["payload_digest"] == native["payload_digest"]
+    assert hermes["payload"] == native["payload"]

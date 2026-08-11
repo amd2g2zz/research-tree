@@ -18,7 +18,7 @@
 - [x] 3.1 Replace `.research-tree-hermes/state.json`, batch/report completion, and Markdown shape gates with observation/projection compatibility commands.
 - [x] 3.2 Keep runtime hooks sanitized, bounded, fail-open, and unable to ingest canonical lifecycle state directly.
 - [x] 3.3 Update Hermes authoring references/adapter entry points without copying Codex/Claude package structure or claiming live activation.
-- [ ] 3.4 Rebuild/check generated packages, isolate generated output in generated-only commits, and run adapter/package Ruff gates.
+- [x] 3.4 Rebuild/check generated packages, isolate generated output in generated-only commits, and run adapter/package Ruff gates.
 
 ## 4. Evidence and delivery
 
