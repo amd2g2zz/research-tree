@@ -64,8 +64,8 @@ def test_group_35_owns_integrated_receipt_and_future_gaps_remain_unverified() ->
     report = validate_governance(inputs)
 
     assert report.valid is True
-    assert report.verified_groups == (1, 2, 3, 4, 5, 6, 7, 8, 9, 16, 33, 34, 35)
-    assert report.unverified_groups == tuple(group for group in range(6, 33) if group not in {6, 7, 8, 9, 16})
+    assert report.verified_groups == (1, 2, 3, 4, 5, 6, 7, 8, 9, 16, 32, 33, 34, 35)
+    assert report.unverified_groups == tuple(group for group in range(6, 33) if group not in {6, 7, 8, 9, 16, 32})
 
     issue_map = json.loads(
         (REGISTRY_ROOT / "issue-execution-map-v1.json").read_text(encoding="utf-8")
