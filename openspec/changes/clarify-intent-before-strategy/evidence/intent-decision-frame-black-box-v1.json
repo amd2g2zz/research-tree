@@ -1,8 +1,7 @@
 {
   "schema_version": 1,
   "fixture_id": "intent-decision-frame-black-box-v1",
-  "hosts": ["codex", "claude-code", "hermes"],
-  "frame_fixture": "openspec/changes/unify-research-runtime-alpha2/schemas/examples/decision-frame-v1.json",
+  "hosts": ["codex", "claude-code", "hermes"], "frame_fixture": "openspec/changes/unify-research-runtime-alpha2/schemas/examples/decision-frame-v1.json",
   "metrics": {
     "intent_hypothesis_fidelity": true,
     "clarification_action_appropriateness": true,

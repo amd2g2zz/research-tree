@@ -22,7 +22,7 @@
 
 ## 4. Group 31 Evidence And Delivery
 
-- [ ] 4.1 Mark only Alpha2 group-31 tasks complete and add exact pytest/Ruff commands to task execution/verification registries.
-- [ ] 4.2 Record source-bound group-31 output/receipt with environment, command, output digest, fault/replay fixture refs, and evaluator metric results.
+- [x] 4.1 Mark only Alpha2 group-31 tasks complete and add exact pytest/Ruff commands to task execution/verification registries.
+- [x] 4.2 Record source-bound group-31 output/receipt with environment, command, output digest, fault/replay fixture refs, and evaluator metric results.
 - [ ] 4.3 Run full pytest, strict OpenSpec for this change and Alpha2, package parity, governance, delivery, and `git diff --check`.
 - [ ] 4.4 Keep non-generated changes within the review limit, isolate any generated package commit, push one PR to `dev` with `Closes #87`, wait for hosted checks, merge, and clean the worktree/branches.
