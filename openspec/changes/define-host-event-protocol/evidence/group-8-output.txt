@@ -1,7 +1,7 @@
 ...................                                                                                                                                                                                                                 [100%]
-19 passed in 11.94s
+19 passed in 20.48s
 All checks passed!
-6 files already formatted
+4 files already formatted
 {
   "marketplace": {
     "marketplace": "D:\\codebase\\research-tree-worktrees\\issue-60-host-event-protocol\\.claude-plugin\\marketplace.json",
