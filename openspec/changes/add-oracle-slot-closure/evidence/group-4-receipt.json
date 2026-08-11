@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "group": 4,
+  "issue": 56,
+  "state": "verified",
+  "source_revision": "adeac8f044796ce64b3051b339026ffe6019a661",
+  "command": "uv run pytest -q tests/test_oracle_slot_closure.py tests/test_oracles.py",
+  "exit_code": 0,
+  "environment_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "output_digest": "6d93f6965ff4938b33cc0c5486dbc4e87d94f29fd72440683cbf83ef07f7466f",
+  "raw_output_ref": "openspec/changes/add-oracle-slot-closure/evidence/group-4-output.txt",
+  "recorded_at": "2026-08-11T16:00:00+08:00",
+  "evidence": [
+    "tests/test_oracle_slot_closure.py",
+    "tests/test_oracles.py",
+    "src/research_tree/oracles.py",
+    "src/research_tree/closure.py"
+  ],
+  "limitations": [
+    "Full regression retains one pre-existing #112 integrated receipt digest mismatch on origin/dev."
+  ],
+  "verification_commands": [
+    {
+      "command": "openspec validate --changes --strict --no-interactive",
+      "exit_code": 0
+    },
+    {
+      "command": "uv run python scripts/build_skill_packages.py --check",
+      "exit_code": 0
+    },
+    {
+      "command": "uv run python scripts/check_openspec_governance.py --repo .",
+      "exit_code": 0,
+      "release_ready": false,
+      "reason": "future groups 5-32 remain planned"
+    },
+    {
+      "command": "uv run python scripts/check_delivery_workflow.py validate",
+      "exit_code": 0
+    }
+  ]
+}
