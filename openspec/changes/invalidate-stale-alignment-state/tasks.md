@@ -27,3 +27,9 @@
 - [x] 5.1 Update only group 23 task evidence and add a source-bound receipt containing the exact commit, environment, correction fixture ids/digests, predecessor/successor refs, stale reasons, task/domain ids, and commands.
 - [x] 5.2 Run `openspec validate invalidate-stale-alignment-state --strict`, `openspec validate unify-research-runtime-alpha2 --strict`, the full pytest suite, full touched-file Ruff lint/format checks, package check, OpenSpec governance, delivery workflow validation, and `git diff --check`.
 - [x] 5.3 Inspect the final diff, keep generated packages absent unless rebuilt from authoring source in a separate generated-only commit, and commit the issue-local source/OpenSpec changes without pushing or merging.
+
+## 6. Authority Binding Review
+
+- [x] 6.1 Add adversarial red tests for parallel latest role ids, predecessor identity mismatch, unrelated dependent artifacts, and caller-selected parallel successors; run focused pytest plus Ruff check and format-check, with Ruff required for green.
+- [x] 6.2 Bind correction and successor authority to the predecessor state's canonical streams, and quarantine only lineage descendants while preserving atomic replay.
+- [ ] 6.3 Run focused/full/strict/governance/delivery gates, keep non-generated review size below 1500 lines, and regenerate group 23 evidence from the final source commit.

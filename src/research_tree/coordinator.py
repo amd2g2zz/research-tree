@@ -11,6 +11,7 @@ from typing import Any, Mapping, Sequence
 from .domain import (
     ArtifactRef,
     ArtifactRevision,
+    InvalidIdentifierError,
     RuntimeStoreError,
     canonical_json_bytes,
     thaw_json,
@@ -277,6 +278,15 @@ class ResearchRunCoordinator:
             legal_actions=("alignment_projection_ready", "authority_impossible", "supersede"),
             idempotency_key=idempotency_key,
         )
+        authority = self._lineage_authority(blueprint_target, alignment_handoff)
+        if authority is not None:
+            bindings, task_id, domain_id = authority
+            payload.update(
+                authority_streams={role: binding.artifact_ref.artifact_id for role, binding in bindings.items()},
+                task_id=task_id,
+                domain_id=domain_id,
+            )
+            payload["state_digest"] = _digest({key: value for key, value in payload.items() if key != "state_digest"})
         try:
             return self.ledger.append_artifact(
                 run_id,
@@ -288,6 +298,61 @@ class ResearchRunCoordinator:
             )
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
+
+    def _lineage_authority(
+        self, target: ArtifactRevision, handoff: ArtifactRevision
+    ) -> tuple[dict[str, CorrectionBinding], str, str] | None:
+        artifacts = {"decision_map": target, "handoff": handoff}
+        child = handoff
+        for role in ("strategy", "working_brief", "intent_model"):
+            matches = [
+                self.ledger.get_artifact(ref)
+                for ref in child.parent_refs
+                if self.ledger.get_artifact(ref).kind == CORRECTION_ROLE_KINDS[role]
+            ]
+            if len(matches) != 1:
+                return None
+            child = artifacts[role] = matches[0]
+        task_id = artifacts["working_brief"].payload.get("task_id")
+        domain_id = artifacts["working_brief"].payload.get("domain_id")
+        if artifacts["intent_model"].payload.get("task_id") != task_id:
+            return None
+        try:
+            validate_identifier(task_id, "task_id")
+            validate_identifier(domain_id, "domain_id")
+        except (InvalidIdentifierError, TypeError, ValueError):
+            return None
+        return (
+            {role: CorrectionBinding.from_artifact(role, artifacts[role]) for role in CORRECTION_AFFECTED_ROLES},
+            task_id,
+            domain_id,
+        )
+
+    def _current_authority(self, current: ArtifactRevision) -> dict[str, CorrectionBinding]:
+        streams = current.payload.get("authority_streams")
+        if not isinstance(streams, Mapping) or set(streams) != set(CORRECTION_AFFECTED_ROLES):
+            raise CoordinatorConflictError("current state lacks authoritative role streams")
+        artifacts = {}
+        for role in CORRECTION_AFFECTED_ROLES:
+            candidates = [
+                item
+                for item in self.ledger.load_run(current.round_id).artifacts
+                if item.id == streams[role]
+                and item.kind == CORRECTION_ROLE_KINDS[role]
+                and self.ledger.is_latest_artifact(self._artifact_ref(item))
+            ]
+            if len(candidates) != 1:
+                raise CoordinatorConflictError(f"current authority is unresolved: {role}")
+            artifacts[role] = candidates[0]
+        for child_role, parent_role in (
+            ("working_brief", "intent_model"),
+            ("strategy", "working_brief"),
+            ("handoff", "strategy"),
+            ("decision_map", "handoff"),
+        ):
+            if self._artifact_ref(artifacts[parent_role]) not in artifacts[child_role].parent_refs:
+                raise CoordinatorConflictError("current authority lineage is inconsistent")
+        return {role: CorrectionBinding.from_artifact(role, artifacts[role]) for role in CORRECTION_AFFECTED_ROLES}
 
     @staticmethod
     def _state_payload(
@@ -520,6 +585,11 @@ class ResearchRunCoordinator:
             return successor
 
         current = self._latest_state(correction.run_id)
+        if correction.task_id != current.payload.get("task_id") or correction.domain_id != current.payload.get(
+            "domain_id"
+        ):
+            raise CoordinatorConflictError("correction identity does not match current state")
+        active = self._current_authority(current)
         quarantined_refs = self._quarantined_refs(correction.run_id)
         affected_refs: list[ArtifactRef] = []
         for role in CORRECTION_AFFECTED_ROLES:
@@ -536,17 +606,30 @@ class ResearchRunCoordinator:
                 raise StaleStateError("apply_correction")
             if binding.artifact_ref in quarantined_refs:
                 raise StaleStateError("apply_correction")
+            if binding != active[role]:
+                raise StaleStateError("apply_correction")
             affected_refs.append(binding.artifact_ref)
 
         current_ref = ArtifactRef(correction.run_id, current.id, current.revision)
         affected_ref_set = set(affected_refs)
-        dependent_refs = tuple(
-            ArtifactRef(item.round_id, item.id, item.revision)
+        reachable = affected_ref_set | {current_ref}
+        dependent_refs: list[ArtifactRef] = []
+        candidates = [
+            item
             for item in self.ledger.load_run(correction.run_id).artifacts
             if item.kind in CORRECTION_DEPENDENT_KINDS
-            and ArtifactRef(item.round_id, item.id, item.revision) not in affected_ref_set
-            and self.ledger.is_latest_artifact(ArtifactRef(item.round_id, item.id, item.revision))
-        )
+            and self._artifact_ref(item) not in affected_ref_set
+            and self.ledger.is_latest_artifact(self._artifact_ref(item))
+        ]
+        while candidates:
+            found = [item for item in candidates if reachable.intersection(item.parent_refs)]
+            if not found:
+                break
+            for item in found:
+                reference = self._artifact_ref(item)
+                dependent_refs.append(reference)
+                reachable.add(reference)
+                candidates.remove(item)
         correction_ref = ArtifactRef(correction.run_id, correction.event_id, 1)
         quarantine_id = "quarantine-" + correction.event_id
         quarantine_ref = ArtifactRef(correction.run_id, quarantine_id, 1)
@@ -580,6 +663,7 @@ class ResearchRunCoordinator:
                 "correction_relation": correction.relation,
                 "previous_state_ref": current_ref.to_dict(),
                 "quarantine_ref": quarantine_ref.to_dict(),
+                "authority_streams": thaw_json(current.payload["authority_streams"]),
             }
         )
         state_payload["state_digest"] = _digest(
@@ -664,29 +748,21 @@ class ResearchRunCoordinator:
         if not isinstance(bindings, Mapping) or set(bindings) != set(CORRECTION_ACTION_ROLES):
             raise StaleStateError(action)
         try:
-            quarantine_ref = _ref(current.payload.get("quarantine_ref"), "quarantine_ref")
-            quarantine = self.ledger.get_artifact(quarantine_ref)
-        except (RuntimeStoreError, CoordinatorConflictError) as error:
+            active = self._current_authority(current)
+        except CoordinatorConflictError as error:
             raise StaleStateError(action) from error
-        if quarantine.kind != STALE_STATE_QUARANTINE_KIND:
-            raise StaleStateError(action)
-        stale = quarantine.payload.get("stale_bindings")
-        if not isinstance(stale, Mapping):
-            raise StaleStateError(action)
+        quarantined = self._quarantined_refs(run_id)
         for role in CORRECTION_ACTION_ROLES:
             try:
                 binding = CorrectionBinding.from_value(role, bindings[role])
-                stale_binding = CorrectionBinding.from_value(role, stale[role])
                 artifact = self.ledger.get_artifact(binding.artifact_ref)
             except (RuntimeStoreError, KeyError, TypeError, ValueError) as error:
                 raise StaleStateError(action) from error
-            if binding == stale_binding:
-                raise StaleStateError(action)
             if (
-                artifact.kind != CORRECTION_ROLE_KINDS[role]
+                binding != active[role]
+                or artifact.kind != CORRECTION_ROLE_KINDS[role]
                 or artifact.content_hash != binding.digest
-                or not self.ledger.is_latest_artifact(binding.artifact_ref)
-                or stale_binding.artifact_ref not in artifact.parent_refs
+                or binding.artifact_ref in quarantined
             ):
                 raise StaleStateError(action)
 
@@ -722,6 +798,7 @@ class ResearchRunCoordinator:
             "quarantine_ref",
             "task_id",
             "domain_id",
+            "authority_streams",
             "active_authority",
         ):
             if key in current.payload:
@@ -1074,16 +1151,10 @@ class ResearchRunCoordinator:
             return None
         current = max(states, key=lambda item: item.revision)
         if current.payload.get("correction_event_id") is not None:
-            authority = current.payload.get("active_authority")
-            if not isinstance(authority, Mapping):
-                return None
-            bindings = authority.get("bindings")
-            if not isinstance(bindings, Mapping):
-                return None
             try:
-                binding = CorrectionBinding.from_value("decision_map", bindings["decision_map"])
+                binding = self._current_authority(current)["decision_map"]
                 target = self.ledger.get_artifact(binding.artifact_ref)
-            except (RuntimeStoreError, KeyError, TypeError, ValueError):
+            except (RuntimeStoreError, CoordinatorConflictError):
                 return None
             return target if target.kind == "blueprint-target" else None
         initial = min(states, key=lambda item: item.revision)

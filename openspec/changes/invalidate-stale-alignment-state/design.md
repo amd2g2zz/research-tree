@@ -1,97 +1,37 @@
 ## Context
 
-Group 7 already persists replayable alignment actions and enforces pending
-response and human-only belief boundaries. Group 5 owns lifecycle authority in
-`ResearchRunCoordinator`, while feedback rounds already demonstrate immutable
-predecessor/successor artifacts in `RunStore`. The missing contract is a single
-RunLedger transaction that turns a requester correction into a coordinator
-control event and prevents old alignment/strategy/handoff state from remaining
-executable.
+Alignment actions are replayable and human-only beliefs are protected, but a requester correction did not invalidate executable strategy/handoff state. The coordinator must own one append-only correction transaction and all later authority checks.
 
 ## Goals / Non-Goals
 
-**Goals:**
+**Goals:** strict correction values; immutable supersession; lineage-bound quarantine; exact current authority; independent task/domain ids; existing pending-action and human-only guarantees.
 
-- Validate one strict correction/reopen value before storage mutation.
-- Preserve exact predecessor artifacts and create explicit successor lineage.
-- Quarantine exact affected revisions and digests in the coordinator ledger.
-- Require current authority bindings for sensitive actions after correction.
-- Keep task identity and domain identity independently addressable.
-- Reuse existing pending-action and human-only alignment guarantees.
-
-**Non-Goals:**
-
-- Host UI or prompt behavior, provider changes, causal replay tooling,
-  DecisionFrame design, four-stage strategy projection, or scheduler policy.
-- Destructive migration or deletion of historical artifacts.
-- A second lifecycle writer outside `ResearchRunCoordinator`.
+**Non-Goals:** UI/provider behavior, causal replay, strategy redesign, scheduler policy, destructive migration, or another lifecycle writer.
 
 ## Decisions
 
-### Use a frozen typed correction value at the feedback boundary
+### Frozen correction value
 
-`feedback.py` will define the correction/reopen value and exact affected
-bindings. Each binding combines an `ArtifactRef` with its content digest; the
-five affected roles are explicit and validated. A single `task_id`/`domain_id`
-pair plus successor pair prevents the diagnostic subject from being silently
-substituted for the task. A permissive free-form mapping was rejected because
-missing roles and identity conflation would only be discovered after mutation.
+`feedback.py` defines correction/reopen plus five exact role bindings. Separate source and successor task/domain pairs prevent a diagnostic subject from silently replacing the task. Missing roles fail before mutation.
 
-### Commit correction, quarantine, and successor state in one ledger batch
+### One ledger transaction
 
-`ResearchRunCoordinator.apply_correction` will preflight every binding as a
-current artifact of the expected kind, then append the correction event,
-stale-state quarantine, and next `run-state` revision through
-`append_artifact_batch`. The successor state returns to `alignment`, carries the
-new identity pair and exact correction/quarantine refs, and links to the prior
-state. Reusing `create_successor` was rejected because it creates a second run
-before the old run's correction transaction has committed.
+`apply_correction` preflights identity and bindings, then appends correction, quarantine, and successor `run-state` in one batch. The successor returns to alignment and links the immutable predecessor through `supersedes`/`reopens`.
 
-### Quarantine exact references instead of matching labels or prose
+### State-owned authority streams
 
-The quarantine payload stores role, exact artifact ref, content digest, and
-relation. Guards compare caller-supplied bindings to both the quarantine and the
-current ledger revision. This makes stale rejection deterministic and prevents
-silent rebinding to an artifact with the same id. Global invalidation flags were
-rejected because they cannot explain which revision became stale.
+When the complete chain exists, initialization records its unique target-to-intent artifact ids and task/domain identity. Correction input must equal the exact current revisions in those streams; being latest for a parallel id is insufficient. Post-correction actions likewise must equal the canonical current decision-map/strategy/handoff set, so the first caller cannot nominate parallel children.
 
-### Require authority bindings only after a correction epoch exists
+### Lineage quarantine
 
-Existing runs retain compatibility until a material correction is recorded.
-Afterward, dispatch and sensitive lifecycle events must supply current alignment,
-strategy, and handoff bindings plus the latest correction event id. The guard is
-centralized in the coordinator so direct `complete` calls cannot bypass it.
-Ordinary transition/evidence guards still run after authority validation.
+The quarantine stores exact stale bindings and only latest dependent artifacts reachable from affected refs or predecessor state. Kind-wide invalidation was rejected because it captures unrelated work. Central guards cover dispatch, confirmation, delivery, acceptance, and direct completion.
 
-### Keep alignment protocol protections at their current owner
+### Existing alignment authority remains local
 
-`AlignmentProtocol.respond` remains the pending-question boundary and
-`record_belief`/`readiness` remain the requester-only authority boundary. #73
-adds regression assertions rather than duplicating these rules in correction
-code.
+`AlignmentProtocol.respond` retains pending-action ownership and `record_belief`/`readiness` retain requester-only authority; correction tests exercise those rules without duplicating them.
 
-## Risks / Trade-offs
+## Risks / Migration
 
-- [Callers after correction must provide fresh bindings] -> Return the latest
-  correction id and required roles in the machine-readable stale error so the
-  caller can re-enter alignment and bind a successor.
-- [A correction can arrive after delivery artifacts exist] -> Quarantine exact
-  authority and reset lifecycle to alignment; historical delivery artifacts stay
-  readable but cannot satisfy current completion.
-- [Legacy runs lack a correction epoch] -> Apply strict post-correction guards
-  only when a correction artifact exists; do not synthesize historical events.
-- [Multiple artifact stores exist during migration] -> Limit this issue's
-  transactional authority to RunLedger/coordinator state and retain existing
-  feedback-round history behavior as a separately tested compatibility surface.
-
-## Migration Plan
-
-The schema change is additive at the artifact-kind level and needs no database
-migration. Deploy typed correction parsing and coordinator guards together. On
-rollback, stop accepting new corrections and keep correction/quarantine/state
-artifacts readable; never reactivate quarantined bindings or rewrite history.
-
-## Open Questions
-
-None. The issue contract fixes the affected roles, coordinator ownership,
-machine-readable stale reason, and rollback behavior.
+- Callers after correction must rebuild recorded streams and pass exact bindings; stale errors return the correction id and re-entry action.
+- Historical delivery stays readable but cannot satisfy current completion; legacy runs without a complete chain keep pre-correction behavior.
+- The additive artifact kinds need no database migration. Rollback stops new corrections but never rewrites history or reactivates quarantined refs.

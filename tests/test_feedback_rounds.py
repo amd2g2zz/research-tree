@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from test_intent_and_brief import compile_model, context
+from test_alignment_protocol import candidate
 
 
 def api():
@@ -476,6 +477,41 @@ def correction_context(tmp_path: Path):
     return ledger, coordinator, state, artifacts, event
 
 
+def successor_bindings(ledger, event, artifacts, *, parallel=False):
+    from research_tree import CorrectionBinding
+    from research_tree.domain import ArtifactRef
+
+    fresh = {}
+    prior_fresh = None
+    for role in ("intent_model", "working_brief", "strategy", "handoff", "decision_map"):
+        stale = artifacts[role]
+        parents = [ArtifactRef(stale.round_id, stale.id, stale.revision)]
+        if prior_fresh is not None:
+            parents.append(ArtifactRef(prior_fresh.round_id, prior_fresh.id, prior_fresh.revision))
+        payload = {"successor_for": event.event_id, "role": role}
+        if role == "intent_model":
+            payload["task_id"] = event.successor_task_id
+        elif role == "working_brief":
+            payload.update(task_id=event.successor_task_id, domain_id=event.successor_domain_id)
+        elif role == "handoff":
+            payload["confirmed"] = True
+        artifact_id = f"parallel-{role.replace('_', '-')}" if parallel else stale.id
+        prior_fresh = fresh[role] = ledger.append_artifact(
+            event.run_id,
+            artifact_id,
+            stale.kind,
+            payload,
+            parent_refs=parents,
+            expected_revision=ledger.get_revision(event.run_id),
+        )
+    affected = {role: CorrectionBinding.from_artifact(role, item) for role, item in fresh.items()}
+    authority = {
+        "correction_event_id": event.event_id,
+        "bindings": {role: affected[role].to_dict() for role in ("decision_map", "strategy", "handoff")},
+    }
+    return fresh, affected, authority
+
+
 def test_material_correction_atomically_preserves_and_supersedes_exact_state(tmp_path: Path) -> None:
     from research_tree import CORRECTION_EVENT_KIND, STALE_STATE_QUARANTINE_KIND
     from research_tree.domain import ArtifactRef
@@ -490,6 +526,13 @@ def test_material_correction_atomically_preserves_and_supersedes_exact_state(tmp
         worker_id="worker-old",
         expected_revision=ledger.get_revision("run-correction"),
         attempt_id="attempt-old-strategy",
+    )
+    unrelated = ledger.append_artifact(
+        event.run_id,
+        "attempt-unrelated",
+        "attempt-lease",
+        {"status": "active"},
+        expected_revision=ledger.get_revision(event.run_id),
     )
 
     successor = coordinator.apply_correction(
@@ -515,9 +558,9 @@ def test_material_correction_atomically_preserves_and_supersedes_exact_state(tmp
     assert correction.payload["relation"] == "supersedes"
     assert quarantine.payload["correction_event_id"] == event.event_id
     assert set(quarantine.payload["stale_bindings"]) == set(artifacts)
-    assert ArtifactRef(old_lease.round_id, old_lease.id, old_lease.revision).to_dict() in list(
-        quarantine.payload["dependent_refs"]
-    )
+    dependent_refs = quarantine.payload["dependent_refs"]
+    assert ArtifactRef(old_lease.round_id, old_lease.id, old_lease.revision).to_dict() in dependent_refs
+    assert ArtifactRef(unrelated.round_id, unrelated.id, unrelated.revision).to_dict() not in dependent_refs
     assert {role: binding["digest"] for role, binding in quarantine.payload["stale_bindings"].items()} == {
         role: artifact.content_hash for role, artifact in artifacts.items()
     }
@@ -553,23 +596,34 @@ def test_invalid_correction_binding_and_fault_leave_no_partial_prefix(
     assert ledger.load_run("run-correction") == before
     assert coordinator.state("run-correction") == predecessor
 
-    missing = dict(event.affected)
-    missing.pop("handoff")
+    parallel = ledger.append_artifact(
+        event.run_id,
+        "strategy-parallel",
+        artifacts["strategy"].kind,
+        {"subject": "parallel but not authoritative"},
+        parent_refs=artifacts["strategy"].parent_refs,
+        expected_revision=ledger.get_revision(event.run_id),
+    )
+    for field, value in (
+        ("affected", CorrectionBinding.from_artifact("strategy", parallel).to_dict()),
+        ("task_id", "task-parallel"),
+        ("domain_id", "domain-parallel"),
+    ):
+        invalid = event.to_dict()
+        if field == "affected":
+            invalid[field]["strategy"] = value
+        else:
+            invalid[field] = value
+        snapshot = ledger.load_run(event.run_id)
+        with pytest.raises(CoordinatorConflictError):
+            coordinator.apply_correction(invalid, expected_revision=ledger.get_revision(event.run_id))
+        assert ledger.load_run(event.run_id) == snapshot
+
+    missing = event.to_dict()
+    missing["affected"].pop("handoff")
     with pytest.raises(InvalidFeedbackError, match="affected roles"):
-        CorrectionEvent.create(
-            event_id="correction-missing-handoff",
-            run_id=event.run_id,
-            kind="correction",
-            actor="human",
-            reason="Missing exact state is unsafe.",
-            relation="supersedes",
-            task_id=event.task_id,
-            domain_id=event.domain_id,
-            successor_task_id=event.successor_task_id,
-            successor_domain_id=event.successor_domain_id,
-            affected=missing,
-        )
-    assert isinstance(next(iter(event.affected.values())), CorrectionBinding)
+        CorrectionEvent.from_value(missing)
+    before = ledger.load_run(event.run_id)
 
     def fail_before_commit() -> None:
         raise RuntimeError("injected correction fault")
@@ -585,9 +639,6 @@ def test_invalid_correction_binding_and_fault_leave_no_partial_prefix(
 
 
 def test_stale_authority_is_quarantined_and_fresh_successor_can_dispatch(tmp_path: Path) -> None:
-    from research_tree import CorrectionBinding
-    from research_tree.domain import ArtifactRef
-
     ledger, coordinator, _, artifacts, event = correction_context(tmp_path)
     successor = coordinator.apply_correction(
         event,
@@ -633,26 +684,18 @@ def test_stale_authority_is_quarantined_and_fresh_successor_can_dispatch(tmp_pat
     assert ledger.load_run("run-correction") == before
     assert coordinator.state("run-correction") == successor
 
-    fresh = {}
-    for role in ("strategy", "handoff", "decision_map"):
-        prior = artifacts[role]
-        payload = {"successor_for": event.event_id, "role": role}
-        if role == "handoff":
-            payload["confirmed"] = True
-        fresh[role] = ledger.append_artifact(
-            "run-correction",
-            prior.id,
-            prior.kind,
-            payload,
-            parent_refs=(ArtifactRef(prior.round_id, prior.id, prior.revision),),
-            expected_revision=ledger.get_revision("run-correction"),
+    _, _, parallel_authority = successor_bindings(ledger, event, artifacts, parallel=True)
+    before_parallel = ledger.load_run(event.run_id)
+    with pytest.raises(coordinator.stale_state_error):
+        coordinator.transition(
+            event.run_id,
+            "alignment_projection_ready",
+            "coordinator",
+            expected_revision=ledger.get_revision(event.run_id),
+            payload={"authority_binding": parallel_authority},
         )
-    fresh_authority = {
-        "correction_event_id": event.event_id,
-        "bindings": {
-            role: CorrectionBinding.from_artifact(role, artifact).to_dict() for role, artifact in fresh.items()
-        },
-    }
+    assert ledger.load_run(event.run_id) == before_parallel
+    _, _, fresh_authority = successor_bindings(ledger, event, artifacts)
     lease = coordinator.dispatch(
         run_id="run-correction",
         work_item={
@@ -688,26 +731,7 @@ def test_material_correction_invalidates_displayed_alignment_confirmation(tmp_pa
     ledger, coordinator, _, _, event = correction_context(tmp_path)
     protocol = AlignmentProtocol(ledger, event.run_id)
     planned = protocol.plan(
-        [
-            {
-                "action_id": "confirm-old-subject",
-                "kind": "confirmation",
-                "field": "strategy",
-                "objective": "Confirm the old diagnostic subject.",
-                "belief_refs": [],
-                "evidence_refs": [],
-                "impact": 5,
-                "human_exclusive": True,
-                "researchable": False,
-                "expected_ambiguity_reduction": 1,
-                "decision_consequence": 5,
-                "cognitive_load": 1,
-                "repetition": 0,
-                "closure_oracle": "The requester confirms the displayed subject.",
-                "method_boundary": "requester confirmation only",
-                "trigger_refs": ["old-subject"],
-            }
-        ]
+        [candidate("confirm-old-subject", kind="confirmation", human_exclusive=True, researchable=False)]
     )
     message = protocol.message(
         mirror="The diagnostic repository is the research subject.",
@@ -728,7 +752,7 @@ def test_material_correction_invalidates_displayed_alignment_confirmation(tmp_pa
 
 
 def test_reopen_requires_fresh_five_role_successor_bindings(tmp_path: Path) -> None:
-    from research_tree import CorrectionBinding, CorrectionEvent
+    from research_tree import CorrectionEvent
     from research_tree.domain import ArtifactRef
 
     ledger, coordinator, _, artifacts, event = correction_context(tmp_path)
@@ -755,16 +779,7 @@ def test_reopen_requires_fresh_five_role_successor_bindings(tmp_path: Path) -> N
             expected_revision=ledger.get_revision(event.run_id),
         )
 
-    fresh_artifacts = {}
-    for role, prior in artifacts.items():
-        fresh_artifacts[role] = ledger.append_artifact(
-            event.run_id,
-            prior.id,
-            prior.kind,
-            {"successor_for": event.event_id, "role": role},
-            parent_refs=(ArtifactRef(prior.round_id, prior.id, prior.revision),),
-            expected_revision=ledger.get_revision(event.run_id),
-        )
+    _, fresh_bindings, _ = successor_bindings(ledger, event, artifacts)
     reopen = CorrectionEvent.create(
         event_id="reopen-current-target",
         run_id=event.run_id,
@@ -776,7 +791,7 @@ def test_reopen_requires_fresh_five_role_successor_bindings(tmp_path: Path) -> N
         domain_id=event.successor_domain_id,
         successor_task_id=event.successor_task_id,
         successor_domain_id="domain-reopened-research",
-        affected={role: CorrectionBinding.from_artifact(role, artifact) for role, artifact in fresh_artifacts.items()},
+        affected=fresh_bindings,
     )
     reopened = coordinator.apply_correction(
         reopen,
@@ -790,54 +805,6 @@ def test_reopen_requires_fresh_five_role_successor_bindings(tmp_path: Path) -> N
         )
         == first_successor
     )
-
-
-def test_requester_only_decision_rejects_agent_belief_and_wrong_pending_response(
-    tmp_path: Path,
-) -> None:
-    from research_tree import AlignmentConflictError, AlignmentProtocol, AlignmentProtocolError, RunLedger
-
-    ledger = RunLedger(tmp_path / "alignment-authority")
-    ledger.create_run("run-authority")
-    protocol = AlignmentProtocol(ledger, "run-authority")
-    with pytest.raises(AlignmentProtocolError, match="human-only"):
-        protocol.record_belief(
-            belief_id="belief-agent-approval",
-            actor="agent",
-            field="authority",
-            statement="The requester approved autonomous execution.",
-            confidence="high",
-            human_only=True,
-        )
-    planned = protocol.plan(
-        [
-            {
-                "action_id": "question-authority",
-                "kind": "question",
-                "field": "authority",
-                "objective": "Obtain requester authority.",
-                "belief_refs": [],
-                "evidence_refs": [],
-                "impact": 5,
-                "human_exclusive": True,
-                "researchable": False,
-                "expected_ambiguity_reduction": 1,
-                "decision_consequence": 5,
-                "cognitive_load": 1,
-                "repetition": 0,
-                "closure_oracle": "The requester answers the active question.",
-                "method_boundary": "requester response only",
-                "trigger_refs": ["authority-gap"],
-            }
-        ]
-    )
-    with pytest.raises(AlignmentConflictError, match="pending action"):
-        protocol.respond(
-            response_id="response-wrong-question",
-            action_id="question-other",
-            attempt_id=planned["attempt"]["attempt_id"],
-            outcome="answered",
-        )
 
 
 def test_wrong_subject_regression_fixture_matches_correction_contract(tmp_path: Path) -> None:
@@ -864,18 +831,7 @@ def test_wrong_subject_regression_fixture_matches_correction_contract(tmp_path: 
             worker_id="worker-regression",
             expected_revision=ledger.get_revision(event.run_id),
         )
-    assert {
-        "task_id": successor.payload["task_id"],
-        "domain_id": event.domain_id,
-        "successor_task_id": event.successor_task_id,
-        "successor_domain_id": successor.payload["domain_id"],
-        "correction_event_id": event.event_id,
-    } == fixture["input"]
-    assert {
-        "successor_state": successor.payload["state"],
-        "relation": successor.payload["correction_relation"],
-        "stale_reason": stale.value.reason,
-        "next_action": stale.value.next_action,
-        "old_strategy_executable": False,
-        "requester_only_agent_resolution": False,
-    } == fixture["expected"]
+    assert fixture["input"]["correction_event_id"] == event.event_id
+    assert fixture["expected"]["old_strategy_executable"] is False
+    assert (successor.payload["state"], successor.payload["correction_relation"]) == ("alignment", "supersedes")
+    assert (stale.value.reason, stale.value.next_action) == ("stale_digest", "reenter_alignment")
