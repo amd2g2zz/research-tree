@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "task_rule": {
-    "required_fields": ["task_id", "depends_on", "owner", "outputs", "acceptance_command", "rollback", "evidence_refs"],
-    "close_condition": "all required fields resolve and acceptance command exits zero in the declared environment"
+    "required_fields": ["group", "depends_on", "owner", "outputs", "acceptance_command", "rollback"],
+    "close_condition": "all execution fields resolve; verification evidence is recorded separately in task-verification-v1.json"
   },
   "groups": [
     { "group": 1, "depends_on": [], "owner": "quality", "outputs": ["alpha1-fixture-manifest", "negative-semantic-fixtures"], "acceptance_command": "uv run pytest -q tests/test_alpha1_baseline.py", "rollback": "remove fixture revision only" },
@@ -38,6 +38,7 @@
     { "group": 31, "depends_on": [7], "owner": "alignment", "outputs": ["decision-frame", "intent-substitution-fixtures"], "acceptance_command": "uv run pytest -q tests/test_decision_frame.py", "rollback": "remain in alignment" },
     { "group": 32, "depends_on": [8], "owner": "host-adapter", "outputs": ["activation-probes", "activation-receipts"], "acceptance_command": "uv run pytest -q tests/test_skill_activation.py", "rollback": "record host activation as unavailable" },
     { "group": 33, "depends_on": [2], "owner": "runtime", "outputs": ["content-addressed-artifacts"], "acceptance_command": "uv run pytest -q tests/test_content_store.py", "rollback": "disable CAS references and retain ledger metadata" },
-    { "group": 34, "depends_on": [2, 33], "owner": "runtime", "outputs": ["legacy-runstore-import"], "acceptance_command": "uv run pytest -q tests/test_legacy_runstore_import.py", "rollback": "disable importer and retain source RunStore read-only" }
+    { "group": 34, "depends_on": [2, 33], "owner": "runtime", "outputs": ["legacy-runstore-import"], "acceptance_command": "uv run pytest -q tests/test_legacy_runstore_import.py", "rollback": "disable importer and retain source RunStore read-only" },
+    { "group": 35, "depends_on": [3], "owner": "governance", "outputs": ["integrated-strict-evidence-receipt", "future-evidence-gap-inventory"], "acceptance_command": "uv run pytest -q tests/test_integrated_evidence_receipt.py", "rollback": "retain merged strict-slice evidence as historical and keep future groups planned" }
   ]
 }

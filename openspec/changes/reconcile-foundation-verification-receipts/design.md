@@ -12,13 +12,14 @@ was split into #98/#99.
 
 - Make a verified state reproducible and auditable from a retained receipt.
 - Keep verification distinct from PR/issue status and test-file existence.
-- Reconcile only accurately completed group boundaries.
+- Reconcile only accurately completed group boundaries, with a separate
+  integration group for cross-PR evidence.
 - Produce deterministic tests for malformed and substituted receipts.
 
 **Non-Goals:**
 
 - Make all Alpha2 groups release-ready.
-- Retroactively assert #54 strict evidence is complete.
+- Claim OracleRun/#56 or any future task group is complete.
 - Rework runtime persistence, evidence, or coordinator behavior.
 
 ## Decisions
@@ -42,8 +43,10 @@ registry in the same PR.
 Group 2 becomes the actual SQLite ledger base: protocol-compatible immutable
 runs/artifacts/parents/events, durability settings, optimistic concurrency, and
 its focused tests. CAS/import work remains in 33/34. Oracle, evidence metadata,
-and host events remain owned by their later groups. This avoids treating future
-work as completed merely because an aggregate task was historically broad.
+and host events remain owned by their later groups. Group 35 is an evidence-only
+integration boundary: it records merged strict-slice SHAs, rerunnable validation
+commands, and explicit missing-path inventory. It does not transfer ownership
+from group 3 or close #56.
 
 ## Risks / Trade-offs
 
@@ -53,11 +56,13 @@ work as completed merely because an aggregate task was historically broad.
 - [Shell command runner could execute arbitrary content] -> select only a
   command already registered in the checked-in task registry.
 - [Task boundary changes hide unfinished work] -> move each omitted concern to
-  its named future group and explicitly retain group 3 as blocked.
+  its named future group and retain groups 4-32 as planned in the explicit gap
+  inventory.
 
 ## Migration Plan
 
 1. Add strict receipt validation and generator tests.
 2. Reconcile the group-2 task contract and attach raw receipts.
-3. Update only known-complete groups to `verified`; record blocked group 3.
+3. Update only known-complete groups to `verified`; add group 35 as the
+   source-bound integration receipt and keep future groups planned.
 4. Roll back by returning a group to `in_progress`; receipts remain evidence.

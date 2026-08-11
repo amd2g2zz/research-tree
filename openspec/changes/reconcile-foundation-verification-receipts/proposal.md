@@ -14,9 +14,10 @@ blocking likely.
   malformed receipt.
 - Reconcile task-group 2 to the implemented SQLite ledger responsibility,
   retaining CAS and legacy import in their explicitly split groups 33 and 34.
-- Record current receipts and mark only groups 1, 2, 33, and 34 verified.
-- Record group 3 as blocked with its strict-evidence successor #106; preserve
-  group 14 as planned.
+- Record current receipts for groups 1, 2, 3, 33, 34, and a dedicated
+  integration group 35. Group 35 binds the merged strict slices and the
+  future-evidence-gap inventory without claiming later runtime groups.
+- Preserve group 14 and groups 4-32 as planned; #56/OracleRun remains open.
 
 ## Capabilities
 
@@ -35,4 +36,5 @@ blocking likely.
 - Affects OpenSpec governance parsing, its CLI/helper, task execution and
   verification registries, focused governance tests, and retained raw command
   output under the Alpha2 change evidence directory.
-- Does not alter runtime behavior or falsely reclassify broad contract group 14.
+- Does not alter runtime behavior or falsely reclassify broad contract group 14
+  or OracleRun (#56).

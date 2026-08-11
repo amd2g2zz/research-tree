@@ -1,0 +1,7 @@
+{
+  "default_branch": "master",
+  "integration_branch": "dev",
+  "policy_schema": 1,
+  "receipt_schema": 1,
+  "valid": true
+}
