@@ -232,4 +232,3 @@ def test_oracle_run_rejects_inconsistent_terminal_state(
     with pytest.raises(InvalidOracleError):
         OracleRun.from_dict(payload)
 
-
