@@ -20,22 +20,7 @@ enabled with `--search`. Sandbox and approval policy still apply to all other
 tools and cannot be widened by a Skill.
 
 ## Activation integrity
-
-Discovery and package validation do not prove that a turn received this Skill. A
-Codex app-server activation probe must use `turn/start` with both a text item
-containing `$research-tree activation-probe v1 <correlation-id>` and a typed item:
-
-```json
-{
-  "type": "skill",
-  "name": "research-tree",
-  "path": "/absolute/package/path/SKILL.md"
-}
-```
-
-Plain text, a bare marker, `codex debug prompt-input`, a file path, or a Markdown link
-is insufficient live evidence. The exact sentinel and safe receipt boundary are in
-`references/skill-activation.md`.
+Codex verification requires the exact text and typed `skill` input defined in `references/skill-activation.md`; text, paths, links, and package checks alone are not live evidence.
 
 ## User questions
 

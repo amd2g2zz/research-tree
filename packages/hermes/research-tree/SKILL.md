@@ -6,15 +6,8 @@ description: "Use when explicit deep technical research must align a vague or ev
 # research-tree
 
 ## Activation probe
-
 `research-tree-activation-contract:v1:hermes`
-
-Read `references/skill-activation.md` before diagnosing activation. Only an exact
-native `/research-tree activation-probe v1 <correlation-id>` or documented
-`/skill research-tree` equivalent may return
-`research-tree-activation:v1:hermes:<correlation-id>`. Return only that sentinel; do
-not call tools or start research. File paths, links, and bare names are
-`activation_unverified`.
+Follow `references/skill-activation.md`: only exact `/research-tree activation-probe v1 <correlation-id>` or `/skill research-tree` equivalent may return only `research-tree-activation:v1:hermes:<correlation-id>` without tools; paths, links, and bare names are `activation_unverified`.
 
 ## Outcome
 

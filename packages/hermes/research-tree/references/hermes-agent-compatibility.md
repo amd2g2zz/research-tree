@@ -63,11 +63,7 @@ Hermes also supports `/skill research-tree` for explicit loading. A name
 collision between a local skill and this external directory must be resolved;
 Hermes intentionally refuses to guess between duplicate names.
 
-For live verification, invoke
-`/research-tree activation-probe v1 <correlation-id>` or the explicit-load equivalent
-and require the exact sentinel in `references/skill-activation.md`. Discovery,
-reload, doctor output, a file reference, a raw URL, or package validation is static
-evidence only and must never be reported as `live_verified`.
+Live verification requires the native probe in `references/skill-activation.md`; discovery, doctor, files, URLs, and package checks are never `live_verified`.
 
 Validate the Hermes package before loading it:
 

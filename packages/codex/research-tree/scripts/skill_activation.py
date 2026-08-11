@@ -5,9 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
+import queue
 import re
 import shutil
 import subprocess
+import threading
+import time
 from typing import Callable, Mapping
 
 
@@ -110,7 +113,6 @@ def build_activation_probe(
     package_root: Path,
     *,
     correlation_id: str,
-    thread_id: str | None = None,
 ) -> dict[str, object]:
     """Construct a native probe contract without launching a host or writing state."""
     selected_host = _host(host)
@@ -128,15 +130,12 @@ def build_activation_probe(
     }
     invocation = _invocation(selected_host, correlation)
     if selected_host == "codex":
-        if not isinstance(thread_id, str) or not thread_id.strip():
-            _fail("thread_id_required", "Codex app-server turn/start requires thread_id")
         probe.update(
             {
                 "transport": "app_server",
                 "request": {
                     "method": "turn/start",
                     "params": {
-                        "threadId": thread_id,
                         "input": [
                             {"type": "text", "text": invocation},
                             {
@@ -192,8 +191,8 @@ def validate_probe_contract(probe: Mapping[str, object], *, expected_host: str) 
         if not isinstance(request, Mapping) or request.get("method") != "turn/start":
             _fail("codex_turn_start_missing", "Codex probe requires turn/start")
         params = request.get("params")
-        if not isinstance(params, Mapping) or not isinstance(params.get("threadId"), str):
-            _fail("codex_thread_missing", "Codex probe requires a thread id")
+        if not isinstance(params, Mapping) or "threadId" in params:
+            _fail("codex_thread_prebound", "Codex probe threads must come from thread/start")
         items = params.get("input")
         if not isinstance(items, list):
             _fail("typed_skill_input_missing", "Codex input must include typed skill data")
@@ -284,11 +283,194 @@ def activation_diagnostic(host: str, request: object) -> dict[str, object]:
     }
 
 
+class _CodexAppServerSession:
+    def __init__(self, executable: str, *, timeout: float = 120) -> None:
+        self.timeout = timeout
+        self.deadline = time.monotonic() + timeout
+        self.process = subprocess.Popen(
+            [executable, "app-server", "--listen", "stdio://"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            bufsize=1,
+        )
+        self.messages: queue.Queue[object] = queue.Queue()
+        self.pending: list[Mapping[str, object]] = []
+        self.request_id = 0
+        threading.Thread(target=self._read_stdout, daemon=True).start()
+
+    def _read_stdout(self) -> None:
+        assert self.process.stdout is not None
+        for line in self.process.stdout:
+            if not line.strip():
+                continue
+            try:
+                message = json.loads(line)
+            except json.JSONDecodeError:
+                message = line.rstrip("\r\n")
+            self.messages.put(message)
+        self.messages.put(None)
+
+    def _read(self) -> Mapping[str, object]:
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired("codex app-server", self.timeout)
+        try:
+            message = self.messages.get(timeout=remaining)
+        except queue.Empty as exc:
+            raise subprocess.TimeoutExpired("codex app-server", self.timeout) from exc
+        if not isinstance(message, Mapping):
+            _fail("protocol_message_invalid", "app-server stdout must be JSON-RPC objects")
+        return message
+
+    def _write(self, message: Mapping[str, object]) -> None:
+        if self.process.stdin is None:
+            _fail("protocol_closed", "app-server stdin is unavailable")
+        self.process.stdin.write(json.dumps(message, separators=(",", ":")) + "\n")
+        self.process.stdin.flush()
+
+    def request(self, method: str, params: object) -> object:
+        request_id = self.request_id
+        self.request_id += 1
+        self._write({"id": request_id, "method": method, "params": params})
+        while True:
+            message = self._read()
+            if message.get("id") != request_id:
+                self.pending.append(message)
+                continue
+            if "error" in message:
+                _fail("protocol_request_failed", method)
+            return message.get("result")
+
+    def notify(self, method: str) -> None:
+        self._write({"method": method})
+
+    def next_notification(self) -> object:
+        if self.pending:
+            return self.pending.pop(0)
+        return self._read()
+
+    def __enter__(self) -> _CodexAppServerSession:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        if self.process.stdin is not None:
+            self.process.stdin.close()
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=3)
+
+
+def _mapping(value: object, code: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        _fail(code, "app-server response shape is invalid")
+    return value
+
+
+def _agent_message(item: object) -> tuple[str, str] | None:
+    if not isinstance(item, Mapping) or item.get("type") != "agentMessage":
+        return None
+    item_id = item.get("id")
+    text = item.get("text")
+    if not isinstance(item_id, str) or not isinstance(text, str):
+        _fail("protocol_message_invalid", "agentMessage requires string id and text")
+    return item_id, text
+
+
+def run_codex_app_server_probe(
+    executable: str,
+    probe: Mapping[str, object],
+    *,
+    session_factory: Callable[[str], object] = _CodexAppServerSession,
+) -> dict[str, object]:
+    """Run one Codex probe through a correlated app-server lifecycle."""
+    validate_probe_contract(probe, expected_host="codex")
+    try:
+        with session_factory(executable) as session:
+            session.request(
+                "initialize",
+                {"clientInfo": {"name": "research-tree", "title": "Research Tree", "version": "1"}},
+            )
+            session.notify("initialized")
+            request = _mapping(probe["request"], "codex_turn_start_missing")
+            template = _mapping(request["params"], "codex_turn_start_missing")
+            skill_path = next(item["path"] for item in template["input"] if item["type"] == "skill")
+            thread_result = _mapping(
+                session.request(
+                    "thread/start",
+                    {
+                        "cwd": str(Path(skill_path).parent),
+                        "approvalPolicy": "never",
+                        "sandbox": "read-only",
+                        "ephemeral": True,
+                    },
+                ),
+                "codex_thread_start_invalid",
+            )
+            thread = _mapping(thread_result.get("thread"), "codex_thread_start_invalid")
+            thread_id = thread.get("id")
+            if not isinstance(thread_id, str) or not thread_id:
+                _fail("codex_thread_start_invalid", "thread/start did not return an id")
+            turn_params = {**template, "threadId": thread_id}
+            turn_result = _mapping(
+                session.request("turn/start", turn_params),
+                "codex_turn_start_invalid",
+            )
+            turn = _mapping(turn_result.get("turn"), "codex_turn_start_invalid")
+            turn_id = turn.get("id")
+            if not isinstance(turn_id, str) or turn.get("status") != "inProgress":
+                _fail("codex_turn_start_invalid", "turn/start did not return an in-progress turn")
+            messages: dict[str, str] = {}
+            while True:
+                event = _mapping(session.next_notification(), "protocol_message_invalid")
+                params = event.get("params")
+                if not isinstance(params, Mapping):
+                    continue
+                if event.get("method") == "item/completed":
+                    if params.get("threadId") == thread_id and params.get("turnId") == turn_id:
+                        agent = _agent_message(params.get("item"))
+                        if agent is not None:
+                            messages[agent[0]] = agent[1]
+                    continue
+                if event.get("method") != "turn/completed":
+                    continue
+                completed = _mapping(params.get("turn"), "codex_turn_completed_invalid")
+                if completed.get("id") != turn_id:
+                    continue
+                if params.get("threadId", thread_id) != thread_id or params.get("turnId", turn_id) != turn_id:
+                    continue
+                if completed.get("status") != "completed":
+                    return {"host": "codex", "status": "failed", "diagnostic": "native_probe_failed"}
+                for item in completed.get("items", []):
+                    agent = _agent_message(item)
+                    if agent is not None:
+                        messages[agent[0]] = agent[1]
+                expected = probe["expected_sentinel"]
+                if list(messages.values()) != [expected]:
+                    return {"host": "codex", "status": "failed", "diagnostic": "sentinel_mismatch"}
+                return {
+                    "host": "codex",
+                    "status": "live_verified",
+                    "package_digest": probe["package_digest"],
+                    "skill_body_digest": probe["skill_body_digest"],
+                    "workspace_correlation": probe["correlation_id"],
+                }
+    except (ActivationError, OSError, StopIteration, subprocess.SubprocessError) as exc:
+        diagnostic = str(exc).split(":", 1)[0] if isinstance(exc, ActivationError) else type(exc).__name__
+        return {"host": "codex", "status": "failed", "diagnostic": diagnostic}
+
+
 def run_native_probes(
     probes: Mapping[str, Mapping[str, object]],
     *,
     executable_finder: Callable[[str], str | None] = shutil.which,
     runner: Callable[..., object] = subprocess.run,
+    codex_runner: Callable[[str, Mapping[str, object]], dict[str, object]] = run_codex_app_server_probe,
 ) -> dict[str, dict[str, object]]:
     """Run explicitly supplied probes independently and return only bounded results."""
     results: dict[str, dict[str, object]] = {}
@@ -306,16 +488,16 @@ def run_native_probes(
                 "missing_capability": f"executable:{executable_name}",
             }
             continue
+        if host == "codex":
+            results[host] = codex_runner(executable, probe)
+            continue
         kwargs: dict[str, object] = {
             "capture_output": True,
             "text": True,
             "check": False,
             "timeout": 120,
         }
-        if host == "codex":
-            command = [executable, "app-server"]
-            kwargs["input"] = json.dumps(probe["request"], sort_keys=True) + "\n"
-        elif host == "claude":
+        if host == "claude":
             command = [executable, "-p", str(probe["invocation"])]
         else:
             command = [executable, "-z", str(probe["invocation"])]

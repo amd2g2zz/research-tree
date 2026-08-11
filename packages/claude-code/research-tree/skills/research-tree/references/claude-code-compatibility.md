@@ -67,11 +67,7 @@ The Skill owns research alignment and report production; Claude Code owns
 model calls, repository inspection, web access, shell execution, permissions,
 and any delegation that is actually available.
 
-For live activation verification, use the matching path with the exact
-`activation-probe v1 <correlation-id>` request. A package validator, ordinary file
-read, path, Markdown link, or bare name is not a slash-Skill invocation and remains
-`activation_unverified`. See `references/skill-activation.md` for the sentinel and
-safe receipt boundary.
+Live verification requires the slash probe in `references/skill-activation.md`; file/package evidence remains `activation_unverified`.
 
 Read `references/claude-native-orchestration.md` before delegation, compaction,
 or recovery. It defines when to use parallel leaf agents, background execution,
