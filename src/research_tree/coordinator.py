@@ -8,19 +8,38 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .domain import ArtifactRef, ArtifactRevision, RuntimeStoreError, canonical_json_bytes, thaw_json, validate_identifier
+from .domain import (
+    ArtifactRef,
+    ArtifactRevision,
+    RuntimeStoreError,
+    canonical_json_bytes,
+    thaw_json,
+    validate_identifier,
+)
+from .host_events import HostEvent, HostEventError, HostEventSequenceError
 from .run_ledger import LedgerConflictError, RunLedger
 
 
 LIFECYCLE_STATES = (
-    "alignment", "handoff_pending", "autonomous_research", "synthesis", "readiness",
-    "delivery_pending", "awaiting_acceptance", "completed", "paused", "blocked",
-    "superseded", "authority_blocked", "failed",
+    "alignment",
+    "handoff_pending",
+    "autonomous_research",
+    "synthesis",
+    "readiness",
+    "delivery_pending",
+    "awaiting_acceptance",
+    "completed",
+    "paused",
+    "blocked",
+    "superseded",
+    "authority_blocked",
+    "failed",
 )
 RESEARCH_RUN_STATE_KIND = "research-run-state"
 LIFECYCLE_EVENT_KIND = "lifecycle-event"
 REJECTED_TRANSITION_KIND = "lifecycle-rejection"
 HOST_EVENT_KIND = "host-event"
+HOST_EVENT_PROJECTION_KIND = "host-event-projection"
 LEASE_KIND = "attempt-lease"
 COMPLETION_RECORD_KIND = "completion-record"
 
@@ -113,8 +132,7 @@ def _load_lifecycle_transitions() -> dict[tuple[str, str], tuple[str, str]]:
         payload = json.loads(matrix.read_text(encoding="utf-8"))
         transitions = payload["transitions"]
         loaded = {
-            (str(item["from"]), str(item["event"])): (str(item["to"]), str(item["actor"]))
-            for item in transitions
+            (str(item["from"]), str(item["event"])): (str(item["to"]), str(item["actor"])) for item in transitions
         }
         if loaded:
             return loaded
@@ -183,7 +201,15 @@ class ResearchRunCoordinator:
         validate_identifier(run_id, "run_id")
         return self._latest_state(run_id)
 
-    def initialize(self, *, run_id: str, alignment_handoff: ArtifactRevision, blueprint_target: ArtifactRevision, expected_revision: int, idempotency_key: str | None = None) -> ArtifactRevision:
+    def initialize(
+        self,
+        *,
+        run_id: str,
+        alignment_handoff: ArtifactRevision,
+        blueprint_target: ArtifactRevision,
+        expected_revision: int,
+        idempotency_key: str | None = None,
+    ) -> ArtifactRevision:
         validate_identifier(run_id, "run_id")
         try:
             existing = self._latest_state(run_id)
@@ -206,14 +232,26 @@ class ResearchRunCoordinator:
         )
         try:
             return self.ledger.append_artifact(
-                run_id, "run-state", RESEARCH_RUN_STATE_KIND, payload,
-                parent_refs=(handoff_ref, target_ref), expected_revision=expected_revision,
+                run_id,
+                "run-state",
+                RESEARCH_RUN_STATE_KIND,
+                payload,
+                parent_refs=(handoff_ref, target_ref),
+                expected_revision=expected_revision,
             )
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
 
     @staticmethod
-    def _state_payload(*, state: str, lifecycle_revision: int, obligations: Sequence[str], legal_actions: Sequence[str], idempotency_key: str | None = None, reason: str | None = None) -> dict[str, Any]:
+    def _state_payload(
+        *,
+        state: str,
+        lifecycle_revision: int,
+        obligations: Sequence[str],
+        legal_actions: Sequence[str],
+        idempotency_key: str | None = None,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "state": state,
             "lifecycle_revision": lifecycle_revision,
@@ -234,21 +272,49 @@ class ResearchRunCoordinator:
 
     def _find_event_key(self, run_id: str, key: str) -> ArtifactRevision | None:
         for item in self.ledger.load_run(run_id).artifacts:
-            if item.kind in {LIFECYCLE_EVENT_KIND, HOST_EVENT_KIND, REJECTED_TRANSITION_KIND} and item.payload.get("idempotency_key") == key:
+            if (
+                item.kind in {LIFECYCLE_EVENT_KIND, HOST_EVENT_KIND, REJECTED_TRANSITION_KIND}
+                and item.payload.get("idempotency_key") == key
+            ):
                 return item
         return None
 
-    def _append_transition(self, *, run_id: str, current: ArtifactRevision, event: str, actor: str, target_state: str, expected_revision: int, idempotency_key: str | None, payload: Mapping[str, Any]) -> ArtifactRevision:
+    def _append_transition(
+        self,
+        *,
+        run_id: str,
+        current: ArtifactRevision,
+        event: str,
+        actor: str,
+        target_state: str,
+        expected_revision: int,
+        idempotency_key: str | None,
+        payload: Mapping[str, Any],
+    ) -> ArtifactRevision:
         key = idempotency_key or f"{event}:{current.revision}:{_digest(payload)[:16]}"
         prior = self._find_event_key(run_id, key)
         if prior is not None:
-            if not _same_payload(prior, {**dict(payload), "event": event, "from": current.payload["state"], "to": target_state, "actor": actor, "idempotency_key": key}):
+            if not _same_payload(
+                prior,
+                {
+                    **dict(payload),
+                    "event": event,
+                    "from": current.payload["state"],
+                    "to": target_state,
+                    "actor": actor,
+                    "idempotency_key": key,
+                },
+            ):
                 raise CoordinatorEventConflictError("event_id_conflict")
             return self._latest_state(run_id)
         event_id = "event-" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
         event_payload = {
-            "event_id": event_id, "idempotency_key": key, "event": event,
-            "from": current.payload["state"], "to": target_state, "actor": actor,
+            "event_id": event_id,
+            "idempotency_key": key,
+            "event": event,
+            "from": current.payload["state"],
+            "to": target_state,
+            "actor": actor,
             "payload": dict(payload),
         }
         event_ref = ArtifactRef(run_id, event_id, 1)
@@ -261,13 +327,25 @@ class ResearchRunCoordinator:
         )
         state_payload["transition_payload"] = dict(payload)
         state_payload["previous_state_ref"] = ArtifactRef(run_id, current.id, current.revision).to_dict()
-        state_payload["state_digest"] = _digest({key: value for key, value in state_payload.items() if key != "state_digest"})
+        state_payload["state_digest"] = _digest(
+            {key: value for key, value in state_payload.items() if key != "state_digest"}
+        )
         try:
             created = self.ledger.append_artifact_batch(
                 run_id,
                 (
-                    (event_id, LIFECYCLE_EVENT_KIND, event_payload, (ArtifactRef(run_id, current.id, current.revision),)),
-                    ("run-state", RESEARCH_RUN_STATE_KIND, state_payload, (ArtifactRef(run_id, current.id, current.revision), event_ref)),
+                    (
+                        event_id,
+                        LIFECYCLE_EVENT_KIND,
+                        event_payload,
+                        (ArtifactRef(run_id, current.id, current.revision),),
+                    ),
+                    (
+                        "run-state",
+                        RESEARCH_RUN_STATE_KIND,
+                        state_payload,
+                        (ArtifactRef(run_id, current.id, current.revision), event_ref),
+                    ),
                 ),
                 expected_revision=expected_revision,
             )
@@ -358,8 +436,13 @@ class ResearchRunCoordinator:
             payload={"successor_ref": ArtifactRef(run_id, link.id, link.revision).to_dict()},
         )
 
-    def _record_rejection(self, *, run_id: str, current: ArtifactRevision, event: str, actor: str, reason: str, expected_revision: int) -> None:
-        key = "rejection:" + _digest({"state": current.payload["state"], "event": event, "actor": actor, "reason": reason})[:24]
+    def _record_rejection(
+        self, *, run_id: str, current: ArtifactRevision, event: str, actor: str, reason: str, expected_revision: int
+    ) -> None:
+        key = (
+            "rejection:"
+            + _digest({"state": current.payload["state"], "event": event, "actor": actor, "reason": reason})[:24]
+        )
         if self._find_event_key(run_id, key) is not None:
             return
         payload = {
@@ -387,7 +470,11 @@ class ResearchRunCoordinator:
         if event == "handoff_confirmed":
             initial = min(self._states(run_id), key=lambda item: item.revision)
             handoff = next(
-                (self.ledger.get_artifact(ref) for ref in initial.parent_refs if self.ledger.get_artifact(ref).kind == "alignment-handoff"),
+                (
+                    self.ledger.get_artifact(ref)
+                    for ref in initial.parent_refs
+                    if self.ledger.get_artifact(ref).kind == "alignment-handoff"
+                ),
                 None,
             )
             return bool(handoff and handoff.payload.get("confirmed") is True)
@@ -404,7 +491,16 @@ class ResearchRunCoordinator:
             return inputs.get("technical_delivery_ref") is not None and inputs.get("human_delivery_ref") is not None
         return True
 
-    def transition(self, run_id: str, event: str, actor: str, *, expected_revision: int, idempotency_key: str | None = None, payload: Mapping[str, Any] | None = None) -> ArtifactRevision:
+    def transition(
+        self,
+        run_id: str,
+        event: str,
+        actor: str,
+        *,
+        expected_revision: int,
+        idempotency_key: str | None = None,
+        payload: Mapping[str, Any] | None = None,
+    ) -> ArtifactRevision:
         current = self._latest_state(run_id)
         if idempotency_key is not None:
             prior = self._find_event_key(run_id, idempotency_key)
@@ -420,7 +516,14 @@ class ResearchRunCoordinator:
                 return self._latest_state(run_id)
         edge = _TRANSITIONS.get((str(current.payload["state"]), event))
         if edge is None:
-            self._record_rejection(run_id=run_id, current=current, event=event, actor=actor, reason="illegal_transition", expected_revision=expected_revision)
+            self._record_rejection(
+                run_id=run_id,
+                current=current,
+                event=event,
+                actor=actor,
+                reason="illegal_transition",
+                expected_revision=expected_revision,
+            )
             raise IllegalTransitionError("illegal_transition")
         target_state, required_actor = edge
         if required_actor == "human_or_operator":
@@ -428,10 +531,24 @@ class ResearchRunCoordinator:
         else:
             allowed = actor == required_actor
         if not allowed:
-            self._record_rejection(run_id=run_id, current=current, event=event, actor=actor, reason="actor_not_allowed", expected_revision=expected_revision)
+            self._record_rejection(
+                run_id=run_id,
+                current=current,
+                event=event,
+                actor=actor,
+                reason="actor_not_allowed",
+                expected_revision=expected_revision,
+            )
             raise IllegalTransitionError("actor_not_allowed")
         if not self._guard_passes(run_id, event):
-            self._record_rejection(run_id=run_id, current=current, event=event, actor=actor, reason="guard_failed", expected_revision=expected_revision)
+            self._record_rejection(
+                run_id=run_id,
+                current=current,
+                event=event,
+                actor=actor,
+                reason="guard_failed",
+                expected_revision=expected_revision,
+            )
             raise IllegalTransitionError("guard_failed")
         if event == "delivery_accepted":
             return self.complete(
@@ -441,12 +558,19 @@ class ResearchRunCoordinator:
                 requirements=payload,
             )
         return self._append_transition(
-            run_id=run_id, current=current, event=event, actor=actor,
-            target_state=target_state, expected_revision=expected_revision,
-            idempotency_key=idempotency_key, payload=payload or {},
+            run_id=run_id,
+            current=current,
+            event=event,
+            actor=actor,
+            target_state=target_state,
+            expected_revision=expected_revision,
+            idempotency_key=idempotency_key,
+            payload=payload or {},
         )
 
-    def ingest_event(self, *, run_id: str, event_id: str, attempt_id: str, payload: Mapping[str, Any], expected_revision: int) -> ArtifactRevision:
+    def ingest_event(
+        self, *, run_id: str, event_id: str, attempt_id: str, payload: Mapping[str, Any], expected_revision: int
+    ) -> ArtifactRevision:
         validate_identifier(event_id, "event_id")
         event_digest = _digest(payload)
         for item in self.ledger.load_run(run_id).artifacts:
@@ -456,20 +580,122 @@ class ResearchRunCoordinator:
                 return item
         current = self._latest_state(run_id)
         event_payload = {
-            "event_id": event_id, "attempt_id": _text(attempt_id, "attempt_id"),
-            "payload_digest": event_digest, "payload": dict(payload),
+            "event_id": event_id,
+            "attempt_id": _text(attempt_id, "attempt_id"),
+            "payload_digest": event_digest,
+            "payload": dict(payload),
         }
         try:
             return self.ledger.append_artifact(
-                run_id, event_id, HOST_EVENT_KIND, event_payload,
+                run_id,
+                event_id,
+                HOST_EVENT_KIND,
+                event_payload,
                 parent_refs=(ArtifactRef(run_id, current.id, current.revision),),
                 expected_revision=expected_revision,
             )
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
 
-    def dispatch(self, *, run_id: str, work_item: Mapping[str, Any], worker_id: str, expected_revision: int, attempt_id: str | None = None) -> ArtifactRevision:
-        if not isinstance(work_item, Mapping) or not work_item.get("success_oracle") and not work_item.get("completion_evidence"):
+    def ingest_host_event(self, event: HostEvent | Mapping[str, Any]) -> ArtifactRevision:
+        """Validate and atomically persist one non-authoritative host event."""
+
+        try:
+            envelope = HostEvent.from_value(event)
+        except HostEventError as error:
+            raise CoordinatorConflictError(str(error)) from error
+        run_id = envelope.run_id
+        existing = next(
+            (
+                item
+                for item in self.ledger.load_run(run_id).artifacts
+                if item.kind == HOST_EVENT_KIND and item.id == envelope.event_id
+            ),
+            None,
+        )
+        if existing is not None:
+            if existing.payload.get("payload_digest") != envelope.payload_digest:
+                raise CoordinatorEventConflictError("event_id_conflict")
+            return existing
+        current_revision = self.ledger.get_revision(run_id)
+        if envelope.expected_revision != current_revision:
+            raise CoordinatorConflictError("stale_revision")
+        current = self._latest_state(run_id)
+        lease_candidates = [
+            item
+            for item in self.ledger.load_run(run_id).artifacts
+            if item.kind == LEASE_KIND
+            and item.id == envelope.attempt_id
+            and self.ledger.is_latest_artifact(self._artifact_ref(item))
+        ]
+        lease = max(lease_candidates, key=lambda item: item.revision, default=None)
+        if lease is None:
+            raise CoordinatorConflictError("unknown_attempt")
+        previous_sequences = [
+            int(item.payload.get("sequence", 0))
+            for item in self.ledger.load_run(run_id).artifacts
+            if item.kind == HOST_EVENT_KIND and item.payload.get("attempt_id") == envelope.attempt_id
+        ]
+        expected_sequence = max(previous_sequences, default=0) + 1
+        if envelope.sequence != expected_sequence:
+            raise HostEventSequenceError(f"host event sequence must be {expected_sequence}; got {envelope.sequence}")
+        event_payload = {
+            **envelope.to_dict(),
+            "semantic_digest": envelope.semantic_digest,
+            "authoritative": False,
+        }
+        event_ref = ArtifactRef(run_id, envelope.event_id, 1)
+        projection_id = f"host-projection-{envelope.event_id}"
+        projection_payload = {
+            "event_ref": event_ref.to_dict(),
+            "attempt_id": envelope.attempt_id,
+            "sequence": envelope.sequence,
+            "kind": envelope.kind,
+            "status": "observed",
+            "authoritative": False,
+            "semantic_digest": envelope.semantic_digest,
+        }
+        try:
+            created = self.ledger.append_artifact_batch(
+                run_id,
+                (
+                    (
+                        envelope.event_id,
+                        HOST_EVENT_KIND,
+                        event_payload,
+                        (ArtifactRef(run_id, current.id, current.revision),),
+                    ),
+                    (
+                        projection_id,
+                        HOST_EVENT_PROJECTION_KIND,
+                        projection_payload,
+                        (
+                            ArtifactRef(run_id, current.id, current.revision),
+                            event_ref,
+                            ArtifactRef(run_id, lease.id, lease.revision),
+                        ),
+                    ),
+                ),
+                expected_revision=current_revision,
+            )
+        except LedgerConflictError as error:
+            raise CoordinatorConflictError("stale_revision") from error
+        return created[0]
+
+    def dispatch(
+        self,
+        *,
+        run_id: str,
+        work_item: Mapping[str, Any],
+        worker_id: str,
+        expected_revision: int,
+        attempt_id: str | None = None,
+    ) -> ArtifactRevision:
+        if (
+            not isinstance(work_item, Mapping)
+            or not work_item.get("success_oracle")
+            and not work_item.get("completion_evidence")
+        ):
             raise CoordinatorConflictError("unverifiable_work_item")
         current = self._latest_state(run_id)
         selected_attempt = attempt_id or "attempt-" + hashlib.sha256(canonical_json_bytes(work_item)).hexdigest()[:24]
@@ -488,7 +714,10 @@ class ResearchRunCoordinator:
         }
         try:
             return self.ledger.append_artifact(
-                run_id, selected_attempt, LEASE_KIND, payload,
+                run_id,
+                selected_attempt,
+                LEASE_KIND,
+                payload,
                 parent_refs=(ArtifactRef(run_id, current.id, current.revision),),
                 expected_revision=expected_revision,
             )
@@ -503,7 +732,8 @@ class ResearchRunCoordinator:
         """Return the current revision for a singleton coordinator input kind."""
 
         candidates = [
-            item for item in self.ledger.load_run(run_id).artifacts
+            item
+            for item in self.ledger.load_run(run_id).artifacts
             if item.kind == kind and self.ledger.is_latest_artifact(self._artifact_ref(item))
         ]
         return max(candidates, key=lambda item: (item.revision, item.id)) if candidates else None
@@ -539,13 +769,18 @@ class ResearchRunCoordinator:
 
         missing: list[str] = []
         target = self._target(run_id)
-        p0_slots = {
-            str(slot.get("id"))
-            for slot in target.payload.get("decision_slots", ())
-            if isinstance(slot, Mapping) and slot.get("priority") == "P0" and slot.get("id")
-        } if target is not None else set()
+        p0_slots = (
+            {
+                str(slot.get("id"))
+                for slot in target.payload.get("decision_slots", ())
+                if isinstance(slot, Mapping) and slot.get("priority") == "P0" and slot.get("id")
+            }
+            if target is not None
+            else set()
+        )
         assessments = [
-            item for item in self.ledger.load_run(run_id).artifacts
+            item
+            for item in self.ledger.load_run(run_id).artifacts
             if item.kind == "slot-closure-assessment"
             and self.ledger.is_latest_artifact(self._artifact_ref(item))
             and item.payload.get("status") == "passed"
@@ -577,7 +812,9 @@ class ResearchRunCoordinator:
             missing.append("acceptance_ref")
         return tuple(dict.fromkeys(missing))
 
-    def _acceptance_matches(self, acceptance: ArtifactRevision | None, technical: ArtifactRevision | None, human: ArtifactRevision | None) -> bool:
+    def _acceptance_matches(
+        self, acceptance: ArtifactRevision | None, technical: ArtifactRevision | None, human: ArtifactRevision | None
+    ) -> bool:
         if acceptance is None or technical is None or human is None:
             return False
         if acceptance.payload.get("decision", acceptance.payload.get("status")) not in {"accepted", "passed"}:
@@ -601,7 +838,9 @@ class ResearchRunCoordinator:
             "state_digest": current.payload["state_digest"],
         }
 
-    def complete(self, run_id: str, *, actor: str, expected_revision: int, requirements: Mapping[str, Any] | None = None) -> ArtifactRevision:
+    def complete(
+        self, run_id: str, *, actor: str, expected_revision: int, requirements: Mapping[str, Any] | None = None
+    ) -> ArtifactRevision:
         current = self._latest_state(run_id)
         if current.payload["state"] in {"completed", "superseded"}:
             return current
@@ -613,12 +852,22 @@ class ResearchRunCoordinator:
         if missing:
             raise CompletionBlockedError(missing)
         inputs = self._completion_inputs(run_id)
-        event_key = "completion:" + _digest({key: self._artifact_ref(item).to_dict() for key, item in sorted(inputs.items())})[:24]
+        event_key = (
+            "completion:"
+            + _digest({key: self._artifact_ref(item).to_dict() for key, item in sorted(inputs.items())})[:24]
+        )
         existing = self._find_event_key(run_id, event_key)
         if existing is not None:
             return self._latest_state(run_id)
         event_id = "event-" + hashlib.sha256(event_key.encode()).hexdigest()[:24]
-        event_payload = {"event_id": event_id, "idempotency_key": event_key, "event": "delivery_accepted", "actor": actor, "from": current.payload["state"], "to": "completed"}
+        event_payload = {
+            "event_id": event_id,
+            "idempotency_key": event_key,
+            "event": "delivery_accepted",
+            "actor": actor,
+            "from": current.payload["state"],
+            "to": "completed",
+        }
         event_ref = ArtifactRef(run_id, event_id, 1)
         completion_payload = {
             "status": "completed",
@@ -627,19 +876,43 @@ class ResearchRunCoordinator:
         }
         completion_ref = ArtifactRef(run_id, "completion-record", 1)
         state_payload = self._state_payload(
-            state="completed", lifecycle_revision=int(current.payload.get("lifecycle_revision", 0)) + 1,
-            obligations=(), legal_actions=("export_audit",), idempotency_key=event_key,
+            state="completed",
+            lifecycle_revision=int(current.payload.get("lifecycle_revision", 0)) + 1,
+            obligations=(),
+            legal_actions=("export_audit",),
+            idempotency_key=event_key,
         )
         state_payload["completion_requirements"] = completion_payload["requirements"]
         state_payload["previous_state_ref"] = ArtifactRef(run_id, current.id, current.revision).to_dict()
-        state_payload["state_digest"] = _digest({key: value for key, value in state_payload.items() if key != "state_digest"})
+        state_payload["state_digest"] = _digest(
+            {key: value for key, value in state_payload.items() if key != "state_digest"}
+        )
         try:
             created = self.ledger.append_artifact_batch(
                 run_id,
                 (
-                    (event_id, LIFECYCLE_EVENT_KIND, event_payload, (ArtifactRef(run_id, current.id, current.revision),)),
-                    ("completion-record", COMPLETION_RECORD_KIND, completion_payload, (ArtifactRef(run_id, current.id, current.revision), event_ref, *(self._artifact_ref(item) for item in inputs.values()))),
-                    ("run-state", RESEARCH_RUN_STATE_KIND, state_payload, (ArtifactRef(run_id, current.id, current.revision), event_ref, completion_ref)),
+                    (
+                        event_id,
+                        LIFECYCLE_EVENT_KIND,
+                        event_payload,
+                        (ArtifactRef(run_id, current.id, current.revision),),
+                    ),
+                    (
+                        "completion-record",
+                        COMPLETION_RECORD_KIND,
+                        completion_payload,
+                        (
+                            ArtifactRef(run_id, current.id, current.revision),
+                            event_ref,
+                            *(self._artifact_ref(item) for item in inputs.values()),
+                        ),
+                    ),
+                    (
+                        "run-state",
+                        RESEARCH_RUN_STATE_KIND,
+                        state_payload,
+                        (ArtifactRef(run_id, current.id, current.revision), event_ref, completion_ref),
+                    ),
                 ),
                 expected_revision=expected_revision,
             )
@@ -652,20 +925,34 @@ class ResearchRunCoordinator:
         for item in self.ledger.load_run(run_id).artifacts:
             if item.kind != LEASE_KIND or item.payload.get("status") != "active":
                 continue
-            latest = max((candidate for candidate in self.ledger.load_run(run_id).artifacts if candidate.id == item.id and candidate.kind == LEASE_KIND), key=lambda candidate: candidate.revision)
+            latest = max(
+                (
+                    candidate
+                    for candidate in self.ledger.load_run(run_id).artifacts
+                    if candidate.id == item.id and candidate.kind == LEASE_KIND
+                ),
+                key=lambda candidate: candidate.revision,
+            )
             if latest != item:
                 continue
             payload = {**dict(item.payload), "status": "unknown", "recovery_reason": "process_restart"}
             try:
                 self.ledger.append_artifact(
-                    run_id, item.id, LEASE_KIND, payload,
+                    run_id,
+                    item.id,
+                    LEASE_KIND,
+                    payload,
                     parent_refs=(ArtifactRef(run_id, item.id, item.revision),),
                     expected_revision=self.ledger.get_revision(run_id),
                 )
             except LedgerConflictError as error:
                 raise CoordinatorConflictError("stale_revision") from error
             reconciled.append(str(item.payload["attempt_id"]))
-        return {"run_id": run_id, "reconciled_attempts": sorted(reconciled), "state_digest": self._latest_state(run_id).payload["state_digest"]}
+        return {
+            "run_id": run_id,
+            "reconciled_attempts": sorted(reconciled),
+            "state_digest": self._latest_state(run_id).payload["state_digest"],
+        }
 
 
 def _text(value: Any, label: str) -> str:
@@ -675,7 +962,17 @@ def _text(value: Any, label: str) -> str:
 
 
 __all__ = [
-    "COMPLETION_RECORD_KIND", "CoordinatorConflictError", "CoordinatorError", "CoordinatorEventConflictError",
-    "CoordinatorResult", "CompletionBlockedError", "HOST_EVENT_KIND", "IllegalTransitionError", "LEASE_KIND",
-    "LIFECYCLE_EVENT_KIND", "LIFECYCLE_STATES", "RESEARCH_RUN_STATE_KIND", "ResearchRunCoordinator",
+    "COMPLETION_RECORD_KIND",
+    "CoordinatorConflictError",
+    "CoordinatorError",
+    "CoordinatorEventConflictError",
+    "CoordinatorResult",
+    "CompletionBlockedError",
+    "HOST_EVENT_KIND",
+    "IllegalTransitionError",
+    "LEASE_KIND",
+    "LIFECYCLE_EVENT_KIND",
+    "LIFECYCLE_STATES",
+    "RESEARCH_RUN_STATE_KIND",
+    "ResearchRunCoordinator",
 ]

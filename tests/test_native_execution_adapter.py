@@ -324,7 +324,11 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
         str(human),
     )
     assert completed.returncode == 0, completed.stderr
-    assert json.loads(completed.stdout)["complete"] is True
+    completed_summary = json.loads(completed.stdout)
+    assert completed_summary["complete"] is False
+    assert completed_summary["observed_complete"] is True
+    assert completed_summary["status"] == "delivery_pending"
+    assert completed_summary["completion_authority"] == "coordinator_only"
 
     artifact.write_text(artifact.read_text(encoding="utf-8") + "\n", encoding="utf-8")
     cascaded = json.loads(

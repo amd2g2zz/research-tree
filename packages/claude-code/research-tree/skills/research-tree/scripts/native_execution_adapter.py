@@ -15,6 +15,8 @@ import tempfile
 from typing import Any
 from uuid import uuid4
 
+from host_event_protocol import build_host_event
+
 
 SCHEMA = 1
 HOSTS = ("codex", "claude")
@@ -128,9 +130,7 @@ def _load_handoff(workspace: Path, path: Path) -> tuple[dict[str, Any], Path]:
     return handoff, resolved
 
 
-def init_run(
-    workspace: Path, run_id: str, host: str, handoff_path: Path
-) -> dict[str, Any]:
+def init_run(workspace: Path, run_id: str, host: str, handoff_path: Path) -> dict[str, Any]:
     workspace = workspace.resolve()
     path = _state_path(workspace, run_id)
     if path.exists():
@@ -249,9 +249,7 @@ def start_task(
     task["status"] = "running"
     task["attempt"] += 1
     task["attempt_id"] = f"attempt-{uuid4().hex}"
-    task["worker_id"] = (
-        _identifier(worker_id, "worker id") if worker_id is not None else None
-    )
+    task["worker_id"] = _identifier(worker_id, "worker id") if worker_id is not None else None
     task["verified"] = False
     task["failure_reason"] = None
     task["started_at"] = _now()
@@ -285,9 +283,7 @@ def validate_finding(path: Path) -> dict[str, Any]:
         _identifier(pack[key], f"Finding Pack {key}")
     if pack["phase"] not in PHASES:
         raise AdapterError("Finding Pack phase is invalid")
-    observations = _require_list(
-        pack.get("observations"), "observations", nonempty=True
-    )
+    observations = _require_list(pack.get("observations"), "observations", nonempty=True)
     for index, observation in enumerate(observations):
         if not isinstance(observation, dict):
             raise AdapterError(f"Finding Pack observation {index} must be an object")
@@ -301,16 +297,10 @@ def validate_finding(path: Path) -> dict[str, Any]:
         ):
             raise AdapterError(f"Finding Pack observation {index} anchor is invalid")
         _require_string(anchor.get("ref"), f"observation {index} anchor ref")
-        _require_string(
-            observation.get("applicability"), f"observation {index} applicability"
-        )
+        _require_string(observation.get("applicability"), f"observation {index} applicability")
         if observation.get("confidence") not in ("low", "medium", "high"):
-            raise AdapterError(
-                f"Finding Pack observation {index} confidence is invalid"
-            )
-        _require_string(
-            observation.get("limitation"), f"observation {index} limitation"
-        )
+            raise AdapterError(f"Finding Pack observation {index} confidence is invalid")
+        _require_string(observation.get("limitation"), f"observation {index} limitation")
     effects = _require_list(pack.get("option_effects"), "option_effects", nonempty=True)
     for index, effect in enumerate(effects):
         if not isinstance(effect, dict):
@@ -333,14 +323,10 @@ def validate_finding(path: Path) -> dict[str, Any]:
         ):
             raise AdapterError(f"Finding Pack continuation {index} kind is invalid")
         for key in ("question", "trigger", "evidence_needed", "oracle"):
-            _require_string(
-                continuation.get(key), f"continuation {index} {key}"
-            )
+            _require_string(continuation.get(key), f"continuation {index} {key}")
         cost = continuation.get("estimated_cost")
         if isinstance(cost, bool) or not isinstance(cost, (int, float)) or cost <= 0:
-            raise AdapterError(
-                f"Finding Pack continuation {index} estimated_cost must be positive"
-            )
+            raise AdapterError(f"Finding Pack continuation {index} estimated_cost must be positive")
     validation_result = pack.get("validation_result")
     if validation_result is not None:
         if not isinstance(validation_result, dict):
@@ -348,9 +334,7 @@ def validate_finding(path: Path) -> dict[str, Any]:
         if validation_result.get("status") not in ("passed", "failed", "inconclusive"):
             raise AdapterError("Finding Pack validation_result status is invalid")
         _require_string(validation_result.get("oracle"), "validation_result oracle")
-        _require_string(
-            validation_result.get("evidence_ref"), "validation_result evidence_ref"
-        )
+        _require_string(validation_result.get("evidence_ref"), "validation_result evidence_ref")
     return pack
 
 
@@ -417,12 +401,8 @@ def verify_task(
     digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
     if digest != task["artifact_sha256"]:
         raise AdapterError("Finding Pack changed after submission")
-    expected_anchors = {
-        observation["anchor"]["ref"] for observation in pack["observations"]
-    }
-    supplied_anchors = {
-        _require_string(anchor, "checked anchor") for anchor in checked_anchors
-    }
+    expected_anchors = {observation["anchor"]["ref"] for observation in pack["observations"]}
+    supplied_anchors = {_require_string(anchor, "checked anchor") for anchor in checked_anchors}
     missing = sorted(expected_anchors - supplied_anchors)
     if missing:
         raise AdapterError("evidence review is missing anchors: " + ", ".join(missing))
@@ -453,13 +433,9 @@ def recover(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
         for task_id, task in state["tasks"].items():
             if task_id in reasons or task["status"] in ("pending", "failed", "unknown"):
                 continue
-            invalid_dependencies = [
-                dependency for dependency in task["dependencies"] if dependency in reasons
-            ]
+            invalid_dependencies = [dependency for dependency in task["dependencies"] if dependency in reasons]
             if invalid_dependencies:
-                reasons[task_id] = (
-                    "dependency reopened: " + ", ".join(sorted(invalid_dependencies))
-                )
+                reasons[task_id] = "dependency reopened: " + ", ".join(sorted(invalid_dependencies))
                 changed = True
 
     for task_id in reasons:
@@ -491,15 +467,13 @@ def status(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
     counts = {value: 0 for value in TASK_STATUSES}
     for task_id, task in state["tasks"].items():
         counts[task["status"]] += 1
-        if task["status"] in ("pending", "failed", "unknown") and _dependencies_complete(
-            state, task
-        ):
+        if task["status"] in ("pending", "failed", "unknown") and _dependencies_complete(state, task):
             ready.append(task_id)
         integrity_error = _artifact_integrity_error(task)
         if integrity_error is not None:
             integrity_errors.append(f"{task_id}: {integrity_error}")
-    complete = bool(state["tasks"]) and counts["completed"] == len(state["tasks"])
-    complete = complete and not integrity_errors
+    observed_complete = bool(state["tasks"]) and counts["completed"] == len(state["tasks"])
+    observed_complete = observed_complete and not integrity_errors
     return {
         "run_id": run_id,
         "host": host,
@@ -507,39 +481,36 @@ def status(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
         "revision": state["revision"],
         "counts": counts,
         "ready": sorted(ready),
-        "complete": complete,
+        "complete": False,
+        "observed_complete": observed_complete,
+        "completion_authority": "coordinator_only",
         "integrity_errors": integrity_errors,
-        "recovery_required": [
-            error.split(":", 1)[0] for error in integrity_errors
-        ],
+        "recovery_required": [error.split(":", 1)[0] for error in integrity_errors],
     }
 
 
-def _verify_report(
-    workspace: Path,
-    path: Path,
-    kind: str,
-    minimum_bytes: int,
-    minimum_headings: int,
-) -> dict[str, Any]:
+def _observe_report(workspace: Path, path: Path, kind: str) -> dict[str, Any]:
     resolved = _inside(workspace, path, f"{kind} path")
+    if not resolved.is_file():
+        return {"status": "observed", "kind": kind, "path": str(resolved), "exists": False}
     raw = resolved.read_bytes()
-    if raw.startswith(b"\xef\xbb\xbf"):
-        raise AdapterError(f"{kind} must be UTF-8 without BOM")
     try:
         text = raw.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise AdapterError(f"{kind} must be UTF-8") from exc
+    except UnicodeDecodeError:
+        return {
+            "status": "observed",
+            "kind": kind,
+            "path": str(resolved),
+            "exists": True,
+            "bytes": len(raw),
+            "encoding": "invalid_utf8",
+        }
     headings = len(re.findall(r"(?m)^#{1,6}\s+\S", text))
-    if len(raw) < minimum_bytes or headings < minimum_headings:
-        raise AdapterError(
-            f"{kind} is too shallow; requires at least {minimum_bytes} bytes and "
-            f"{minimum_headings} headings"
-        )
     return {
-        "status": "verified",
+        "status": "observed",
         "kind": kind,
         "path": str(resolved),
+        "exists": True,
         "bytes": len(raw),
         "sha256": hashlib.sha256(raw).hexdigest(),
         "heading_count": headings,
@@ -554,20 +525,46 @@ def complete_run(
     human_report: Path,
 ) -> dict[str, Any]:
     summary = status(workspace, run_id, host)
-    if not summary["complete"]:
-        raise AdapterError("run cannot complete while tasks or integrity checks remain")
+    if not summary["observed_complete"]:
+        raise AdapterError("host observations are incomplete; coordinator must assess closure")
     state = _load_state(workspace, run_id, host)
     state["deliverables"] = {
-        "technical_research_package": _verify_report(
-            workspace, technical_report, "technical_research_package", 1024, 3
-        ),
-        "human_research_report": _verify_report(
-            workspace, human_report, "human_research_report", 512, 2
-        ),
+        "technical_research_package": _observe_report(workspace, technical_report, "technical_research_package"),
+        "human_research_report": _observe_report(workspace, human_report, "human_research_report"),
     }
-    state["status"] = "complete"
+    state["status"] = "delivery_pending"
+    state["completion_authority"] = "coordinator_only"
     _save_state(workspace, state)
     return status(workspace, run_id, host)
+
+
+def emit_host_event(
+    workspace: Path,
+    run_id: str,
+    host: str,
+    task_id: str,
+    *,
+    event_id: str,
+    kind: str,
+    sequence: int,
+    actor: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    state = _load_state(workspace, run_id, host)
+    task = state["tasks"].get(task_id)
+    if not isinstance(task, dict) or not task.get("attempt_id"):
+        raise AdapterError("host event requires an active task attempt")
+    return build_host_event(
+        event_id=event_id,
+        kind=kind,
+        run_id=run_id,
+        attempt_id=str(task["attempt_id"]),
+        expected_revision=int(state.get("revision", 0)),
+        sequence=sequence,
+        actor=actor,
+        payload=payload,
+        decision_slot_id=str(task["decision_slot"]),
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -579,7 +576,9 @@ def _parser() -> argparse.ArgumentParser:
     init_parser = subparsers.add_parser("init")
     init_parser.add_argument("--run-id", required=True)
     init_parser.add_argument(
-        "--handoff", type=Path, required=True,
+        "--handoff",
+        type=Path,
+        required=True,
         help="persisted alignment-handoff JSON produced by alignment_controller.py compile",
     )
 
@@ -647,9 +646,7 @@ def main() -> int:
                 args.depends_on,
             )
         elif args.command == "start":
-            result = start_task(
-                workspace, args.run_id, args.host, args.task_id, args.worker_id
-            )
+            result = start_task(workspace, args.run_id, args.host, args.task_id, args.worker_id)
         elif args.command == "finish":
             result = finish_task(
                 workspace,
@@ -674,7 +671,9 @@ def main() -> int:
         elif args.command == "status":
             result = status(workspace, args.run_id, args.host)
         elif args.command == "complete":
-            technical = args.technical_report if args.technical_report.is_absolute() else workspace / args.technical_report
+            technical = (
+                args.technical_report if args.technical_report.is_absolute() else workspace / args.technical_report
+            )
             human = args.human_report if args.human_report.is_absolute() else workspace / args.human_report
             result = complete_run(workspace, args.run_id, args.host, technical, human)
         else:
