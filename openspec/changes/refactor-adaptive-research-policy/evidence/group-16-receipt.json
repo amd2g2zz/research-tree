@@ -1,9 +1,1 @@
-{
-  "command": "uv run pytest -q tests/test_insight_digest.py tests/test_policy_replay.py && uv run ruff check src/research_tree/policy.py src/research_tree/insights.py tests/test_insight_digest.py tests/test_policy_replay.py && uv run ruff format --check src/research_tree/policy.py src/research_tree/insights.py tests/test_insight_digest.py tests/test_policy_replay.py",
-  "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
-  "exit_code": 0,
-  "output_digest": "a1889b4c51537b75361a5598ce845c4e421a42205d18b55b8a2a06e2627d9744",
-  "raw_output_ref": "openspec/changes/refactor-adaptive-research-policy/evidence/group-16-output.txt",
-  "recorded_at": "2026-08-11T12:16:03.694388+00:00",
-  "source_revision": "84ec9f294da7015e5f6232d12833837b2523f226"
-}
+{"command":"uv run pytest -q tests/test_insight_digest.py tests/test_policy_replay.py && uv run ruff check src/research_tree/policy.py src/research_tree/insights.py tests/test_insight_digest.py tests/test_policy_replay.py && uv run ruff format --check src/research_tree/policy.py src/research_tree/insights.py tests/test_insight_digest.py tests/test_policy_replay.py","environment_digest":"52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f","exit_code":0,"output_digest":"a1889b4c51537b75361a5598ce845c4e421a42205d18b55b8a2a06e2627d9744","raw_output_ref":"openspec/changes/refactor-adaptive-research-policy/evidence/group-16-output.txt","recorded_at":"2026-08-11T12:16:03.694388+08:00","source_revision":"84ec9f294da7015e5f6232d12833837b2523f226"}
