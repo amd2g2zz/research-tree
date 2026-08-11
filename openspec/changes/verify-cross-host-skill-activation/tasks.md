@@ -18,8 +18,8 @@
 
 ## 4. Group 32 Evidence
 - [x] 4.1 Run all native paths independently; real missing capabilities are `unavailable`.
-- [ ] 4.2 Record source-bound output/receipt with exact three-command focused gate, revisions/digests, safe correlations, dispositions, and generated paths.
-- [ ] 4.3 Mark only Alpha2 rows 8.8-8.11 and group 32 complete.
+- [x] 4.2 Record source-bound output/receipt with exact three-command focused gate, revisions/digests, safe correlations, dispositions, and generated paths.
+- [x] 4.3 Mark only Alpha2 rows 8.8-8.11 and group 32 complete.
 
 ## 5. Delivery
 - [ ] 5.1 Run focused pytest, Ruff lint over all changed Python, and `uv run ruff format --check src/research_tree/skill_activation.py scripts/check_skill_activation.py tests/test_skill_activation.py`.
