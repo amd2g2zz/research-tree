@@ -140,10 +140,10 @@
         "command": "uv run pytest -q tests/test_hermes_execution_adapter.py tests/test_hermes_host_events.py tests/test_host_event_protocol.py tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py && uv run ruff check scripts/hermes_execution_adapter.py scripts/hermes_event_adapter.py scripts/hermes_runtime_hook.py src/research_tree/coordinator.py tests/test_hermes_execution_adapter.py tests/test_hermes_host_events.py tests/test_host_event_protocol.py tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py && uv run ruff format --check scripts/hermes_execution_adapter.py scripts/hermes_event_adapter.py src/research_tree/coordinator.py tests/test_hermes_execution_adapter.py tests/test_hermes_host_events.py && uv run python scripts/build_skill_packages.py --check",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
-        "output_digest": "3705c7884301c2f01b6f582c058d0cc5ee85e8e90741ca1f6597405707fdb783",
-        "source_revision": "5f80182dfc408ab91ca76a5100e181ee53c148a1",
+        "output_digest": "852194f33d09eed48b3f9d33b681246c26e003a211eac06bcfce4feaeb318604",
+        "source_revision": "95420dac163f367d234e02a67eb84fb44922700a",
         "raw_output_ref": "openspec/changes/integrate-hermes-native-execution/evidence/group-9-output.txt",
-        "recorded_at": "2026-08-11T14:39:30.718605+00:00"
+        "recorded_at": "2026-08-11T14:45:39.945146+00:00"
       },
       "rollback": "disable Hermes translation and retain canonical events read-only"
     },
