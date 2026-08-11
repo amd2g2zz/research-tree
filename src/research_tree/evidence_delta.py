@@ -19,8 +19,6 @@ DELTA_COMPONENTS = (
 
 @dataclass(frozen=True, slots=True)
 class RealizedDelta:
-    """Immutable, closure-relevant evidence change with attributable components."""
-
     evidence_class_coverage: float = 0.0
     provenance_independence: float = 0.0
     contradiction_state: float = 0.0
@@ -59,8 +57,6 @@ class RealizedDelta:
 
 @dataclass(frozen=True, slots=True)
 class EvidenceBaseline:
-    """Deduplicated evidence known before a tree transition."""
-
     finding_ids: tuple[str, ...] = ()
     claim_fingerprints: tuple[str, ...] = ()
     anchor_fingerprints: tuple[str, ...] = ()
@@ -315,8 +311,6 @@ def compute_realized_delta(
     *,
     transition_index: int,
 ) -> tuple[RealizedDelta, EvidenceBaseline]:
-    """Return the typed six-component delta alongside the updated baseline."""
-
     result, next_baseline = measure_realized_delta(
         baseline,
         finding_packs,

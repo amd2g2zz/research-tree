@@ -7,7 +7,7 @@ the run coordinator.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 import hashlib
 import json
 from types import MappingProxyType
@@ -26,8 +26,6 @@ _PRIORITY_WEIGHT = {"P0": 1.0, "P1": 0.75, "P2": 0.5, "P3": 0.25}
 
 @dataclass(frozen=True, slots=True)
 class PolicyConfiguration:
-    """Versioned scoring and capacity settings for one policy evaluation."""
-
     version: str = "policy-v1"
     max_frontier: int = 8
     weights: Mapping[str, float] = field(
@@ -57,18 +55,11 @@ class PolicyConfiguration:
         object.__setattr__(self, "weights", MappingProxyType(normalized))
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "version": self.version,
-            "max_frontier": self.max_frontier,
-            "weights": dict(sorted(self.weights.items())),
-            "gain_ratio_epsilon": self.gain_ratio_epsilon,
-        }
+        return _model_dict(self)
 
 
 @dataclass(frozen=True, slots=True)
 class DecisionSlotDeficit:
-    """Normalized, coordinator-readable description of an open Decision Slot."""
-
     slot_id: str
     question: str
     priority: str = "P1"
@@ -116,24 +107,11 @@ class DecisionSlotDeficit:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "slot_id": self.slot_id,
-            "question": self.question,
-            "priority": self.priority,
-            "missing_dimensions": list(self.missing_dimensions),
-            "closure_oracle": self.closure_oracle,
-            "evidence_refs": list(self.evidence_refs),
-            "required_validation": self.required_validation,
-            "counterevidence_required": self.counterevidence_required,
-            "contradiction_present": self.contradiction_present,
-            "depth": self.depth,
-        }
+        return _model_dict(self)
 
 
 @dataclass(frozen=True, slots=True)
 class VerifiedEvidence:
-    """Evidence that is already verified by a ledger/oracle boundary."""
-
     evidence_id: str
     slot_id: str
     evidence_classes: tuple[str, ...] = ()
@@ -172,24 +150,11 @@ class VerifiedEvidence:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "evidence_id": self.evidence_id,
-            "slot_id": self.slot_id,
-            "evidence_classes": list(self.evidence_classes),
-            "provenance_refs": list(self.provenance_refs),
-            "verified": self.verified,
-            "contradiction": self.contradiction,
-            "oracle_status": self.oracle_status,
-            "uncertainty_refs": list(self.uncertainty_refs),
-            "closure_status": self.closure_status,
-            "method_boundary": self.method_boundary,
-        }
+        return _model_dict(self)
 
 
 @dataclass(frozen=True, slots=True)
 class InsightSignal:
-    """A bounded digest signal supplied to the pure policy."""
-
     slot_id: str
     signal: str
     source_refs: tuple[str, ...] = ()
@@ -225,23 +190,11 @@ class InsightSignal:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "slot_id": self.slot_id,
-            "signal": self.signal,
-            "source_refs": list(self.source_refs),
-            "gap_refs": list(self.gap_refs),
-            "mandatory": self.mandatory,
-            "contradiction": self.contradiction,
-            "failed_oracle": self.failed_oracle,
-            "method_limitation": self.method_limitation,
-            "invalid_premise": self.invalid_premise,
-        }
+        return _model_dict(self)
 
 
 @dataclass(frozen=True, slots=True)
 class PolicyProposal:
-    """One typed, evidence-bound action suggestion."""
-
     action_id: str
     kind: str
     slot_id: str
@@ -268,28 +221,11 @@ class PolicyProposal:
         object.__setattr__(self, "score_components", MappingProxyType(dict(self.score_components)))
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "action_id": self.action_id,
-            "kind": self.kind,
-            "slot_id": self.slot_id,
-            "question": self.question,
-            "trigger_refs": list(self.trigger_refs),
-            "missing_dimensions": list(self.missing_dimensions),
-            "method_boundary": self.method_boundary,
-            "closure_oracle": self.closure_oracle,
-            "score_components": dict(sorted(self.score_components.items())),
-            "score": self.score,
-            "tie_break": self.tie_break,
-            "causal_refs": list(self.causal_refs),
-            "mandatory": self.mandatory,
-            "parent_action_id": self.parent_action_id,
-        }
+        return _model_dict(self)
 
 
 @dataclass(frozen=True, slots=True)
 class PolicyDisposition:
-    """Audit disposition for a proposed or rejected action."""
-
     action_id: str
     disposition: str
     reason: str
@@ -302,19 +238,11 @@ class PolicyDisposition:
         object.__setattr__(self, "causal_refs", _strings(self.causal_refs))
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "action_id": self.action_id,
-            "disposition": self.disposition,
-            "reason": self.reason,
-            "causal_refs": list(self.causal_refs),
-            "retained_action_id": self.retained_action_id,
-        }
+        return _model_dict(self)
 
 
 @dataclass(frozen=True, slots=True)
 class PolicyTrace:
-    """Replay receipt containing normalized inputs and ranking decisions."""
-
     policy_version: str
     seed: int
     canonical_input_digest: str
@@ -328,16 +256,7 @@ class PolicyTrace:
         return "coordinator_only"
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "policy_version": self.policy_version,
-            "seed": self.seed,
-            "canonical_input_digest": self.canonical_input_digest,
-            "normalized_inputs": dict(self.normalized_inputs),
-            "tie_break_order": list(self.tie_break_order),
-            "selected_ids": list(self.selected_ids),
-            "deferred_ids": list(self.deferred_ids),
-            "authority": self.authority,
-        }
+        return {**_model_dict(self), "authority": self.authority}
 
 
 @dataclass(frozen=True, slots=True)
@@ -347,11 +266,7 @@ class PolicyEvaluation:
     trace: PolicyTrace
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "proposals": [item.to_dict() for item in self.proposals],
-            "dispositions": [item.to_dict() for item in self.dispositions],
-            "trace": self.trace.to_dict(),
-        }
+        return _model_dict(self)
 
 
 class AdaptiveResearchPolicy:
@@ -594,13 +509,9 @@ class AdaptiveResearchPolicy:
         )
 
     def select(self, **kwargs: Any) -> PolicyEvaluation:
-        """Compatibility alias for callers that name the operation select."""
-
         return self.evaluate(**kwargs)
 
     def calibrate(self, **changes: Any) -> "AdaptiveResearchPolicy":
-        """Return a new versioned policy; historical policy instances are unchanged."""
-
         config_data = self.configuration.to_dict()
         config_data.update(changes)
         if "version" not in changes:
@@ -610,6 +521,16 @@ class AdaptiveResearchPolicy:
 
 AdaptivePolicy = AdaptiveResearchPolicy
 ResearchActionProposal = PolicyProposal
+
+
+def _model_dict(value: Any) -> Any:
+    if is_dataclass(value):
+        return {item.name: _model_dict(getattr(value, item.name)) for item in fields(value)}
+    if isinstance(value, Mapping):
+        return {str(key): _model_dict(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list, set, frozenset)):
+        return [_model_dict(item) for item in value]
+    return value
 
 
 def _strings(value: Sequence[Any]) -> tuple[str, ...]:
