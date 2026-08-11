@@ -207,9 +207,10 @@ def test_native_probe_results_are_independent_and_unavailable_is_not_passed(tmp_
 
 
 class _FakeCodexSession:
-    def __init__(self, notifications: list[object]) -> None:
+    def __init__(self, notifications: list[object], *, closed: bool = False) -> None:
         self.notifications = iter(notifications)
         self.calls: list[tuple[str, object]] = []
+        self.closed = closed
 
     def __enter__(self) -> _FakeCodexSession:
         return self
@@ -219,6 +220,8 @@ class _FakeCodexSession:
 
     def request(self, method: str, params: object) -> object:
         self.calls.append((method, params))
+        if self.closed:
+            raise ActivationError("protocol_closed: app-server stdout closed")
         responses = {
             "initialize": {"serverInfo": {"name": "codex"}},
             "thread/start": {"thread": {"id": "thread-real"}},
@@ -309,3 +312,9 @@ def test_codex_app_server_rejects_unbound_or_inexact_evidence(
     result = run_codex_app_server_probe("codex", probe, session_factory=lambda _: session)
 
     assert result == {"host": "codex", "status": "failed", "diagnostic": diagnostic}
+
+
+def test_codex_closed_app_server_surface_is_unavailable(tmp_path: Path) -> None:
+    probe = build_activation_probe("codex", _package(tmp_path, "codex"), correlation_id="run-closed")
+    result = run_codex_app_server_probe("codex", probe, session_factory=lambda _: _FakeCodexSession([], closed=True))
+    assert result == {"host": "codex", "status": "unavailable", "missing_capability": "surface:app-server-stdio"}

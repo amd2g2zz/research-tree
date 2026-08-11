@@ -320,6 +320,8 @@ class _CodexAppServerSession:
             message = self.messages.get(timeout=remaining)
         except queue.Empty as exc:
             raise subprocess.TimeoutExpired("codex app-server", self.timeout) from exc
+        if message is None:
+            _fail("protocol_closed", "app-server stdout closed before completion")
         if not isinstance(message, Mapping):
             _fail("protocol_message_invalid", "app-server stdout must be JSON-RPC objects")
         return message
@@ -462,6 +464,8 @@ def run_codex_app_server_probe(
                 }
     except (ActivationError, OSError, StopIteration, subprocess.SubprocessError) as exc:
         diagnostic = str(exc).split(":", 1)[0] if isinstance(exc, ActivationError) else type(exc).__name__
+        if diagnostic == "protocol_closed":
+            return {"host": "codex", "status": "unavailable", "missing_capability": "surface:app-server-stdio"}
         return {"host": "codex", "status": "failed", "diagnostic": diagnostic}
 
 
