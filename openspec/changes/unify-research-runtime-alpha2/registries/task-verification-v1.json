@@ -160,7 +160,26 @@
     { "group": 20, "state": "planned" },
     { "group": 21, "state": "planned" },
     { "group": 22, "state": "planned" },
-    { "group": 23, "state": "planned" },
+    {
+      "group": 23,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/invalidate-stale-alignment-state/evidence/group-23-output.txt",
+        "openspec/changes/invalidate-stale-alignment-state/evidence/group-23-receipt.json",
+        "openspec/changes/invalidate-stale-alignment-state/evidence/group-23-lineage.json",
+        "evaluation/cases/correction-invalidation-v1.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_feedback_rounds.py tests/test_alignment_protocol.py tests/test_research_run_coordinator.py && uv run ruff check src/research_tree/feedback.py src/research_tree/coordinator.py src/research_tree/alignment_protocol.py src/research_tree/__init__.py tests/test_feedback_rounds.py tests/test_alignment_protocol.py && uv run ruff format --check src/research_tree/feedback.py src/research_tree/coordinator.py src/research_tree/alignment_protocol.py src/research_tree/__init__.py tests/test_feedback_rounds.py tests/test_alignment_protocol.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "8ca54e0c50c8b12ca1af98dd1dfb3b67bc0439484f2e14d25ccad31c4cc2c534",
+        "source_revision": "6dfa314e73fca11aaa3243626b626282033b75ae",
+        "raw_output_ref": "openspec/changes/invalidate-stale-alignment-state/evidence/group-23-output.txt",
+        "recorded_at": "2026-08-11T15:56:47.912501+00:00"
+      },
+      "rollback": "retain prior revisions as historical"
+    },
     { "group": 24, "state": "planned" },
     { "group": 25, "state": "planned" },
     { "group": 26, "state": "planned" },

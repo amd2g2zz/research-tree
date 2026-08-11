@@ -287,8 +287,8 @@ def test_alpha2_registry_has_resolvable_ownership_and_noncyclic_boundaries() -> 
 
     assert report.valid is True
     assert report.release_ready is False
-    assert report.verified_groups == (1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 16, 33, 34, 35)
-    assert report.unverified_groups == tuple(group for group in range(6, 33) if group not in {6, 7, 8, 9, 11, 16})
+    assert report.verified_groups == (1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 16, 23, 33, 34, 35)
+    assert report.unverified_groups == tuple(group for group in range(6, 33) if group not in {6, 7, 8, 9, 11, 16, 23})
 
 
 def test_cli_emits_deterministic_real_registry_report(capsys: pytest.CaptureFixture[str]) -> None:
@@ -297,8 +297,8 @@ def test_cli_emits_deterministic_real_registry_report(capsys: pytest.CaptureFixt
     payload = json.loads(capsys.readouterr().out)
     assert payload["valid"] is True
     assert payload["release_ready"] is False
-    assert payload["verified_groups"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 16, 33, 34, 35]
-    assert payload["unverified_groups"] == [group for group in range(6, 33) if group not in {6, 7, 8, 9, 11, 16}]
+    assert payload["verified_groups"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 16, 23, 33, 34, 35]
+    assert payload["unverified_groups"] == [group for group in range(6, 33) if group not in {6, 7, 8, 9, 11, 16, 23}]
 
 
 def test_cli_returns_nonzero_for_semantic_violation(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

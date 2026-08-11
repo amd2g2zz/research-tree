@@ -103,11 +103,15 @@ from .assurance import (
 )
 from .feedback import (
     CANDIDATE_DISPOSITIONS,
+    CORRECTION_EVENT_KIND,
     FEEDBACK_LINEAGE_KIND,
     RESEARCH_STRATEGY_KIND,
     ROUND_SUPERSESSION_KIND,
     SAME_ROUND_REPLAN_KIND,
+    STALE_STATE_QUARANTINE_KIND,
     CandidateContext,
+    CorrectionBinding,
+    CorrectionEvent,
     FeedbackError,
     FeedbackRoundArtifacts,
     FeedbackRoundService,
@@ -244,6 +248,7 @@ from .coordinator import (
     LIFECYCLE_STATES,
     RESEARCH_RUN_STATE_KIND,
     ResearchRunCoordinator,
+    StaleStateError,
 )
 from .host_events import (
     HOST_EVENT_KINDS,
@@ -361,6 +366,9 @@ __all__ = [
     "FindingPackCompiler",
     "FindingPackError",
     "FEEDBACK_LINEAGE_KIND",
+    "CORRECTION_EVENT_KIND",
+    "CorrectionBinding",
+    "CorrectionEvent",
     "FeedbackError",
     "FeedbackRoundArtifacts",
     "FeedbackRoundService",
@@ -439,6 +447,8 @@ __all__ = [
     "LIFECYCLE_STATES",
     "RESEARCH_RUN_STATE_KIND",
     "ResearchRunCoordinator",
+    "STALE_STATE_QUARANTINE_KIND",
+    "StaleStateError",
     "EvidenceAnchor",
     "EvidenceArtifact",
     "EvidenceRepository",

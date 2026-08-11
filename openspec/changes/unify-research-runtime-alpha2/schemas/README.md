@@ -33,6 +33,7 @@ tools, and release evidence.
 | delivery-acceptance-v1.json | Exact-revision human acceptance | delivery service |
 | alignment-message-v1.json | One-prompt alignment turn and response binding | alignment service |
 | feedback-event-v1.json | Material post-handoff correction lineage | feedback/coordinator |
+| correction-event-v1.json | Exact revision-bound material correction/reopen control event | feedback/coordinator |
 | readiness-record-v1.json | Field-level readiness and risk checks | readiness service |
 | release-manifest-v1.json | Immutable release gate evidence | release evaluator |
 | path-registry-v1.json | Repository path ownership and lifecycle | layout checker |

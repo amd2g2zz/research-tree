@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "task_group": 23,
+  "source_revision": "6dfa314e73fca11aaa3243626b626282033b75ae",
+  "fixture": {
+    "ref": "evaluation/cases/correction-invalidation-v1.json",
+    "sha256": "ed45a69b124d29c084ed1cf2c05f3b04a2648d4dc33345b5f7e4631690fb9152",
+    "event_id": "correction-wrong-subject",
+    "task_id": "task-research",
+    "domain_id": "domain-diagnostic-repository",
+    "successor_task_id": "task-research",
+    "successor_domain_id": "domain-autonomous-agent"
+  },
+  "revision_assertions": {
+    "predecessor_ref": "run-correction/run-state@1",
+    "successor_ref": "run-correction/run-state@2",
+    "affected_roles": [
+      "intent_model",
+      "working_brief",
+      "decision_map",
+      "strategy",
+      "handoff"
+    ],
+    "digest_rule": "each binding equals the exact current state-owned role revision/digest; parallel latest ids are rejected and the predecessor remains byte-identical",
+    "relation": "supersedes",
+    "reopen_relation": "reopens"
+  },
+  "quarantine_assertions": {
+    "reason": "stale_digest",
+    "next_action": "reenter_alignment",
+    "sensitive_actions": [
+      "alignment_projection_ready",
+      "handoff_confirmed",
+      "dispatch",
+      "deliveries_compiled",
+      "delivery_accepted",
+      "complete"
+    ],
+    "fault_point": "RunLedger._before_commit; unrelated dependent kinds remain outside lineage quarantine"
+  },
+  "receipt_ref": "openspec/changes/invalidate-stale-alignment-state/evidence/group-23-receipt.json",
+  "output_ref": "openspec/changes/invalidate-stale-alignment-state/evidence/group-23-output.txt"
+}

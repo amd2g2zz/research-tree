@@ -14,6 +14,7 @@ from .domain import (
     thaw_json,
     validate_identifier,
 )
+from .feedback import CORRECTION_EVENT_KIND, STALE_STATE_QUARANTINE_KIND
 from .run_ledger import LedgerConflictError, RunLedger
 
 
@@ -346,6 +347,8 @@ class AlignmentProtocol:
                 ALIGNMENT_BELIEF_KIND,
                 ALIGNMENT_FEEDBACK_KIND,
                 ALIGNMENT_RESPONSE_KIND,
+                CORRECTION_EVENT_KIND,
+                STALE_STATE_QUARANTINE_KIND,
             }
         ]
         return _digest(records)

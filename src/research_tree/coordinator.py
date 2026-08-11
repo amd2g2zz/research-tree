@@ -11,12 +11,22 @@ from typing import Any, Mapping, Sequence
 from .domain import (
     ArtifactRef,
     ArtifactRevision,
+    InvalidIdentifierError,
     RuntimeStoreError,
     canonical_json_bytes,
     thaw_json,
     validate_identifier,
 )
 from .host_events import HostEvent, HostEventError, HostEventSequenceError
+from .feedback import (
+    CORRECTION_ACTION_ROLES,
+    CORRECTION_AFFECTED_ROLES,
+    CORRECTION_EVENT_KIND,
+    CORRECTION_ROLE_KINDS,
+    STALE_STATE_QUARANTINE_KIND,
+    CorrectionBinding,
+    CorrectionEvent,
+)
 from .run_ledger import LedgerConflictError, RunLedger
 
 
@@ -42,6 +52,31 @@ HOST_EVENT_KIND = "host-event"
 HOST_EVENT_PROJECTION_KIND = "host-event-projection"
 LEASE_KIND = "attempt-lease"
 COMPLETION_RECORD_KIND = "completion-record"
+CORRECTION_SENSITIVE_EVENTS = frozenset(
+    {
+        "alignment_projection_ready",
+        "handoff_confirmed",
+        "deliveries_compiled",
+        "delivery_accepted",
+    }
+)
+CORRECTION_DEPENDENT_KINDS = frozenset(
+    {
+        "alignment-action",
+        "alignment-attempt",
+        "alignment-message",
+        "alignment-readiness",
+        "attempt-lease",
+        "blueprint-evaluation",
+        "completion-record",
+        "delivery-acceptance",
+        "human-research-report",
+        "insight-digest",
+        "readiness-record",
+        "slot-closure-assessment",
+        "technical-research-package",
+    }
+)
 
 
 class CoordinatorError(RuntimeStoreError):
@@ -54,6 +89,16 @@ class CoordinatorConflictError(CoordinatorError):
 
 class CoordinatorEventConflictError(CoordinatorConflictError):
     """Raised when one event id is reused with a changed payload."""
+
+
+class StaleStateError(CoordinatorConflictError):
+    """A control action referenced state quarantined by a correction."""
+
+    def __init__(self, action: str, *, reason: str = "stale_digest") -> None:
+        self.action = action
+        self.reason = reason
+        self.next_action = "reenter_alignment"
+        super().__init__(reason)
 
 
 class IllegalTransitionError(CoordinatorError):
@@ -164,6 +209,9 @@ def _same_payload(existing: ArtifactRevision, payload: Mapping[str, Any]) -> boo
 class ResearchRunCoordinator:
     """The sole writer of lifecycle and completion state for one RunLedger."""
 
+    event_conflict_error = CoordinatorEventConflictError
+    stale_state_error = StaleStateError
+
     def __init__(self, ledger: RunLedger, *, actor_id: str = "coordinator") -> None:
         if not isinstance(ledger, RunLedger):
             raise CoordinatorConflictError("ResearchRunCoordinator requires a RunLedger")
@@ -230,6 +278,15 @@ class ResearchRunCoordinator:
             legal_actions=("alignment_projection_ready", "authority_impossible", "supersede"),
             idempotency_key=idempotency_key,
         )
+        authority = self._lineage_authority(blueprint_target, alignment_handoff)
+        if authority is not None:
+            bindings, task_id, domain_id = authority
+            payload.update(
+                authority_streams={role: binding.artifact_ref.artifact_id for role, binding in bindings.items()},
+                task_id=task_id,
+                domain_id=domain_id,
+            )
+            payload["state_digest"] = _digest({key: value for key, value in payload.items() if key != "state_digest"})
         try:
             return self.ledger.append_artifact(
                 run_id,
@@ -241,6 +298,61 @@ class ResearchRunCoordinator:
             )
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
+
+    def _lineage_authority(
+        self, target: ArtifactRevision, handoff: ArtifactRevision
+    ) -> tuple[dict[str, CorrectionBinding], str, str] | None:
+        artifacts = {"decision_map": target, "handoff": handoff}
+        child = handoff
+        for role in ("strategy", "working_brief", "intent_model"):
+            matches = [
+                self.ledger.get_artifact(ref)
+                for ref in child.parent_refs
+                if self.ledger.get_artifact(ref).kind == CORRECTION_ROLE_KINDS[role]
+            ]
+            if len(matches) != 1:
+                return None
+            child = artifacts[role] = matches[0]
+        task_id = artifacts["working_brief"].payload.get("task_id")
+        domain_id = artifacts["working_brief"].payload.get("domain_id")
+        if artifacts["intent_model"].payload.get("task_id") != task_id:
+            return None
+        try:
+            validate_identifier(task_id, "task_id")
+            validate_identifier(domain_id, "domain_id")
+        except (InvalidIdentifierError, TypeError, ValueError):
+            return None
+        return (
+            {role: CorrectionBinding.from_artifact(role, artifacts[role]) for role in CORRECTION_AFFECTED_ROLES},
+            task_id,
+            domain_id,
+        )
+
+    def _current_authority(self, current: ArtifactRevision) -> dict[str, CorrectionBinding]:
+        streams = current.payload.get("authority_streams")
+        if not isinstance(streams, Mapping) or set(streams) != set(CORRECTION_AFFECTED_ROLES):
+            raise CoordinatorConflictError("current state lacks authoritative role streams")
+        artifacts = {}
+        for role in CORRECTION_AFFECTED_ROLES:
+            candidates = [
+                item
+                for item in self.ledger.load_run(current.round_id).artifacts
+                if item.id == streams[role]
+                and item.kind == CORRECTION_ROLE_KINDS[role]
+                and self.ledger.is_latest_artifact(self._artifact_ref(item))
+            ]
+            if len(candidates) != 1:
+                raise CoordinatorConflictError(f"current authority is unresolved: {role}")
+            artifacts[role] = candidates[0]
+        for child_role, parent_role in (
+            ("working_brief", "intent_model"),
+            ("strategy", "working_brief"),
+            ("handoff", "strategy"),
+            ("decision_map", "handoff"),
+        ):
+            if self._artifact_ref(artifacts[parent_role]) not in artifacts[child_role].parent_refs:
+                raise CoordinatorConflictError("current authority lineage is inconsistent")
+        return {role: CorrectionBinding.from_artifact(role, artifacts[role]) for role in CORRECTION_AFFECTED_ROLES}
 
     @staticmethod
     def _state_payload(
@@ -327,6 +439,9 @@ class ResearchRunCoordinator:
         )
         state_payload["transition_payload"] = dict(payload)
         state_payload["previous_state_ref"] = ArtifactRef(run_id, current.id, current.revision).to_dict()
+        self._carry_correction_context(current, state_payload)
+        if "authority_binding" in payload:
+            state_payload["active_authority"] = dict(payload["authority_binding"])
         state_payload["state_digest"] = _digest(
             {key: value for key, value in state_payload.items() if key != "state_digest"}
         )
@@ -436,6 +551,153 @@ class ResearchRunCoordinator:
             payload={"successor_ref": ArtifactRef(run_id, link.id, link.revision).to_dict()},
         )
 
+    def apply_correction(
+        self,
+        value: CorrectionEvent | Mapping[str, Any],
+        *,
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        """Atomically quarantine predecessor authority and re-enter alignment."""
+
+        correction = CorrectionEvent.from_value(value)
+        existing = next(
+            (
+                item
+                for item in self.ledger.load_run(correction.run_id).artifacts
+                if item.kind == CORRECTION_EVENT_KIND and item.id == correction.event_id
+            ),
+            None,
+        )
+        correction_payload = correction.to_dict()
+        if existing is not None:
+            if not _same_payload(existing, correction_payload):
+                raise CoordinatorEventConflictError("event_id_conflict")
+            successor = next(
+                (
+                    item
+                    for item in reversed(self._states(correction.run_id))
+                    if item.payload.get("correction_event_id") == correction.event_id
+                ),
+                None,
+            )
+            if successor is None:
+                raise CoordinatorConflictError("correction successor state is missing")
+            return successor
+
+        current = self._latest_state(correction.run_id)
+        if correction.task_id != current.payload.get("task_id") or correction.domain_id != current.payload.get(
+            "domain_id"
+        ):
+            raise CoordinatorConflictError("correction identity does not match current state")
+        active = self._current_authority(current)
+        quarantined_refs = self._quarantined_refs(correction.run_id)
+        affected_refs: list[ArtifactRef] = []
+        for role in CORRECTION_AFFECTED_ROLES:
+            binding = correction.affected[role]
+            try:
+                artifact = self.ledger.get_artifact(binding.artifact_ref)
+            except RuntimeStoreError as error:
+                raise CoordinatorConflictError(f"unknown correction binding: {role}") from error
+            if artifact.kind != CORRECTION_ROLE_KINDS[role]:
+                raise CoordinatorConflictError(f"correction binding kind mismatch: {role}")
+            if artifact.content_hash != binding.digest:
+                raise CoordinatorConflictError(f"correction binding digest mismatch: {role}")
+            if not self.ledger.is_latest_artifact(binding.artifact_ref):
+                raise StaleStateError("apply_correction")
+            if binding.artifact_ref in quarantined_refs:
+                raise StaleStateError("apply_correction")
+            if binding != active[role]:
+                raise StaleStateError("apply_correction")
+            affected_refs.append(binding.artifact_ref)
+
+        current_ref = ArtifactRef(correction.run_id, current.id, current.revision)
+        affected_ref_set = set(affected_refs)
+        reachable = affected_ref_set | {current_ref}
+        dependent_refs: list[ArtifactRef] = []
+        candidates = [
+            item
+            for item in self.ledger.load_run(correction.run_id).artifacts
+            if item.kind in CORRECTION_DEPENDENT_KINDS
+            and self._artifact_ref(item) not in affected_ref_set
+            and self.ledger.is_latest_artifact(self._artifact_ref(item))
+        ]
+        while candidates:
+            found = [item for item in candidates if reachable.intersection(item.parent_refs)]
+            if not found:
+                break
+            for item in found:
+                reference = self._artifact_ref(item)
+                dependent_refs.append(reference)
+                reachable.add(reference)
+                candidates.remove(item)
+        correction_ref = ArtifactRef(correction.run_id, correction.event_id, 1)
+        quarantine_id = "quarantine-" + correction.event_id
+        quarantine_ref = ArtifactRef(correction.run_id, quarantine_id, 1)
+        quarantine_payload = {
+            "correction_event_id": correction.event_id,
+            "relation": correction.relation,
+            "stale_bindings": correction_payload["affected"],
+            "dependent_refs": [reference.to_dict() for reference in dependent_refs],
+            "source_state_ref": current_ref.to_dict(),
+        }
+        state_payload = self._state_payload(
+            state="alignment",
+            lifecycle_revision=int(current.payload.get("lifecycle_revision", 0)) + 1,
+            obligations=(
+                "alignment_reconfirmation",
+                "strategy_reprojection",
+                "handoff_reconfirmation",
+                "closure_revalidation",
+                "delivery_recompilation",
+                "acceptance_reconfirmation",
+            ),
+            legal_actions=self._next_actions("alignment"),
+            idempotency_key=correction.event_id,
+            reason=correction.reason,
+        )
+        state_payload.update(
+            {
+                "task_id": correction.successor_task_id,
+                "domain_id": correction.successor_domain_id,
+                "correction_event_id": correction.event_id,
+                "correction_relation": correction.relation,
+                "previous_state_ref": current_ref.to_dict(),
+                "quarantine_ref": quarantine_ref.to_dict(),
+                "authority_streams": thaw_json(current.payload["authority_streams"]),
+            }
+        )
+        state_payload["state_digest"] = _digest(
+            {key: item for key, item in state_payload.items() if key != "state_digest"}
+        )
+        try:
+            created = self.ledger.append_artifact_batch(
+                correction.run_id,
+                (
+                    (
+                        correction.event_id,
+                        CORRECTION_EVENT_KIND,
+                        correction_payload,
+                        (current_ref, *affected_refs),
+                    ),
+                    (
+                        quarantine_id,
+                        STALE_STATE_QUARANTINE_KIND,
+                        quarantine_payload,
+                        (current_ref, correction_ref, *affected_refs, *dependent_refs),
+                    ),
+                    (
+                        "run-state",
+                        RESEARCH_RUN_STATE_KIND,
+                        state_payload,
+                        (current_ref, correction_ref, quarantine_ref),
+                    ),
+                ),
+                expected_revision=expected_revision,
+            )
+        except LedgerConflictError as error:
+            raise CoordinatorConflictError("stale_revision") from error
+        return created[-1]
+
     def _record_rejection(
         self, *, run_id: str, current: ArtifactRevision, event: str, actor: str, reason: str, expected_revision: int
     ) -> None:
@@ -465,9 +727,105 @@ class ResearchRunCoordinator:
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
 
-    def _guard_passes(self, run_id: str, event: str) -> bool:
+    def _assert_current_authority(
+        self,
+        run_id: str,
+        action: str,
+        value: Any,
+    ) -> None:
+        current = self._latest_state(run_id)
+        correction_event_id = current.payload.get("correction_event_id")
+        if correction_event_id is None:
+            return
+        if not isinstance(value, Mapping) or set(value) != {
+            "correction_event_id",
+            "bindings",
+        }:
+            raise StaleStateError(action)
+        if value.get("correction_event_id") != correction_event_id:
+            raise StaleStateError(action)
+        bindings = value.get("bindings")
+        if not isinstance(bindings, Mapping) or set(bindings) != set(CORRECTION_ACTION_ROLES):
+            raise StaleStateError(action)
+        try:
+            active = self._current_authority(current)
+        except CoordinatorConflictError as error:
+            raise StaleStateError(action) from error
+        quarantined = self._quarantined_refs(run_id)
+        for role in CORRECTION_ACTION_ROLES:
+            try:
+                binding = CorrectionBinding.from_value(role, bindings[role])
+                artifact = self.ledger.get_artifact(binding.artifact_ref)
+            except (RuntimeStoreError, KeyError, TypeError, ValueError) as error:
+                raise StaleStateError(action) from error
+            if (
+                binding != active[role]
+                or artifact.kind != CORRECTION_ROLE_KINDS[role]
+                or artifact.content_hash != binding.digest
+                or binding.artifact_ref in quarantined
+            ):
+                raise StaleStateError(action)
+
+    def _quarantined_refs(self, run_id: str) -> frozenset[ArtifactRef]:
+        result: set[ArtifactRef] = set()
+        for item in self.ledger.load_run(run_id).artifacts:
+            if item.kind != STALE_STATE_QUARANTINE_KIND:
+                continue
+            stale = item.payload.get("stale_bindings")
+            if isinstance(stale, Mapping):
+                for role, value in stale.items():
+                    try:
+                        result.add(CorrectionBinding.from_value(str(role), value).artifact_ref)
+                    except (RuntimeStoreError, TypeError, ValueError):
+                        continue
+            dependent = item.payload.get("dependent_refs")
+            if isinstance(dependent, Sequence) and not isinstance(dependent, (str, bytes)):
+                for value in dependent:
+                    try:
+                        result.add(_ref(value, "dependent_ref"))
+                    except CoordinatorConflictError:
+                        continue
+        return frozenset(result)
+
+    @staticmethod
+    def _carry_correction_context(
+        current: ArtifactRevision,
+        state_payload: dict[str, Any],
+    ) -> None:
+        for key in (
+            "correction_event_id",
+            "correction_relation",
+            "quarantine_ref",
+            "task_id",
+            "domain_id",
+            "authority_streams",
+            "active_authority",
+        ):
+            if key in current.payload:
+                state_payload[key] = thaw_json(current.payload[key])
+
+    def _guard_passes(
+        self,
+        run_id: str,
+        event: str,
+        payload: Mapping[str, Any] | None = None,
+    ) -> bool:
         inputs = self._completion_inputs(run_id)
         if event == "handoff_confirmed":
+            current = self._latest_state(run_id)
+            if current.payload.get("correction_event_id") is not None:
+                authority = (payload or {}).get("authority_binding")
+                if not isinstance(authority, Mapping):
+                    return False
+                bindings = authority.get("bindings")
+                if not isinstance(bindings, Mapping):
+                    return False
+                try:
+                    binding = CorrectionBinding.from_value("handoff", bindings["handoff"])
+                    handoff = self.ledger.get_artifact(binding.artifact_ref)
+                except (RuntimeStoreError, KeyError, TypeError, ValueError):
+                    return False
+                return bool(handoff.payload.get("confirmed") is True)
             initial = min(self._states(run_id), key=lambda item: item.revision)
             handoff = next(
                 (
@@ -502,6 +860,13 @@ class ResearchRunCoordinator:
         payload: Mapping[str, Any] | None = None,
     ) -> ArtifactRevision:
         current = self._latest_state(run_id)
+        transition_payload = dict(payload or {})
+        if event in CORRECTION_SENSITIVE_EVENTS:
+            self._assert_current_authority(
+                run_id,
+                event,
+                transition_payload.get("authority_binding"),
+            )
         if idempotency_key is not None:
             prior = self._find_event_key(run_id, idempotency_key)
             if prior is not None:
@@ -510,7 +875,7 @@ class ResearchRunCoordinator:
                     prior.kind != LIFECYCLE_EVENT_KIND
                     or prior_payload.get("event") != event
                     or prior_payload.get("actor") != actor
-                    or prior_payload.get("payload") != dict(payload or {})
+                    or prior_payload.get("payload") != transition_payload
                 ):
                     raise CoordinatorEventConflictError("event_id_conflict")
                 return self._latest_state(run_id)
@@ -540,7 +905,7 @@ class ResearchRunCoordinator:
                 expected_revision=expected_revision,
             )
             raise IllegalTransitionError("actor_not_allowed")
-        if not self._guard_passes(run_id, event):
+        if not self._guard_passes(run_id, event, transition_payload):
             self._record_rejection(
                 run_id=run_id,
                 current=current,
@@ -555,7 +920,7 @@ class ResearchRunCoordinator:
                 run_id,
                 actor=actor,
                 expected_revision=expected_revision,
-                requirements=payload,
+                requirements=transition_payload,
             )
         return self._append_transition(
             run_id=run_id,
@@ -565,7 +930,7 @@ class ResearchRunCoordinator:
             target_state=target_state,
             expected_revision=expected_revision,
             idempotency_key=idempotency_key,
-            payload=payload or {},
+            payload=transition_payload,
         )
 
     def ingest_event(
@@ -660,6 +1025,8 @@ class ResearchRunCoordinator:
         lease = max(lease_candidates, key=lambda item: item.revision, default=None)
         if lease is None:
             raise CoordinatorConflictError("unknown_attempt")
+        if self._artifact_ref(lease) in self._quarantined_refs(run_id):
+            raise StaleStateError("host_event")
         previous_sequences = [
             int(item.payload.get("sequence", 0))
             for item in artifacts
@@ -727,11 +1094,18 @@ class ResearchRunCoordinator:
             and not work_item.get("completion_evidence")
         ):
             raise CoordinatorConflictError("unverifiable_work_item")
+        self._assert_current_authority(
+            run_id,
+            "dispatch",
+            work_item.get("authority_binding"),
+        )
         current = self._latest_state(run_id)
         selected_attempt = attempt_id or "attempt-" + hashlib.sha256(canonical_json_bytes(work_item)).hexdigest()[:24]
         validate_identifier(selected_attempt, "attempt_id")
         for item in self.ledger.load_run(run_id).artifacts:
             if item.kind == LEASE_KIND and item.id == selected_attempt:
+                if self._artifact_ref(item) in self._quarantined_refs(run_id):
+                    raise StaleStateError("dispatch")
                 return item
         payload = {
             "attempt_id": selected_attempt,
@@ -761,10 +1135,13 @@ class ResearchRunCoordinator:
     def _latest_kind(self, run_id: str, kind: str) -> ArtifactRevision | None:
         """Return the current revision for a singleton coordinator input kind."""
 
+        quarantined = self._quarantined_refs(run_id)
         candidates = [
             item
             for item in self.ledger.load_run(run_id).artifacts
-            if item.kind == kind and self.ledger.is_latest_artifact(self._artifact_ref(item))
+            if item.kind == kind
+            and self._artifact_ref(item) not in quarantined
+            and self.ledger.is_latest_artifact(self._artifact_ref(item))
         ]
         return max(candidates, key=lambda item: (item.revision, item.id)) if candidates else None
 
@@ -772,6 +1149,14 @@ class ResearchRunCoordinator:
         states = self._states(run_id)
         if not states:
             return None
+        current = max(states, key=lambda item: item.revision)
+        if current.payload.get("correction_event_id") is not None:
+            try:
+                binding = self._current_authority(current)["decision_map"]
+                target = self.ledger.get_artifact(binding.artifact_ref)
+            except (RuntimeStoreError, CoordinatorConflictError):
+                return None
+            return target if target.kind == "blueprint-target" else None
         initial = min(states, key=lambda item: item.revision)
         for reference in initial.parent_refs:
             candidate = self.ledger.get_artifact(reference)
@@ -812,6 +1197,7 @@ class ResearchRunCoordinator:
             item
             for item in self.ledger.load_run(run_id).artifacts
             if item.kind == "slot-closure-assessment"
+            and self._artifact_ref(item) not in self._quarantined_refs(run_id)
             and self.ledger.is_latest_artifact(self._artifact_ref(item))
             and item.payload.get("status") == "passed"
             and item.payload.get("closure_token")
@@ -872,6 +1258,12 @@ class ResearchRunCoordinator:
         self, run_id: str, *, actor: str, expected_revision: int, requirements: Mapping[str, Any] | None = None
     ) -> ArtifactRevision:
         current = self._latest_state(run_id)
+        completion_requirements = dict(requirements or {})
+        self._assert_current_authority(
+            run_id,
+            "complete",
+            completion_requirements.get("authority_binding"),
+        )
         if current.payload["state"] in {"completed", "superseded"}:
             return current
         if current.payload["state"] != "awaiting_acceptance":
@@ -914,6 +1306,7 @@ class ResearchRunCoordinator:
         )
         state_payload["completion_requirements"] = completion_payload["requirements"]
         state_payload["previous_state_ref"] = ArtifactRef(run_id, current.id, current.revision).to_dict()
+        self._carry_correction_context(current, state_payload)
         state_payload["state_digest"] = _digest(
             {key: value for key, value in state_payload.items() if key != "state_digest"}
         )

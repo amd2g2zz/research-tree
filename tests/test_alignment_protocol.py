@@ -74,6 +74,15 @@ def test_requester_only_candidate_becomes_one_open_question(tmp_path: Path) -> N
 
     assert planned["action"]["kind"] == "question"
     assert planned["action"]["human_exclusive"] is True
+    with pytest.raises(AlignmentProtocolError, match="human-only"):
+        service.record_belief(
+            belief_id="agent-approval",
+            actor="agent",
+            field="authority",
+            statement="Requester approved.",
+            confidence="high",
+            human_only=True,
+        )
 
 
 def test_response_must_bind_to_current_pending_action(tmp_path: Path) -> None:
