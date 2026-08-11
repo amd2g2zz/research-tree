@@ -1,0 +1,9 @@
+{
+  "command": "uv run pytest -q tests/test_alignment_protocol.py tests/test_alignment_actions.py tests/test_alignment_beliefs.py tests/test_alignment_messages.py tests/test_alignment_handoff.py && uv run ruff check src/research_tree/alignment_protocol.py tests/test_alignment_protocol.py tests/test_alignment_actions.py tests/test_alignment_beliefs.py tests/test_alignment_messages.py tests/test_alignment_handoff.py && uv run ruff format --check src/research_tree/alignment_protocol.py tests/test_alignment_protocol.py tests/test_alignment_actions.py tests/test_alignment_beliefs.py tests/test_alignment_messages.py tests/test_alignment_handoff.py",
+  "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+  "exit_code": 0,
+  "output_digest": "b3d848102551c49b87b682323e5245fb4617b98cae0b2ad12c1695c3f4e76db4",
+  "raw_output_ref": "openspec/changes/unify-research-runtime-alpha2/evidence/group-7-output.txt",
+  "recorded_at": "2026-08-11T12:18:15.152125+00:00",
+  "source_revision": "ef4e853e29041e126976edf3e3bedb835163c69c"
+}
