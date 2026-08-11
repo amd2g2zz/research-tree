@@ -30,7 +30,13 @@ def test_initialize_is_idempotent_and_applies_durability_settings(tmp_path: Path
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert connection.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
         assert connection.execute("PRAGMA synchronous").fetchone()[0] == 2
-        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 3
+        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 4
+        assert (
+            connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='decision_frames'"
+            ).fetchone()[0]
+            == "decision_frames"
+        )
 
 
 def test_artifact_append_reconstructs_immutable_lineage(tmp_path: Path) -> None:
@@ -39,9 +45,14 @@ def test_artifact_append_reconstructs_immutable_lineage(tmp_path: Path) -> None:
     ledger.initialize()
     ledger.create_run("run-1")
 
-    first = ledger.append_artifact("run-1", "brief", "working-brief", {"goal": "test"}, expected_revision=0)
+    ledger.append_artifact("run-1", "brief", "working-brief", {"goal": "test"}, expected_revision=0)
     second = ledger.append_artifact(
-        "run-1", "strategy", "strategy", {"step": 1}, parent_refs=(ArtifactRef("run-1", "brief", 1),), expected_revision=1
+        "run-1",
+        "strategy",
+        "strategy",
+        {"step": 1},
+        parent_refs=(ArtifactRef("run-1", "brief", 1),),
+        expected_revision=1,
     )
     snapshot = ledger.load_run("run-1")
 

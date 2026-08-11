@@ -130,6 +130,15 @@ from .intent import (
     QuestionRecommendation,
     WorkingBriefCompiler,
 )
+from .decision_frame import (
+    DECISION_FRAME_KIND,
+    DECISION_FRAME_SCHEMA_VERSION,
+    ClarificationDecision,
+    ClarificationPolicy,
+    DecisionFrame,
+    DecisionFrameValidationError,
+    IntentHypothesis,
+)
 from .openspec import (
     InvalidOpenSpecExportError,
     OpenSpecExport,
@@ -492,6 +501,13 @@ __all__ = [
     "PrimarySourceValidationPort",
     "ProvenanceIntegrityPort",
     "WorkingBriefCompiler",
+    "DECISION_FRAME_KIND",
+    "DECISION_FRAME_SCHEMA_VERSION",
+    "ClarificationDecision",
+    "ClarificationPolicy",
+    "DecisionFrame",
+    "DecisionFrameValidationError",
+    "IntentHypothesis",
     "WorkItemCompiler",
     "WorkItemError",
     "WorkItemPlanner",

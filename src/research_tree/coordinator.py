@@ -18,6 +18,7 @@ from .domain import (
     validate_identifier,
 )
 from .host_events import HostEvent, HostEventError, HostEventSequenceError
+from .decision_frame import DECISION_FRAME_KIND, DecisionFrame
 from .feedback import (
     CORRECTION_ACTION_ROLES,
     CORRECTION_AFFECTED_ROLES,
@@ -248,6 +249,67 @@ class ResearchRunCoordinator:
     def state(self, run_id: str) -> ArtifactRevision:
         validate_identifier(run_id, "run_id")
         return self._latest_state(run_id)
+
+    def persist_decision_frame(self, frame: DecisionFrame, *, expected_revision: int) -> ArtifactRevision:
+        """Persist an immutable DecisionFrame with exact replay semantics."""
+
+        if not isinstance(frame, DecisionFrame):
+            raise CoordinatorConflictError("decision_frame must be a DecisionFrame")
+        try:
+            existing = [
+                item
+                for item in self.ledger.load_run(frame.run_id).artifacts
+                if item.id == frame.frame_id and item.kind == DECISION_FRAME_KIND
+            ]
+        except RuntimeStoreError as error:
+            raise CoordinatorConflictError("decision_frame_run_missing") from error
+        if existing:
+            current = max(existing, key=lambda item: item.revision)
+            if not _same_payload(current, frame.to_dict()):
+                raise CoordinatorConflictError("decision_frame_conflict")
+            return current
+        try:
+            return self.ledger.append_decision_frame(
+                frame.run_id,
+                frame.frame_id,
+                frame.to_dict(),
+                parent_refs=frame.parent_refs,
+                expected_revision=expected_revision,
+            )
+        except LedgerConflictError as error:
+            raise CoordinatorConflictError("stale_revision") from error
+
+    def require_decision_frame(
+        self,
+        frame_ref: ArtifactRef | Mapping[str, Any],
+        *,
+        run_id: str | None = None,
+        target_ref: ArtifactRef | Mapping[str, Any] | None = None,
+    ) -> ArtifactRevision:
+        """Resolve the exact current ready frame without mutating lifecycle state."""
+
+        try:
+            reference = frame_ref if isinstance(frame_ref, ArtifactRef) else ArtifactRef.from_dict(frame_ref)
+            artifact = self.ledger.get_artifact(reference)
+        except (TypeError, ValueError, RuntimeStoreError) as error:
+            raise CoordinatorConflictError("decision_frame_ref_invalid") from error
+        if artifact.kind != DECISION_FRAME_KIND:
+            raise CoordinatorConflictError("decision_frame_kind_invalid")
+        if run_id is not None and artifact.round_id != validate_identifier(run_id, "run_id"):
+            raise CoordinatorConflictError("decision_frame_cross_run")
+        if not self.ledger.is_latest_artifact(reference):
+            raise CoordinatorConflictError("decision_frame_stale")
+        try:
+            frame = DecisionFrame.from_dict(dict(artifact.payload))
+        except RuntimeStoreError as error:
+            raise CoordinatorConflictError("decision_frame_invalid") from error
+        if frame.status != "ready_for_strategy":
+            raise CoordinatorConflictError("decision_frame_not_ready_for_strategy")
+        if target_ref is not None:
+            expected_target = target_ref if isinstance(target_ref, ArtifactRef) else ArtifactRef.from_dict(target_ref)
+            if frame.target_ref != expected_target:
+                raise CoordinatorConflictError("decision_frame_target_mismatch")
+        return artifact
 
     def initialize(
         self,
@@ -1099,6 +1161,17 @@ class ResearchRunCoordinator:
             "dispatch",
             work_item.get("authority_binding"),
         )
+        frame_ref_value = work_item.get("decision_frame_ref")
+        if frame_ref_value is not None:
+            frame_artifact = self.require_decision_frame(
+                frame_ref_value,
+                run_id=run_id,
+                target_ref=work_item.get("target_ref"),
+            )
+        elif work_item.get("canonical") or work_item.get("strategy_ref") or work_item.get("research_plan_ref"):
+            raise CoordinatorConflictError("decision_frame_required")
+        else:
+            frame_artifact = None
         current = self._latest_state(run_id)
         selected_attempt = attempt_id or "attempt-" + hashlib.sha256(canonical_json_bytes(work_item)).hexdigest()[:24]
         validate_identifier(selected_attempt, "attempt_id")
@@ -1116,13 +1189,16 @@ class ResearchRunCoordinator:
             "idempotency_key": selected_attempt,
             "lease_revision": 1,
         }
+        parent_refs = [ArtifactRef(run_id, current.id, current.revision)]
+        if frame_artifact is not None:
+            parent_refs.append(ArtifactRef(run_id, frame_artifact.id, frame_artifact.revision))
         try:
             return self.ledger.append_artifact(
                 run_id,
                 selected_attempt,
                 LEASE_KIND,
                 payload,
-                parent_refs=(ArtifactRef(run_id, current.id, current.revision),),
+                parent_refs=tuple(parent_refs),
                 expected_revision=expected_revision,
             )
         except LedgerConflictError as error:

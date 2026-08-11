@@ -206,3 +206,21 @@ CREATE TABLE audit_exports (
   output_locator TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+
+-- Migration v4 (#87): canonical DecisionFrame projection. Legacy rows are
+-- intentionally not backfilled; generic artifacts remain the source lineage.
+CREATE TABLE decision_frames (
+  run_id TEXT NOT NULL REFERENCES runs(run_id),
+  frame_id TEXT NOT NULL,
+  artifact_revision INTEGER NOT NULL,
+  schema_version INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  primary_decision_id TEXT NOT NULL,
+  requester_wording_digest TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(run_id, frame_id, artifact_revision),
+  FOREIGN KEY(run_id, frame_id, artifact_revision)
+    REFERENCES artifacts(run_id, artifact_id, revision)
+);

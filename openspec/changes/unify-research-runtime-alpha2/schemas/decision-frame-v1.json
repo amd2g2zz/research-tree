@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/decision-frame-v1.json",
+  "title": "Alpha2 Decision Frame",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "frame_id", "run_id", "requester_wording", "primary_decision", "hypotheses", "status", "policy", "parent_refs", "content_hash"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "frame_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "run_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "target_ref": { "type": ["object", "null"] },
+    "requester_wording": { "type": "string", "minLength": 1, "maxLength": 20000 },
+    "primary_decision": { "type": "object", "additionalProperties": false, "required": ["id", "statement", "success_signal"], "properties": { "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" }, "statement": { "type": "string", "minLength": 1 }, "success_signal": { "type": "string", "minLength": 1 } } },
+    "hypotheses": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/hypothesis" } },
+    "selected_hypothesis_id": { "type": ["string", "null"] },
+    "status": { "type": "string", "enum": ["clarification_required", "reconnaissance_required", "reframe_required", "ready_for_strategy", "superseded"] },
+    "policy": { "type": "object", "additionalProperties": false, "required": ["action", "reason", "hypothesis_ids", "question"], "properties": { "action": { "type": "string", "enum": ["reconnaissance", "ask_user", "reframe", "ready" ] }, "reason": { "type": "string", "minLength": 1 }, "hypothesis_ids": { "type": "array", "items": { "type": "string" } }, "question": { "type": ["string", "null"] } } },
+    "parent_refs": { "type": "array", "items": { "$ref": "#/$defs/ref" } },
+    "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "$defs": {
+    "ref": { "type": "object", "additionalProperties": false, "required": ["round_id", "artifact_id", "revision"], "properties": { "round_id": { "type": "string" }, "artifact_id": { "type": "string" }, "revision": { "type": "integer", "minimum": 1 } } },
+    "hypothesis": { "type": "object", "additionalProperties": false, "required": ["id", "interpretation", "ambiguity", "owner", "researchable", "decision_consequence", "source_refs", "disposition", "next_action", "primary_decision_id", "material", "evidence_ranked"], "properties": { "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" }, "interpretation": { "type": "string", "minLength": 1 }, "ambiguity": { "type": "string", "minLength": 1 }, "owner": { "enum": ["requester", "research", "shared"] }, "researchable": { "type": "boolean" }, "decision_consequence": { "type": "string", "minLength": 1 }, "source_refs": { "type": "array", "items": { "type": "string" } }, "disposition": { "enum": ["unresolved", "selected", "accepted", "rejected", "reframed", "retained_consequence", "deferred"] }, "next_action": { "type": "string", "minLength": 1 }, "primary_decision_id": { "type": "string" }, "material": { "type": "boolean" }, "evidence_ranked": { "type": "boolean" }, "no_progress": { "type": "boolean" } } }
+  }
+}
