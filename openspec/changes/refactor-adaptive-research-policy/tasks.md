@@ -19,5 +19,5 @@
 - [x] 4.3 Run recursive regressions and changed-file Ruff gates.
 
 - [x] 5.1 Record exact group 6/16 commands, SHAs, versions, seeds, and evidence paths.
-- [ ] 5.2 Run focused/full pytest, strict OpenSpec, package, governance, delivery, and diff checks on the final head.
-- [ ] 5.3 Review scope isolation and prepare one PR closing #58 only after executable evidence exists.
+- [x] 5.2 Run focused/full pytest, strict OpenSpec, package, governance, delivery, and diff checks on the final head.
+- [x] 5.3 Review scope isolation and prepare one PR closing #58 only after executable evidence exists.
