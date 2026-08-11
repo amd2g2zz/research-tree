@@ -32,4 +32,4 @@
 
 - [x] 6.1 Add adversarial red tests for parallel latest role ids, predecessor identity mismatch, unrelated dependent artifacts, and caller-selected parallel successors; run focused pytest plus Ruff check and format-check, with Ruff required for green.
 - [x] 6.2 Bind correction and successor authority to the predecessor state's canonical streams, and quarantine only lineage descendants while preserving atomic replay.
-- [ ] 6.3 Run focused/full/strict/governance/delivery gates, keep non-generated review size below 1500 lines, and regenerate group 23 evidence from the final source commit.
+- [x] 6.3 Run focused/full/strict/governance/delivery gates, keep non-generated review size below 1500 lines, and regenerate group 23 evidence from the final source commit.

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "task_group": 23,
-  "source_revision": "92453cd48c89be00c405f33b1f61d095f64d36df",
+  "source_revision": "6dfa314e73fca11aaa3243626b626282033b75ae",
   "fixture": {
     "ref": "evaluation/cases/correction-invalidation-v1.json",
     "sha256": "ed45a69b124d29c084ed1cf2c05f3b04a2648d4dc33345b5f7e4631690fb9152",
@@ -21,7 +21,7 @@
       "strategy",
       "handoff"
     ],
-    "digest_rule": "each CorrectionBinding digest equals the exact ArtifactRevision content_hash and the predecessor remains byte-identical after commit",
+    "digest_rule": "each binding equals the exact current state-owned role revision/digest; parallel latest ids are rejected and the predecessor remains byte-identical",
     "relation": "supersedes",
     "reopen_relation": "reopens"
   },
@@ -36,7 +36,7 @@
       "delivery_accepted",
       "complete"
     ],
-    "fault_point": "RunLedger._before_commit"
+    "fault_point": "RunLedger._before_commit; unrelated dependent kinds remain outside lineage quarantine"
   },
   "receipt_ref": "openspec/changes/invalidate-stale-alignment-state/evidence/group-23-receipt.json",
   "output_ref": "openspec/changes/invalidate-stale-alignment-state/evidence/group-23-output.txt"
