@@ -6,7 +6,7 @@ from pathlib import Path
 import hashlib
 import json
 import sqlite3
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 
 from .domain import (
     ArtifactRef,
@@ -347,6 +347,102 @@ class RunLedger:
             except sqlite3.IntegrityError as error:
                 raise LedgerIntegrityError("artifact append violated a ledger constraint") from error
         return artifact
+
+    def append_artifact_batch(
+        self,
+        run_id: str,
+        entries: Iterable[tuple[str, str, Any, Iterable[ArtifactRef]]],
+        *,
+        expected_revision: int,
+    ) -> tuple[ArtifactRevision, ...]:
+        """Append an ordered artifact batch under one run revision.
+
+        Parents may reference artifacts already in the ledger or an earlier
+        entry in this batch. The run revision is advanced only after every
+        artifact, parent row, and lineage event has been prepared.
+        """
+
+        self.initialize()
+        run_id = validate_identifier(run_id, "run_id")
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 0:
+            raise LedgerIntegrityError("expected_revision must be a non-negative integer")
+        normalized = tuple(entries)
+        if not normalized:
+            raise LedgerIntegrityError("artifact batch must contain at least one entry")
+
+        with self._connect() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                current = self._require_expected_revision(connection, run_id, expected_revision)
+                created: set[ArtifactRef] = set()
+                result: list[ArtifactRevision] = []
+                for index, entry in enumerate(normalized):
+                    if not isinstance(entry, Sequence) or isinstance(entry, (str, bytes)) or len(entry) != 4:
+                        raise LedgerIntegrityError(
+                            f"artifact batch entry {index} must contain id, kind, payload, and parent_refs"
+                        )
+                    artifact_id, kind, payload, raw_parent_refs = entry
+                    artifact_id = validate_identifier(artifact_id, f"artifact batch entry {index} id")
+                    if not isinstance(raw_parent_refs, Iterable) or isinstance(raw_parent_refs, (str, bytes)):
+                        raise LedgerIntegrityError(
+                            f"artifact batch entry {index} parent_refs must be iterable"
+                    )
+                    parent_refs = tuple(raw_parent_refs)
+                    for reference in parent_refs:
+                        if not isinstance(reference, ArtifactRef):
+                            raise LedgerIntegrityError(
+                                f"artifact batch entry {index} parent_refs must contain ArtifactRef values"
+                            )
+                        if reference in created:
+                            continue
+                        self._require_artifact(connection, reference)
+                    next_revision = self._next_artifact_revision(connection, run_id, artifact_id)
+                    artifact = ArtifactRevision.create(
+                        artifact_id=artifact_id,
+                        round_id=run_id,
+                        revision=next_revision,
+                        kind=kind,
+                        payload=payload,
+                        parent_refs=parent_refs,
+                    )
+                    connection.execute(
+                        "INSERT INTO artifacts(run_id, artifact_id, revision, artifact_json, content_hash) "
+                        "VALUES(?, ?, ?, ?, ?)",
+                        (run_id, artifact.id, artifact.revision, _json(artifact.to_dict()), artifact.content_hash),
+                    )
+                    for reference in parent_refs:
+                        connection.execute(
+                            "INSERT INTO artifact_parents(run_id, artifact_id, revision, parent_run_id, "
+                            "parent_artifact_id, parent_revision) VALUES(?, ?, ?, ?, ?, ?)",
+                            (
+                                run_id,
+                                artifact.id,
+                                artifact.revision,
+                                reference.round_id,
+                                reference.artifact_id,
+                                reference.revision,
+                            ),
+                        )
+                    artifact_ref = ArtifactRef(run_id, artifact.id, artifact.revision)
+                    self._insert_event(
+                        connection,
+                        LineageEvent.create(
+                            round_id=run_id,
+                            kind="artifact-appended",
+                            artifact_ref=artifact_ref,
+                        ),
+                    )
+                    created.add(artifact_ref)
+                    result.append(artifact)
+                    current += 1
+                connection.execute(
+                    "UPDATE runs SET revision = ? WHERE run_id = ? AND revision = ?",
+                    (current, run_id, expected_revision),
+                )
+                self._before_commit()
+            except sqlite3.IntegrityError as error:
+                raise LedgerIntegrityError("artifact batch append violated a ledger constraint") from error
+        return tuple(result)
 
     def append_artifact_with_content(
         self,

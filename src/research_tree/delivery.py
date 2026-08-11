@@ -16,7 +16,7 @@ from .domain import (
 )
 from .intake import INPUT_LEDGER_ARTIFACT_KIND
 from .intent import INTENT_MODEL_KIND, WORKING_BRIEF_KIND
-from .evidence import EvidenceAnchor, EvidenceValidationError
+from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
 from .ledger import (
     ALTERNATIVE_DISPOSITIONS,
     ANCHOR_KINDS,
@@ -27,6 +27,7 @@ from .ledger import (
     VALIDATION_KINDS,
 )
 from .storage import RunStore
+from .run_ledger import LedgerError, RunLedger
 
 
 TECHNICAL_RESEARCH_PACKAGE_KIND = "technical-research-package"
@@ -75,11 +76,26 @@ class DeliveryArtifacts:
     human_brief: ArtifactRevision
 
 
-class DeliveryCompiler:
-    """Compile canonical documents without accepting worker report prose."""
+class _DeliveryCompilerBase:
+    """Shared legacy and canonical delivery implementation."""
 
-    def __init__(self, store: RunStore) -> None:
+    def __init__(
+        self,
+        store: RunStore | RunLedger,
+        evidence_resolver: EvidenceResolver | None = None,
+    ) -> None:
+        if not isinstance(store, (RunStore, RunLedger)):
+            raise InvalidDeliveryError("delivery compiler requires a RunStore or RunLedger")
+        if isinstance(store, RunLedger):
+            if not isinstance(evidence_resolver, EvidenceResolver) or evidence_resolver.ledger is not store:
+                raise InvalidDeliveryError(
+                    "canonical delivery requires a matching ledger-backed EvidenceResolver"
+                )
+        elif evidence_resolver is not None:
+            raise InvalidDeliveryError("RunStore delivery cannot accept an EvidenceResolver")
         self._store = store
+        self._evidence_resolver = evidence_resolver
+        self._strict = isinstance(store, RunLedger)
 
     def compile(
         self,
@@ -91,6 +107,7 @@ class DeliveryCompiler:
         blueprint_target: ArtifactRevision,
         decision_entries: Sequence[ArtifactRevision],
         readiness: Mapping[str, Any],
+        expected_revision: int | None = None,
     ) -> DeliveryArtifacts:
         """Append a technical package and a separate concise human brief.
 
@@ -100,7 +117,14 @@ class DeliveryCompiler:
         """
 
         try:
-            snapshot = self._store.load_round(round_id)
+            if self._strict:
+                if expected_revision is None:
+                    raise InvalidDeliveryError("canonical delivery requires expected_revision")
+                snapshot = self._store.load_run(round_id)
+            else:
+                if expected_revision is not None:
+                    raise InvalidDeliveryError("RunStore delivery does not accept expected_revision")
+                snapshot = self._store.load_round(round_id)
             validate_identifier(technical_package_id, "technical_package_id")
             validate_identifier(human_brief_id, "human_brief_id")
             if technical_package_id == human_brief_id:
@@ -128,7 +152,19 @@ class DeliveryCompiler:
             _ensure_target_lineage(target, brief, model)
             inputs = _resolve_brief_inputs(snapshot.artifacts, brief)
             decisions, findings = _resolve_decisions(
-                snapshot.artifacts, round_id, target, decision_entries
+                snapshot.artifacts, round_id, target, decision_entries, strict=self._strict
+            )
+            evidence_refs = (
+                _resolve_strict_delivery_evidence(
+                    snapshot.artifacts,
+                    round_id,
+                    target,
+                    decisions,
+                    findings,
+                    self._evidence_resolver,
+                )
+                if self._strict
+                else ()
             )
             normalized_readiness = _normalize_readiness(readiness)
             previous_package = _latest_artifact(
@@ -188,6 +224,7 @@ class DeliveryCompiler:
             + tuple(ArtifactRef(round_id, item.id, item.revision) for item in inputs)
             + tuple(ArtifactRef(round_id, item.id, item.revision) for item in decisions)
             + tuple(ArtifactRef(round_id, item.id, item.revision) for item in findings)
+            + evidence_refs
         )
         package_refs = _unique_refs(
             (() if previous_package is None else (ArtifactRef(round_id, previous_package.id, previous_package.revision),))
@@ -198,23 +235,83 @@ class DeliveryCompiler:
             + (next_package_ref,)
             + source_refs
         )
-        technical_package = self._store.append_artifact(
-            round_id,
-            technical_package_id,
-            TECHNICAL_RESEARCH_PACKAGE_KIND,
-            technical_payload,
-            parent_refs=package_refs,
-        )
-        if technical_package.revision != next_package_ref.revision:
-            raise InvalidDeliveryError("technical package revision changed during delivery compilation")
-        human_brief = self._store.append_artifact(
-            round_id,
-            human_brief_id,
-            HUMAN_BRIEF_KIND,
-            human_payload,
-            parent_refs=human_refs,
-        )
+        if self._strict:
+            assert isinstance(self._store, RunLedger)
+            assert expected_revision is not None
+            try:
+                appended = self._store.append_artifact_batch(
+                    round_id,
+                    (
+                        (
+                            technical_package_id,
+                            TECHNICAL_RESEARCH_PACKAGE_KIND,
+                            technical_payload,
+                            package_refs,
+                        ),
+                        (human_brief_id, HUMAN_BRIEF_KIND, human_payload, human_refs),
+                    ),
+                    expected_revision=expected_revision,
+                )
+            except LedgerError as error:
+                raise InvalidDeliveryError(str(error)) from error
+            if len(appended) != 2:
+                raise InvalidDeliveryError("canonical delivery batch must append two artifacts")
+            technical_package, human_brief = appended
+        else:
+            technical_package = self._store.append_artifact(
+                round_id,
+                technical_package_id,
+                TECHNICAL_RESEARCH_PACKAGE_KIND,
+                technical_payload,
+                parent_refs=package_refs,
+            )
+            if technical_package.revision != next_package_ref.revision:
+                raise InvalidDeliveryError("technical package revision changed during delivery compilation")
+            human_brief = self._store.append_artifact(
+                round_id,
+                human_brief_id,
+                HUMAN_BRIEF_KIND,
+                human_payload,
+                parent_refs=human_refs,
+            )
         return DeliveryArtifacts(technical_package=technical_package, human_brief=human_brief)
+
+
+class CanonicalDeliveryCompiler(_DeliveryCompilerBase):
+    """Strict delivery facade for the canonical RunLedger path."""
+
+    def __init__(self, ledger: RunLedger, evidence_resolver: EvidenceResolver) -> None:
+        super().__init__(ledger, evidence_resolver)
+
+
+class DeliveryCompiler(_DeliveryCompilerBase):
+    """Legacy RunStore delivery compiler with a stable public contract."""
+
+    def __init__(self, store: RunStore) -> None:
+        if not isinstance(store, RunStore):
+            raise InvalidDeliveryError("DeliveryCompiler requires a RunStore")
+        super().__init__(store)
+
+    def compile(
+        self,
+        *,
+        round_id: str,
+        technical_package_id: str,
+        human_brief_id: str,
+        working_brief: ArtifactRevision,
+        blueprint_target: ArtifactRevision,
+        decision_entries: Sequence[ArtifactRevision],
+        readiness: Mapping[str, Any],
+    ) -> DeliveryArtifacts:
+        return super().compile(
+            round_id=round_id,
+            technical_package_id=technical_package_id,
+            human_brief_id=human_brief_id,
+            working_brief=working_brief,
+            blueprint_target=blueprint_target,
+            decision_entries=decision_entries,
+            readiness=readiness,
+        )
 
 
 def validate_technical_package_payload(payload: Mapping[str, Any]) -> None:
@@ -1157,13 +1254,17 @@ def _resolve_exact(
     raise InvalidDeliveryError(f"{label} has not been persisted in this RunStore")
 
 
+def _artifact_map(artifacts: Sequence[ArtifactRevision]) -> dict[ArtifactRef, ArtifactRevision]:
+    return {ArtifactRef(item.round_id, item.id, item.revision): item for item in artifacts}
+
+
 def _resolve_brief_model(
     artifacts: Sequence[ArtifactRevision], brief: ArtifactRevision
 ) -> ArtifactRevision:
     model_id = _identifier(brief.payload.get("intent_model_id"), "working_brief intent_model_id")
-    by_ref = {(artifact.id, artifact.revision): artifact for artifact in artifacts}
+    by_ref = _artifact_map(artifacts)
     for ref in brief.parent_refs:
-        model = by_ref.get((ref.artifact_id, ref.revision))
+        model = by_ref.get(ref)
         if ref.artifact_id == model_id and model is not None and model.kind == INTENT_MODEL_KIND:
             return model
     raise InvalidDeliveryError("working_brief has no exact Intent Model parent reference")
@@ -1196,10 +1297,10 @@ def _resolve_brief_inputs(
             allow_empty=True,
         )
     )
-    by_ref = {(artifact.id, artifact.revision): artifact for artifact in artifacts}
+    by_ref = _artifact_map(artifacts)
     result: list[ArtifactRevision] = []
     for ref in brief.parent_refs:
-        artifact = by_ref.get((ref.artifact_id, ref.revision))
+        artifact = by_ref.get(ref)
         if ref.artifact_id in ids and artifact is not None and artifact.kind == INPUT_LEDGER_ARTIFACT_KIND:
             result.append(artifact)
     if {item.id for item in result} != ids:
@@ -1212,17 +1313,19 @@ def _resolve_decisions(
     round_id: str,
     target: ArtifactRevision,
     values: Sequence[ArtifactRevision],
+    *,
+    strict: bool = False,
 ) -> tuple[tuple[ArtifactRevision, ...], tuple[ArtifactRevision, ...]]:
     if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
         raise InvalidDeliveryError("decision_entries must be a sequence")
     slots = _target_slots(target)
     target_ref = ArtifactRef(round_id, target.id, target.revision)
-    by_ref = {(artifact.id, artifact.revision): artifact for artifact in artifacts}
+    by_ref = _artifact_map(artifacts)
     decisions: list[ArtifactRevision] = []
     findings: list[ArtifactRevision] = []
     seen_ids: set[str] = set()
     seen_slots: set[str] = set()
-    seen_findings: set[tuple[str, int]] = set()
+    seen_findings: set[ArtifactRef] = set()
     for index, supplied in enumerate(values):
         decision = _resolve_exact(
             artifacts, supplied, DECISION_LEDGER_KIND, f"decision_entries[{index}]"
@@ -1242,7 +1345,11 @@ def _resolve_decisions(
             )
         linked_findings: list[ArtifactRevision] = []
         for ref in decision.parent_refs:
-            finding = by_ref.get((ref.artifact_id, ref.revision))
+            if strict and ref.round_id != round_id:
+                raise InvalidDeliveryError(
+                    "Decision Ledger entry has foreign parent lineage"
+                )
+            finding = by_ref.get(ref)
             if finding is not None and finding.kind == FINDING_PACK_KIND:
                 linked_findings.append(finding)
         _validate_implementation_decision(slots[slot_id], decision, linked_findings)
@@ -1250,11 +1357,124 @@ def _resolve_decisions(
         seen_slots.add(slot_id)
         decisions.append(decision)
         for finding in linked_findings:
-            key = (finding.id, finding.revision)
+            key = ArtifactRef(finding.round_id, finding.id, finding.revision)
             if key not in seen_findings:
                 seen_findings.add(key)
                 findings.append(finding)
     return tuple(decisions), tuple(findings)
+
+
+def _resolve_strict_delivery_evidence(
+    artifacts: Sequence[ArtifactRevision],
+    round_id: str,
+    target: ArtifactRevision,
+    decisions: Sequence[ArtifactRevision],
+    findings: Sequence[ArtifactRevision],
+    resolver: EvidenceResolver | None,
+) -> tuple[ArtifactRef, ...]:
+    """Revalidate strict Finding evidence at the final delivery boundary."""
+
+    if not isinstance(resolver, EvidenceResolver):
+        raise InvalidDeliveryError("canonical delivery requires an EvidenceResolver")
+    target_ref = ArtifactRef(round_id, target.id, target.revision)
+    if _latest_artifact(artifacts, target.id, BLUEPRINT_TARGET_KIND) != target:
+        raise InvalidDeliveryError(f"Blueprint Target revision is stale: {target.id}")
+    finding_refs: dict[ArtifactRef, tuple[ArtifactRef, ...]] = {}
+    resolved_refs: list[ArtifactRef] = []
+    for finding in findings:
+        if _latest_artifact(artifacts, finding.id, FINDING_PACK_KIND) != finding:
+            raise InvalidDeliveryError(f"Finding Pack revision is stale: {finding.id}")
+        if finding.payload.get("evidence_mode") != "strict":
+            raise InvalidDeliveryError(f"Finding Pack {finding.id} is not backed by strict evidence")
+        if finding.payload.get("blueprint_target_id") != target.id:
+            raise InvalidDeliveryError(f"Finding Pack {finding.id} references a foreign Blueprint Target")
+        if target_ref not in finding.parent_refs:
+            raise InvalidDeliveryError(f"Finding Pack {finding.id} lacks exact Target parent lineage")
+        refs_for_finding: list[ArtifactRef] = []
+        observations = finding.payload.get("observations", ())
+        if isinstance(observations, (str, bytes)) or not isinstance(observations, Sequence):
+            raise InvalidDeliveryError(f"Finding Pack {finding.id} observations are malformed")
+        if not observations:
+            raise InvalidDeliveryError(
+                f"Finding Pack {finding.id} requires at least one strict observation"
+            )
+        for index, observation in enumerate(observations):
+            if not isinstance(observation, Mapping):
+                raise InvalidDeliveryError(f"Finding Pack {finding.id} observation {index} is malformed")
+            try:
+                anchor = EvidenceAnchor.from_dict(observation["anchor"])
+                resolved = resolver.resolve(anchor)
+            except (KeyError, TypeError, ValueError, EvidenceValidationError) as error:
+                raise InvalidDeliveryError(
+                    f"Finding Pack {finding.id} evidence is not resolvable: {error}"
+                ) from error
+            reference = resolved.artifact_ref
+            if not isinstance(reference, ArtifactRef) or reference.round_id != round_id:
+                raise InvalidDeliveryError(
+                    f"Finding Pack {finding.id} evidence lacks an exact delivery-round reference"
+                )
+            if reference not in finding.parent_refs:
+                raise InvalidDeliveryError(
+                    f"Finding Pack {finding.id} lacks parent lineage for {reference.artifact_id}"
+                )
+            if reference not in refs_for_finding:
+                refs_for_finding.append(reference)
+            if reference not in resolved_refs:
+                resolved_refs.append(reference)
+        finding_refs[ArtifactRef(round_id, finding.id, finding.revision)] = tuple(refs_for_finding)
+
+    by_ref = _artifact_map(artifacts)
+    for decision in decisions:
+        if decision.payload.get("blueprint_target_id") != target.id:
+            raise InvalidDeliveryError(f"Decision Ledger {decision.id} references a foreign Blueprint Target")
+        linked = [
+            artifact
+            for reference in decision.parent_refs
+            if (artifact := by_ref.get(reference)) is not None
+            and artifact.kind == FINDING_PACK_KIND
+        ]
+        status = decision.payload.get("status")
+        if status in {"selected", "conditional"}:
+            if not linked:
+                raise InvalidDeliveryError(
+                    f"Decision Ledger {decision.id} requires a linked strict Finding Pack"
+                )
+            linked_ids = {finding.id for finding in linked}
+            finding_anchors = {
+                anchor.get("ref")
+                for anchor in decision.payload.get("anchors", ())
+                if isinstance(anchor, Mapping) and anchor.get("kind") == "finding"
+            }
+            if not finding_anchors or not finding_anchors <= linked_ids:
+                raise InvalidDeliveryError(
+                    f"Decision Ledger {decision.id} requires a linked Finding Pack anchor"
+                )
+        for finding in linked:
+            if finding.payload.get("decision_slot_id") != decision.payload.get("decision_slot_id"):
+                raise InvalidDeliveryError(
+                    f"Finding Pack {finding.id} is scoped to a different Decision Slot"
+                )
+            finding_ref = ArtifactRef(round_id, finding.id, finding.revision)
+            for reference in finding_refs.get(finding_ref, ()):
+                if reference not in decision.parent_refs:
+                    raise InvalidDeliveryError(
+                        f"Decision Ledger {decision.id} lacks evidence parent {reference.artifact_id}"
+                    )
+        if status in {"selected", "conditional"}:
+            supported_options = {
+                effect.get("option")
+                for finding in linked
+                for effect in finding.payload.get("option_effects", ())
+                if isinstance(effect, Mapping)
+                and effect.get("effect") == "supports"
+                and isinstance(effect.get("option"), str)
+            }
+            if decision.payload.get("selected_option") not in supported_options:
+                raise InvalidDeliveryError(
+                    "selected or conditional Decision Ledger requires a Finding Pack "
+                    "support effect for selected_option"
+                )
+    return tuple(resolved_refs)
 
 
 def _validate_implementation_decision(
@@ -2123,7 +2343,7 @@ def _render_technical_markdown(round_id: str, document: Mapping[str, Any]) -> st
         for observation in _mapping_sequence(finding["observations"], "finding observations", allow_empty=True):
             anchor = _mapping_value(observation["anchor"], "observation anchor")
             lines.append(
-                f"| {_cell(observation['claim'])} | {_cell(anchor['kind'])}:{_cell(anchor['ref'])} | "
+                f"| {_cell(observation['claim'])} | {_cell(_anchor_label(anchor))} | "
                 f"{_cell(implications)} |"
             )
     lines.extend(["", "## Recommended Design", ""])
@@ -2447,6 +2667,20 @@ def _anchors(value: Any) -> str:
         else:
             rendered.append(str(item))
     return ", ".join(_cell(item) for item in rendered) or "-"
+
+
+def _anchor_label(value: Mapping[str, Any]) -> str:
+    """Render both legacy semantic anchors and strict typed evidence anchors."""
+
+    if "kind" in value and "ref" in value:
+        return f"{value['kind']}:{value['ref']}"
+    if "artifact_ref" in value and "selector_type" in value:
+        try:
+            reference = ArtifactRef.from_dict(value["artifact_ref"])
+            return f"evidence:{_ref_label(reference.to_dict())}#{value['selector_type']}"
+        except (TypeError, ValueError, KeyError):
+            return "evidence:invalid"
+    return str(value)
 
 
 def _alternatives(value: Any) -> str:
