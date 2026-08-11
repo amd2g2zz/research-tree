@@ -1,0 +1,9 @@
+{
+  "command": "uv run pytest -q tests/test_research_run_coordinator.py",
+  "environment_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "exit_code": 0,
+  "output_digest": "9e4a7d8eed9a207251c7d7982d00ec14620573d034b424ae6f278acfb22e495d",
+  "raw_output_ref": "openspec/changes/introduce-research-run-coordinator/evidence/group-5-output.txt",
+  "recorded_at": "2026-08-11T18:00:00+08:00",
+  "source_revision": "69b36a629846bd72cf35a01c75b09d1906f926d7"
+}

@@ -56,8 +56,42 @@
       },
       "rollback": "retain imported evidence as read-only"
     },
-    { "group": 4, "state": "planned" },
-    { "group": 5, "state": "planned" },
+    {
+      "group": 4,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/add-oracle-slot-closure/evidence/group-4-output.txt",
+        "openspec/changes/add-oracle-slot-closure/evidence/group-4-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_oracle_slot_closure.py tests/test_oracles.py",
+        "exit_code": 0,
+        "environment_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+        "output_digest": "6d93f6965ff4938b33cc0c5486dbc4e87d94f29fd72440683cbf83ef07f7466f",
+        "source_revision": "1dc0f6519235e5e64316e2de8b075a7f775bec10",
+        "raw_output_ref": "openspec/changes/add-oracle-slot-closure/evidence/group-4-output.txt",
+        "recorded_at": "2026-08-11T16:00:00+08:00"
+      },
+      "rollback": "revoke alpha2 closure tokens and route reads to prior projections"
+    },
+    {
+      "group": 5,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/introduce-research-run-coordinator/evidence/group-5-output.txt",
+        "openspec/changes/introduce-research-run-coordinator/evidence/group-5-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_research_run_coordinator.py",
+        "exit_code": 0,
+        "environment_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+        "output_digest": "9e4a7d8eed9a207251c7d7982d00ec14620573d034b424ae6f278acfb22e495d",
+        "source_revision": "69b36a629846bd72cf35a01c75b09d1906f926d7",
+        "raw_output_ref": "openspec/changes/introduce-research-run-coordinator/evidence/group-5-output.txt",
+        "recorded_at": "2026-08-11T18:00:00+08:00"
+      },
+      "rollback": "route reads to legacy projection"
+    },
     { "group": 6, "state": "planned" },
     { "group": 7, "state": "planned" },
     { "group": 8, "state": "planned" },
