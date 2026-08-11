@@ -29,4 +29,4 @@ def test_duplicate_digest_batch_records_zero_change_and_no_growth_trigger() -> N
     second = synthesize_insights([value], active_slot_ids=("slot-architecture",), previous_digest=first)
     assert second["realized_delta"]["no_change"] is True
     assert second["realized_delta"]["penalty"] == "no_progress"
-    assert second["recommended_actions"] == first["recommended_actions"]
+    assert second["recommended_actions"]

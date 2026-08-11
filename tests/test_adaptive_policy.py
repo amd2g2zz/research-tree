@@ -22,13 +22,17 @@ def test_uncovered_slot_gets_bounded_landscape_proposal() -> None:
         slots=(slot(priority="P0"),)
     )
     proposal = result.proposals[0]
-    assert [proposal.kind] == ["landscape"]
-    assert proposal.slot_id == "slot-architecture"
-    assert proposal.missing_dimensions == ("evidence_class_coverage",)
-    assert proposal.closure_oracle.startswith("The evidence")
-    assert proposal.causal_refs == ("deficit:slot-architecture",)
-    assert result.trace.policy_version == "policy-test-v1"
-    assert result.trace.seed == 11 and result.trace.authority == "coordinator_only"
+    assert (proposal.kind, proposal.slot_id, proposal.missing_dimensions) == (
+        "landscape",
+        "slot-architecture",
+        ("evidence_class_coverage",),
+    )
+    assert proposal.closure_oracle.startswith("The evidence") and proposal.causal_refs == ("deficit:slot-architecture",)
+    assert (result.trace.policy_version, result.trace.seed, result.trace.authority) == (
+        "policy-test-v1",
+        11,
+        "coordinator_only",
+    )
 
 
 def test_worker_only_suggestion_is_rejected_without_a_verified_trigger() -> None:
@@ -36,9 +40,10 @@ def test_worker_only_suggestion_is_rejected_without_a_verified_trigger() -> None
         slots=(slot(),),
         worker_suggestions=({"action_id": "worker-idea", "slot_id": "slot-architecture", "kind": "deep_dive"},),
     )
-    assert result.proposals == ()
-    assert result.dispositions[0].disposition == "rejected"
-    assert result.dispositions[0].reason == "missing_verified_trigger"
+    assert result.proposals == () and (result.dispositions[0].disposition, result.dispositions[0].reason) == (
+        "rejected",
+        "missing_verified_trigger",
+    )
 
 
 def test_policy_rejects_malformed_slot_deficit() -> None:

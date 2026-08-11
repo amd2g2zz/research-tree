@@ -305,29 +305,6 @@ def _baseline_field(component: str) -> str:
     }[component]
 
 
-def compute_realized_delta(
-    baseline: EvidenceBaseline,
-    finding_packs: Sequence[Any],
-    *,
-    transition_index: int,
-) -> tuple[RealizedDelta, EvidenceBaseline]:
-    result, next_baseline = measure_realized_delta(
-        baseline,
-        finding_packs,
-        transition_index=transition_index,
-    )
-    values = {
-        key: float(value["value"] if isinstance(value, Mapping) else value)
-        for key, value in result["components"].items()
-    }
-    typed = RealizedDelta(
-        **values,
-        references={key: tuple(result["realized_delta_vector"]["references"].get(key, ())) for key in DELTA_COMPONENTS},
-        no_change=bool(result["no_change"]),
-    )
-    return typed, next_baseline
-
-
 def _payload(value: Any) -> Mapping[str, Any]:
     payload = value.payload if hasattr(value, "payload") else value
     return payload if isinstance(payload, Mapping) else {}

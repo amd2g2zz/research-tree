@@ -46,11 +46,6 @@ def synthesize_insights(
     previous_digest: Mapping[str, Any] | None = None,
     producer_version: str = INSIGHT_PRODUCER_VERSION,
 ) -> dict[str, Any]:
-    """Turn independent Finding Packs into deterministic policy signals.
-
-    Inputs are validated before synthesis so a wrong-slot or duplicate Finding
-    Pack cannot be silently omitted from the lineage.
-    """
 
     active_slots = tuple(sorted({str(item) for item in active_slot_ids if str(item).strip()}))
     normalized = _validate_and_normalize_finding_packs(finding_packs, active_slots)
@@ -247,8 +242,6 @@ def synthesize_insights(
 
 
 def validate_insight_digest(value: Mapping[str, Any]) -> None:
-    """Validate legacy and rich digest projections without granting authority."""
-
     if not isinstance(value, Mapping):
         raise ValueError("insight digest must be a mapping")
     missing_legacy = _LEGACY_REQUIRED - set(value)

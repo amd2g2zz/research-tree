@@ -31,9 +31,11 @@ def test_identical_policy_inputs_replay_same_trace_and_dispositions() -> None:
     }
     first, replay = policy.evaluate(**inputs), policy.evaluate(**inputs)
     assert first == replay
-    assert first.trace.canonical_input_digest == replay.trace.canonical_input_digest
-    assert first.trace.tie_break_order == replay.trace.tie_break_order
-    assert first.trace.selected_ids == replay.trace.selected_ids
+    assert (first.trace.canonical_input_digest, first.trace.tie_break_order, first.trace.selected_ids) == (
+        replay.trace.canonical_input_digest,
+        replay.trace.tie_break_order,
+        replay.trace.selected_ids,
+    )
 
 
 def test_calibration_version_isolated_and_mandatory_validation_survives_capacity() -> None:
@@ -49,7 +51,6 @@ def test_calibration_version_isolated_and_mandatory_validation_survives_capacity
         "signals": (InsightSignal("slot-replay", "qualified", ("source:one",), ("validation",), mandatory=True),),
     }
     old_result, new_result = old.evaluate(**inputs), new.evaluate(**inputs)
-    assert old_result.trace.policy_version == "calibration-v1"
-    assert new_result.trace.policy_version == "calibration-v2"
+    assert (old_result.trace.policy_version, new_result.trace.policy_version) == ("calibration-v1", "calibration-v2")
     assert old_result.trace.canonical_input_digest == new_result.trace.canonical_input_digest
     assert any(item.kind == "validation" and item.mandatory for item in new_result.proposals)

@@ -73,7 +73,5 @@ def test_insights_require_validation_when_triangulated_findings_remain_qualified
     assert insight["signal"] == "qualified"
     assert insight["anchor_count"] == 2
     assert insight["repeated_claims"][0]["independent_count"] == 2
-    assert digest["next_actions"] == [
-        {"decision_slot_id": "slot-architecture", "action": "dispatch_validation"}
-    ]
+    assert digest["next_actions"] == [{"decision_slot_id": "slot-architecture", "action": "dispatch_validation"}]
     assert digest["closure"] == "blocked_by_uncovered_or_contested_slots"

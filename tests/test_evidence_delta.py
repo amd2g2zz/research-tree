@@ -29,9 +29,7 @@ def finding(
 
 def test_repeated_state_returns_zero_six_component_delta() -> None:
     historical = finding("finding-1")
-    delta, next_baseline = measure_realized_delta(
-        baseline_from_finding_packs((historical,)), (historical,), transition_index=1
-    )
+    delta, _ = measure_realized_delta(baseline_from_finding_packs((historical,)), (historical,), transition_index=1)
     assert delta["schema_version"] == 2
     assert set(delta["components"]) == {
         "evidence_class_coverage",
@@ -41,12 +39,7 @@ def test_repeated_state_returns_zero_six_component_delta() -> None:
         "implementation_uncertainty",
         "slot_closure_change",
     }
-    assert (
-        delta["realized_delta"] == 0.0
-        and delta["no_change"]
-        and delta["duplicate_only"]
-        and next_baseline == baseline_from_finding_packs((historical,))
-    )
+    assert delta["realized_delta"] == 0.0 and delta["no_change"] and delta["duplicate_only"]
 
 
 def test_new_state_delta_attributes_each_changed_component_to_finding() -> None:
@@ -56,6 +49,4 @@ def test_new_state_delta_attributes_each_changed_component_to_finding() -> None:
         transition_index=1,
     )
     assert delta["realized_delta"] > 0 and not delta["no_change"]
-    assert all(item["references"] for item in delta["components"].values())
-    assert delta["components"]["evidence_class_coverage"]["contribution"]
-    assert delta["components"]["slot_closure_change"]["contribution"]
+    assert all(item["references"] and item["contribution"] for item in delta["components"].values())

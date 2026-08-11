@@ -54,9 +54,6 @@ class PolicyConfiguration:
             raise ValueError("policy weights must not be empty")
         object.__setattr__(self, "weights", MappingProxyType(normalized))
 
-    def to_dict(self) -> dict[str, Any]:
-        return _model_dict(self)
-
 
 @dataclass(frozen=True, slots=True)
 class DecisionSlotDeficit:
@@ -106,9 +103,6 @@ class DecisionSlotDeficit:
             depth=int(value.get("depth", 0)),
         )
 
-    def to_dict(self) -> dict[str, Any]:
-        return _model_dict(self)
-
 
 @dataclass(frozen=True, slots=True)
 class VerifiedEvidence:
@@ -149,9 +143,6 @@ class VerifiedEvidence:
             method_boundary=str(value.get("method_boundary", "")),
         )
 
-    def to_dict(self) -> dict[str, Any]:
-        return _model_dict(self)
-
 
 @dataclass(frozen=True, slots=True)
 class InsightSignal:
@@ -189,9 +180,6 @@ class InsightSignal:
             invalid_premise=bool(value.get("invalid_premise", False)),
         )
 
-    def to_dict(self) -> dict[str, Any]:
-        return _model_dict(self)
-
 
 @dataclass(frozen=True, slots=True)
 class PolicyProposal:
@@ -220,9 +208,6 @@ class PolicyProposal:
         object.__setattr__(self, "causal_refs", _strings(self.causal_refs))
         object.__setattr__(self, "score_components", MappingProxyType(dict(self.score_components)))
 
-    def to_dict(self) -> dict[str, Any]:
-        return _model_dict(self)
-
 
 @dataclass(frozen=True, slots=True)
 class PolicyDisposition:
@@ -236,9 +221,6 @@ class PolicyDisposition:
         if self.disposition not in POLICY_DISPOSITIONS:
             raise ValueError(f"unsupported policy disposition: {self.disposition}")
         object.__setattr__(self, "causal_refs", _strings(self.causal_refs))
-
-    def to_dict(self) -> dict[str, Any]:
-        return _model_dict(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,18 +237,12 @@ class PolicyTrace:
     def authority(self) -> str:
         return "coordinator_only"
 
-    def to_dict(self) -> dict[str, Any]:
-        return {**_model_dict(self), "authority": self.authority}
-
 
 @dataclass(frozen=True, slots=True)
 class PolicyEvaluation:
     proposals: tuple[PolicyProposal, ...]
     dispositions: tuple[PolicyDisposition, ...]
     trace: PolicyTrace
-
-    def to_dict(self) -> dict[str, Any]:
-        return _model_dict(self)
 
 
 class AdaptiveResearchPolicy:
@@ -531,6 +507,23 @@ def _model_dict(value: Any) -> Any:
     if isinstance(value, (tuple, list, set, frozenset)):
         return [_model_dict(item) for item in value]
     return value
+
+
+def _trace_dict(value: PolicyTrace) -> dict[str, Any]:
+    return {**_model_dict(value), "authority": value.authority}
+
+
+for _model in (
+    PolicyConfiguration,
+    DecisionSlotDeficit,
+    VerifiedEvidence,
+    InsightSignal,
+    PolicyProposal,
+    PolicyDisposition,
+    PolicyEvaluation,
+):
+    _model.to_dict = _model_dict
+PolicyTrace.to_dict = _trace_dict
 
 
 def _strings(value: Sequence[Any]) -> tuple[str, ...]:
