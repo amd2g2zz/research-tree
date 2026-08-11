@@ -53,7 +53,7 @@
 
 ## 5. OpenSpec and acceptance evidence
 
-- [ ] 5.1 Update group 6 and group 16 task/verification registries with exact
+- [x] 5.1 Update group 6 and group 16 task/verification registries with exact
   focused pytest and Ruff commands, commit SHA, policy version, seed, and
   evidence paths.
 - [ ] 5.2 Run focused policy/delta/insight/replay/recursive tests, full pytest,
