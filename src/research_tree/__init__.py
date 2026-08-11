@@ -195,6 +195,21 @@ from .oracles import (
 from .closure import ASSESSMENT_KIND, ClosureAssessmentError, OracleService, SlotClosureAssessor, SlotClosureAssessment
 from .legacy_import import LegacyImportError, LegacyImportReceipt, LegacyImportResult, LegacyRunStoreImporter
 from .content_store import ContentAddressedStore, ContentIntegrityError, ContentObject, ContentPathError, ContentStoreError
+from .coordinator import (
+    COMPLETION_RECORD_KIND,
+    CoordinatorConflictError,
+    CoordinatorError,
+    CoordinatorEventConflictError,
+    CoordinatorResult,
+    CompletionBlockedError,
+    HOST_EVENT_KIND,
+    IllegalTransitionError,
+    LEASE_KIND,
+    LIFECYCLE_EVENT_KIND,
+    LIFECYCLE_STATES,
+    RESEARCH_RUN_STATE_KIND,
+    ResearchRunCoordinator,
+)
 from .evidence import (
     EvidenceAnchor,
     EvidenceArtifact,
@@ -331,6 +346,19 @@ __all__ = [
     "ContentObject",
     "ContentPathError",
     "ContentStoreError",
+    "COMPLETION_RECORD_KIND",
+    "CoordinatorConflictError",
+    "CoordinatorError",
+    "CoordinatorEventConflictError",
+    "CoordinatorResult",
+    "CompletionBlockedError",
+    "HOST_EVENT_KIND",
+    "IllegalTransitionError",
+    "LEASE_KIND",
+    "LIFECYCLE_EVENT_KIND",
+    "LIFECYCLE_STATES",
+    "RESEARCH_RUN_STATE_KIND",
+    "ResearchRunCoordinator",
     "EvidenceAnchor",
     "EvidenceArtifact",
     "EvidenceRepository",
