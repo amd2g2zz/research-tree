@@ -1,0 +1,9 @@
+{
+  "command": "uv run pytest -q tests/test_feedback_rounds.py tests/test_alignment_protocol.py tests/test_research_run_coordinator.py && uv run ruff check src/research_tree/feedback.py src/research_tree/coordinator.py src/research_tree/alignment_protocol.py src/research_tree/__init__.py tests/test_feedback_rounds.py && uv run ruff format --check src/research_tree/feedback.py src/research_tree/coordinator.py src/research_tree/alignment_protocol.py src/research_tree/__init__.py tests/test_feedback_rounds.py",
+  "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+  "exit_code": 0,
+  "output_digest": "0d1dd9cd5914f58299dc55ce7869955fa3820a2f02aea6d0c9dbe48e4860b87f",
+  "raw_output_ref": "openspec/changes/invalidate-stale-alignment-state/evidence/group-23-output.txt",
+  "recorded_at": "2026-08-11T15:35:05.727959+00:00",
+  "source_revision": "92453cd48c89be00c405f33b1f61d095f64d36df"
+}
