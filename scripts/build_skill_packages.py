@@ -41,9 +41,7 @@ COMMON_FILES = (
     Path("references/research-quality-playbook.md"),
     Path("references/alignment-controller.md"),
 )
-COMMON_FILE_MAP = (
-    (Path("src/research_tree/alignment_graph.py"), Path("scripts/alignment_controller.py")),
-)
+COMMON_FILE_MAP = ((Path("src/research_tree/alignment_graph.py"), Path("scripts/alignment_controller.py")),)
 HERMES_FILES = (
     Path("references/hermes-alignment.md"),
     Path("references/hermes-agent-compatibility.md"),
@@ -58,16 +56,16 @@ CLAUDE_FILES = (
     Path("references/claude-code-compatibility.md"),
     Path("references/claude-native-orchestration.md"),
     Path("scripts/native_execution_adapter.py"),
+    Path("scripts/host_event_protocol.py"),
 )
 CODEX_FILES = (
     Path("references/codex-cli-compatibility.md"),
     Path("references/codex-native-orchestration.md"),
     Path("scripts/native_execution_adapter.py"),
+    Path("scripts/host_event_protocol.py"),
 )
 HOST_FILE_MAP = {
-    "codex": (
-        (Path("skill-src/codex-openai.yaml"), Path("agents/openai.yaml")),
-    ),
+    "codex": ((Path("skill-src/codex-openai.yaml"), Path("agents/openai.yaml")),),
     "claude": (),
     "hermes": (),
 }
@@ -119,27 +117,17 @@ def _render_skill(host: str, root: Path) -> str:
     if template.count(TOKEN) != 1:
         raise ValueError(f"template must contain exactly one {TOKEN!r} marker")
     if template.count(FRONTMATTER_TOKEN) != 1:
-        raise ValueError(
-            f"template must contain exactly one {FRONTMATTER_TOKEN!r} marker"
-        )
+        raise ValueError(f"template must contain exactly one {FRONTMATTER_TOKEN!r} marker")
     frontmatter = ""
     if host == "claude":
-        frontmatter = (
-            root / "skill-src" / "claude-frontmatter.yaml"
-        ).read_text(encoding="utf-8").strip()
+        frontmatter = (root / "skill-src" / "claude-frontmatter.yaml").read_text(encoding="utf-8").strip()
     adapter = ""
     if host == "codex":
-        adapter = (
-            root / CODEX_ADAPTER.relative_to(ROOT)
-        ).read_text(encoding="utf-8").strip()
+        adapter = (root / CODEX_ADAPTER.relative_to(ROOT)).read_text(encoding="utf-8").strip()
     elif host == "hermes":
-        adapter = (
-            root / HERMES_ADAPTER.relative_to(ROOT)
-        ).read_text(encoding="utf-8").strip()
+        adapter = (root / HERMES_ADAPTER.relative_to(ROOT)).read_text(encoding="utf-8").strip()
     elif host == "claude":
-        adapter = (
-            root / CLAUDE_ADAPTER.relative_to(ROOT)
-        ).read_text(encoding="utf-8").strip()
+        adapter = (root / CLAUDE_ADAPTER.relative_to(ROOT)).read_text(encoding="utf-8").strip()
     return (
         template.replace(
             FRONTMATTER_TOKEN + "\n",
@@ -161,23 +149,17 @@ def _copy_files(root: Path, target: Path, relatives: tuple[Path, ...]) -> None:
         shutil.copy2(source, destination)
 
 
-def _copy_mapped_files(
-    root: Path, target: Path, mappings: tuple[tuple[Path, Path], ...]
-) -> None:
+def _copy_mapped_files(root: Path, target: Path, mappings: tuple[tuple[Path, Path], ...]) -> None:
     for source_relative, target_relative in mappings:
         source = root / source_relative
         if not source.is_file():
-            raise ValueError(
-                f"package source file is missing: {source_relative.as_posix()}"
-            )
+            raise ValueError(f"package source file is missing: {source_relative.as_posix()}")
         destination = target / target_relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
 
 
-def _validate_plugin_manifest(
-    package: Path, root: Path, project_version: str | None
-) -> list[str]:
+def _validate_plugin_manifest(package: Path, root: Path, project_version: str | None) -> list[str]:
     errors: list[str] = []
     manifest = package / ".claude-plugin" / "plugin.json"
     source = root / CLAUDE_PLUGIN_SOURCE
@@ -239,9 +221,7 @@ def validate_marketplace(root: Path = ROOT) -> dict[str, object]:
     if not isinstance(plugins, list):
         errors.append("Claude marketplace plugins must be an array")
     else:
-        matching_entries = [
-            item for item in plugins if isinstance(item, dict) and item.get("name") == "research-tree"
-        ]
+        matching_entries = [item for item in plugins if isinstance(item, dict) and item.get("name") == "research-tree"]
         if not matching_entries:
             errors.append("Claude marketplace is missing the research-tree plugin")
         elif len(matching_entries) != 1:
@@ -285,9 +265,7 @@ def validate_marketplace(root: Path = ROOT) -> dict[str, object]:
     }
 
 
-def validate_package(
-    package: Path, host: str, root: Path = ROOT
-) -> dict[str, object]:
+def validate_package(package: Path, host: str, root: Path = ROOT) -> dict[str, object]:
     root = root.resolve()
     package = package.resolve()
     skill_root = _skill_root(package, host)
@@ -326,11 +304,7 @@ def validate_package(
     for source_relative, target_relative in HOST_FILE_MAP[host]:
         expected_sources[_skill_relative(host, target_relative)] = source_relative
     expected_files = {skill_relative, *expected_sources}
-    actual_files = {
-        path.relative_to(package)
-        for path in package.rglob("*")
-        if path.is_file()
-    }
+    actual_files = {path.relative_to(package) for path in package.rglob("*") if path.is_file()}
     for relative in sorted(expected_files - actual_files):
         errors.append(f"missing package file: {relative.as_posix()}")
     for relative in sorted(actual_files - expected_files):
@@ -422,9 +396,7 @@ def build_packages(root: Path = ROOT) -> dict[str, object]:
             staged = staging_root / relative
             skill_staged = _skill_root(staged, host)
             skill_staged.mkdir(parents=True)
-            (skill_staged / "SKILL.md").write_text(
-                _render_skill(host, root), encoding="utf-8", newline="\n"
-            )
+            (skill_staged / "SKILL.md").write_text(_render_skill(host, root), encoding="utf-8", newline="\n")
             _copy_files(root, skill_staged, COMMON_FILES)
             _copy_mapped_files(root, skill_staged, COMMON_FILE_MAP)
             if host == "codex":
@@ -461,10 +433,7 @@ def main() -> int:
     if args.check:
         result = {
             "marketplace": validate_marketplace(),
-            "packages": [
-                validate_package(package_source(host), host)
-                for host in PACKAGE_RELATIVES
-            ]
+            "packages": [validate_package(package_source(host), host) for host in PACKAGE_RELATIVES],
         }
     else:
         result = build_packages()

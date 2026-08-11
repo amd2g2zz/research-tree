@@ -49,9 +49,7 @@ def write_reports(workspace: Path) -> tuple[Path, Path]:
     return technical, human
 
 
-def run_adapter(
-    workspace: Path, host: str, command: str, *args: str
-) -> subprocess.CompletedProcess[str]:
+def run_adapter(workspace: Path, host: str, command: str, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
             sys.executable,
@@ -70,9 +68,7 @@ def run_adapter(
     )
 
 
-def finding(
-    task_id: str, slot: str, phase: str, attempt_id: str
-) -> dict[str, object]:
+def finding(task_id: str, slot: str, phase: str, attempt_id: str) -> dict[str, object]:
     return {
         "id": f"finding-{task_id}",
         "work_item_id": task_id,
@@ -101,10 +97,18 @@ def finding(
 def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -> None:
     run_id = f"{host}-run"
     technical, human = write_reports(tmp_path)
-    assert run_adapter(
-        tmp_path, host, "init", "--run-id", run_id,
-        "--handoff", str(write_handoff(tmp_path)),
-    ).returncode == 0
+    assert (
+        run_adapter(
+            tmp_path,
+            host,
+            "init",
+            "--run-id",
+            run_id,
+            "--handoff",
+            str(write_handoff(tmp_path)),
+        ).returncode
+        == 0
+    )
     first = run_adapter(
         tmp_path,
         host,
@@ -157,9 +161,7 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
     )
     assert started.returncode == 0, started.stderr
     first_attempt_id = json.loads(started.stdout)["attempt_id"]
-    recovered = json.loads(
-        run_adapter(tmp_path, host, "recover", "--run-id", run_id).stdout
-    )
+    recovered = json.loads(run_adapter(tmp_path, host, "recover", "--run-id", run_id).stdout)
     assert recovered["recovered_to_unknown"] == ["landscape-1"]
 
     restarted = run_adapter(
@@ -176,9 +178,7 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
     artifact = tmp_path / "findings" / "landscape-1.json"
     artifact.parent.mkdir()
     artifact.write_text(
-        json.dumps(
-            finding("landscape-1", "slot-a", "landscape", first_attempt_id)
-        ),
+        json.dumps(finding("landscape-1", "slot-a", "landscape", first_attempt_id)),
         encoding="utf-8",
     )
     stale = run_adapter(
@@ -218,23 +218,24 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
     )
     assert finished.returncode == 0, finished.stderr
     assert json.loads(finished.stdout)["status"] == "submitted"
-    submitted = json.loads(
-        run_adapter(tmp_path, host, "status", "--run-id", run_id).stdout
-    )
+    submitted = json.loads(run_adapter(tmp_path, host, "status", "--run-id", run_id).stdout)
     assert submitted["counts"]["submitted"] == 1
     assert submitted["ready"] == []
     assert submitted["complete"] is False
-    assert run_adapter(
-        tmp_path,
-        host,
-        "complete",
-        "--run-id",
-        run_id,
-        "--technical-report",
-        str(technical),
-        "--human-report",
-        str(human),
-    ).returncode == 1
+    assert (
+        run_adapter(
+            tmp_path,
+            host,
+            "complete",
+            "--run-id",
+            run_id,
+            "--technical-report",
+            str(technical),
+            "--human-report",
+            str(human),
+        ).returncode
+        == 1
+    )
     unchecked = run_adapter(
         tmp_path,
         host,
@@ -269,9 +270,7 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
     mid = json.loads(run_adapter(tmp_path, host, "status", "--run-id", run_id).stdout)
     assert mid["ready"] == ["validation-1"]
 
-    validation_start = run_adapter(
-        tmp_path, host, "start", "--run-id", run_id, "--task-id", "validation-1"
-    )
+    validation_start = run_adapter(tmp_path, host, "start", "--run-id", run_id, "--task-id", "validation-1")
     assert validation_start.returncode == 0
     validation_task = json.loads(validation_start.stdout)
     validation = tmp_path / "findings" / "validation-1.json"
@@ -286,32 +285,38 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
         ),
         encoding="utf-8",
     )
-    assert run_adapter(
-        tmp_path,
-        host,
-        "finish",
-        "--run-id",
-        run_id,
-        "--task-id",
-        "validation-1",
-        "--result",
-        "submitted",
-    ).returncode == 0
-    assert run_adapter(
-        tmp_path,
-        host,
-        "verify",
-        "--run-id",
-        run_id,
-        "--task-id",
-        "validation-1",
-        "--reviewer-id",
-        "coordinator",
-        "--review-note",
-        "Reproduced the validation evidence and checked limitations.",
-        "--checked-anchor",
-        "https://example.test/source",
-    ).returncode == 0
+    assert (
+        run_adapter(
+            tmp_path,
+            host,
+            "finish",
+            "--run-id",
+            run_id,
+            "--task-id",
+            "validation-1",
+            "--result",
+            "submitted",
+        ).returncode
+        == 0
+    )
+    assert (
+        run_adapter(
+            tmp_path,
+            host,
+            "verify",
+            "--run-id",
+            run_id,
+            "--task-id",
+            "validation-1",
+            "--reviewer-id",
+            "coordinator",
+            "--review-note",
+            "Reproduced the validation evidence and checked limitations.",
+            "--checked-anchor",
+            "https://example.test/source",
+        ).returncode
+        == 0
+    )
     completed = run_adapter(
         tmp_path,
         host,
@@ -324,16 +329,16 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
         str(human),
     )
     assert completed.returncode == 0, completed.stderr
-    assert json.loads(completed.stdout)["complete"] is True
+    completed_summary = json.loads(completed.stdout)
+    assert completed_summary["complete"] is False
+    assert completed_summary["observed_complete"] is True
+    assert completed_summary["status"] == "delivery_pending"
+    assert completed_summary["completion_authority"] == "coordinator_only"
 
     artifact.write_text(artifact.read_text(encoding="utf-8") + "\n", encoding="utf-8")
-    cascaded = json.loads(
-        run_adapter(tmp_path, host, "recover", "--run-id", run_id).stdout
-    )
+    cascaded = json.loads(run_adapter(tmp_path, host, "recover", "--run-id", run_id).stdout)
     assert cascaded["recovered_to_unknown"] == ["landscape-1", "validation-1"]
-    reopened = json.loads(
-        run_adapter(tmp_path, host, "status", "--run-id", run_id).stdout
-    )
+    reopened = json.loads(run_adapter(tmp_path, host, "status", "--run-id", run_id).stdout)
     assert reopened["status"] == "running"
     assert reopened["ready"] == ["landscape-1"]
 
@@ -341,8 +346,13 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
 def test_adapter_rejects_invalid_finding_and_detects_tampering(tmp_path: Path) -> None:
     run_id = "integrity-run"
     run_adapter(
-        tmp_path, "codex", "init", "--run-id", run_id,
-        "--handoff", str(write_handoff(tmp_path)),
+        tmp_path,
+        "codex",
+        "init",
+        "--run-id",
+        run_id,
+        "--handoff",
+        str(write_handoff(tmp_path)),
     )
     run_adapter(
         tmp_path,
@@ -376,9 +386,7 @@ def test_adapter_rejects_invalid_finding_and_detects_tampering(tmp_path: Path) -
         "--depends-on",
         "task-1",
     )
-    started = run_adapter(
-        tmp_path, "codex", "start", "--run-id", run_id, "--task-id", "task-1"
-    )
+    started = run_adapter(tmp_path, "codex", "start", "--run-id", run_id, "--task-id", "task-1")
     attempt_id = json.loads(started.stdout)["attempt_id"]
     artifact = tmp_path / "finding.json"
     artifact.write_text("{}", encoding="utf-8")
@@ -400,48 +408,48 @@ def test_adapter_rejects_invalid_finding_and_detects_tampering(tmp_path: Path) -
         json.dumps(finding("task-1", "slot-a", "deep_dive", attempt_id)),
         encoding="utf-8",
     )
-    assert run_adapter(
-        tmp_path,
-        "codex",
-        "finish",
-        "--run-id",
-        run_id,
-        "--task-id",
-        "task-1",
-        "--result",
-        "submitted",
-    ).returncode == 0
-    assert run_adapter(
-        tmp_path,
-        "codex",
-        "verify",
-        "--run-id",
-        run_id,
-        "--task-id",
-        "task-1",
-        "--reviewer-id",
-        "coordinator",
-        "--review-note",
-        "Checked the source anchor and applicability.",
-        "--checked-anchor",
-        "https://example.test/source",
-    ).returncode == 0
-    artifact.write_text(artifact.read_text(encoding="utf-8") + "\n", encoding="utf-8")
-    summary = json.loads(
-        run_adapter(tmp_path, "codex", "status", "--run-id", run_id).stdout
+    assert (
+        run_adapter(
+            tmp_path,
+            "codex",
+            "finish",
+            "--run-id",
+            run_id,
+            "--task-id",
+            "task-1",
+            "--result",
+            "submitted",
+        ).returncode
+        == 0
     )
+    assert (
+        run_adapter(
+            tmp_path,
+            "codex",
+            "verify",
+            "--run-id",
+            run_id,
+            "--task-id",
+            "task-1",
+            "--reviewer-id",
+            "coordinator",
+            "--review-note",
+            "Checked the source anchor and applicability.",
+            "--checked-anchor",
+            "https://example.test/source",
+        ).returncode
+        == 0
+    )
+    artifact.write_text(artifact.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    summary = json.loads(run_adapter(tmp_path, "codex", "status", "--run-id", run_id).stdout)
     assert summary["complete"] is False
     assert summary["integrity_errors"] == ["task-1: artifact hash mismatch"]
     assert summary["ready"] == []
     assert summary["recovery_required"] == ["task-1"]
 
-    recovered = json.loads(
-        run_adapter(tmp_path, "codex", "recover", "--run-id", run_id).stdout
-    )
+    recovered = json.loads(run_adapter(tmp_path, "codex", "recover", "--run-id", run_id).stdout)
     assert recovered["recovered_to_unknown"] == ["task-1"]
-    after_recovery = json.loads(
-        run_adapter(tmp_path, "codex", "status", "--run-id", run_id).stdout
-    )
+    after_recovery = json.loads(run_adapter(tmp_path, "codex", "status", "--run-id", run_id).stdout)
     assert after_recovery["ready"] == ["task-1"]
     restarted = json.loads(
         run_adapter(
@@ -456,48 +464,55 @@ def test_adapter_rejects_invalid_finding_and_detects_tampering(tmp_path: Path) -
     )
     assert restarted["attempt"] == 2
     artifact.write_text(
-        json.dumps(
-            finding("task-1", "slot-a", "deep_dive", restarted["attempt_id"])
-        ),
+        json.dumps(finding("task-1", "slot-a", "deep_dive", restarted["attempt_id"])),
         encoding="utf-8",
     )
-    assert run_adapter(
-        tmp_path,
-        "codex",
-        "finish",
-        "--run-id",
-        run_id,
-        "--task-id",
-        "task-1",
-        "--result",
-        "submitted",
-    ).returncode == 0
-    assert run_adapter(
-        tmp_path,
-        "codex",
-        "verify",
-        "--run-id",
-        run_id,
-        "--task-id",
-        "task-1",
-        "--reviewer-id",
-        "coordinator",
-        "--review-note",
-        "Rechecked the source after recovery.",
-        "--checked-anchor",
-        "https://example.test/source",
-    ).returncode == 0
-    final = json.loads(
-        run_adapter(tmp_path, "codex", "status", "--run-id", run_id).stdout
+    assert (
+        run_adapter(
+            tmp_path,
+            "codex",
+            "finish",
+            "--run-id",
+            run_id,
+            "--task-id",
+            "task-1",
+            "--result",
+            "submitted",
+        ).returncode
+        == 0
     )
+    assert (
+        run_adapter(
+            tmp_path,
+            "codex",
+            "verify",
+            "--run-id",
+            run_id,
+            "--task-id",
+            "task-1",
+            "--reviewer-id",
+            "coordinator",
+            "--review-note",
+            "Rechecked the source after recovery.",
+            "--checked-anchor",
+            "https://example.test/source",
+        ).returncode
+        == 0
+    )
+    final = json.loads(run_adapter(tmp_path, "codex", "status", "--run-id", run_id).stdout)
     assert final["ready"] == ["task-2"]
     assert final["integrity_errors"] == []
 
 
 def test_adapter_rejects_artifacts_outside_workspace(tmp_path: Path) -> None:
     run_adapter(
-        tmp_path, "claude", "init", "--run-id", "safe-run",
-        "--handoff", str(write_handoff(tmp_path)),
+        tmp_path,
+        "claude",
+        "init",
+        "--run-id",
+        "safe-run",
+        "--handoff",
+        str(write_handoff(tmp_path)),
     )
     outside = tmp_path.parent / "outside.json"
     completed = run_adapter(
@@ -525,14 +540,17 @@ def test_adapter_requires_handoff_and_rejects_unknown_decision_slot(tmp_path: Pa
     assert "--handoff" in missing.stderr
 
     initialized = run_adapter(
-        tmp_path, "codex", "init", "--run-id", "bound-run",
-        "--handoff", str(write_handoff(tmp_path)),
+        tmp_path,
+        "codex",
+        "init",
+        "--run-id",
+        "bound-run",
+        "--handoff",
+        str(write_handoff(tmp_path)),
     )
     assert initialized.returncode == 0, initialized.stderr
     state = json.loads(initialized.stdout)
-    assert state["execution_context"]["authority"] == [
-        "Autonomous research only; no target edits."
-    ]
+    assert state["execution_context"]["authority"] == ["Autonomous research only; no target edits."]
     rejected = run_adapter(
         tmp_path,
         "codex",
