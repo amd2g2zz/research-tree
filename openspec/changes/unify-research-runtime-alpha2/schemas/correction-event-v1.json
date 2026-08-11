@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/correction-event-v1.json",
+  "title": "Transactional correction or reopen event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "run_id",
+    "kind",
+    "actor",
+    "reason",
+    "relation",
+    "task_id",
+    "domain_id",
+    "successor_task_id",
+    "successor_domain_id",
+    "affected"
+  ],
+  "properties": {
+    "event_id": { "$ref": "#/$defs/identifier" },
+    "run_id": { "$ref": "#/$defs/identifier" },
+    "kind": { "type": "string", "enum": ["correction", "reopen"] },
+    "actor": { "type": "string", "enum": ["human", "operator"] },
+    "reason": { "type": "string", "minLength": 1 },
+    "relation": { "type": "string", "enum": ["supersedes", "reopens"] },
+    "task_id": { "$ref": "#/$defs/identifier" },
+    "domain_id": { "$ref": "#/$defs/identifier" },
+    "successor_task_id": { "$ref": "#/$defs/identifier" },
+    "successor_domain_id": { "$ref": "#/$defs/identifier" },
+    "affected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intent_model",
+        "working_brief",
+        "decision_map",
+        "strategy",
+        "handoff"
+      ],
+      "properties": {
+        "intent_model": { "$ref": "#/$defs/binding" },
+        "working_brief": { "$ref": "#/$defs/binding" },
+        "decision_map": { "$ref": "#/$defs/binding" },
+        "strategy": { "$ref": "#/$defs/binding" },
+        "handoff": { "$ref": "#/$defs/binding" }
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "artifact_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["round_id", "artifact_id", "revision"],
+      "properties": {
+        "round_id": { "$ref": "#/$defs/identifier" },
+        "artifact_id": { "$ref": "#/$defs/identifier" },
+        "revision": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_ref", "digest"],
+      "properties": {
+        "artifact_ref": { "$ref": "#/$defs/artifact_ref" },
+        "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}
