@@ -92,10 +92,10 @@ substitute for local evidence.
 - [ ] 8.5 Preserve open conversational alignment when a native question tool cannot express an unconstrained prompt.
 - [ ] 8.6 Add source-checkout, installed-package, Windows, POSIX, rebuild, and package-parity tests for both native adapters.
 - [ ] 8.7 Prove equivalent Codex and Claude event fixtures produce the same canonical semantic digest.
-- [ ] 8.8 Define activation evidence states for discovery, current installation, live body injection, and post-activation behavior; require explicit host receipts instead of inferring activation from a file read.
-- [ ] 8.9 Add host-specific activation markers, side-effect-free probes, package digests, and bounded receipts for Codex, Claude Code, and Hermes.
-- [ ] 8.10 Add stale-link classification and non-destructive refresh handling to setup/status, including the legacy repository-root path failure mode.
-- [ ] 8.11 Run native activation probes in isolated Codex, Claude Code, and Hermes fixtures; mark unavailable CLIs as unavailable evidence and retain exact outputs.
+- [x] 8.8 Define activation evidence states for discovery, current installation, live body injection, and post-activation behavior; require explicit host receipts instead of inferring activation from a file read.
+- [x] 8.9 Add host-specific activation markers, side-effect-free probes, package digests, and bounded receipts for Codex, Claude Code, and Hermes.
+- [x] 8.10 Add stale-link classification and non-destructive refresh handling to setup/status, including the legacy repository-root path failure mode.
+- [x] 8.11 Run native activation probes in isolated Codex, Claude Code, and Hermes fixtures; mark unavailable CLIs as unavailable evidence and retain exact outputs.
 
 ## 9. Hermes-Native Long-Horizon Adapter (#61, #82)
 
@@ -328,7 +328,7 @@ substitute for local evidence.
 
 ## 32. Cross-Host Skill Activation Integrity (#71)
 
-- [ ] 32.1 Define discovered, static_ready, and live_verified activation evidence states and safe receipt schema.
-- [ ] 32.2 Add host-native side-effect-free activation probes for Codex, Claude Code, and Hermes.
-- [ ] 32.3 Diagnose missing, current, legacy, stale_link, and conflict installations without auto-rewriting user-owned paths.
-- [ ] 32.4 Add isolated host activation, malformed marker, wrong-host package, stale link, and package drift regression tests.
+- [x] 32.1 Define discovered, static_ready, and live_verified activation evidence states and safe receipt schema.
+- [x] 32.2 Add host-native side-effect-free activation probes for Codex, Claude Code, and Hermes.
+- [x] 32.3 Diagnose missing, current, legacy, stale_link, and conflict installations without auto-rewriting user-owned paths.
+- [x] 32.4 Add isolated host activation, malformed marker, wrong-host package, stale link, and package drift regression tests.

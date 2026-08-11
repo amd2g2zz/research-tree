@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from runpy import run_path
+import shutil
 import subprocess
 import sys
+
+from research_tree.skill_activation import HOST_MARKERS, package_digests
 
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILDER = ROOT / "scripts" / "build_skill_packages.py"
+validate_package = run_path(str(BUILDER))["validate_package"]
 
 
 def _skill_dir(package: Path) -> Path:
@@ -405,3 +410,47 @@ def test_packages_expose_runtime_depth_and_insight_contract() -> None:
         assert "Insight Digest" in skill
         assert "Do not hand a broad track to" in skill
         assert "workers re-delegate" in skill
+
+
+def test_host_packages_contain_only_their_activation_marker_and_shared_helper() -> None:
+    packages = {
+        "codex": ROOT / "packages" / "codex" / "research-tree",
+        "claude": ROOT / "packages" / "claude-code" / "research-tree",
+        "hermes": ROOT / "packages" / "hermes" / "research-tree",
+    }
+
+    for host, package in packages.items():
+        skill_root = _skill_dir(package)
+        body = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+        assert HOST_MARKERS[host] in body
+        assert all(marker not in body for name, marker in HOST_MARKERS.items() if name != host)
+        assert (skill_root / "references" / "skill-activation.md").is_file()
+        assert (skill_root / "scripts" / "skill_activation.py").read_bytes() == (
+            ROOT / "src" / "research_tree" / "skill_activation.py"
+        ).read_bytes()
+
+
+def test_package_validator_rejects_wrong_host_activation_marker(tmp_path: Path) -> None:
+    source = ROOT / "packages" / "codex" / "research-tree"
+    package = tmp_path / "research-tree"
+    shutil.copytree(source, package)
+    skill_file = package / "SKILL.md"
+    body = skill_file.read_text(encoding="utf-8")
+    skill_file.write_text(body.replace(HOST_MARKERS["codex"], HOST_MARKERS["claude"]), encoding="utf-8")
+
+    result = validate_package(package, "codex", ROOT)
+
+    assert result["valid"] is False
+    assert "wrong activation marker for codex" in result["errors"]
+
+
+def test_package_and_skill_body_digests_detect_generated_drift(tmp_path: Path) -> None:
+    source = ROOT / "packages" / "hermes" / "research-tree"
+    package = tmp_path / "research-tree"
+    shutil.copytree(source, package)
+    before = package_digests(package)
+    reference = package / "references" / "skill-activation.md"
+    reference.write_text(reference.read_text(encoding="utf-8") + "\ndrift\n", encoding="utf-8")
+    drifted = package_digests(package)
+    assert drifted["package_digest"] != before["package_digest"]
+    assert drifted["skill_body_digest"] == before["skill_body_digest"]

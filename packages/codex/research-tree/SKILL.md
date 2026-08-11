@@ -52,6 +52,10 @@ Create OpenSpec artifacts only when explicitly requested.
 
 ## Codex CLI runtime adapter
 
+### Activation probe
+`research-tree-activation-contract:v1:codex`
+Follow `references/skill-activation.md`: only exact `$research-tree activation-probe v1 <correlation-id>` plus matching app-server typed `skill` input may return only `research-tree-activation:v1:codex:<correlation-id>` without tools; other text, paths, or links are `activation_unverified`.
+
 - Read `references/codex-cli-compatibility.md` before host-specific alignment.
   Before repository execution, delegation, compaction, or recovery, also read
   `references/codex-native-orchestration.md`.

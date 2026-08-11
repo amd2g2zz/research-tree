@@ -5,6 +5,10 @@ description: "Use when explicit deep technical research must align a vague or ev
 
 # research-tree
 
+## Activation probe
+`research-tree-activation-contract:v1:hermes`
+Follow `references/skill-activation.md`: only exact `/research-tree activation-probe v1 <correlation-id>` or `/skill research-tree` equivalent may return only `research-tree-activation:v1:hermes:<correlation-id>` without tools; paths, links, and bare names are `activation_unverified`.
+
 ## Outcome
 
 Turn a research request into two co-primary deliverables:

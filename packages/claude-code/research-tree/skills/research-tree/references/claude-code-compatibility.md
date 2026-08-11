@@ -67,6 +67,8 @@ The Skill owns research alignment and report production; Claude Code owns
 model calls, repository inspection, web access, shell execution, permissions,
 and any delegation that is actually available.
 
+Live verification requires the slash probe in `references/skill-activation.md`; file/package evidence remains `activation_unverified`.
+
 Read `references/claude-native-orchestration.md` before delegation, compaction,
 or recovery. It defines when to use parallel leaf agents, background execution,
 agent teams, session resume, worktrees, task lists, and auto-memory without

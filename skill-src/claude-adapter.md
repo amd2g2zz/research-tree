@@ -4,6 +4,10 @@ This is the Claude Code package of `research-tree`. Invoke with `/research-tree`
 and use only capabilities exposed by the current session; never call tools from
 another host merely because they appear in examples.
 
+### Activation probe
+`research-tree-activation-contract:v1:claude`
+Follow `references/skill-activation.md`: only exact `/research-tree activation-probe v1 <correlation-id>` or its plugin-qualified form may return only `research-tree-activation:v1:claude:<correlation-id>` without tools; paths and links are `activation_unverified`.
+
 - Resolve bundled resources from the active skill directory, including
   `${CLAUDE_SKILL_DIR}` when the host provides it. Do not resolve
   `references/` or `assets/` from the user's working directory.
