@@ -4,7 +4,6 @@ The module deliberately models the execution boundary only.  It does not run
 commands or own lifecycle state; callers persist the canonical payloads through
 ``RunStore`` and use the lineage validators before treating a run as evidence.
 """
-
 from __future__ import annotations
 
 from dataclasses import dataclass
