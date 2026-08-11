@@ -33,10 +33,7 @@ def test_integrated_receipt_records_merged_slices_and_boundary() -> None:
     assert payload["kind"] == "integrated_verification_receipt"
     assert re.fullmatch(r"[0-9a-f]{40}", payload["source_revision"])
 
-    merged = {
-        (item["issue"], item["pull_request"]): item["merge_revision"]
-        for item in payload["merged_slices"]
-    }
+    merged = {(item["issue"], item["pull_request"]): item["merge_revision"] for item in payload["merged_slices"]}
     assert merged == {
         (111, 115): "6bb8cfa",
         (108, 116): "5539e92",
@@ -64,12 +61,10 @@ def test_group_35_owns_integrated_receipt_and_future_gaps_remain_unverified() ->
     report = validate_governance(inputs)
 
     assert report.valid is True
-    assert report.verified_groups == (1, 2, 3, 4, 5, 6, 7, 8, 9, 16, 32, 33, 34, 35)
-    assert report.unverified_groups == tuple(group for group in range(6, 33) if group not in {6, 7, 8, 9, 16, 32})
+    assert report.verified_groups == (1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 16, 23, 32, 33, 34, 35)
+    assert report.unverified_groups == tuple(group for group in range(6, 33) if group not in {6, 7, 8, 9, 11, 16, 23, 32})
 
-    issue_map = json.loads(
-        (REGISTRY_ROOT / "issue-execution-map-v1.json").read_text(encoding="utf-8")
-    )
+    issue_map = json.loads((REGISTRY_ROOT / "issue-execution-map-v1.json").read_text(encoding="utf-8"))
     row = next(item for item in issue_map["issues"] if item["issue"] == 112)
     assert row["primary_group"] == 35
     assert "integrated-evidence-reconciliation" in row["capabilities"]

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import shutil
 import tempfile
+from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 
 from .domain import (
@@ -29,15 +30,32 @@ FEEDBACK_LINEAGE_KIND = "feedback-lineage"
 RESEARCH_STRATEGY_KIND = "research-strategy"
 ROUND_SUPERSESSION_KIND = "round-supersession"
 SAME_ROUND_REPLAN_KIND = "same-round-replan"
+CORRECTION_EVENT_KIND = "correction-event"
+STALE_STATE_QUARANTINE_KIND = "stale-state-quarantine"
+
+CORRECTION_KINDS = frozenset({"correction", "reopen"})
+CORRECTION_RELATIONS = frozenset({"supersedes", "reopens"})
+CORRECTION_ACTORS = frozenset({"human", "operator"})
+CORRECTION_AFFECTED_ROLES = (
+    "intent_model",
+    "working_brief",
+    "decision_map",
+    "strategy",
+    "handoff",
+)
+CORRECTION_ACTION_ROLES = ("decision_map", "strategy", "handoff")
+CORRECTION_ROLE_KINDS = {
+    "intent_model": "intent-model",
+    "working_brief": "working-brief",
+    "decision_map": "blueprint-target",
+    "strategy": RESEARCH_STRATEGY_KIND,
+    "handoff": "alignment-handoff",
+}
 
 TARGET_CHANGE_DIMENSIONS = frozenset({"target", "priority", "success_definition"})
-CANDIDATE_DISPOSITIONS = frozenset(
-    {"reuse", "revalidate", "downgrade", "ignore", "overturn"}
-)
+CANDIDATE_DISPOSITIONS = frozenset({"reuse", "revalidate", "downgrade", "ignore", "overturn"})
 CARRIED_INPUT_DISPOSITIONS = frozenset({"reuse", "revalidate", "downgrade"})
-REQUIRED_CANDIDATE_KINDS = frozenset(
-    {INPUT_LEDGER_ARTIFACT_KIND, FINDING_PACK_KIND, DECISION_LEDGER_KIND}
-)
+REQUIRED_CANDIDATE_KINDS = frozenset({INPUT_LEDGER_ARTIFACT_KIND, FINDING_PACK_KIND, DECISION_LEDGER_KIND})
 ACTIVE_WORK_STATUSES = frozenset({"planned", "ready", "running"})
 
 
@@ -47,6 +65,168 @@ class FeedbackError(RuntimeStoreError):
 
 class InvalidFeedbackError(FeedbackError):
     """Raised before feedback can silently alter the wrong research round."""
+
+
+@dataclass(frozen=True, slots=True)
+class CorrectionBinding:
+    """An exact artifact revision and digest affected by a correction."""
+
+    role: str
+    artifact_ref: ArtifactRef
+    digest: str
+
+    def __post_init__(self) -> None:
+        if self.role not in CORRECTION_ROLE_KINDS:
+            raise InvalidFeedbackError(f"unsupported correction binding role: {self.role}")
+        if not isinstance(self.artifact_ref, ArtifactRef):
+            raise InvalidFeedbackError("correction binding requires an exact artifact reference")
+        if (
+            not isinstance(self.digest, str)
+            or len(self.digest) != 64
+            or any(character not in "0123456789abcdef" for character in self.digest)
+        ):
+            raise InvalidFeedbackError("correction binding digest must be 64 lowercase hex characters")
+
+    @classmethod
+    def from_artifact(cls, role: str, artifact: ArtifactRevision) -> "CorrectionBinding":
+        if not isinstance(artifact, ArtifactRevision):
+            raise InvalidFeedbackError("correction binding source must be an artifact revision")
+        return cls(
+            role=role,
+            artifact_ref=ArtifactRef(artifact.round_id, artifact.id, artifact.revision),
+            digest=artifact.content_hash,
+        )
+
+    @classmethod
+    def from_value(cls, role: str, value: "CorrectionBinding | Mapping[str, Any]") -> "CorrectionBinding":
+        if isinstance(value, cls):
+            if value.role != role:
+                raise InvalidFeedbackError("correction binding role does not match its mapping key")
+            return value
+        if not isinstance(value, Mapping):
+            raise InvalidFeedbackError("correction binding must be an object")
+        _require_exact_keys(value, {"artifact_ref", "digest"}, f"affected.{role}")
+        return cls(
+            role=role,
+            artifact_ref=_validate_ref(value["artifact_ref"], f"affected.{role}.artifact_ref"),
+            digest=str(value["digest"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"artifact_ref": self.artifact_ref.to_dict(), "digest": self.digest}
+
+
+@dataclass(frozen=True, slots=True)
+class CorrectionEvent:
+    """One requester correction that invalidates exact predecessor state."""
+
+    event_id: str
+    run_id: str
+    kind: str
+    actor: str
+    reason: str
+    relation: str
+    task_id: str
+    domain_id: str
+    successor_task_id: str
+    successor_domain_id: str
+    affected: Mapping[str, CorrectionBinding]
+
+    def __post_init__(self) -> None:
+        try:
+            validate_identifier(self.event_id, "event_id")
+            validate_identifier(self.run_id, "run_id")
+            validate_identifier(self.task_id, "task_id")
+            validate_identifier(self.domain_id, "domain_id")
+            validate_identifier(self.successor_task_id, "successor_task_id")
+            validate_identifier(self.successor_domain_id, "successor_domain_id")
+        except (InvalidIdentifierError, TypeError, ValueError) as error:
+            raise InvalidFeedbackError(str(error)) from error
+        if self.kind not in CORRECTION_KINDS:
+            raise InvalidFeedbackError("correction kind must be correction or reopen")
+        if self.actor not in CORRECTION_ACTORS:
+            raise InvalidFeedbackError("material correction actor must be human or operator")
+        if self.relation not in CORRECTION_RELATIONS:
+            raise InvalidFeedbackError("correction relation must be supersedes or reopens")
+        if self.kind == "correction" and self.relation != "supersedes":
+            raise InvalidFeedbackError("correction events require a supersedes relation")
+        if self.kind == "reopen" and self.relation != "reopens":
+            raise InvalidFeedbackError("reopen events require a reopens relation")
+        _nonempty_string(self.reason, "reason")
+        if set(self.affected) != set(CORRECTION_AFFECTED_ROLES):
+            raise InvalidFeedbackError(
+                "correction affected roles must be exactly " + ", ".join(CORRECTION_AFFECTED_ROLES)
+            )
+        normalized = {
+            role: CorrectionBinding.from_value(role, self.affected[role]) for role in CORRECTION_AFFECTED_ROLES
+        }
+        if any(binding.artifact_ref.round_id != self.run_id for binding in normalized.values()):
+            raise InvalidFeedbackError("all affected correction bindings must belong to the run")
+        object.__setattr__(self, "affected", MappingProxyType(normalized))
+
+    @classmethod
+    def create(cls, **values: Any) -> "CorrectionEvent":
+        return cls(**values)
+
+    @classmethod
+    def from_value(cls, value: "CorrectionEvent | Mapping[str, Any]") -> "CorrectionEvent":
+        if isinstance(value, cls):
+            return value
+        if not isinstance(value, Mapping):
+            raise InvalidFeedbackError("correction event must be an object")
+        expected = {
+            "event_id",
+            "run_id",
+            "kind",
+            "actor",
+            "reason",
+            "relation",
+            "task_id",
+            "domain_id",
+            "successor_task_id",
+            "successor_domain_id",
+            "affected",
+        }
+        _require_exact_keys(value, expected, "correction event")
+        affected = value["affected"]
+        if not isinstance(affected, Mapping):
+            raise InvalidFeedbackError("correction affected bindings must be an object")
+        return cls(
+            event_id=str(value["event_id"]),
+            run_id=str(value["run_id"]),
+            kind=str(value["kind"]),
+            actor=str(value["actor"]),
+            reason=str(value["reason"]),
+            relation=str(value["relation"]),
+            task_id=str(value["task_id"]),
+            domain_id=str(value["domain_id"]),
+            successor_task_id=str(value["successor_task_id"]),
+            successor_domain_id=str(value["successor_domain_id"]),
+            affected={
+                str(role): CorrectionBinding.from_value(str(role), binding) for role, binding in affected.items()
+            },
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "event_id": self.event_id,
+            "run_id": self.run_id,
+            "kind": self.kind,
+            "actor": self.actor,
+            "reason": self.reason,
+            "relation": self.relation,
+            "task_id": self.task_id,
+            "domain_id": self.domain_id,
+            "successor_task_id": self.successor_task_id,
+            "successor_domain_id": self.successor_domain_id,
+            "affected": {role: self.affected[role].to_dict() for role in CORRECTION_AFFECTED_ROLES},
+        }
+
+    def action_authority(self) -> dict[str, Any]:
+        return {
+            "correction_event_id": self.event_id,
+            "bindings": {role: self.affected[role].to_dict() for role in CORRECTION_ACTION_ROLES},
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,9 +412,7 @@ class FeedbackRoundService:
             raise InvalidFeedbackError("intent_analysis must be a mapping")
         if not isinstance(input_roles, Mapping):
             raise InvalidFeedbackError("input_roles must be a mapping")
-        if isinstance(material_conflicts, (str, bytes)) or not isinstance(
-            material_conflicts, Sequence
-        ):
+        if isinstance(material_conflicts, (str, bytes)) or not isinstance(material_conflicts, Sequence):
             raise InvalidFeedbackError("material_conflicts must be a sequence")
         if not isinstance(overall_rejection, bool):
             raise InvalidFeedbackError("overall_rejection must be a bool")
@@ -351,9 +529,7 @@ class FeedbackRoundService:
             validate_identifier(replan_id, "replan_id")
             if replan_id == feedback_input_id:
                 raise InvalidFeedbackError("replan_id and feedback_input_id must differ")
-            _ensure_artifact_id_compatibility(
-                snapshot.artifacts, replan_id, SAME_ROUND_REPLAN_KIND
-            )
+            _ensure_artifact_id_compatibility(snapshot.artifacts, replan_id, SAME_ROUND_REPLAN_KIND)
             validate_identifier(feedback_input_id, "feedback_input_id")
             _ensure_feedback_id_is_available(snapshot.artifacts, feedback_input_id)
             normalized_reason = _nonempty_string(reason, "reason")
@@ -378,9 +554,7 @@ class FeedbackRoundService:
             "classification": "same_round_replan",
             "feedback_input_id": feedback_input.id,
             "reason": normalized_reason,
-            "affected_work_refs": [
-                ArtifactRef(work.round_id, work.id, work.revision).to_dict() for work in works
-            ],
+            "affected_work_refs": [ArtifactRef(work.round_id, work.id, work.revision).to_dict() for work in works],
         }
         validate_same_round_replan_payload(payload)
         return self._store.append_artifact(
@@ -467,9 +641,7 @@ class FeedbackRoundService:
                 and candidate.disposition in CARRIED_INPUT_DISPOSITIONS
             }
             if feedback_input_id in carried_input_ids:
-                raise InvalidFeedbackError(
-                    "feedback_input_id cannot collide with a carried predecessor input id"
-                )
+                raise InvalidFeedbackError("feedback_input_id cannot collide with a carried predecessor input id")
             if set(ids) & carried_input_ids:
                 raise InvalidFeedbackError(
                     "successor model, brief, bundle, and strategy ids cannot collide with carried inputs"
@@ -482,9 +654,7 @@ class FeedbackRoundService:
             if feedback_input_id not in model_inputs:
                 raise InvalidFeedbackError("feedback_input_id must be included in intent_input_ids")
             if not set(selected_inputs) <= set(model_inputs):
-                raise InvalidFeedbackError(
-                    "selected_input_ids must be a subset of the successor Intent Model inputs"
-                )
+                raise InvalidFeedbackError("selected_input_ids must be a subset of the successor Intent Model inputs")
             if feedback_input_id not in selected_inputs:
                 raise InvalidFeedbackError("feedback_input_id must be selected by the successor Working Brief")
             if context_bundle_id is None and members:
@@ -712,14 +882,10 @@ def validate_feedback_lineage_payload(payload: Mapping[str, Any]) -> None:
     if lineage_kind not in {"successor", "new_root"}:
         raise InvalidFeedbackError("feedback lineage lineage_kind is unsupported")
     _validate_ref(data["feedback_input_ref"], "feedback lineage feedback_input_ref")
-    _enum_sequence(
-        data["change_dimensions"], "feedback lineage change_dimensions", TARGET_CHANGE_DIMENSIONS
-    )
+    _enum_sequence(data["change_dimensions"], "feedback lineage change_dimensions", TARGET_CHANGE_DIMENSIONS)
     _nonempty_string(data["change_reason"], "feedback lineage change_reason")
     _nonempty_string(data["safe_checkpoint"], "feedback lineage safe_checkpoint")
-    candidates = _mapping_sequence(
-        data["candidate_context"], "feedback lineage candidate_context", allow_empty=True
-    )
+    candidates = _mapping_sequence(data["candidate_context"], "feedback lineage candidate_context", allow_empty=True)
     candidate_ids: set[str] = set()
     source_refs: set[ArtifactRef] = set()
     for index, candidate in enumerate(candidates):
@@ -771,9 +937,7 @@ def validate_research_strategy_payload(payload: Mapping[str, Any]) -> None:
         "feedback_lineage_id",
     ):
         _identifier(data[key], f"research strategy {key}")
-    _enum_sequence(
-        data["change_dimensions"], "research strategy change_dimensions", TARGET_CHANGE_DIMENSIONS
-    )
+    _enum_sequence(data["change_dimensions"], "research strategy change_dimensions", TARGET_CHANGE_DIMENSIONS)
     _nonempty_string(data["summary"], "research strategy summary")
     _string_sequence(data["focus"], "research strategy focus")
     autonomy = _mapping(data["autonomy"], "research strategy autonomy")
@@ -867,8 +1031,7 @@ def _normalize_candidates(
     if isinstance(candidates, (str, bytes)) or not isinstance(candidates, Sequence):
         raise InvalidFeedbackError("candidates must be a sequence of CandidateContext values")
     stored_by_ref = {
-        ArtifactRef(artifact.round_id, artifact.id, artifact.revision): artifact
-        for artifact in prior_artifacts
+        ArtifactRef(artifact.round_id, artifact.id, artifact.revision): artifact for artifact in prior_artifacts
     }
     normalized: list[CandidateContext] = []
     candidate_ids: set[str] = set()
@@ -922,8 +1085,7 @@ def _normalize_candidates(
             f"{reference.round_id}/{reference.artifact_id}@{reference.revision}" for reference in missing
         )
         raise InvalidFeedbackError(
-            "candidates must explicitly disposition every latest prior input, finding, and decision: "
-            + rendered
+            "candidates must explicitly disposition every latest prior input, finding, and decision: " + rendered
         )
     return tuple(normalized)
 
@@ -945,9 +1107,7 @@ def _resolve_affected_work_items(
 ) -> tuple[ArtifactRevision, ...]:
     if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
         raise InvalidFeedbackError("affected_work_items must be a sequence")
-    stored_by_ref = {
-        ArtifactRef(artifact.round_id, artifact.id, artifact.revision): artifact for artifact in artifacts
-    }
+    stored_by_ref = {ArtifactRef(artifact.round_id, artifact.id, artifact.revision): artifact for artifact in artifacts}
     resolved: list[ArtifactRevision] = []
     seen: set[ArtifactRef] = set()
     for index, value in enumerate(values):
@@ -956,9 +1116,7 @@ def _resolve_affected_work_items(
         reference = ArtifactRef(value.round_id, value.id, value.revision)
         stored = stored_by_ref.get(reference)
         if stored is None or stored != value or stored.kind != WORK_ITEM_KIND:
-            raise InvalidFeedbackError(
-                f"affected_work_items[{index}] must be an exact current-round Work Item"
-            )
+            raise InvalidFeedbackError(f"affected_work_items[{index}] must be an exact current-round Work Item")
         if stored.round_id != round_id:
             raise InvalidFeedbackError("affected Work Item belongs to a different round")
         if reference in seen:
@@ -970,9 +1128,7 @@ def _resolve_affected_work_items(
 
 def _latest_active_work(artifacts: Sequence[ArtifactRevision]) -> tuple[ArtifactRevision, ...]:
     latest_work = {
-        artifact.id: artifact
-        for artifact in _latest_artifacts(artifacts)
-        if artifact.kind == WORK_ITEM_KIND
+        artifact.id: artifact for artifact in _latest_artifacts(artifacts) if artifact.kind == WORK_ITEM_KIND
     }
     return tuple(
         latest_work[work_id]
@@ -981,14 +1137,10 @@ def _latest_active_work(artifacts: Sequence[ArtifactRevision]) -> tuple[Artifact
     )
 
 
-def _ensure_artifact_id_compatibility(
-    artifacts: Sequence[ArtifactRevision], artifact_id: str, kind: str
-) -> None:
+def _ensure_artifact_id_compatibility(artifacts: Sequence[ArtifactRevision], artifact_id: str, kind: str) -> None:
     foreign_kinds = {artifact.kind for artifact in artifacts if artifact.id == artifact_id and artifact.kind != kind}
     if foreign_kinds:
-        raise InvalidFeedbackError(
-            f"artifact id {artifact_id!r} is already used by kinds: {sorted(foreign_kinds)}"
-        )
+        raise InvalidFeedbackError(f"artifact id {artifact_id!r} is already used by kinds: {sorted(foreign_kinds)}")
 
 
 def _ensure_feedback_id_is_available(artifacts: Sequence[ArtifactRevision], feedback_input_id: str) -> None:
@@ -1079,9 +1231,7 @@ def _nonempty_string(value: Any, label: str) -> str:
 def _require_exact_keys(value: Mapping[str, Any], expected: set[str], label: str) -> None:
     actual = set(value)
     if actual != expected:
-        raise InvalidFeedbackError(
-            f"{label} keys must be exactly {sorted(expected)}, got {sorted(actual)}"
-        )
+        raise InvalidFeedbackError(f"{label} keys must be exactly {sorted(expected)}, got {sorted(actual)}")
 
 
 def _validate_ref(value: Any, label: str) -> ArtifactRef:

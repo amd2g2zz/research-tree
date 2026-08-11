@@ -249,12 +249,12 @@ substitute for local evidence.
 ## 23. Transactional Correction Invalidation (#73)
 
 - [x] 23.1 Write failing unit tests showing `record` rejects a response that does not match the current pending action and agent-only evidence cannot resolve a human-only field.
-- [ ] 23.2 Write failing integration tests showing a material FeedbackEvent atomically preserves the prior revision, creates a successor interpretation, and invalidates dependent strategy, handoff, closure, readiness, delivery, and acceptance revisions.
-- [ ] 23.3 Extend the canonical FeedbackEvent and lifecycle contracts with contradicted refs, affected fields, invalidated refs, successor refs, impact class, and task-identity disposition.
+- [x] 23.2 Write failing integration tests showing a material FeedbackEvent atomically preserves the prior revision, creates a successor interpretation, and invalidates dependent strategy, handoff, closure, readiness, delivery, and acceptance revisions. Evidence: `test_material_correction_atomically_preserves_and_supersedes_exact_state` and `test_invalid_correction_binding_and_fault_leave_no_partial_prefix`.
+- [x] 23.3 Extend the canonical FeedbackEvent and lifecycle contracts with contradicted refs, affected fields, invalidated refs, successor refs, impact class, and task-identity disposition. Evidence: `CorrectionEvent`, `CorrectionBinding`, `correction-event-v1.json`, and the exact five-role affected binding contract.
 - [x] 23.4 Implement correction ingestion and stale-state quarantine through the single ResearchRunCoordinator without adding a second writable authority.
-- [ ] 23.5 Reject confirmation, dispatch, delivery, and completion commands that reference a digest invalidated by correction, with stable error and next-action fields.
+- [x] 23.5 Reject confirmation, dispatch, delivery, and completion commands that reference a digest invalidated by correction, with stable error and next-action fields. Evidence: `StaleStateError`, `_assert_current_authority`, and `test_stale_authority_is_quarantined_and_fresh_successor_can_dispatch`.
 - [x] 23.6 Add the diagnostic-subject/task-target contamination fixture and prove that old domain strategy cannot survive an explicit requester correction.
-- [ ] 23.7 Link the implementation, tests, replay trace, and migration disposition to issue #73 and the requirement-to-delivery matrix.
+- [x] 23.7 Link the implementation, tests, replay trace, and migration disposition to issue #73 and the requirement-to-delivery matrix. Evidence: `invalidate-stale-alignment-state`, `evaluation/cases/correction-invalidation-v1.json`, and the group 23 source-bound receipt.
 
 ## 24. Claude Code and GLM5.2 Black-Box Regression (#72)
 

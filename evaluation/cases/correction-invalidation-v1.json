@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "issue": 73,
+  "scenario": "wrong diagnostic subject is quarantined after requester correction",
+  "input": {
+    "task_id": "task-research",
+    "domain_id": "domain-diagnostic-repository",
+    "successor_task_id": "task-research",
+    "successor_domain_id": "domain-autonomous-agent",
+    "correction_event_id": "correction-wrong-subject"
+  },
+  "expected": {
+    "successor_state": "alignment",
+    "relation": "supersedes",
+    "stale_reason": "stale_digest",
+    "next_action": "reenter_alignment",
+    "old_strategy_executable": false,
+    "requester_only_agent_resolution": false
+  }
+}
