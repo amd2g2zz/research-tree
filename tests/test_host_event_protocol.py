@@ -149,6 +149,8 @@ def test_ingestion_is_atomic_replayable_and_non_authoritative(tmp_path) -> None:
                 }
             )
         )
+    with pytest.raises(CoordinatorEventConflictError, match="event_id_conflict"):
+        coordinator.ingest_host_event(HostEvent.from_value({**event.to_dict(), "actor": "hermes", "expected_revision": 0}))
 
 
 def test_sequence_gap_stale_revision_and_unknown_attempt_do_not_mutate(tmp_path) -> None:
@@ -166,3 +168,49 @@ def test_sequence_gap_stale_revision_and_unknown_attempt_do_not_mutate(tmp_path)
     )
     with pytest.raises(CoordinatorConflictError, match="unknown_attempt"):
         coordinator.ingest_host_event(orphan)
+
+
+def test_recovery_event_pair_is_atomic_and_replayable(tmp_path, monkeypatch) -> None:
+    ledger, coordinator, _ = _coordinator(tmp_path)
+    revision = ledger.get_revision("run-host")
+
+    def event(event_id: str, kind: str, sequence: int, payload: dict) -> HostEvent:
+        return HostEvent.from_value(
+            {
+                "event_id": event_id,
+                "kind": kind,
+                "run_id": "run-host",
+                "attempt_id": "attempt-host",
+                "expected_revision": revision,
+                "sequence": sequence,
+                "actor": "hermes",
+                "created_at": "2026-08-11T00:00:00+00:00",
+                "payload": payload,
+            }
+        )
+
+    events = (
+        event("unknown-1", "unknown_outcome", 1, {"reason": "interrupted_child"}),
+        event("retry-1", "retry", 2, {"retry_of": "attempt-host", "category": "transient"}),
+    )
+    accepted = coordinator.ingest_host_events(events)
+    replay = coordinator.ingest_host_events(tuple({**item.to_dict(), "expected_revision": 0} for item in events))
+    assert accepted == replay
+    artifacts = ledger.load_run("run-host").artifacts
+    assert sum(item.kind == HOST_EVENT_KIND for item in artifacts) == 2
+    assert sum(item.kind == HOST_EVENT_PROJECTION_KIND for item in artifacts) == 2
+
+    crash_ledger, crash_coordinator, _ = _coordinator(tmp_path / "crash")
+    crash_revision = crash_ledger.get_revision("run-host")
+    crash_events = tuple(
+        HostEvent.from_value({**item.to_dict(), "event_id": f"crash-{item.event_id}", "expected_revision": crash_revision})
+        for item in events
+    )
+
+    def fail_before_commit() -> None:
+        raise RuntimeError("injected Hermes recovery crash")
+
+    monkeypatch.setattr(RunLedger, "_before_commit", staticmethod(fail_before_commit))
+    with pytest.raises(RuntimeError, match="injected Hermes recovery crash"):
+        crash_coordinator.ingest_host_events(crash_events)
+    assert not any(item.kind == HOST_EVENT_KIND for item in crash_ledger.load_run("run-host").artifacts)

@@ -20,9 +20,9 @@ def run_adapter(workspace: Path, command: str, *args: str) -> subprocess.Complet
     )
 
 
-def write_fixture(workspace: Path) -> tuple[Path, Path, Path]:
-    handoff = workspace / "handoff.json"
-    handoff.write_text(
+def write_handoff(workspace: Path) -> Path:
+    path = workspace / "handoff.json"
+    path.write_text(
         json.dumps(
             {
                 "schema": 1,
@@ -34,75 +34,26 @@ def write_fixture(workspace: Path) -> tuple[Path, Path, Path]:
         ),
         encoding="utf-8",
     )
-    finding = workspace / "finding.json"
-    finding.write_text('{"id":"finding-1"}', encoding="utf-8")
-    technical = workspace / "technical.md"
-    technical.write_text("# Technical\n\n## Evidence\n\n## Validation\n" + "x" * 1100, encoding="utf-8")
-    human = workspace / "human.md"
-    human.write_text("# Human\n\n## Findings\n\n" + "x" * 600, encoding="utf-8")
-    return handoff, finding, (technical, human)
+    return path
 
 
-def test_hermes_adapter_persists_waves_recovers_and_requires_reports(tmp_path: Path) -> None:
-    handoff, finding, reports = write_fixture(tmp_path)
+def test_legacy_commands_are_non_authoritative_observations(tmp_path: Path) -> None:
+    run_id = "hermes-run"
     initialized = run_adapter(
         tmp_path,
         "init",
         "--run-id",
-        "hermes-run",
+        run_id,
         "--handoff",
-        str(handoff),
+        str(write_handoff(tmp_path)),
     )
-    assert initialized.returncode == 0, initialized.stderr
-    running = run_adapter(
-        tmp_path,
-        "record-batch",
-        "--run-id",
-        "hermes-run",
-        "--batch-id",
-        "wave-1",
-        "--status",
-        "running",
-        "--delegation-id",
-        "delegation-1",
-    )
-    assert running.returncode == 0, running.stderr
-    recovered = json.loads(run_adapter(tmp_path, "recover", "--run-id", "hermes-run").stdout)
-    assert recovered["recovered_batches"] == ["wave-1"]
-    verified = run_adapter(
-        tmp_path,
-        "record-batch",
-        "--run-id",
-        "hermes-run",
-        "--batch-id",
-        "wave-2",
-        "--status",
-        "verified",
-        "--delegation-id",
-        "delegation-2",
-        "--finding",
-        str(finding),
-    )
-    assert verified.returncode == 0, verified.stderr
-    blocked = run_adapter(
-        tmp_path,
-        "complete",
-        "--run-id",
-        "hermes-run",
-        "--technical-report",
-        str(reports[0]),
-        "--human-report",
-        str(reports[1]),
-    )
-    assert blocked.returncode == 1
-    assert "verified" in blocked.stdout
+    assert initialized.returncode == 0, initialized.stdout + initialized.stderr
+    init_result = json.loads(initialized.stdout)
+    assert init_result["status"] == "observed"
+    assert init_result["authoritative"] is False
+    assert init_result["completion_authority"] == "coordinator_only"
 
-    # A fresh run proves the terminal gate accepts only verified waves and both reports.
-    run_id = "hermes-complete"
-    assert run_adapter(
-        tmp_path, "init", "--run-id", run_id, "--handoff", str(handoff)
-    ).returncode == 0
-    assert run_adapter(
+    batch = run_adapter(
         tmp_path,
         "record-batch",
         "--run-id",
@@ -112,17 +63,76 @@ def test_hermes_adapter_persists_waves_recovers_and_requires_reports(tmp_path: P
         "--status",
         "verified",
         "--finding",
-        str(finding),
-    ).returncode == 0
-    complete = run_adapter(
+        str(tmp_path / "missing-finding.json"),
+    )
+    assert batch.returncode == 0, batch.stdout + batch.stderr
+    batch_result = json.loads(batch.stdout)
+    assert batch_result["status"] == "observed"
+    assert batch_result["batch_status"] == "verified"
+    assert batch_result["authoritative"] is False
+
+    completed = run_adapter(
         tmp_path,
         "complete",
         "--run-id",
         run_id,
         "--technical-report",
-        str(reports[0]),
+        str(tmp_path / "missing-technical.md"),
         "--human-report",
-        str(reports[1]),
+        str(tmp_path / "missing-human.md"),
     )
-    assert complete.returncode == 0, complete.stdout + complete.stderr
-    assert json.loads(complete.stdout)["status"] == "complete"
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    summary = json.loads(completed.stdout)
+    assert summary == {
+        "run_id": run_id,
+        "status": "delivery_pending",
+        "complete": False,
+        "observed_complete": True,
+        "completion_authority": "coordinator_only",
+        "authoritative": False,
+    }
+    assert not (tmp_path / ".research-tree-hermes" / run_id / "state.json").exists()
+
+
+def test_recover_requires_canonical_attempt_snapshot(tmp_path: Path) -> None:
+    missing = run_adapter(tmp_path, "recover", "--run-id", "hermes-run")
+    assert missing.returncode == 1
+    assert "canonical attempt" in missing.stdout
+
+    snapshot = tmp_path / "attempt.json"
+    snapshot.write_text(
+        json.dumps(
+            {
+                "run_id": "hermes-run",
+                "action_id": "action-1",
+                "attempt_id": "attempt-1",
+                "expected_revision": 12,
+                "next_sequence": 3,
+                "authorized_methods": ["documentation"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    recovered = run_adapter(
+        tmp_path,
+        "recover",
+        "--run-id",
+        "hermes-run",
+        "--canonical-attempt",
+        str(snapshot),
+        "--unknown-event-id",
+        "unknown-1",
+        "--retry-event-id",
+        "retry-1",
+        "--retry-category",
+        "transient",
+        "--method",
+        "documentation",
+        "--created-at",
+        "2026-08-11T00:00:00+00:00",
+    )
+    assert recovered.returncode == 0, recovered.stdout + recovered.stderr
+    events = json.loads(recovered.stdout)["events"]
+    assert [event["kind"] for event in events] == ["unknown_outcome", "retry"]
+    assert [event["sequence"] for event in events] == [3, 4]
+    assert not (tmp_path / ".research-tree-hermes" / "hermes-run" / "state.json").exists()
