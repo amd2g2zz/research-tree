@@ -95,6 +95,8 @@ def _source_revision(repository: Path) -> str:
 
 def _command_argv(command: str) -> list[str]:
     if os.name == "nt":
+        if "&&" in command:
+            return ["cmd.exe", "/d", "/c", command]
         return ["powershell", "-NoProfile", "-NonInteractive", "-Command", command]
     return ["/bin/sh", "-c", command]
 
