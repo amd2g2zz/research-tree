@@ -27,3 +27,19 @@ unmet boundary and successor work without being relabeled verified.
 #### Scenario: incomplete strict evidence
 - **WHEN** a group lacks mandatory default strict evidence enforcement
 - **THEN** it remains non-verified with a successor reference
+
+### Requirement: Integrated strict-slice evidence is separately traceable
+The system SHALL record a source-bound integration receipt for a cross-issue
+verification task. The receipt MUST list each merged slice (issue, pull request,
+and merge revision), every validation command and retained raw output digest,
+the unresolved future task groups, and the boundary that remains owned by the
+OracleRun issue.
+
+#### Scenario: merged slices and future gaps
+- **WHEN** the integrated receipt is generated from a clean `dev` revision
+- **THEN** it records the merged strict slices and keeps groups with missing
+  acceptance paths in `planned` state
+
+#### Scenario: legacy guard is not OracleRun closure
+- **WHEN** the receipt includes the #109 worker-validation guard
+- **THEN** it identifies #109 as a legacy guard and leaves #56/OracleRun open

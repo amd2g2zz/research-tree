@@ -39,7 +39,8 @@
     { "capability": "paired-alpha-benchmark", "source_modules": ["evaluation/harness/", "evaluation/benchmarks/"], "public_surface": ["run paired-benchmark"], "task_groups": [30], "github_issue": "#84", "owner": "quality" },
     { "capability": "strategy-projection-handoff", "source_modules": ["src/research_tree/alignment_handoff.py", "src/research_tree/strategy_projection.py"], "public_surface": ["research-tree run handoff"], "task_groups": [28], "github_issue": "#85", "owner": "alignment" },
     { "capability": "project-user-preference-profile", "source_modules": ["src/research_tree/preferences.py"], "public_surface": ["research-tree run profile"], "task_groups": [29], "github_issue": "#86", "owner": "alignment" },
-    { "capability": "decision-frame", "source_modules": ["src/research_tree/intent.py", "src/research_tree/decision_frame.py"], "public_surface": ["research-tree run init"], "task_groups": [31], "github_issue": "#87", "owner": "alignment" }
+    { "capability": "decision-frame", "source_modules": ["src/research_tree/intent.py", "src/research_tree/decision_frame.py"], "public_surface": ["research-tree run init"], "task_groups": [31], "github_issue": "#87", "owner": "alignment" },
+    { "capability": "integrated-evidence-reconciliation", "source_modules": ["openspec/changes/reconcile-foundation-verification-receipts/evidence/", "openspec/changes/unify-research-runtime-alpha2/registries/"], "public_surface": [], "task_groups": [35], "github_issue": "#112", "owner": "governance" }
   ],
   "release_rule": "A capability row is not evidence of implementation. The generated requirement rows, tests, and immutable release manifest must all resolve before status becomes verified."
 }

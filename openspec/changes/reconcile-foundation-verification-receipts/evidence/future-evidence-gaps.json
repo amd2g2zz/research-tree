@@ -1,0 +1,266 @@
+{
+  "gaps": [
+    {
+      "acceptance_command": "uv run pytest -q tests/test_oracle_closure.py",
+      "group": 4,
+      "missing_paths": [
+        "tests/test_oracle_closure.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_coordinator.py tests/test_lifecycle.py",
+      "group": 5,
+      "missing_paths": [
+        "tests/test_coordinator.py",
+        "tests/test_lifecycle.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_adaptive_policy.py tests/test_insights.py",
+      "group": 6,
+      "missing_paths": [
+        "tests/test_adaptive_policy.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_alignment_protocol.py",
+      "group": 7,
+      "missing_paths": [
+        "tests/test_alignment_protocol.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_host_event_protocol.py",
+      "group": 8,
+      "missing_paths": [
+        "tests/test_host_event_protocol.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_hermes_execution_adapter.py",
+      "group": 9,
+      "missing_paths": [],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_deliveries.py tests/test_delivery_acceptance.py",
+      "group": 10,
+      "missing_paths": [
+        "tests/test_delivery_acceptance.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_debug_trace.py tests/test_replay.py",
+      "group": 11,
+      "missing_paths": [
+        "tests/test_replay.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run python evaluation/harness/run_release_gates.py",
+      "group": 12,
+      "missing_paths": [
+        "evaluation/harness/run_release_gates.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_migration.py tests/test_skill_packages.py",
+      "group": 13,
+      "missing_paths": [
+        "tests/test_migration.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run python scripts/validate_contracts.py",
+      "group": 14,
+      "missing_paths": [
+        "scripts/validate_contracts.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_worker_orchestration.py tests/test_acquisition.py",
+      "group": 15,
+      "missing_paths": [
+        "tests/test_acquisition.py",
+        "tests/test_worker_orchestration.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_insight_digest.py tests/test_policy_replay.py",
+      "group": 16,
+      "missing_paths": [
+        "tests/test_insight_digest.py",
+        "tests/test_policy_replay.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_execution_boundary.py",
+      "group": 17,
+      "missing_paths": [
+        "tests/test_execution_boundary.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run python scripts/verify_release_manifest.py",
+      "group": 18,
+      "missing_paths": [
+        "scripts/verify_release_manifest.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run python scripts/check_docs.py",
+      "group": 19,
+      "missing_paths": [
+        "scripts/check_docs.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run python scripts/check_evaluation_assets.py",
+      "group": 20,
+      "missing_paths": [
+        "scripts/check_evaluation_assets.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run python scripts/check_repository_layout.py",
+      "group": 21,
+      "missing_paths": [
+        "scripts/check_repository_layout.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run python scripts/check_openspec_governance.py --require-release-ready && uv run python scripts/verify_alpha2_release.py",
+      "group": 22,
+      "missing_paths": [
+        "scripts/verify_alpha2_release.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_feedback_rounds.py",
+      "group": 23,
+      "missing_paths": [],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_claude_glm_regression.py",
+      "group": 24,
+      "missing_paths": [
+        "tests/test_claude_glm_regression.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_source_capture.py",
+      "group": 25,
+      "missing_paths": [
+        "tests/test_source_capture.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_native_workflows.py",
+      "group": 26,
+      "missing_paths": [
+        "tests/test_native_workflows.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_search_portfolio.py",
+      "group": 27,
+      "missing_paths": [
+        "tests/test_search_portfolio.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_strategy_handoff.py",
+      "group": 28,
+      "missing_paths": [
+        "tests/test_strategy_handoff.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_user_preference_profile.py",
+      "group": 29,
+      "missing_paths": [
+        "tests/test_user_preference_profile.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run python evaluation/harness/run_paired_benchmark.py",
+      "group": 30,
+      "missing_paths": [
+        "evaluation/harness/run_paired_benchmark.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_decision_frame.py",
+      "group": 31,
+      "missing_paths": [
+        "tests/test_decision_frame.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    },
+    {
+      "acceptance_command": "uv run pytest -q tests/test_skill_activation.py",
+      "group": 32,
+      "missing_paths": [
+        "tests/test_skill_activation.py"
+      ],
+      "reason": "future task command is not evidence on the current clean-dev baseline",
+      "state": "planned"
+    }
+  ],
+  "schema_version": 1,
+  "source_revision": "63164fbd6ffe28c5ecee90de896e4dfe897bcede"
+}

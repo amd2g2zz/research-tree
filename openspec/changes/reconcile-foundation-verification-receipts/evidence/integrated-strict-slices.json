@@ -1,0 +1,79 @@
+{
+  "boundary": {
+    "current_issue": 112,
+    "legacy_worker_validation_guard_issue": 109,
+    "oracle_slot_closure_issue": 56,
+    "parent_tracker_issue": 106
+  },
+  "commands": [
+    {
+      "command": "uv run pytest -q tests/test_canonical_evidence_foundation.py tests/test_atomic_ledger_content_binding.py tests/test_evidence_contract.py tests/test_strict_evidence_decision_boundary.py tests/test_readiness.py tests/test_strict_delivery_lineage.py tests/test_deliveries.py tests/test_recursive_search.py",
+      "exit_code": 0,
+      "name": "focused_strict_suite",
+      "output_digest": "c8901f858168d20fab84ffb8eb3587f2c382169be8e78c7adfcab8bd3961c557",
+      "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/integrated-focused-suite-output.txt"
+    },
+    {
+      "command": "uv run pytest -q",
+      "exit_code": 0,
+      "name": "full_regression",
+      "output_digest": "a692c5a8e75615746b63d960568ce7efa15787139aa0f02d2b1ae6a969568718",
+      "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/integrated-full-regression-output.txt"
+    },
+    {
+      "command": "openspec validate --changes --strict --no-interactive",
+      "exit_code": 0,
+      "name": "openspec_strict",
+      "output_digest": "084647996eb0b14b1b69ed29f8814d2b707d63b445d56bfe918527992c55882c",
+      "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/integrated-openspec-output.txt"
+    },
+    {
+      "command": "uv run python scripts/build_skill_packages.py --check",
+      "exit_code": 0,
+      "name": "package_parity",
+      "output_digest": "fcefa332e552632418622ceaffe6b0e558fd8ac1d1dee23d45277f7d17842525",
+      "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/integrated-package-output.txt"
+    },
+    {
+      "command": "uv run python scripts/check_openspec_governance.py --repo .",
+      "exit_code": 0,
+      "name": "governance",
+      "output_digest": "43600e4e05728380a95611eb54d5be058b9d548d219669406ef5e93a88774d8f",
+      "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/integrated-governance-output.txt"
+    },
+    {
+      "command": "uv run python scripts/check_delivery_workflow.py validate",
+      "exit_code": 0,
+      "name": "delivery_workflow",
+      "output_digest": "743f0566d844f0aad6a748723944d031170987d53e41834197ea94cd6fcd7a55",
+      "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/integrated-delivery-output.txt"
+    }
+  ],
+  "future_evidence_gaps_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/future-evidence-gaps.json",
+  "kind": "integrated_verification_receipt",
+  "merged_slices": [
+    {
+      "issue": 111,
+      "merge_revision": "6bb8cfa",
+      "pull_request": 115
+    },
+    {
+      "issue": 108,
+      "merge_revision": "5539e92",
+      "pull_request": 116
+    },
+    {
+      "issue": 110,
+      "merge_revision": "540014f",
+      "pull_request": 122
+    },
+    {
+      "issue": 109,
+      "merge_revision": "63164fb",
+      "pull_request": 123
+    }
+  ],
+  "recorded_at": "2026-08-11T06:43:27.211205+00:00",
+  "schema_version": 1,
+  "source_revision": "63164fbd6ffe28c5ecee90de896e4dfe897bcede"
+}

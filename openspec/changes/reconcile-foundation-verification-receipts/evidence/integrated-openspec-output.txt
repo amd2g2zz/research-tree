@@ -1,0 +1,17 @@
+✓ change/add-alpha2-content-addressed-artifacts
+✓ change/add-resolvable-evidence-artifacts
+✓ change/bind-readiness-to-package-target
+✓ change/enforce-alpha2-storage-foundation
+✓ change/enforce-openspec-dependency-governance
+✓ change/enforce-strict-research-decision-boundaries
+✓ change/establish-alpha1-adversarial-baseline
+✓ change/establish-canonical-evidence-foundation
+✓ change/establish-dev-integration-governance
+✓ change/import-alpha1-runstore
+✓ change/preserve-strict-evidence-delivery-lineage
+✓ change/ratify-alpha2-runtime-contract
+✓ change/reconcile-foundation-verification-receipts
+✓ change/register-claude-code-plugin-marketplace
+✓ change/reject-worker-self-reported-validation
+✓ change/unify-research-runtime-alpha2
+Totals: 16 passed, 0 failed (16 items)
