@@ -183,6 +183,16 @@ from .alignment_handoff import (
 )
 from .storage import RunStore
 from .run_ledger import LedgerConflictError, LedgerError, LedgerIntegrityError, RunLedger
+from .oracles import (
+    ORACLE_ATTEMPT_KIND,
+    ORACLE_RUN_KIND,
+    ORACLE_SPEC_KIND,
+    InvalidOracleError,
+    OracleAttempt,
+    OracleRun,
+    OracleSpec,
+)
+from .closure import ASSESSMENT_KIND, ClosureAssessmentError, OracleService, SlotClosureAssessor, SlotClosureAssessment
 from .legacy_import import LegacyImportError, LegacyImportReceipt, LegacyImportResult, LegacyRunStoreImporter
 from .content_store import ContentAddressedStore, ContentIntegrityError, ContentObject, ContentPathError, ContentStoreError
 from .evidence import (
@@ -334,6 +344,18 @@ __all__ = [
     "LedgerError",
     "LedgerConflictError",
     "LedgerIntegrityError",
+    "ORACLE_ATTEMPT_KIND",
+    "ORACLE_RUN_KIND",
+    "ORACLE_SPEC_KIND",
+    "InvalidOracleError",
+    "OracleAttempt",
+    "OracleRun",
+    "OracleSpec",
+    "ASSESSMENT_KIND",
+    "ClosureAssessmentError",
+    "OracleService",
+    "SlotClosureAssessor",
+    "SlotClosureAssessment",
     "RuntimeStoreError",
     "VerificationError",
     "VerificationFailure",
