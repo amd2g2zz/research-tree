@@ -383,6 +383,19 @@ class RunLedger:
             raise LedgerIntegrityError(f"artifact identity does not match its row: {reference}")
         return artifact
 
+    def list_artifacts(self, run_id: str) -> tuple[ArtifactRevision, ...]:
+        """Return all immutable artifact revisions for a run in insertion order."""
+        self.initialize()
+        run_id = validate_identifier(run_id, "run_id")
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT artifact_json FROM artifacts WHERE run_id = ? ORDER BY rowid", (run_id,)
+            ).fetchall()
+        try:
+            return tuple(ArtifactRevision.from_dict(json.loads(row[0])) for row in rows)
+        except (TypeError, ValueError, KeyError, json.JSONDecodeError) as error:
+            raise LedgerIntegrityError(f"corrupt artifact row in run: {run_id}") from error
+
     def is_latest_artifact(self, reference: ArtifactRef) -> bool:
         """Return whether an exact artifact revision is current for its identity."""
 

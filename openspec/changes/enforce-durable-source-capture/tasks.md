@@ -1,0 +1,5 @@
+- [x] 1. Add SourceCapture, AcquisitionReceipt, and AnalysisCheckpoint typed contracts with canonical validation and redaction.
+- [x] 2. Persist captures through verified CAS and immutable RunLedger artifacts; expose recovery and same-run resume lookup.
+- [x] 3. Add worker-finished ordering gate with typed capture_incomplete quarantine disposition.
+- [x] 4. Add focused TDD coverage for crash ordering, deduplication, redaction, malformed/partial attempts, and resume.
+- [x] 5. Add source-bound verification receipt and governance registry updates; run all issue acceptance commands.
