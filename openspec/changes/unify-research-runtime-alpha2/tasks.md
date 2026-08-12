@@ -226,14 +226,14 @@ substitute for local evidence.
 
 ## 21. Repository Layout Governance (#70)
 
-- [ ] 21.1 Inventory every top-level path and classify source, generated, installed, runtime, evaluation, build, cache, and historical ownership.
+- [x] 21.1 Inventory every top-level path and classify source, generated, installed, runtime, evaluation, build, cache, and historical ownership.
 - [x] 21.2 Define a machine-readable path registry with mutability, tracked status, distribution status, cleanup safety, owner, and canonical command.
-- [ ] 21.3 Reconcile `packages/`, `skill-src/`, shared resources, host overlays, and repository-local `.agents/.claude/.codex` installations with explicit source/generated/install boundaries.
-- [ ] 21.4 Reconcile `.gitignore`, package manifests, build/dist output, egg-info, caches, raw material, research runs, and evaluation output with the registry.
+- [x] 21.3 Reconcile `packages/`, `skill-src/`, shared resources, host overlays, and repository-local `.agents/.claude/.codex` installations with explicit source/generated/install boundaries.
+- [x] 21.4 Reconcile `.gitignore`, package manifests, build/dist output, egg-info, caches, raw material, research runs, and evaluation output with the registry.
 - [x] 21.5 Implement checks for unexpected roots, generated-source drift, host-package leakage, misplaced runtime output, and undocumented artifacts.
-- [ ] 21.6 Prove package build, tests, supported local install, and a sample run leave a clean checkout with no unexplained files.
-- [ ] 21.7 Provide a non-destructive migration map with collision detection and explicit confirmation for user-owned untracked artifacts.
-- [ ] 21.8 Update repository layout and contributor documentation from the enforced registry.
+- [x] 21.6 Prove package build, tests, supported local install, and a sample run leave a clean checkout with no unexplained files.
+- [x] 21.7 Provide a non-destructive migration map with collision detection and explicit confirmation for user-owned untracked artifacts.
+- [x] 21.8 Update repository layout and contributor documentation from the enforced registry.
 
 ## 22. Alpha2 Release Completion (#67)
 

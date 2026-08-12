@@ -1,19 +1,46 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://research-tree.local/schemas/path-registry-v1.json",
-  "title": "Alpha2 repository path registry entry",
+  "title": "Alpha2 repository path registry",
   "type": "object",
   "additionalProperties": false,
-  "required": ["path", "asset_class", "owner", "mutability", "tracked", "distributed", "cleanup_safety", "canonical_command", "lifecycle"],
+  "required": ["schema_version", "entries"],
   "properties": {
-    "path": { "type": "string", "minLength": 1 },
-    "asset_class": { "type": "string", "enum": ["authoring_source", "generated_distribution", "installed_copy", "runtime_state", "evaluation_source", "evaluation_output", "build_product", "cache", "historical", "historical_or_normative", "historical_or_runtime", "active_change_or_history"] },
-    "owner": { "type": "string", "minLength": 1 },
-    "mutability": { "type": "string", "enum": ["immutable", "source", "append_only", "rebuildable", "disposable", "operator_migrated", "append_only_or_rebuildable", "versioned_or_append_only", "generated_or_link", "append_only_per_change"] },
-    "tracked": { "type": "boolean" },
-    "distributed": { "type": "boolean" },
-    "cleanup_safety": { "type": "string", "enum": ["never_delete", "explicit_confirmation", "safe_rebuild", "safe_ignore"] },
-    "canonical_command": { "type": ["string", "null"] },
-    "lifecycle": { "type": "string", "minLength": 1 }
+    "schema_version": { "const": 1 },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "asset_class", "owner", "mutability", "tracked", "distributed", "cleanup_safety", "canonical_command", "lifecycle"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "asset_class": { "type": "string", "enum": ["authoring_source", "generated_distribution", "installed_copy", "runtime_state", "evaluation_source", "evaluation_output", "build_product", "cache", "historical", "historical_or_normative", "historical_or_runtime", "active_change_or_history"] },
+        "owner": { "type": "string", "minLength": 1 },
+        "mutability": { "type": "string", "enum": ["immutable", "source", "append_only", "rebuildable", "disposable", "operator_migrated", "append_only_or_rebuildable", "versioned_or_append_only", "generated_or_link", "append_only_per_change"] },
+        "tracked": { "type": "boolean" },
+        "distributed": { "type": "boolean" },
+        "cleanup_safety": { "type": "string", "enum": ["never_delete", "explicit_confirmation", "safe_rebuild", "safe_ignore"] },
+        "canonical_command": { "type": ["string", "null"] },
+        "lifecycle": { "type": "string", "minLength": 1 },
+        "migration_target": { "type": "string", "minLength": 1 },
+        "migration_disposition": { "type": "string", "minLength": 1 }
+      },
+      "dependentRequired": {
+        "migration_target": ["migration_disposition"],
+        "migration_disposition": ["migration_target"]
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "mutability": { "const": "operator_migrated" } } },
+          "then": { "required": ["migration_target", "migration_disposition"] }
+        }
+      ]
+    }
   }
 }
