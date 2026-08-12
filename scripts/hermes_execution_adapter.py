@@ -16,6 +16,25 @@ from hermes_event_adapter import (
     recovery_events,
 )
 
+try:
+    from research_tree.host_capabilities import (
+        WorkflowContractError,
+        probe_host,
+        project_workflow,
+        reconcile_workflow,
+        replan_workflow,
+        resume_workflow,
+    )
+except ImportError:
+    from native_workflow_contract import (
+        WorkflowContractError,
+        probe_host,
+        project_workflow,
+        reconcile_workflow,
+        replan_workflow,
+        resume_workflow,
+    )
+
 
 class HermesExecutionError(ValueError):
     """Raised when a compatibility command has invalid bounded input."""
@@ -145,6 +164,21 @@ def _parser() -> argparse.ArgumentParser:
 
     project = commands.add_parser("project-action")
     project.add_argument("--action", type=Path, required=True)
+
+    probe = commands.add_parser("probe-host")
+    probe.add_argument("--observations", type=Path, required=True)
+
+    workflow = commands.add_parser("project-workflow")
+    workflow.add_argument("--request", type=Path, required=True)
+
+    reconcile = commands.add_parser("reconcile-host")
+    reconcile.add_argument("--request", type=Path, required=True)
+
+    replan = commands.add_parser("replan-workflow")
+    replan.add_argument("--request", type=Path, required=True)
+
+    resume = commands.add_parser("resume-workflow")
+    resume.add_argument("--request", type=Path, required=True)
     return parser
 
 
@@ -152,7 +186,19 @@ def main() -> int:
     args = _parser().parse_args()
     workspace = args.workspace.resolve()
     try:
-        if args.command == "init":
+        if args.command == "probe-host":
+            result = probe_host("hermes", _read_json(workspace, args.observations, "capability observations"))
+        elif args.command == "project-workflow":
+            result = project_workflow(_read_json(workspace, args.request, "workflow projection request"), "hermes")
+        elif args.command == "reconcile-host":
+            result = reconcile_workflow(
+                _read_json(workspace, args.request, "workflow reconciliation request"), "hermes"
+            )
+        elif args.command == "replan-workflow":
+            result = replan_workflow(_read_json(workspace, args.request, "workflow replan request"), "hermes")
+        elif args.command == "resume-workflow":
+            result = resume_workflow(_read_json(workspace, args.request, "workflow resume request"), "hermes")
+        elif args.command == "init":
             result = initialize_projection(workspace, args.run_id, args.handoff)
         elif args.command == "record-batch":
             result = batch_observation(
@@ -197,7 +243,7 @@ def main() -> int:
             result = project_hermes_action(_read_json(workspace, args.action, "canonical action"))
         else:
             raise HermesExecutionError("status requires the canonical coordinator ledger")
-    except (HermesEventError, HermesExecutionError, TypeError, ValueError) as error:
+    except (HermesEventError, HermesExecutionError, WorkflowContractError, TypeError, ValueError) as error:
         print(str(error))
         return 1
     print(json.dumps(result, ensure_ascii=True, indent=2, sort_keys=True))

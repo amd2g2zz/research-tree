@@ -50,6 +50,7 @@ COMMON_FILES = (
 COMMON_FILE_MAP = (
     (Path("src/research_tree/alignment_graph.py"), Path("scripts/alignment_controller.py")),
     (Path("src/research_tree/skill_activation.py"), Path("scripts/skill_activation.py")),
+    (Path("src/research_tree/host_capabilities.py"), Path("scripts/native_workflow_contract.py")),
 )
 HERMES_FILES = (
     Path("references/hermes-alignment.md"),

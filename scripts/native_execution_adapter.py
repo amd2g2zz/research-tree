@@ -17,6 +17,25 @@ from uuid import uuid4
 
 from host_event_protocol import build_host_event
 
+try:
+    from research_tree.host_capabilities import (
+        WorkflowContractError,
+        probe_host,
+        project_workflow,
+        reconcile_workflow,
+        replan_workflow,
+        resume_workflow,
+    )
+except ImportError:
+    from native_workflow_contract import (
+        WorkflowContractError,
+        probe_host,
+        project_workflow,
+        reconcile_workflow,
+        replan_workflow,
+        resume_workflow,
+    )
+
 
 SCHEMA = 1
 HOSTS = ("codex", "claude")
@@ -621,6 +640,21 @@ def _parser() -> argparse.ArgumentParser:
 
     validate_parser = subparsers.add_parser("validate-finding")
     validate_parser.add_argument("path", type=Path)
+
+    probe_parser = subparsers.add_parser("probe-host")
+    probe_parser.add_argument("--observations", type=Path, required=True)
+
+    project_parser = subparsers.add_parser("project-workflow")
+    project_parser.add_argument("--request", type=Path, required=True)
+
+    reconcile_parser = subparsers.add_parser("reconcile-host")
+    reconcile_parser.add_argument("--request", type=Path, required=True)
+
+    replan_parser = subparsers.add_parser("replan-workflow")
+    replan_parser.add_argument("--request", type=Path, required=True)
+
+    resume_parser = subparsers.add_parser("resume-workflow")
+    resume_parser.add_argument("--request", type=Path, required=True)
     return parser
 
 
@@ -628,7 +662,20 @@ def main() -> int:
     args = _parser().parse_args()
     workspace = args.workspace.resolve()
     try:
-        if args.command == "init":
+        contract_host = "claude-code" if args.host == "claude" else args.host
+        if args.command == "probe-host":
+            result = probe_host(contract_host, _read_json(args.observations.resolve(), "capability observations"))
+        elif args.command == "project-workflow":
+            result = project_workflow(_read_json(args.request.resolve(), "workflow projection request"), contract_host)
+        elif args.command == "reconcile-host":
+            result = reconcile_workflow(
+                _read_json(args.request.resolve(), "workflow reconciliation request"), contract_host
+            )
+        elif args.command == "replan-workflow":
+            result = replan_workflow(_read_json(args.request.resolve(), "workflow replan request"), contract_host)
+        elif args.command == "resume-workflow":
+            result = resume_workflow(_read_json(args.request.resolve(), "workflow resume request"), contract_host)
+        elif args.command == "init":
             handoff = args.handoff if args.handoff.is_absolute() else workspace / args.handoff
             result = init_run(workspace, args.run_id, args.host, handoff)
         elif args.command == "add-task":
@@ -678,7 +725,7 @@ def main() -> int:
             result = complete_run(workspace, args.run_id, args.host, technical, human)
         else:
             result = validate_finding(args.path.resolve())
-    except (AdapterError, OSError) as exc:
+    except (AdapterError, OSError, WorkflowContractError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
     print(json.dumps(result, ensure_ascii=False, indent=2))

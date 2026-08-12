@@ -27,6 +27,11 @@ HOST_EVENT_KINDS = frozenset(
         "retry",
         "worker_finished",
         "observation",
+        "workflow_started",
+        "workflow_resumed",
+        "workflow_phase_completed",
+        "checkpoint_persisted",
+        "reconciliation_detected",
     }
 )
 _REQUIRED_PAYLOAD_FIELDS = {
@@ -34,11 +39,16 @@ _REQUIRED_PAYLOAD_FIELDS = {
     "attempt_started": (),
     "submission": ("evidence_refs",),
     "review": ("verdict",),
-    "provider_failure": ("category",),
+    "provider_failure": ("category", "provider", "model"),
     "unknown_outcome": ("reason",),
     "retry": ("retry_of",),
     "worker_finished": ("outcome",),
     "observation": (),
+    "workflow_started": ("workflow_id", "capability_digest", "strategy_revision", "action_refs", "phase_refs"),
+    "workflow_resumed": ("workflow_id", "capability_digest", "strategy_revision", "checkpoint_refs"),
+    "workflow_phase_completed": ("workflow_id", "phase_id", "child_attempt_refs", "produced_artifact_refs"),
+    "checkpoint_persisted": ("checkpoint_ref", "checkpoint_digest"),
+    "reconciliation_detected": ("workflow_id", "classifications", "next_action"),
 }
 
 
@@ -107,6 +117,11 @@ class HostEvent:
         missing = [field for field in _REQUIRED_PAYLOAD_FIELDS[self.kind] if field not in self.payload]
         if missing:
             raise HostEventError(f"{self.kind} payload missing: {', '.join(missing)}")
+        if self.kind == "provider_failure":
+            if not ({"opaque_code", "error_code"} & set(self.payload)):
+                raise HostEventError("provider_failure payload missing: opaque_code or error_code")
+            if not ({"safe_log_ref", "gateway_log_path"} & set(self.payload)):
+                raise HostEventError("provider_failure payload missing: safe_log_ref or gateway_log_path")
         if not isinstance(self.payload_digest, str) or len(self.payload_digest) != 64:
             raise HostEventDigestError("payload_digest must be a SHA-256 hex digest")
         try:
