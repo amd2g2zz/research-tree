@@ -305,10 +305,10 @@ substitute for local evidence.
 
 ## 29. Project-Scoped User Preference Profiles (#86)
 
-- [ ] 29.1 Define PreferenceObservation and project-local UserPreferenceProfile schemas with privacy boundaries.
-- [ ] 29.2 Implement five-turn refresh, explicit-input precedence, hysteresis, shadow changes, aging, and supersession.
-- [ ] 29.3 Bind material profile effects to StrategyProjection and expose inspection, correction, reset, and deletion controls.
-- [ ] 29.4 Add deterministic preference recall, volatility, override, privacy, reload, and strategy-trace tests.
+- [x] 29.1 Define PreferenceObservation and project-local UserPreferenceProfile schemas with privacy boundaries.
+- [x] 29.2 Implement five-turn refresh, explicit-input precedence, hysteresis, shadow changes, aging, and supersession.
+- [x] 29.3 Bind material profile effects to StrategyProjection and expose inspection, correction, reset, and deletion controls.
+- [x] 29.4 Add deterministic preference recall, volatility, override, privacy, reload, and strategy-trace tests.
 
 ## 30. Paired Alpha Benchmark (#84)
 

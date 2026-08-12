@@ -73,6 +73,7 @@ class StrategyProjection:
     success_oracles: tuple[Any, ...]
     delivery_contract: Mapping[str, Any]
     stop_rule: str
+    preference_influences: tuple[Any, ...]
     revision: int
     status: str
     display_digest: str
@@ -80,6 +81,8 @@ class StrategyProjection:
 
     @classmethod
     def create(cls, **values: Any) -> "StrategyProjection":
+        values = dict(values)
+        values.setdefault("preference_influences", ())
         required = {
             "projection_id",
             "run_id",
@@ -98,6 +101,7 @@ class StrategyProjection:
             "success_oracles",
             "delivery_contract",
             "stop_rule",
+            "preference_influences",
             "revision",
             "status",
         }
@@ -131,9 +135,33 @@ class StrategyProjection:
             "method_hypotheses",
             "evidence_expectations",
             "success_oracles",
+            "preference_influences",
         ):
-            if not isinstance(values[key], Sequence) or isinstance(values[key], (str, bytes)) or not values[key]:
+            if not isinstance(values[key], Sequence) or isinstance(values[key], (str, bytes)):
                 raise StrategyProjectionError(f"{key} must contain at least one item")
+            if key != "preference_influences" and not values[key]:
+                raise StrategyProjectionError(f"{key} must contain at least one item")
+        for influence in values["preference_influences"]:
+            if not isinstance(influence, Mapping) or set(influence) != {
+                "profile_revision",
+                "observation_id",
+                "key",
+                "selected_value",
+                "precedence",
+                "reversal_condition",
+            }:
+                raise StrategyProjectionError("preference influence fields do not match schema")
+            if (
+                isinstance(influence["profile_revision"], bool)
+                or not isinstance(influence["profile_revision"], int)
+                or influence["profile_revision"] < 1
+            ):
+                raise StrategyProjectionError("preference influence profile_revision must be positive")
+            if influence["precedence"] not in {"profile", "current-explicit"}:
+                raise StrategyProjectionError("preference influence precedence is invalid")
+            for key in ("observation_id", "key", "selected_value", "reversal_condition"):
+                if not isinstance(influence[key], str) or not influence[key].strip():
+                    raise StrategyProjectionError(f"preference influence {key} must be non-empty")
         for key in ("autonomy_envelope", "replanning_policy", "delivery_contract"):
             if not isinstance(values[key], Mapping) or not values[key]:
                 raise StrategyProjectionError(f"{key} must be a non-empty object")
@@ -149,6 +177,7 @@ class StrategyProjection:
         normalized["method_hypotheses"] = tuple(normalized["method_hypotheses"])
         normalized["evidence_expectations"] = tuple(normalized["evidence_expectations"])
         normalized["success_oracles"] = tuple(normalized["success_oracles"])
+        normalized["preference_influences"] = tuple(normalized["preference_influences"])
         display_payload = cls._display_payload_from(normalized)
         display_digest = sha256(canonical_json_bytes(display_payload)).hexdigest()
         content_hash = sha256(canonical_json_bytes({**display_payload, "display_digest": display_digest})).hexdigest()
@@ -179,6 +208,7 @@ class StrategyProjection:
                     "success_oracles",
                     "delivery_contract",
                     "stop_rule",
+                    "preference_influences",
                     "revision",
                     "status",
                 )
@@ -238,17 +268,34 @@ class StrategyProjection:
             "success_oracles",
             "delivery_contract",
             "stop_rule",
+            "preference_influences",
             "revision",
             "status",
             "display_payload",
             "display_digest",
             "content_hash",
         }
+        legacy = "preference_influences" not in value
+        if legacy:
+            expected_keys.remove("preference_influences")
         if set(value) != expected_keys:
             raise StrategyProjectionError("projection fields do not match schema")
         if value.get("schema_version") != STRATEGY_PROJECTION_SCHEMA_VERSION:
             raise StrategyProjectionError("schema_version must be 1")
         try:
+            if legacy:
+                legacy_payload = value["display_payload"]
+                if set(legacy_payload) != expected_keys - {"display_payload", "display_digest", "content_hash"}:
+                    raise StrategyProjectionError("display_payload mismatch")
+                legacy_display_digest = sha256(canonical_json_bytes(legacy_payload)).hexdigest()
+                legacy_content_hash = sha256(
+                    canonical_json_bytes({**legacy_payload, "display_digest": legacy_display_digest})
+                ).hexdigest()
+                if (
+                    value.get("display_digest") != legacy_display_digest
+                    or value.get("content_hash") != legacy_content_hash
+                ):
+                    raise StrategyProjectionError("projection digest mismatch")
             refs = {
                 name: ArtifactRef.from_dict(value[name])
                 for name in ("decision_frame_ref", "alignment_handoff_ref", "target_ref")
@@ -271,6 +318,7 @@ class StrategyProjection:
                         "success_oracles",
                         "delivery_contract",
                         "stop_rule",
+                        *(() if legacy else ("preference_influences",)),
                         "revision",
                         "status",
                     )
@@ -279,8 +327,10 @@ class StrategyProjection:
             )
         except (KeyError, TypeError, ValueError) as error:
             raise StrategyProjectionError("invalid projection fields") from error
-        if value.get("display_digest") != item.display_digest or value.get("content_hash") != item.content_hash:
+        if not legacy and (
+            value.get("display_digest") != item.display_digest or value.get("content_hash") != item.content_hash
+        ):
             raise StrategyProjectionError("projection digest mismatch")
-        if value.get("display_payload") != item.display_payload:
+        if not legacy and value.get("display_payload") != item.display_payload:
             raise StrategyProjectionError("display_payload mismatch")
         return item
