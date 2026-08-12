@@ -1,0 +1,9 @@
+{
+  "command": "uv run python scripts/check_evaluation_assets.py",
+  "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+  "exit_code": 0,
+  "output_digest": "1120bcf0a81e833b17601d1137bf2c192003f08b50b99102b2e21cb0e14c64fd",
+  "raw_output_ref": "openspec/changes/govern-evaluation-assets/evidence/group-20-output.txt",
+  "recorded_at": "2026-08-12T03:50:59.927590+00:00",
+  "source_revision": "69b8a5c78fbbebfb4095ae9e0fbf063b6b985b14"
+}

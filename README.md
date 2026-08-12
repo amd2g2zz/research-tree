@@ -26,6 +26,10 @@ Contributors should read the [development workflow](docs/development-workflow.md
 `master` remains the default and release branch; ordinary development changes
 are integrated through pull requests targeting `dev`.
 
+Evaluation source assets use the single governed `evaluation/` namespace; see
+[evaluation asset governance](docs/evaluation-assets.md) for tracked classes,
+disposable output, oracle isolation, and the public Alpha1 validation command.
+
 ## Why Research Tree?
 
 Most research prompts are incomplete even when they sound specific. Important
