@@ -1,0 +1,7 @@
+.................                                                                                                                                                                                                                   [100%]
+17 passed in 1.28s
+All checks passed!
+8 files already formatted
+
+source_revision=f7da3d3f69bb8daff0fe203fef61f106cdb009df
+output_digest=a0122b03aff1efd095a5574b5e521be670fae009d7ddbf63e5920bfa9f644e60
