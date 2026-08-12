@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "alpha2-release-candidate-v1",
+  "case_id": "alpha2-release-v1",
+  "source_revision": "c535d0558518717e103ab15ed3ad9d4d7ccb57c9",
+  "environment": "clean-checkout; python>=3.11; deterministic public replay",
+  "producer": "evaluation/harness/run_release_gates.py",
+  "recorded_at": "2026-08-12T06:00:00Z",
+  "artifact_refs": ["evaluation/cases/alpha2-release-v1.json", "evaluation/reviews/alpha2-blinded-review-v1.json"],
+  "limitations": ["This retained fixture proves deterministic gate semantics; provider-specific live executions remain external evidence."],
+  "content_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "release_manifest": {
+    "schema_version": 1,
+    "manifest_id": "alpha2-release-candidate-v1",
+    "source_revision": "c535d0558518717e103ab15ed3ad9d4d7ccb57c9",
+    "required_hosts": ["codex", "claude-code", "hermes"],
+    "cases": [
+      {"case_id": "provider-crash-resume", "case_version": "1", "host": "codex", "execution_disposition": "passed", "source_revision": "c535d0558518717e103ab15ed3ad9d4d7ccb57c9", "environment_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "package_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "command": "public-independent-runner --host codex", "public_artifact_refs": ["artifact:codex:public-result"], "opaque_oracle_id": "alpha2-recovery-v1", "oracle_verdict_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "evaluator_id": "independent-codex", "producer_id": "worker-codex", "false_completion_count": 0, "p0_total": 2, "p0_resolved": 2, "evidence_refs_resolved": true, "closure_refs_resolved": true, "recovery_preserved": true, "semantic_delivery_consistent": true, "canonical_outcome_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "quality": {"intent_fidelity": 0.9, "unsupported_claim_control": 1.0, "contradiction_handling": 0.8, "depth": 0.85, "implementation_success": 1.0, "rediscovery_control": 0.8, "professional_usefulness": 0.9}, "comparison": {"alpha2_implementation_success": 1.0, "alpha1_implementation_success": 0.5, "simpler_prompt_implementation_success": 0.4}, "review_refs": ["review:codex:blinded"], "limitations": ["Public replay does not measure provider latency."]},
+      {"case_id": "provider-crash-resume", "case_version": "1", "host": "claude-code", "execution_disposition": "passed", "source_revision": "c535d0558518717e103ab15ed3ad9d4d7ccb57c9", "environment_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "package_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "command": "public-independent-runner --host claude-code", "public_artifact_refs": ["artifact:claude-code:public-result"], "opaque_oracle_id": "alpha2-recovery-v1", "oracle_verdict_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "evaluator_id": "independent-claude-code", "producer_id": "worker-claude-code", "false_completion_count": 0, "p0_total": 2, "p0_resolved": 2, "evidence_refs_resolved": true, "closure_refs_resolved": true, "recovery_preserved": true, "semantic_delivery_consistent": true, "canonical_outcome_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "quality": {"intent_fidelity": 0.9, "unsupported_claim_control": 1.0, "contradiction_handling": 0.8, "depth": 0.85, "implementation_success": 1.0, "rediscovery_control": 0.8, "professional_usefulness": 0.9}, "comparison": {"alpha2_implementation_success": 1.0, "alpha1_implementation_success": 0.5, "simpler_prompt_implementation_success": 0.4}, "review_refs": ["review:claude-code:blinded"], "limitations": ["Public replay does not measure provider latency."]},
+      {"case_id": "provider-crash-resume", "case_version": "1", "host": "hermes", "execution_disposition": "unavailable", "source_revision": "c535d0558518717e103ab15ed3ad9d4d7ccb57c9", "environment_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "package_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "command": "hermes --version", "public_artifact_refs": [], "opaque_oracle_id": "alpha2-recovery-v1", "oracle_verdict_digest": null, "evaluator_id": "independent-hermes", "producer_id": "worker-hermes", "false_completion_count": 0, "p0_total": 2, "p0_resolved": 2, "evidence_refs_resolved": true, "closure_refs_resolved": true, "recovery_preserved": true, "semantic_delivery_consistent": true, "canonical_outcome_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "quality": {"intent_fidelity": 0.9, "unsupported_claim_control": 1.0, "contradiction_handling": 0.8, "depth": 0.85, "implementation_success": 1.0, "rediscovery_control": 0.8, "professional_usefulness": 0.9}, "comparison": {"alpha2_implementation_success": 1.0, "alpha1_implementation_success": 0.5, "simpler_prompt_implementation_success": 0.4}, "review_refs": [], "limitations": ["Hermes CLI is unavailable in the current environment; no live parity result is claimed."]}
+    ],
+    "quality_thresholds": {"intent_fidelity": 0.7, "unsupported_claim_control": 0.9, "contradiction_handling": 0.7, "depth": 0.7, "implementation_success": 0.8, "rediscovery_control": 0.6, "professional_usefulness": 0.7},
+    "independent_implementation_refs": ["implementation:public-runner:v1"],
+    "blinded_review_refs": ["evaluation/reviews/alpha2-blinded-review-v1.json"],
+    "limitations": ["Live provider behavior is not claimed by this deterministic replay."]
+  },
+  "release_decision": {"status": "fail"}
+}
