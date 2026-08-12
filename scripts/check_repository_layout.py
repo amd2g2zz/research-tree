@@ -27,6 +27,13 @@ RUNTIME_ROOTS = {
     ".research-tree-hooks/",
     ".research-tree-native/",
 }
+MISPLACED_OUTPUT_CLASSES = {
+    "build_product",
+    "evaluation_output",
+    "historical_or_runtime",
+    "installed_copy",
+    "runtime_state",
+}
 
 
 def _error(code: str, path: str, detail: str) -> dict[str, str]:
@@ -43,6 +50,10 @@ def _normalized_path(path: str) -> str:
 
 def _exact_ignore_rule(path: str) -> str:
     return f"{_normalized_path(path)}/" if path.endswith("/") else _normalized_path(path)
+
+
+def _has_glob(path: str) -> bool:
+    return any(character in path for character in "*?[")
 
 
 def _tracked_paths(repository: Path) -> set[str]:
@@ -65,6 +76,21 @@ def _read_ignore_rules(repository: Path) -> set[str]:
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.lstrip().startswith("#") and not line.lstrip().startswith("!")
     }
+
+
+def _ignore_probe(path: str) -> str:
+    normalized = _normalized_path(path).replace("*", "layout-probe")
+    return f"{normalized}/.layout-probe" if path.endswith("/") else normalized
+
+
+def _is_effectively_ignored(repository: Path, path: str) -> bool:
+    result = subprocess.run(
+        ["git", "check-ignore", "--quiet", "--no-index", "--", _ignore_probe(path)],
+        cwd=repository,
+        capture_output=True,
+        check=False,
+    )
+    return result.returncode == 0
 
 
 def _schema_error(path: Path, detail: str) -> tuple[None, list[dict[str, str]]]:
@@ -248,6 +274,62 @@ def _entry_matches_root(entry: dict[str, Any], root: str) -> bool:
     return fnmatchcase(root, _root_name(str(entry.get("path", ""))))
 
 
+def _paths_overlap(left: str, right: str) -> bool:
+    if _has_glob(left) or _has_glob(right):
+        return False
+    left_normalized, right_normalized = _normalized_path(left), _normalized_path(right)
+    return (
+        left_normalized == right_normalized
+        or left_normalized.startswith(f"{right_normalized}/")
+        or right_normalized.startswith(f"{left_normalized}/")
+    )
+
+
+def _misplaced_output_errors(repository: Path, entries: list[dict[str, Any]]) -> list[dict[str, str]]:
+    errors: list[dict[str, str]] = []
+    authoring_roots = [entry for entry in entries if entry.get("asset_class") == "authoring_source"]
+    outputs = [
+        entry
+        for entry in entries
+        if entry.get("tracked") is False
+        and entry.get("asset_class") in MISPLACED_OUTPUT_CLASSES
+        and not _has_glob(str(entry.get("path", "")))
+    ]
+    for source in authoring_roots:
+        source_path = str(source.get("path", ""))
+        if not source_path.endswith("/") or _has_glob(source_path):
+            continue
+        source_normalized = _normalized_path(source_path)
+        for output in outputs:
+            output_path = str(output.get("path", ""))
+            output_normalized = _normalized_path(output_path)
+            nested_path = (
+                output_normalized
+                if output_normalized.startswith(f"{source_normalized}/")
+                else f"{source_normalized}/{output_normalized}"
+            )
+            if not (repository / nested_path).exists():
+                continue
+            if output.get("asset_class") == "runtime_state":
+                errors.append(
+                    _error(
+                        "misplaced-runtime-output",
+                        f"{nested_path}/",
+                        f"runtime state belongs in {output_path} via {output.get('canonical_command')}",
+                    )
+                )
+                continue
+            workflow = output.get("canonical_command") or "the registered migration workflow"
+            errors.append(
+                _error(
+                    "misplaced-output",
+                    f"{nested_path}/",
+                    f"{output.get('asset_class')} output belongs at {output_path} via {workflow}",
+                )
+            )
+    return errors
+
+
 def _read_registry(registry_path: Path) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     return _load_registry(registry_path)
 
@@ -301,6 +383,19 @@ def _boundary_errors(repository: Path, entries: list[dict[str, Any]]) -> list[di
             continue
         if entry.get("asset_class") != "runtime_state":
             errors.append(_error("invalid-runtime-boundary", path, f"{path} must be runtime_state"))
+    for authoring in (entry for entry in entries if entry.get("asset_class") == "authoring_source"):
+        source_path = str(authoring.get("path", ""))
+        for generated in (entry for entry in entries if entry.get("asset_class") == "generated_distribution"):
+            generated_path = str(generated.get("path", ""))
+            if _paths_overlap(source_path, generated_path):
+                errors.append(
+                    _error(
+                        "overlapping-generated-source-boundary",
+                        source_path,
+                        f"{source_path} overlaps generated distribution {generated_path}",
+                    )
+                )
+    errors.extend(_misplaced_output_errors(repository, entries))
     return errors
 
 
@@ -362,26 +457,16 @@ def validate_repository(
                         "registered untracked root requires an exact .gitignore rule",
                     )
                 )
-            if (repository / _normalized_path(path)).exists():
-                protected_local_paths.append(path)
-
-    runtime_entry = next((entry for entry in entries if entry.get("path") == ".research-tree/"), None)
-    if runtime_entry is not None:
-        for authoring_root in entries:
-            if authoring_root.get("asset_class") != "authoring_source":
-                continue
-            root_path = str(authoring_root.get("path", ""))
-            if not root_path.endswith("/"):
-                continue
-            misplaced = repository / _normalized_path(root_path) / ".research-tree"
-            if misplaced.exists():
+            elif not _is_effectively_ignored(repository, path):
                 errors.append(
                     _error(
-                        "misplaced-runtime-output",
-                        f"{_normalized_path(root_path)}/.research-tree/",
-                        "runtime state belongs in .research-tree/ via research-tree run-status",
+                        "missing-effective-ignore-rule",
+                        path,
+                        "registered untracked root is not effectively ignored by Git",
                     )
                 )
+            if (repository / _normalized_path(path)).exists():
+                protected_local_paths.append(path)
 
     errors.sort(key=lambda item: (item["path"], item["code"], item["detail"]))
     return {
@@ -516,6 +601,9 @@ def workflow_probe(repository: Path) -> dict[str, Any]:
         if sample.returncode:
             errors.append(_error("sample-run-failed", ".research-tree/", "migration inventory failed"))
     after = _git_status(repository)
+    layout_report = validate_repository(repository, repository / DEFAULT_REGISTRY)
+    for layout_error in layout_report["errors"]:
+        errors.append(_error("post-probe-layout-invalid", layout_error["path"], layout_error["code"]))
     if after != before:
         errors.append(_error("checkout-mutated", ".", "supported workflow changed checkout status"))
     errors.sort(key=lambda item: (item["path"], item["code"], item["detail"]))

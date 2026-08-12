@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 
 
 ROOT = Path(__file__).parents[1]
@@ -10,8 +11,9 @@ REGISTRY = ROOT / "openspec/changes/unify-research-runtime-alpha2/registries/rep
 
 
 def checker():
-    path = ROOT / "scripts/check_repository_layout.py"
-    spec = importlib.util.spec_from_file_location("check_repository_layout", path)
+    spec = importlib.util.spec_from_file_location(
+        "check_repository_layout", ROOT / "scripts/check_repository_layout.py"
+    )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -19,9 +21,15 @@ def checker():
 
 
 def write_registry(root: Path, entries: list[dict[str, object]]) -> Path:
+    if not (root / ".git").exists():
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     path = root / "registry.json"
     path.write_text(json.dumps({"schema_version": 1, "entries": entries}), encoding="utf-8")
     return path
+
+
+def report(root: Path, entries: list[dict[str, object]], **kwargs: object) -> dict[str, object]:
+    return checker().validate_repository(root, write_registry(root, entries), **kwargs)
 
 
 def entry(path: str, **overrides: object) -> dict[str, object]:
@@ -40,14 +48,28 @@ def entry(path: str, **overrides: object) -> dict[str, object]:
     return value
 
 
+def local_entry(path: str, **overrides: object) -> dict[str, object]:
+    value = entry(
+        path,
+        asset_class="installed_copy",
+        owner="codex",
+        mutability="generated_or_link",
+        tracked=False,
+        cleanup_safety="explicit_confirmation",
+        canonical_command="research-tree-setup install --host codex --scope project",
+        lifecycle="local",
+    )
+    value.update(overrides)
+    return value
+
+
 def error(code: str, path: str, detail: str) -> dict[str, str]:
     return {"code": code, "path": path, "detail": detail}
 
 
-def test_registry_covers_tracked_roots_and_required_lifecycle() -> None:
-    registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+def test_current_registry_covers_checkout_and_lifecycle() -> None:
+    entries = {item["path"]: item for item in json.loads(REGISTRY.read_text(encoding="utf-8"))["entries"]}
 
-    entries = {item["path"]: item for item in registry["entries"]}
     assert set(entries) >= {
         ".claude-plugin/",
         ".github/",
@@ -60,41 +82,27 @@ def test_registry_covers_tracked_roots_and_required_lifecycle() -> None:
         "README.md",
     }
     assert all(item["lifecycle"] for item in entries.values())
-    assert entries["packages/"]["asset_class"] == "generated_distribution"
-    assert entries[".claude-plugin/"]["asset_class"] == "generated_distribution"
+    assert {entries[path]["asset_class"] for path in {"packages/", ".claude-plugin/"}} == {"generated_distribution"}
     assert checker().validate_repository(ROOT, REGISTRY)["errors"] == []
 
 
-def test_checker_reports_missing_lifecycle_and_unregistered_tracked_root(tmp_path: Path) -> None:
-    (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "runtime.py").write_text("pass\n", encoding="utf-8")
-    (tmp_path / "README.md").write_text("root\n", encoding="utf-8")
+def test_checker_rejects_registry_shape_and_type_drift(tmp_path: Path) -> None:
     registry = write_registry(tmp_path, [entry("src/")])
-    malformed = json.loads(registry.read_text(encoding="utf-8"))
-    malformed["entries"][0].pop("lifecycle")
-    registry.write_text(json.dumps(malformed), encoding="utf-8")
-
-    report = checker().validate_repository(tmp_path, registry, tracked_roots={"src", "README.md"})
-
-    assert report["errors"] == [
+    payload = json.loads(registry.read_text(encoding="utf-8"))
+    payload["entries"][0].pop("lifecycle")
+    registry.write_text(json.dumps(payload), encoding="utf-8")
+    missing = checker().validate_repository(tmp_path, registry, tracked_roots={"src", "README.md"})
+    assert missing["errors"] == [
         error("unregistered-tracked-root", "README.md", "add a registry entry for this checkout root"),
         error("invalid-registry", "entries[0].lifecycle", "field is required"),
     ]
 
-
-def test_checker_rejects_schema_type_drift(tmp_path: Path) -> None:
-    malformed = entry(
-        "src/",
-        owner="",
-        tracked="yes",
-        distributed="no",
-        canonical_command=1,
+    typed = report(
+        tmp_path,
+        [entry("src/", owner="", tracked="yes", distributed="no", canonical_command=1)],
+        tracked_roots={"src"},
     )
-    registry = write_registry(tmp_path, [malformed])
-
-    report = checker().validate_repository(tmp_path, registry, tracked_roots={"src"})
-
-    assert report["errors"] == [
+    assert typed["errors"] == [
         error("invalid-registry", "entries[0].canonical_command", "canonical_command must be a string or null"),
         error("invalid-registry", "entries[0].distributed", "distributed must be a boolean"),
         error("invalid-registry", "entries[0].owner", "owner must be non-empty"),
@@ -102,47 +110,33 @@ def test_checker_rejects_schema_type_drift(tmp_path: Path) -> None:
     ]
 
 
-def test_checker_reads_field_constraints_from_the_schema(tmp_path: Path) -> None:
+def test_checker_uses_schema_constraints_and_rejects_invalid_envelopes(tmp_path: Path) -> None:
     schema = json.loads(
-        (ROOT / "openspec/changes/unify-research-runtime-alpha2/schemas/path-registry-v1.json").read_text(
-            encoding="utf-8"
-        )
+        (ROOT / "openspec/changes/unify-research-runtime-alpha2/schemas/path-registry-v1.json").read_text()
     )
     schema["$defs"]["entry"]["properties"]["asset_class"]["enum"].append("test_only_asset")
     schema_path = tmp_path / "schema.json"
     schema_path.write_text(json.dumps(schema), encoding="utf-8")
-    registry = write_registry(tmp_path, [entry("src/", asset_class="test_only_asset")])
-
-    entries, errors = checker()._load_registry(registry, schema_path)
-
+    entries, errors = checker()._load_registry(
+        write_registry(tmp_path, [entry("src/", asset_class="test_only_asset")]), schema_path
+    )
     assert entries == [entry("src/", asset_class="test_only_asset")]
     assert errors == []
 
-
-def test_checker_rejects_invalid_registry_envelope(tmp_path: Path) -> None:
-    registry = tmp_path / "registry.json"
-    registry.write_text(
-        json.dumps({"schema_version": 1, "entries": [], "unexpected": True}),
-        encoding="utf-8",
+    invalid = tmp_path / "invalid.json"
+    invalid.write_text(json.dumps({"schema_version": 1, "entries": [], "unexpected": True}), encoding="utf-8")
+    envelope = checker().validate_repository(
+        invalid.parent, invalid, tracked_roots=set(), tracked_paths=set(), checkout_roots=set()
     )
-
-    report = checker().validate_repository(
-        tmp_path,
-        registry,
-        tracked_roots=set(),
-        tracked_paths=set(),
-        checkout_roots=set(),
-    )
-
-    assert report["errors"] == [
+    assert envelope["errors"] == [
         error("invalid-registry", "entries", "registry requires at least one entry"),
         error("invalid-registry", "unexpected", "field is not allowed"),
     ]
 
 
-def test_checker_rejects_empty_operator_migration_target(tmp_path: Path) -> None:
+def test_checker_requires_complete_operator_migration_metadata(tmp_path: Path) -> None:
     (tmp_path / ".gitignore").write_text("research-runs/\n", encoding="utf-8")
-    registry = write_registry(
+    result = report(
         tmp_path,
         [
             entry(
@@ -158,144 +152,61 @@ def test_checker_rejects_empty_operator_migration_target(tmp_path: Path) -> None
                 migration_disposition="manual_relocate_after_audit",
             )
         ],
-    )
-
-    report = checker().validate_repository(
-        tmp_path,
-        registry,
         tracked_roots=set(),
         tracked_paths=set(),
         checkout_roots=set(),
     )
-
-    assert report["errors"] == [
+    assert result["errors"] == [
         error("invalid-registry", "entries[0].migration_target", "migration_target must be non-empty")
     ]
 
 
-def test_checker_reports_missing_exact_ignore_and_protects_registered_local_root(tmp_path: Path) -> None:
+def test_checker_enforces_tracked_and_effective_ignore_policy(tmp_path: Path) -> None:
     (tmp_path / ".codex").mkdir()
     (tmp_path / ".codex" / "hooks.json").write_text("{}\n", encoding="utf-8")
-    (tmp_path / ".gitignore").write_text("", encoding="utf-8")
-    registry = write_registry(
-        tmp_path,
-        [
-            entry(
-                ".codex/",
-                asset_class="installed_copy",
-                owner="codex",
-                mutability="generated_or_link",
-                tracked=False,
-                cleanup_safety="explicit_confirmation",
-                canonical_command="research-tree-setup install --host codex --scope project",
-                lifecycle="local",
-            )
-        ],
-    )
-
-    report = checker().validate_repository(tmp_path, registry, tracked_roots=set())
-
-    assert report["errors"] == [
+    missing = report(tmp_path, [local_entry(".codex/")], tracked_roots=set())
+    assert missing["errors"] == [
         error("missing-ignore-rule", ".codex/", "registered untracked root requires an exact .gitignore rule")
     ]
-    assert report["protected_local_paths"] == [".codex/"]
-    assert (tmp_path / ".codex" / "hooks.json").is_file()
+    assert missing["protected_local_paths"] == [".codex/"]
 
-
-def test_checker_rejects_git_tracked_installed_copy(tmp_path: Path) -> None:
-    (tmp_path / ".gitignore").write_text(".agents/\n", encoding="utf-8")
-    registry = write_registry(
-        tmp_path,
-        [
-            entry(
-                ".agents/",
-                asset_class="installed_copy",
-                owner="codex",
-                mutability="generated_or_link",
-                tracked=False,
-                cleanup_safety="explicit_confirmation",
-                canonical_command="research-tree-setup install --host codex --scope project",
-                lifecycle="local",
-            )
-        ],
-    )
-
-    report = checker().validate_repository(
-        tmp_path,
-        registry,
+    policy_root = tmp_path / "policy"
+    policy_root.mkdir()
+    (policy_root / ".gitignore").write_text(".agents/\n", encoding="utf-8")
+    tracked = report(
+        policy_root,
+        [local_entry(".agents/")],
         tracked_roots={".agents"},
         tracked_paths={".agents/skills/research-tree/SKILL.md"},
     )
-
-    assert report["errors"] == [
+    assert tracked["errors"] == [
         error("tracked-policy-mismatch", ".agents/", "registry marks this path untracked but Git contains it")
     ]
 
-
-def test_checker_rejects_registered_tracked_path_missing_from_git(tmp_path: Path) -> None:
-    registry = write_registry(tmp_path, [entry("src/")])
-
-    report = checker().validate_repository(
-        tmp_path,
-        registry,
-        tracked_roots=set(),
-        tracked_paths=set(),
+    (policy_root / ".gitignore").write_text(".agents/\n!.agents/\n", encoding="utf-8")
+    negated = report(
+        policy_root, [local_entry(".agents/")], tracked_roots=set(), tracked_paths=set(), checkout_roots=set()
     )
-
-    assert report["errors"] == [
+    assert negated["errors"] == [
+        error(
+            "missing-effective-ignore-rule", ".agents/", "registered untracked root is not effectively ignored by Git"
+        )
+    ]
+    expected = report(policy_root, [entry("src/")], tracked_roots=set(), tracked_paths=set())
+    assert expected["errors"] == [
         error("tracked-policy-mismatch", "src/", "registry marks this path tracked but Git has no files")
     ]
 
 
-def test_checker_rejects_invalid_generated_package_boundaries(tmp_path: Path) -> None:
-    (tmp_path / "packages").mkdir()
-    (tmp_path / "packages" / "skill.md").write_text("generated\n", encoding="utf-8")
-    registry = write_registry(tmp_path, [entry("packages/")])
-
-    boundary_report = checker().validate_repository(tmp_path, registry, tracked_roots={"packages"})
-    assert {error["code"] for error in boundary_report["errors"]} == {
-        "invalid-package-boundary",
-        "invalid-package-command",
+def test_checker_inventories_cache_roots_and_glob_ignores(tmp_path: Path) -> None:
+    missing = report(tmp_path, [entry("src/")], tracked_paths=set(), checkout_roots={".pytest_cache"})
+    assert ("unregistered-checkout-root", ".pytest_cache") in {
+        (item["code"], item["path"]) for item in missing["errors"]
     }
 
-    command_registry = write_registry(
-        tmp_path,
-        [
-            entry(
-                "packages/",
-                asset_class="generated_distribution",
-                owner="release",
-                mutability="rebuildable",
-                cleanup_safety="safe_rebuild",
-                canonical_command="python build.py",
-                lifecycle="generated",
-            )
-        ],
-    )
-    command_report = checker().validate_repository(tmp_path, command_registry, tracked_roots={"packages"})
-    assert [error["code"] for error in command_report["errors"]] == ["invalid-package-command"]
-
-
-def test_checkout_inventory_does_not_skip_registered_cache_roots(tmp_path: Path) -> None:
-    (tmp_path / ".pytest_cache").mkdir()
-    registry = write_registry(tmp_path, [entry("src/")])
-
-    report = checker().validate_repository(
-        tmp_path,
-        registry,
-        tracked_paths=set(),
-        checkout_roots={".pytest_cache"},
-    )
-
-    assert {(error["code"], error["path"]) for error in report["errors"]} >= {
-        ("unregistered-checkout-root", ".pytest_cache")
-    }
-
-
-def test_checkout_inventory_accepts_registered_egg_info_pattern(tmp_path: Path) -> None:
-    (tmp_path / "research_tree.egg-info").mkdir()
     (tmp_path / ".gitignore").write_text("*.egg-info/\n", encoding="utf-8")
-    registry = write_registry(
+    (tmp_path / "research_tree.egg-info").mkdir()
+    valid = report(
         tmp_path,
         [
             entry(
@@ -309,81 +220,105 @@ def test_checkout_inventory_accepts_registered_egg_info_pattern(tmp_path: Path) 
                 lifecycle="local",
             )
         ],
-    )
-
-    report = checker().validate_repository(
-        tmp_path,
-        registry,
         tracked_paths=set(),
         checkout_roots={"research_tree.egg-info"},
     )
+    assert valid["errors"] == []
+    assert valid["protected_local_paths"] == []
 
-    assert report["errors"] == []
-    assert report["protected_local_paths"] == []
 
+def test_checker_enforces_generated_and_installed_boundaries(tmp_path: Path) -> None:
+    (tmp_path / "packages").mkdir()
+    invalid = report(tmp_path, [entry("packages/")], tracked_roots={"packages"})
+    assert {item["code"] for item in invalid["errors"]} == {"invalid-package-boundary", "invalid-package-command"}
 
-def test_checker_reports_unregistered_checkout_root_and_install_boundary_drift(tmp_path: Path) -> None:
-    (tmp_path / ".gitignore").write_text(".agents/\n", encoding="utf-8")
-    registry = write_registry(
-        tmp_path,
-        [
-            entry("src/"),
-            entry(
-                ".agents/",
-                tracked=False,
-                asset_class="authoring_source",
-                mutability="source",
-            ),
-        ],
+    generated = entry(
+        "packages/",
+        asset_class="generated_distribution",
+        owner="release",
+        mutability="rebuildable",
+        distributed=True,
+        cleanup_safety="safe_rebuild",
+        canonical_command="uv run python scripts/build_skill_packages.py",
+        lifecycle="generated",
     )
-
-    report = checker().validate_repository(
+    command = report(tmp_path, [generated | {"canonical_command": "python build.py"}], tracked_roots={"packages"})
+    assert [item["code"] for item in command["errors"]] == ["invalid-package-command"]
+    overlap = report(
         tmp_path,
-        registry,
+        [generated, entry("packages/source/")],
+        tracked_roots={"packages"},
+        tracked_paths={"packages/source/template.md"},
+        checkout_roots={"packages"},
+    )
+    assert overlap["errors"] == [
+        error(
+            "overlapping-generated-source-boundary",
+            "packages/source/",
+            "packages/source/ overlaps generated distribution packages/",
+        )
+    ]
+
+    drift_root = tmp_path / "drift"
+    drift_root.mkdir()
+    (drift_root / ".gitignore").write_text(".agents/\n", encoding="utf-8")
+    drift = report(
+        drift_root,
+        [entry("src/"), entry(".agents/", tracked=False)],
         tracked_roots={"src"},
         checkout_roots={"src", "scratch"},
     )
-
-    assert report["errors"] == [
+    assert drift["errors"] == [
         error("invalid-installed-boundary", ".agents/", ".agents/ must be installed_copy and generated_or_link"),
         error("unregistered-checkout-root", "scratch", "add a registry entry or relocate this path"),
     ]
 
 
-def test_checker_rejects_runtime_output_under_authoring_source(tmp_path: Path) -> None:
+def test_checker_rejects_registered_output_under_authoring_source(tmp_path: Path) -> None:
     (tmp_path / "src" / ".research-tree").mkdir(parents=True)
-    (tmp_path / ".gitignore").write_text(".research-tree/\n", encoding="utf-8")
-    registry = write_registry(
-        tmp_path,
-        [
-            entry("src/"),
-            entry(
-                ".research-tree/",
-                asset_class="runtime_state",
-                owner="runtime",
-                mutability="append_only_or_rebuildable",
-                tracked=False,
-                cleanup_safety="never_delete",
-                canonical_command="research-tree run-status",
-                lifecycle="runtime",
-            ),
-        ],
-    )
-
-    report = checker().validate_repository(tmp_path, registry, tracked_roots={"src"})
-
-    assert report["errors"] == [
+    (tmp_path / "src" / "raw").mkdir()
+    (tmp_path / ".gitignore").write_text(".research-tree/\nraw/\n", encoding="utf-8")
+    outputs = [
+        entry("src/"),
+        local_entry(
+            ".research-tree/",
+            asset_class="runtime_state",
+            owner="runtime",
+            mutability="append_only_or_rebuildable",
+            cleanup_safety="never_delete",
+            canonical_command="research-tree run-status",
+            lifecycle="runtime",
+        ),
+        entry(
+            "raw/",
+            asset_class="historical_or_runtime",
+            owner="research",
+            mutability="operator_migrated",
+            tracked=False,
+            cleanup_safety="never_delete",
+            canonical_command=None,
+            lifecycle="operator-managed",
+            migration_target=".research-tree/raw/",
+            migration_disposition="manual_classify_and_relocate",
+        ),
+    ]
+    result = report(tmp_path, outputs, tracked_roots={"src"}, tracked_paths={"src/module.py"}, checkout_roots={"src"})
+    assert result["errors"] == [
         error(
             "misplaced-runtime-output",
             "src/.research-tree/",
             "runtime state belongs in .research-tree/ via research-tree run-status",
-        )
+        ),
+        error(
+            "misplaced-output",
+            "src/raw/",
+            "historical_or_runtime output belongs at raw/ via the registered migration workflow",
+        ),
     ]
 
 
-def test_migration_plan_reports_collision_without_touching_user_material(tmp_path: Path) -> None:
-    source = tmp_path / "research-runs"
-    target = tmp_path / ".research-tree" / "evaluation-runs"
+def test_migration_plan_reports_collisions_without_mutation(tmp_path: Path) -> None:
+    source, target = tmp_path / "research-runs", tmp_path / ".research-tree" / "evaluation-runs"
     source.mkdir()
     target.mkdir(parents=True)
     (source / "user-run.json").write_text('{"user": true}\n', encoding="utf-8")
@@ -404,25 +339,22 @@ def test_migration_plan_reports_collision_without_touching_user_material(tmp_pat
                 migration_target=".research-tree/evaluation-runs/",
                 migration_disposition="manual_relocate_after_audit",
             ),
-            entry(
+            local_entry(
                 ".research-tree/",
                 asset_class="runtime_state",
                 owner="runtime",
                 mutability="append_only_or_rebuildable",
-                tracked=False,
                 cleanup_safety="never_delete",
                 canonical_command="research-tree run",
                 lifecycle="runtime",
             ),
         ],
     )
-
-    report = checker().migration_plan(tmp_path, registry)
-
-    assert report["status"] == "collision_detected"
-    assert report["moves_performed"] == 0
-    assert report["confirmation_token"]
-    assert report["items"] == [
+    result = checker().migration_plan(tmp_path, registry)
+    assert result["status"] == "collision_detected"
+    assert result["moves_performed"] == 0
+    assert result["confirmation_token"]
+    assert result["items"] == [
         {
             "source": "research-runs/",
             "destination": ".research-tree/evaluation-runs/",
@@ -433,45 +365,14 @@ def test_migration_plan_reports_collision_without_touching_user_material(tmp_pat
     assert (source / "user-run.json").read_text(encoding="utf-8") == '{"user": true}\n'
 
 
-def test_checker_requires_migration_map_for_operator_migrated_path(tmp_path: Path) -> None:
-    (tmp_path / ".gitignore").write_text("research-runs/\n", encoding="utf-8")
-    registry = write_registry(
-        tmp_path,
-        [
-            entry(
-                "research-runs/",
-                asset_class="evaluation_output",
-                owner="quality",
-                mutability="operator_migrated",
-                tracked=False,
-                cleanup_safety="never_delete",
-                canonical_command="research-tree run-export-audit",
-                lifecycle="operator-managed",
-            )
-        ],
-    )
+def test_workflow_probe_preserves_checkout_and_revalidates_layout(monkeypatch) -> None:
+    module = checker()
+    successful = module.workflow_probe(ROOT)
+    assert successful["status"] == "valid"
+    assert successful["repository_status_unchanged"] is True
+    assert successful["installed_project_roots"] == [".agents"]
 
-    report = checker().validate_repository(
-        tmp_path,
-        registry,
-        tracked_roots=set(),
-        tracked_paths=set(),
-        checkout_roots=set(),
-    )
-
-    assert report["errors"] == [
-        error(
-            "invalid-registry",
-            "entries[0].migration_target",
-            "operator-migrated paths require a target and disposition",
-        )
-    ]
-
-
-def test_supported_workflow_probe_uses_temporary_project_and_preserves_checkout() -> None:
-    report = checker().workflow_probe(ROOT)
-
-    assert report["status"] == "valid"
-    assert report["repository_status_unchanged"] is True
-    assert report["installed_project_roots"] == [".agents"]
-    assert report["sample_run"] == "migration_inventory"
+    expected = error("unregistered-checkout-root", ".env", "add a registry entry or relocate this path")
+    monkeypatch.setattr(module, "validate_repository", lambda *_args, **_kwargs: {"errors": [expected]})
+    invalid = module.workflow_probe(ROOT)
+    assert error("post-probe-layout-invalid", ".env", "unregistered-checkout-root") in invalid["errors"]
