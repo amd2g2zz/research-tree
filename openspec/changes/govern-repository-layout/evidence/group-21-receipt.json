@@ -2,8 +2,8 @@
   "command": "uv run pytest -q tests/test_repository_layout.py tests/test_skill_packages.py tests/test_documentation_governance.py && uv run ruff check scripts/check_repository_layout.py tests/test_repository_layout.py && uv run ruff format --check scripts/check_repository_layout.py tests/test_repository_layout.py && uv run python scripts/check_repository_layout.py && uv run python scripts/check_repository_layout.py --workflow-probe && uv run python scripts/check_repository_layout.py --migration-plan && uv run python scripts/build_skill_packages.py --check && uv run python scripts/check_docs.py",
   "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
   "exit_code": 0,
-  "output_digest": "934fa719aba3878f65118dda021d72794b1e39b9200ef7fe0e262dc774b282c0",
+  "output_digest": "8eeac507964ddfb3bfd96d38a429f568719342e10e7e0ee2e257e9b5ac8832ee",
   "raw_output_ref": "openspec/changes/govern-repository-layout/evidence/group-21-output.txt",
-  "recorded_at": "2026-08-12T14:11:54.545558+00:00",
-  "source_revision": "33c9bc273ef8091c8109afd305c3baf1a4c3fdfd"
+  "recorded_at": "2026-08-12T14:33:51.902551+00:00",
+  "source_revision": "6993dcda0695297514b7dbdf9eb69adc65c7bc27"
 }
