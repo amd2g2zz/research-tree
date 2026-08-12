@@ -157,7 +157,7 @@
     { "group": 17, "state": "planned" },
     { "group": 18, "state": "planned" },
     { "group": 19, "state": "planned" },
-    { "group": 20, "state": "planned" },
+    { "group": 20, "state": "verified", "evidence_refs": ["openspec/changes/govern-evaluation-assets/evidence/group-20-output.txt", "openspec/changes/govern-evaluation-assets/evidence/group-20-receipt.json"], "command_receipt": {"command": "uv run python scripts/check_evaluation_assets.py", "exit_code": 0, "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f", "output_digest": "1120bcf0a81e833b17601d1137bf2c192003f08b50b99102b2e21cb0e14c64fd", "source_revision": "084c12a27a68bcc12206f57d473dc1871c8da057", "raw_output_ref": "openspec/changes/govern-evaluation-assets/evidence/group-20-output.txt", "recorded_at": "2026-08-12T03:50:59.927590+00:00"}, "rollback": "retain raw runs outside tracked source" },
     { "group": 21, "state": "planned" },
     { "group": 22, "state": "planned" },
     {

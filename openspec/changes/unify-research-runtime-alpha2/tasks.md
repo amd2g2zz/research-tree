@@ -218,11 +218,11 @@ substitute for local evidence.
 
 ## 20. Evaluation Asset Governance (#69)
 
-- [ ] 20.1 Inventory `evaluation/`, `evals/`, experience reports, session JSONL, raw evidence, case manifests, evaluator code, hidden-oracle interfaces, and release outputs by lifecycle class.
-- [ ] 20.2 Ratify one canonical evaluation namespace and a non-overlapping directory contract for cases, schemas, harnesses, fixtures, baselines, results, reviews, transcripts, and disposable output.
-- [ ] 20.3 Define tracked/ignored policy, provenance schema, retention, redaction, size limits, stable identifiers, and safe hidden-oracle references.
-- [ ] 20.4 Migrate or explicitly retire the ambiguous `evals/` root and preserve compatibility for `evaluation/cases/v1.json`.
-- [ ] 20.5 Classify retained alpha1 experience artifacts and migrate only release-relevant, redacted, provenance-complete evidence.
+- [x] 20.1 Inventory `evaluation/`, `evals/`, experience reports, session JSONL, raw evidence, case manifests, evaluator code, hidden-oracle interfaces, and release outputs by lifecycle class.
+- [x] 20.2 Ratify one canonical evaluation namespace and a non-overlapping directory contract for cases, schemas, harnesses, fixtures, baselines, results, reviews, transcripts, and disposable output.
+- [x] 20.3 Define tracked/ignored policy, provenance schema, retention, redaction, size limits, stable identifiers, and safe hidden-oracle references.
+- [x] 20.4 Migrate or explicitly retire the ambiguous `evals/` root and preserve compatibility for `evaluation/cases/v1.json`.
+- [x] 20.5 Classify retained alpha1 experience artifacts and migrate only release-relevant, redacted, provenance-complete evidence.
 - [x] 20.6 Add deterministic evaluation entry points and validators for misplaced output, schema drift, oracle leakage, missing provenance, and oversized transcripts.
 - [ ] 20.7 Update #55 and #64 implementations to consume the governed asset model and reject private local conventions.
 

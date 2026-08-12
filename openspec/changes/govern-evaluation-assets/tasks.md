@@ -19,6 +19,6 @@
 
 - [x] 3.1 Run focused tests and both Ruff gates, then the complete regression
   suite and strict issue-local/umbrella OpenSpec checks.
-- [ ] 3.2 Record source-bound group-20 output/receipt, update verification state
+- [x] 3.2 Record source-bound group-20 output/receipt, update verification state
   and owned umbrella tasks only from passing evidence, then run governance,
   delivery, and diff checks.
