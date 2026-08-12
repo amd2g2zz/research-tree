@@ -276,14 +276,14 @@ substitute for local evidence.
 
 ## 26. Host-Native Dynamic Orchestration (#82)
 
-- [ ] 26.1 Define HostCapabilityMatrix and NativeWorkflowRun schemas, capability probe commands, versioned adapter manifests, and explicit fallback ids.
-- [ ] 26.2 Implement Claude Code dynamic workflow projection for phases, dynamic child delegation, replan, restart, and durable checkpoint resume.
-- [ ] 26.3 Implement Codex native delegation projection and coordinator-driven fallback when dynamic workflow support is absent.
-- [ ] 26.4 Implement Hermes capability negotiation for delegation, goals, Kanban, lifecycle hooks, and scheduled drain without granting hooks completion authority.
-- [ ] 26.5 Reconcile native workflow start/resume/phase/child events and quarantine stale projections after strategy revision.
-- [ ] 26.6 Add cross-host parity tests proving native and fallback executions produce equivalent canonical artifacts and completion guards.
-- [ ] 26.7 Add restart and provider-failure fixtures for each host with safe diagnostics and no lost obligations.
-- [ ] 26.8 Link adapter manifests, probe results, traces, and parity evidence to #82 and the alpha2 release manifest.
+- [x] 26.1 Define HostCapabilityMatrix and NativeWorkflowRun schemas, capability probe commands, versioned adapter manifests, and explicit fallback ids.
+- [x] 26.2 Implement Claude Code dynamic workflow projection for phases, dynamic child delegation, replan, restart, and durable checkpoint resume.
+- [x] 26.3 Implement Codex native delegation projection and coordinator-driven fallback when dynamic workflow support is absent.
+- [x] 26.4 Implement Hermes capability negotiation for delegation, goals, Kanban, lifecycle hooks, and scheduled drain without granting hooks completion authority.
+- [x] 26.5 Reconcile native workflow start/resume/phase/child events and quarantine stale projections after strategy revision.
+- [x] 26.6 Add cross-host parity tests proving native and fallback executions produce equivalent canonical artifacts and completion guards.
+- [x] 26.7 Add restart and provider-failure fixtures for each host with safe diagnostics and no lost obligations.
+- [x] 26.8 Link adapter manifests, probe results, traces, and parity evidence to #82 and the alpha2 release manifest.
 
 ## 27. Intent-Derived Search Portfolios (#83)
 
