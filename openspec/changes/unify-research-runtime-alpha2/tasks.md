@@ -169,8 +169,8 @@ substitute for local evidence.
 - [ ] 15.4 Add typed empty, malformed, partial, provider-failed, and cancelled Finding Pack handling with persisted next actions.
 - [ ] 15.5 Create the method/tool registry for repository, web/search, document, image, experiment, and code-execution methods with capability, permission, timeout, retry, provenance, and limitation metadata.
 - [ ] 15.6 Implement SearchPortfolio generation from IntentModel/WorkingBrief/Decision Slot, including implicit subquestions, query rewrites, method/provider boundaries, and batch depth dispositions.
-- [ ] 15.7 Implement immutable SourceCapture and AcquisitionReceipt persistence, URL response digests, derivative provenance groups, license/access records, parser versions, and multimodal selector resolvers.
-- [ ] 15.8 Implement bounded AnalysisCheckpoint persistence and enforce capture/checkpoint-before-worker-finished ordering with crash recovery and successor resume.
+- [x] 15.7 Implement immutable SourceCapture and AcquisitionReceipt persistence, URL response digests, derivative provenance groups, license/access records, parser versions, and multimodal selector resolvers.
+- [x] 15.8 Implement bounded AnalysisCheckpoint persistence and enforce capture/checkpoint-before-worker-finished ordering with crash recovery and successor resume.
 - [ ] 15.9 Add acquisition fallback tests for no-result search, blocked URLs, parser errors, unsupported media, rate limits, unavailable tools, and changed source digests.
 - [ ] 15.10 Add scheduler-tick/no-progress traces and prove method switch or authority blocking when a P0 obligation survives the registered no-change threshold.
 - [ ] 15.11 Enforce mandatory deep-dive/adversarial/validation phase coverage per consequential Slot; reject landscape-only delivery, missing OracleRun, and same-worker self-review.

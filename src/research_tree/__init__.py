@@ -280,6 +280,16 @@ from .host_events import (
     normalize_host_payload,
     payload_digest,
 )
+from .source_capture import (
+    ACQUISITION_RECEIPT_KIND,
+    ANALYSIS_CHECKPOINT_KIND,
+    AcquisitionReceipt,
+    AnalysisCheckpoint,
+    CaptureIncompleteError,
+    DurableSourceCaptureService,
+    ResumeBundle,
+    SourceCapture,
+)
 from .evidence import (
     EvidenceAnchor,
     EvidenceArtifact,
@@ -459,6 +469,14 @@ __all__ = [
     "HostEventDigestError",
     "HostEventError",
     "HostEventSequenceError",
+    "ACQUISITION_RECEIPT_KIND",
+    "ANALYSIS_CHECKPOINT_KIND",
+    "AcquisitionReceipt",
+    "AnalysisCheckpoint",
+    "CaptureIncompleteError",
+    "DurableSourceCaptureService",
+    "ResumeBundle",
+    "SourceCapture",
     "normalize_host_path",
     "normalize_host_payload",
     "payload_digest",
