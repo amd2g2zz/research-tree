@@ -289,6 +289,7 @@ from .oracles import (
 )
 from .closure import ASSESSMENT_KIND, ClosureAssessmentError, OracleService, SlotClosureAssessor, SlotClosureAssessment
 from .legacy_import import LegacyImportError, LegacyImportReceipt, LegacyImportResult, LegacyRunStoreImporter
+from .migration import Alpha1MigrationError, Alpha1MigrationInventory, Alpha1MigrationItem, Alpha1MigrationService
 from .content_store import (
     ContentAddressedStore,
     ContentIntegrityError,
@@ -569,6 +570,10 @@ __all__ = [
     "LegacyImportReceipt",
     "LegacyImportResult",
     "LegacyRunStoreImporter",
+    "Alpha1MigrationError",
+    "Alpha1MigrationInventory",
+    "Alpha1MigrationItem",
+    "Alpha1MigrationService",
     "LedgerError",
     "LedgerConflictError",
     "LedgerIntegrityError",
