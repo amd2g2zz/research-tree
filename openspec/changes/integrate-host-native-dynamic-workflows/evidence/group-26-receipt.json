@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "group": 26,
+  "state": "verified",
+  "command": "uv run pytest -q tests/test_native_dynamic_workflows.py tests/test_host_event_protocol.py tests/test_worker_orchestration.py",
+  "exit_code": 0,
+  "environment_digest": "37f06035cca23f27ec913ec6c57a4bf557524adbc80fe136467f5e89216dae14",
+  "output_digest": "1a2248eeda04fe67ac45af0aa8fbb80e05ae0b79d272376fb15281a65dd6769d",
+  "source_revision": "1a77b4be2fa23e1b21b04067b4138a194ae408f1",
+  "raw_output_ref": "openspec/changes/integrate-host-native-dynamic-workflows/evidence/group-26-output.txt",
+  "recorded_at": "2026-08-12T06:57:52.9801186+00:00",
+  "rollback": "disable native projections and use coordinator-dispatch-v1"
+}

@@ -124,3 +124,14 @@ boundary and never bypass them from the Skill.
 Record only sanitized identifiers, phase transitions, durations, and statuses.
 Do not store prompts, assistant messages, transcript content, tool arguments,
 secrets, or research evidence in debug telemetry.
+
+## Executable workflow contract
+
+Before dispatching collaboration children, write explicit current-session
+capability observations to workspace JSON and run
+`probe-host --observations <json>`. Use its digest in
+`project-workflow --request <json>` so each ready action has a bounded phase and
+child attempt identity. After resume, fork, cancellation, provider failure, or
+permission/namespace limits, use `reconcile-host --request <json>` before any
+retry. `update_plan`, child completion, and an empty collaboration queue are
+session mirrors only; the coordinator still assesses checkpoints and evidence.
