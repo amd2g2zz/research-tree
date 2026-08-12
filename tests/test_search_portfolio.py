@@ -7,6 +7,7 @@ from research_tree import (
     MethodBoundary,
     SearchPortfolio,
     SearchPortfolioError,
+    assess_acquisition_batch,
     derive_search_portfolio,
     distinct_method_boundaries,
 )
@@ -205,3 +206,45 @@ def test_contradiction_pivot_preserves_successor_lineage_inside_authority() -> N
     assert value.disposition == "pivot"
     assert value.superseded_strategy_revision == "strategy@1"
     assert value.successor_strategy_revision == "strategy@2"
+
+
+def test_batch_assessment_projects_depth_and_contradiction_for_policy_without_authority() -> None:
+    shallow = assess_acquisition_batch(
+        assessment_id="assessment-2",
+        portfolio_id="portfolio-1",
+        batch_id="batch-2",
+        coverage="partial",
+        novelty="new",
+        source_depth="snippet",
+        provenance_independence="single_boundary",
+        contradictions=(),
+        implementation_uncertainty="high",
+        oracle_readiness="not_ready",
+        unresolved_decision_risk="mechanism remains open",
+        causal_refs=("capture-a@1",),
+        capture_refs=("capture-a@1",),
+        receipt_refs=("receipt-a@1",),
+        checkpoint_refs=("checkpoint-a@1",),
+    )
+    pivot = assess_acquisition_batch(
+        assessment_id="assessment-3",
+        portfolio_id="portfolio-1",
+        batch_id="batch-3",
+        coverage="complete",
+        novelty="new",
+        source_depth="full_source",
+        provenance_independence="independent",
+        contradictions=("starting premise is false",),
+        implementation_uncertainty="low",
+        oracle_readiness="ready",
+        unresolved_decision_risk="strategy premise invalidated",
+        causal_refs=("capture-b@1",),
+        capture_refs=("capture-b@1",),
+        receipt_refs=("receipt-b@1",),
+        checkpoint_refs=("checkpoint-b@1",),
+    )
+
+    assert shallow.policy_input()["requires_deeper_work"] is True
+    assert shallow.disposition == "deepen"
+    assert pivot.disposition == "pivot"
+    assert pivot.successor_strategy_revision == "successor-strategy"

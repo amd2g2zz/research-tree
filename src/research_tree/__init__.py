@@ -240,6 +240,7 @@ from .search_portfolio import (
     MethodBoundary,
     SearchPortfolio,
     SearchPortfolioError,
+    assess_acquisition_batch,
     derive_search_portfolio,
     distinct_method_boundaries,
 )
@@ -388,6 +389,7 @@ __all__ = [
     "MethodBoundary",
     "SearchPortfolio",
     "SearchPortfolioError",
+    "assess_acquisition_batch",
     "derive_search_portfolio",
     "distinct_method_boundaries",
     "RecursiveSearchConfig",

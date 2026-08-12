@@ -239,6 +239,79 @@ class BatchCoverageAssessment:
     def requires_deeper_work(self) -> bool:
         return self.disposition in {"deepen", "broaden", "pivot", "validate"}
 
+    def policy_input(self) -> dict[str, object]:
+        """Return a bounded, non-authoritative policy input projection."""
+        return {
+            "portfolio_id": self.portfolio_id,
+            "batch_id": self.batch_id,
+            "disposition": self.disposition,
+            "causal_refs": self.causal_refs,
+            "next_actions": self.next_actions,
+            "requires_deeper_work": self.requires_deeper_work,
+        }
+
+
+def assess_acquisition_batch(
+    *,
+    assessment_id: str,
+    portfolio_id: str,
+    batch_id: str,
+    coverage: str,
+    novelty: str,
+    source_depth: str,
+    provenance_independence: str,
+    contradictions: Sequence[str],
+    implementation_uncertainty: str,
+    oracle_readiness: str,
+    unresolved_decision_risk: str,
+    causal_refs: Sequence[str],
+    capture_refs: Sequence[str],
+    receipt_refs: Sequence[str],
+    checkpoint_refs: Sequence[str],
+    authority_disposition: str = "inside_confirmed_authority",
+) -> BatchCoverageAssessment:
+    """Classify a completed batch without granting lifecycle authority."""
+    has_contradiction = bool(_strings(contradictions, "contradictions"))
+    if has_contradiction:
+        disposition = "pivot"
+        next_actions = ("create-successor-strategy",)
+        superseded = "active-strategy"
+        successor = "successor-strategy"
+    elif source_depth in {"snippet", "summary"} or coverage != "complete":
+        disposition = "deepen"
+        next_actions = ("open-full-source",)
+        superseded = successor = None
+    elif oracle_readiness != "ready" or implementation_uncertainty in {"high", "unknown"}:
+        disposition = "validate"
+        next_actions = ("run-bounded-validation",)
+        superseded = successor = None
+    else:
+        disposition = "sufficient_for_slot"
+        next_actions = ("submit-for-closure-assessment",)
+        superseded = successor = None
+    return BatchCoverageAssessment(
+        assessment_id=assessment_id,
+        portfolio_id=portfolio_id,
+        batch_id=batch_id,
+        coverage=coverage,
+        novelty=novelty,
+        source_depth=source_depth,
+        provenance_independence=provenance_independence,
+        contradictions=tuple(contradictions),
+        implementation_uncertainty=implementation_uncertainty,
+        oracle_readiness=oracle_readiness,
+        unresolved_decision_risk=unresolved_decision_risk,
+        disposition=disposition,
+        causal_refs=tuple(causal_refs),
+        next_actions=next_actions,
+        capture_refs=tuple(capture_refs),
+        receipt_refs=tuple(receipt_refs),
+        checkpoint_refs=tuple(checkpoint_refs),
+        authority_disposition=authority_disposition,
+        superseded_strategy_revision=superseded,
+        successor_strategy_revision=successor,
+    )
+
 
 def derive_search_portfolio(
     *,
