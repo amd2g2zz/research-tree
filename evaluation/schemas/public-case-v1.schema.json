@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "research-tree/evaluation/public-case-v1",
+  "type": "object",
+  "required": ["schema_version", "cases"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "corpus_version": {"type": "string"},
+    "cases": {"type": "array", "items": {"type": "object", "required": ["id"]}}
+  },
+  "additionalProperties": true
+}
