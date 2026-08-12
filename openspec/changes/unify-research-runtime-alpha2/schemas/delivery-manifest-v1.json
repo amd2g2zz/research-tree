@@ -4,7 +4,7 @@
   "title": "Alpha2 DeliveryManifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["technical_revision", "human_revision", "source_ledger_digest", "compiler_version", "template_version", "encoding", "output_paths", "generated_at", "claim_index"],
+  "required": ["technical_revision", "human_revision", "source_ledger_digest", "compiler_version", "template_version", "encoding", "output_paths", "generated_at", "claim_index", "depth_assessments"],
   "properties": {
     "technical_revision": { "type": "string", "minLength": 1 },
     "human_revision": { "type": "string", "minLength": 1 },
@@ -12,23 +12,63 @@
     "compiler_version": { "type": "string", "minLength": 1 },
     "template_version": { "type": "string", "minLength": 1 },
     "encoding": { "const": "UTF-8" },
-    "output_paths": { "type": "object" },
+    "output_paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["technical", "human"],
+      "properties": {
+        "technical": { "$ref": "#/$defs/output" },
+        "human": { "$ref": "#/$defs/output" }
+      }
+    },
     "generated_at": { "type": "string", "format": "date-time" },
     "claim_index": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["claim_id", "class", "text", "decision_refs", "finding_refs", "evidence_refs", "oracle_refs"],
+        "required": ["claim_id", "class", "text", "surfaces", "selectors", "decision_refs", "finding_refs", "evidence_refs", "oracle_refs", "boundary_ref", "next_validation"],
         "properties": {
           "claim_id": { "type": "string", "minLength": 1 },
           "class": { "type": "string", "enum": ["fact", "inference", "recommendation", "unknown", "limitation"] },
           "text": { "type": "string", "minLength": 1 },
+          "surfaces": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "enum": ["technical", "human"] } },
+          "selectors": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
           "decision_refs": { "type": "array", "items": { "type": "string" } },
           "finding_refs": { "type": "array", "items": { "type": "string" } },
           "evidence_refs": { "type": "array", "items": { "type": "string" } },
-          "oracle_refs": { "type": "array", "items": { "type": "string" } }
+          "oracle_refs": { "type": "array", "items": { "type": "string" } },
+          "boundary_ref": { "type": ["string", "null"] },
+          "next_validation": { "type": ["string", "null"] }
         }
+      }
+    },
+    "depth_assessments": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["dimension", "status", "evidence_refs", "diagnostic", "follow_up"],
+        "properties": {
+          "dimension": { "type": "string", "enum": ["problem_fidelity", "evidence_quality", "counterevidence", "alternatives_tradeoffs", "implementation_boundary", "risks_failure_modes", "validation_path", "uncertainties", "operational_meaning"] },
+          "status": { "type": "string", "enum": ["pass", "fail", "unknown"] },
+          "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "diagnostic": { "type": "string", "minLength": 1 },
+          "follow_up": { "type": ["string", "null"] }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locator", "sha256"],
+      "properties": {
+        "locator": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
       }
     }
   }

@@ -109,14 +109,14 @@ substitute for local evidence.
 
 ## 10. Semantic Dual Delivery and Acceptance (#62)
 
-- [ ] 10.1 Rename the canonical human-facing artifact and public contract from Human Brief to Human Research Report with an explicit legacy compatibility disposition.
-- [ ] 10.2 Remove adapter Markdown byte/heading verification and route all delivery creation through DeliveryCompiler and exact Decision Ledger lineage.
-- [ ] 10.3 Extend the Technical Research Package contract for applicable architecture, interfaces, state flows, permissions, implementation order, repository touchpoints, validation, observability, migration, rollout, and rollback.
-- [ ] 10.4 Extend the Human Research Report contract for evidence-backed reasoning, alternatives, trade-offs, expected capability, applicability, risks, uncertainties, and implementation meaning.
-- [ ] 10.5 Add semantic readiness diagnostics for orphan claims, missing implementation boundaries, unresolved P0 conditions, and shallow human reasoning.
-- [ ] 10.6 Define DeliveryAcceptance bound to exact technical and human artifact revisions and reject generic acknowledgement.
-- [ ] 10.7 Route rejection for intent or depth into same-round evidence work or a traceable successor round.
-- [ ] 10.8 Add filler-report, orphan-claim, stale-acceptance, legacy-Human-Brief, and independent-implementation tests.
+- [x] 10.1 Rename the canonical human-facing artifact and public contract from Human Brief to Human Research Report with an explicit legacy compatibility disposition.
+- [x] 10.2 Remove adapter Markdown byte/heading verification and route all delivery creation through DeliveryCompiler and exact Decision Ledger lineage.
+- [x] 10.3 Extend the Technical Research Package contract for applicable architecture, interfaces, state flows, permissions, implementation order, repository touchpoints, validation, observability, migration, rollout, and rollback.
+- [x] 10.4 Extend the Human Research Report contract for evidence-backed reasoning, alternatives, trade-offs, expected capability, applicability, risks, uncertainties, and implementation meaning.
+- [x] 10.5 Add semantic readiness diagnostics for orphan claims, missing implementation boundaries, unresolved P0 conditions, and shallow human reasoning.
+- [x] 10.6 Define DeliveryAcceptance bound to exact technical and human artifact revisions and reject generic acknowledgement.
+- [x] 10.7 Route rejection for intent or depth into same-round evidence work or a traceable successor round.
+- [x] 10.8 Add filler-report, orphan-claim, stale-acceptance, legacy-Human-Brief, and independent-implementation tests.
 
 ## 11. Causal Observability and Recovery Tools (#63)
 

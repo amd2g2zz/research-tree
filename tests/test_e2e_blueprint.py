@@ -81,9 +81,7 @@ def case():
                 "digest": "sha256:" + "b" * 64,
                 "recipe": "uv run python -m pytest -q",
             },
-            "public_materials": (
-                {"kind": "repository_baseline", "locator": "fixture:repository"},
-            ),
+            "public_materials": ({"kind": "repository_baseline", "locator": "fixture:repository"},),
             "hidden_oracle_id": "e2e-hidden-oracle-v1",
             "limitations": ("This fixture is a controlled integration smoke test.",),
         }
@@ -125,18 +123,14 @@ def test_blueprint_spine_reaches_safe_handoff_then_explicit_export(tmp_path: Pat
 
     modules, store, round_record, technical_package = complete_package(tmp_path)
     snapshot = store.load_round(round_record.id)
-    human_brief = next(item for item in snapshot.artifacts if item.kind == "human-brief")
+    human_brief = next(item for item in snapshot.artifacts if item.kind == "human-research-report")
     assert technical_package.kind == "technical-research-package"
     assert human_brief.payload["technical_package_ref"] == {
         "round_id": round_record.id,
         "artifact_id": technical_package.id,
         "revision": technical_package.revision,
     }
-    assert not [
-        item
-        for item in snapshot.artifacts
-        if item.kind == ASSURANCE_ADAPTER_SELECTION_KIND
-    ]
+    assert not [item for item in snapshot.artifacts if item.kind == ASSURANCE_ADAPTER_SELECTION_KIND]
 
     high_risk_adapter = HighRiskAdapter()
     readiness = ReadinessVerifier(store).verify(
@@ -150,9 +144,7 @@ def test_blueprint_spine_reaches_safe_handoff_then_explicit_export(tmp_path: Pat
     assert high_risk_adapter.request is not None
     assert not hasattr(high_risk_adapter.request, "repository_roots")
     assert readiness_for_delivery(readiness)["gates"]["implementation_readiness"] == "pass"
-    assert readiness.payload["risk_verification"]["executed_checks"][0]["check"] == (
-        "independent_implementation_run"
-    )
+    assert readiness.payload["risk_verification"]["executed_checks"][0]["check"] == ("independent_implementation_run")
 
     independent_runner = IndependentRunner()
     evaluation = BlueprintEvaluationSuite(store).evaluate(

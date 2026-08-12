@@ -102,6 +102,14 @@ The existing DeliveryCompiler remains the canonical renderer. It produces a Tech
 
 The Human Research Report is not a courtesy summary. It must explain the understood problem, evidence, recommended direction, alternatives, consequences, risks, applicability, unknowns, and implementation meaning at professional depth. A `DeliveryAcceptance` artifact binds explicit user acceptance to exact delivery revisions. Rejection creates evidence-bearing follow-up work or a successor round.
 
+Delivery compilation is a pair transaction. The compiler resolves exact
+canonical inputs, builds both structured documents, and evaluates a typed claim
+index and depth rubric before exposing the pair. Acceptance is a typed feedback
+transition: current exact-pair acceptance may complete, research-quality
+rejection resumes the same round, and target/scope/intent correction creates a
+successor round. Legacy Human Brief artifacts remain read-only migration input
+and never satisfy Alpha2 delivery obligations.
+
 ### 9. Completion is a conjunction of independently checkable facts
 
 A run completes only when:

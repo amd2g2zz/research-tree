@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "group": 10,
+  "state": "verified",
+  "command": "uv run pytest -q tests/test_alpha2_semantic_delivery.py tests/test_alpha2_delivery_lifecycle.py tests/test_deliveries.py tests/test_e2e_blueprint.py; uv run ruff check src/research_tree/acceptance.py src/research_tree/delivery.py src/research_tree/__init__.py tests/test_alpha2_semantic_delivery.py tests/test_alpha2_delivery_lifecycle.py tests/test_deliveries.py tests/test_e2e_blueprint.py; uv run ruff format --check src/research_tree/acceptance.py src/research_tree/delivery.py src/research_tree/__init__.py tests/test_alpha2_semantic_delivery.py tests/test_alpha2_delivery_lifecycle.py tests/test_deliveries.py tests/test_e2e_blueprint.py",
+  "exit_code": 0,
+  "environment_digest": "d476b6ec39a19742178e4da2b44aa787397dbce695427af4097bfcfe8f0abd0c",
+  "output_digest": "a2a93ed6a02097710b7db3f10f457d5860cbc48a92da4872700fbb6b5831037e",
+  "source_revision": "d76194a8a6160ce561044c658266bbc819dc1173",
+  "raw_output_ref": "openspec/changes/enforce-semantic-dual-delivery/evidence/group-10-output.txt",
+  "recorded_at": "2026-08-12T12:40:15.4276356+08:00",
+  "rollback": "retain immutable prior delivery revisions and keep legacy read compatibility"
+}
