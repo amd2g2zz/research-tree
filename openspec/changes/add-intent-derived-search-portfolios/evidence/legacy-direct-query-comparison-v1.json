@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "comparison_id": "legacy-direct-query-v1",
+  "shared_input_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "legacy": {
+    "rediscovery_count": 3,
+    "coverage": 0.25,
+    "depth": 1,
+    "closed": false
+  },
+  "portfolio": {
+    "rediscovery_count": 1,
+    "coverage": 0.75,
+    "depth": 3,
+    "closed": true
+  },
+  "deltas": {
+    "rediscovery": -2,
+    "coverage": 0.5,
+    "depth": 2,
+    "decision_closure": 1
+  },
+  "limitations": [
+    "Static deterministic fixture; it compares contract behavior under one declared input and does not claim live-provider causality.",
+    "It is not a release-quality result and does not replace the paired Alpha benchmark."
+  ],
+  "trace_refs": [
+    "src/research_tree/search_portfolio.py:SearchPortfolioComparison",
+    "tests/test_search_portfolio.py:test_controlled_legacy_comparison_publishes_only_explicit_deltas_and_limits"
+  ],
+  "issue_link": "#83",
+  "portfolio_query_method_trace_fields": [
+    "lineage.method_registry_ref",
+    "query_variants[].originating_slot_id",
+    "method_selection[].failure_boundary"
+  ],
+  "release_manifest_link": "evaluation/results/alpha2-release-candidate-v1.json"
+}

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
 from research_tree.coordinator import (
@@ -14,7 +16,15 @@ from research_tree.coordinator import (
 )
 from research_tree.domain import ArtifactRef
 from research_tree.decision_frame import DecisionFrame, IntentHypothesis
+from research_tree.host_events import HostEvent
 from research_tree.run_ledger import RunLedger
+from research_tree.content_store import ContentAddressedStore
+from research_tree.search_portfolio import (
+    MethodBoundary,
+    SearchPortfolioService,
+    assess_acquisition_batch,
+)
+from research_tree.source_capture import DurableSourceCaptureService
 from research_tree.strategy_projection import StrategyProjection
 
 
@@ -436,6 +446,589 @@ def test_ready_frame_is_retained_in_canonical_dispatch_lineage(tmp_path) -> None
         attempt_id="attempt-canonical",
     )
     assert ArtifactRef("run-57", frame_artifact.id, frame_artifact.revision) in lease.parent_refs
+
+
+def _method() -> MethodBoundary:
+    return MethodBoundary(
+        method_id="repo-inspect",
+        provider_id="git",
+        corpus_id="source-tree",
+        boundary_kind="repository_inspection",
+        permission_profile="local-read",
+        expected_evidence_class="source",
+        available=True,
+        provenance_group="repository:workspace",
+        invocation_adapter="local-repository-read",
+        extraction_path="line-symbol-v1",
+        failure_boundary="filesystem:workspace",
+    )
+
+
+def _portfolio_dispatch_setup(tmp_path):
+    ledger = RunLedger(tmp_path)
+    ledger.create_run("run-portfolio")
+    coordinator = ResearchRunCoordinator(ledger)
+    intent = _append(ledger, "run-portfolio", "intent-1", "intent-model", {"desired_outcomes": ["inspect source"]})
+    brief = _append(
+        ledger,
+        "run-portfolio",
+        "brief-1",
+        "working-brief",
+        {"working_interpretation": "inspect source", "technical_outcome": "bound evidence"},
+        (ArtifactRef("run-portfolio", intent.id, intent.revision),),
+    )
+    handoff = _append(ledger, "run-portfolio", "handoff-1", "alignment-handoff", {"confirmed": True})
+    target = _append(
+        ledger,
+        "run-portfolio",
+        "target-1",
+        "blueprint-target",
+        {"slots": [{"id": "slot-1", "question": "Which source confirms the mechanism?"}]},
+        (
+            ArtifactRef("run-portfolio", intent.id, intent.revision),
+            ArtifactRef("run-portfolio", brief.id, brief.revision),
+            ArtifactRef("run-portfolio", handoff.id, handoff.revision),
+        ),
+    )
+    coordinator.initialize(
+        run_id="run-portfolio",
+        alignment_handoff=handoff,
+        blueprint_target=target,
+        expected_revision=ledger.get_revision("run-portfolio"),
+    )
+    frame = coordinator.persist_decision_frame(
+        _ready_frame(
+            run_id="run-portfolio",
+            frame_id="portfolio-frame",
+            target_ref=ArtifactRef("run-portfolio", target.id, target.revision),
+        ),
+        expected_revision=ledger.get_revision("run-portfolio"),
+    )
+    projection = StrategyProjection.create(
+        projection_id="portfolio-strategy",
+        run_id="run-portfolio",
+        decision_frame_ref=ArtifactRef("run-portfolio", frame.id, frame.revision),
+        alignment_handoff_ref=ArtifactRef("run-portfolio", handoff.id, handoff.revision),
+        target_ref=ArtifactRef("run-portfolio", target.id, target.revision),
+        current_understanding="Inspect the source boundary.",
+        assumptions=("research is bounded",),
+        decision_targets=("slot-1",),
+        tracks=({"id": "track-1"},),
+        method_hypotheses=({"method": "repository"},),
+        depth="deep",
+        evidence_expectations=("source",),
+        autonomy_envelope={"allowed": ["research"]},
+        replanning_policy={"same_round": ["depth"]},
+        success_oracles=("oracle-1",),
+        delivery_contract={"technical": "package", "human": "report"},
+        stop_rule="oracle passes",
+        revision=1,
+        status="displayed",
+    )
+    coordinator.persist_strategy_projection(projection, expected_revision=ledger.get_revision("run-portfolio"))
+    coordinator.display_strategy("run-portfolio", projection, expected_revision=ledger.get_revision("run-portfolio"))
+    coordinator.confirm_handoff(
+        "run-portfolio",
+        projection_ref=ArtifactRef("run-portfolio", projection.id, projection.revision),
+        confirmation=f"I accept {projection.display_digest} and authorize research.",
+        expected_revision=ledger.get_revision("run-portfolio"),
+    )
+    strategy = ledger.get_artifact(ArtifactRef("run-portfolio", projection.id, projection.revision))
+    portfolio = SearchPortfolioService(ledger).plan(
+        run_id="run-portfolio",
+        portfolio_id="portfolio-valid",
+        intent_model=intent,
+        working_brief=brief,
+        strategy=strategy,
+        decision_map=target,
+        slot={"slot_id": "slot-1", "question": "Which source confirms the mechanism?", "closure_oracle": "oracle-1"},
+        authority_envelope="confirmed research",
+        available_methods=(_method(),),
+        expected_revision=ledger.get_revision("run-portfolio"),
+    )
+    return ledger, coordinator, portfolio
+
+
+def test_acquisition_dispatch_requires_current_search_portfolio_lineage(tmp_path) -> None:
+    ledger = RunLedger(tmp_path)
+    ledger.create_run("run-portfolio")
+    coordinator = ResearchRunCoordinator(ledger)
+    intent = _append(ledger, "run-portfolio", "intent-1", "intent-model", {"desired_outcomes": ["inspect source"]})
+    brief = _append(
+        ledger,
+        "run-portfolio",
+        "brief-1",
+        "working-brief",
+        {"working_interpretation": "inspect source", "technical_outcome": "bound evidence"},
+        (ArtifactRef("run-portfolio", intent.id, intent.revision),),
+    )
+    handoff = _append(ledger, "run-portfolio", "handoff-1", "alignment-handoff", {"confirmed": True})
+    target = _append(
+        ledger,
+        "run-portfolio",
+        "target-1",
+        "blueprint-target",
+        {"slots": [{"id": "slot-1", "question": "Which source confirms the mechanism?"}]},
+        (
+            ArtifactRef("run-portfolio", intent.id, intent.revision),
+            ArtifactRef("run-portfolio", brief.id, brief.revision),
+            ArtifactRef("run-portfolio", handoff.id, handoff.revision),
+        ),
+    )
+    coordinator.initialize(
+        run_id="run-portfolio",
+        alignment_handoff=handoff,
+        blueprint_target=target,
+        expected_revision=ledger.get_revision("run-portfolio"),
+    )
+    frame = coordinator.persist_decision_frame(
+        _ready_frame(
+            run_id="run-portfolio",
+            frame_id="portfolio-frame",
+            target_ref=ArtifactRef("run-portfolio", target.id, target.revision),
+        ),
+        expected_revision=ledger.get_revision("run-portfolio"),
+    )
+    projection = StrategyProjection.create(
+        projection_id="portfolio-strategy",
+        run_id="run-portfolio",
+        decision_frame_ref=ArtifactRef("run-portfolio", frame.id, frame.revision),
+        alignment_handoff_ref=ArtifactRef("run-portfolio", handoff.id, handoff.revision),
+        target_ref=ArtifactRef("run-portfolio", target.id, target.revision),
+        current_understanding="Inspect the source boundary.",
+        assumptions=("research is bounded",),
+        decision_targets=("slot-1",),
+        tracks=({"id": "track-1"},),
+        method_hypotheses=({"method": "repository"},),
+        depth="deep",
+        evidence_expectations=("source",),
+        autonomy_envelope={"allowed": ["research"]},
+        replanning_policy={"same_round": ["depth"]},
+        success_oracles=("oracle-1",),
+        delivery_contract={"technical": "package", "human": "report"},
+        stop_rule="oracle passes",
+        revision=1,
+        status="displayed",
+    )
+    coordinator.persist_strategy_projection(projection, expected_revision=ledger.get_revision("run-portfolio"))
+    coordinator.display_strategy("run-portfolio", projection, expected_revision=ledger.get_revision("run-portfolio"))
+    coordinator.confirm_handoff(
+        "run-portfolio",
+        projection_ref=ArtifactRef("run-portfolio", projection.id, projection.revision),
+        confirmation=f"I accept {projection.display_digest} and authorize research.",
+        expected_revision=ledger.get_revision("run-portfolio"),
+    )
+    strategy = ledger.get_artifact(ArtifactRef("run-portfolio", projection.id, projection.revision))
+    portfolio = SearchPortfolioService(ledger).plan(
+        run_id="run-portfolio",
+        portfolio_id="portfolio-valid",
+        intent_model=intent,
+        working_brief=brief,
+        strategy=strategy,
+        decision_map=target,
+        slot={"slot_id": "slot-1", "question": "Which source confirms the mechanism?", "closure_oracle": "oracle-1"},
+        authority_envelope="confirmed research",
+        available_methods=(_method(),),
+        expected_revision=ledger.get_revision("run-portfolio"),
+    )
+    before = ledger.get_revision("run-portfolio")
+    with pytest.raises(CoordinatorConflictError, match="search_portfolio_required"):
+        coordinator.dispatch(
+            run_id="run-portfolio",
+            work_item={
+                "work_item_id": "acquire-1",
+                "objective": "Acquire primary implementation evidence.",
+                "success_oracle": "oracle-1",
+                "acquisition": True,
+            },
+            worker_id="worker-1",
+            expected_revision=before,
+        )
+    forged = _append(ledger, "run-portfolio", "portfolio-forged", "search-portfolio", {"status": "active"})
+    with pytest.raises(CoordinatorConflictError, match="search_portfolio_invalid"):
+        coordinator.dispatch(
+            run_id="run-portfolio",
+            work_item={
+                "work_item_id": "forged-acquire",
+                "objective": "Acquire primary implementation evidence.",
+                "success_oracle": "oracle-1",
+                "acquisition": True,
+                "decision_slot_id": "slot-1",
+                "query_id": portfolio.payload["query_variants"][0]["query_id"],
+                "method_id": "repo-inspect",
+                "search_portfolio_ref": ArtifactRef("run-portfolio", forged.id, forged.revision).to_dict(),
+            },
+            worker_id="worker-1",
+            expected_revision=ledger.get_revision("run-portfolio"),
+        )
+    lease = coordinator.dispatch(
+        run_id="run-portfolio",
+        work_item={
+            "work_item_id": "acquire-1",
+            "objective": "Acquire primary implementation evidence.",
+            "success_oracle": "oracle-1",
+            "acquisition": True,
+            "decision_slot_id": "slot-1",
+            "query_id": portfolio.payload["query_variants"][0]["query_id"],
+            "method_id": "repo-inspect",
+            "search_portfolio_ref": ArtifactRef("run-portfolio", portfolio.id, portfolio.revision).to_dict(),
+        },
+        worker_id="worker-1",
+        expected_revision=ledger.get_revision("run-portfolio"),
+    )
+    assert ArtifactRef("run-portfolio", portfolio.id, portfolio.revision) in lease.parent_refs
+
+    with pytest.raises(CoordinatorConflictError, match="search_portfolio_invalid"):
+        coordinator.dispatch(
+            run_id="run-portfolio",
+            work_item={
+                "work_item_id": "acquire-without-slot",
+                "objective": "Acquire primary implementation evidence.",
+                "success_oracle": "oracle-1",
+                "acquisition": True,
+                "query_id": portfolio.payload["query_variants"][0]["query_id"],
+                "method_id": "repo-inspect",
+                "search_portfolio_ref": ArtifactRef("run-portfolio", portfolio.id, portfolio.revision).to_dict(),
+            },
+            worker_id="worker-1",
+            expected_revision=ledger.get_revision("run-portfolio"),
+        )
+
+
+def test_acquisition_dispatch_rejects_portfolio_bound_to_other_strategy_or_slot(tmp_path) -> None:
+    ledger, coordinator, _, _, _ = _initialize(tmp_path)
+    projection = _confirm_strategy(ledger, coordinator)
+    foreign = _append(
+        ledger,
+        "run-57",
+        "portfolio-foreign",
+        "search-portfolio",
+        {
+            "decision_slot_id": "slot-other",
+            "status": "active",
+            "lineage": {
+                "strategy_ref": ArtifactRef("run-57", projection.id, projection.revision).to_dict(),
+                "decision_map_ref": projection.target_ref.to_dict(),
+            },
+        },
+    )
+
+    with pytest.raises(CoordinatorConflictError, match="search_portfolio_invalid"):
+        coordinator.dispatch(
+            run_id="run-57",
+            work_item={
+                "work_item_id": "acquire-foreign",
+                "objective": "Acquire primary implementation evidence.",
+                "success_oracle": "oracle-1",
+                "acquisition": True,
+                "decision_slot_id": "slot-1",
+                "search_portfolio_ref": ArtifactRef("run-57", foreign.id, foreign.revision).to_dict(),
+            },
+            worker_id="worker-1",
+            expected_revision=ledger.get_revision("run-57"),
+        )
+
+
+def test_acquisition_worker_finished_requires_persisted_batch_assessment(tmp_path) -> None:
+    ledger, coordinator, portfolio = _portfolio_dispatch_setup(tmp_path)
+    lease = coordinator.dispatch(
+        run_id="run-portfolio",
+        work_item={
+            "work_item_id": "acquire-finish",
+            "objective": "Acquire primary implementation evidence.",
+            "success_oracle": "oracle-1",
+            "acquisition": True,
+            "decision_slot_id": "slot-1",
+            "query_id": portfolio.payload["query_variants"][0]["query_id"],
+            "method_id": "repo-inspect",
+            "search_portfolio_ref": ArtifactRef("run-portfolio", portfolio.id, portfolio.revision).to_dict(),
+        },
+        worker_id="worker-1",
+        expected_revision=ledger.get_revision("run-portfolio"),
+        attempt_id="attempt-portfolio-finish",
+    )
+    _append(
+        ledger,
+        "run-portfolio",
+        "assessment-forged",
+        "batch-coverage-assessment",
+        {"assessment": {"attempt_id": lease.id}},
+        (ArtifactRef("run-portfolio", portfolio.id, portfolio.revision),),
+    )
+    event = HostEvent.from_value(
+        {
+            "event_id": "worker-finished-portfolio",
+            "kind": "worker_finished",
+            "run_id": "run-portfolio",
+            "attempt_id": lease.id,
+            "expected_revision": ledger.get_revision("run-portfolio"),
+            "sequence": 1,
+            "actor": "codex",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "payload": {"outcome": {"status": "finished"}},
+        }
+    )
+
+    with pytest.raises(CoordinatorConflictError, match="search_portfolio_assessment_required"):
+        coordinator.ingest_host_event(event)
+
+
+def test_acquisition_worker_finished_rejects_unbound_capture(tmp_path) -> None:
+    ledger, coordinator, portfolio = _portfolio_dispatch_setup(tmp_path)
+    portfolio_ref = ArtifactRef("run-portfolio", portfolio.id, portfolio.revision)
+    lease = coordinator.dispatch(
+        run_id="run-portfolio",
+        work_item={
+            "work_item_id": "acquire-finish-forged",
+            "objective": "Acquire primary implementation evidence.",
+            "success_oracle": "oracle-1",
+            "acquisition": True,
+            "decision_slot_id": "slot-1",
+            "query_id": portfolio.payload["query_variants"][0]["query_id"],
+            "method_id": "repo-inspect",
+            "search_portfolio_ref": portfolio_ref.to_dict(),
+        },
+        worker_id="worker-1",
+        expected_revision=ledger.get_revision("run-portfolio"),
+        attempt_id="attempt-portfolio-forged",
+    )
+    capture = _append(
+        ledger,
+        "run-portfolio",
+        "capture-finish-forged",
+        "source-capture",
+        {
+            "schema_version": 1,
+            "capture_id": "capture-finish-forged",
+            "run_id": "run-portfolio",
+            "attempt_id": lease.id,
+            "locator": {"cas": "sha256:forged"},
+            "content_digest": "a" * 64,
+            "media_type": "text/plain",
+            "size_bytes": 1,
+            "captured_at": "2026-08-12T00:00:00+00:00",
+            "method_id": "repo-inspect",
+            "provider_id": "git",
+            "provenance_group": "repository:workspace",
+            "status": "committed",
+            "selector": {},
+            "license_note": None,
+            "access_note": None,
+            "parser_version": "unparsed",
+            "origin_capture_id": None,
+        },
+    )
+    receipt = _append(
+        ledger,
+        "run-portfolio",
+        "receipt-finish-forged",
+        "acquisition-receipt",
+        {
+            "schema_version": 1,
+            "receipt_id": "receipt-finish-forged",
+            "capture_id": capture.id,
+            "attempt_id": lease.id,
+            "method_id": "repo-inspect",
+            "provider_id": "git",
+            "requested_at": "2026-08-12T00:00:00+00:00",
+            "completed_at": "2026-08-12T00:00:01+00:00",
+            "status": "succeeded",
+            "failure_history": [],
+            "selector": {},
+        },
+        (ArtifactRef("run-portfolio", capture.id, capture.revision),),
+    )
+    checkpoint = _append(
+        ledger,
+        "run-portfolio",
+        "checkpoint-finish-forged",
+        "analysis-checkpoint",
+        {
+            "schema_version": 1,
+            "checkpoint_id": "checkpoint-finish-forged",
+            "run_id": "run-portfolio",
+            "attempt_id": lease.id,
+            "action_id": "assess-finish-forged",
+            "scope": "bounded analysis",
+            "source_capture_refs": [ArtifactRef("run-portfolio", capture.id, capture.revision).to_dict()],
+            "facts": [],
+            "hypotheses": [],
+            "contradictions": [],
+            "open_questions": [],
+            "method_outcomes": [],
+            "next_actions": [],
+            "created_at": "2026-08-12T00:00:02+00:00",
+        },
+        (ArtifactRef("run-portfolio", capture.id, capture.revision),),
+    )
+    forged_assessment = assess_acquisition_batch(
+        assessment_id="assessment-finish-forged",
+        portfolio_id=portfolio.id,
+        decision_slot_id="slot-1",
+        attempt_id=lease.id,
+        batch_id="batch-finish-forged",
+        coverage="complete",
+        novelty="new",
+        source_depth="full_source",
+        provenance_independence="independent",
+        contradictions=(),
+        implementation_uncertainty="low",
+        oracle_readiness="ready",
+        unresolved_decision_risk="bounded",
+        causal_refs=("capture-finish-forged@1", "receipt-finish-forged@1", "checkpoint-finish-forged@1"),
+        capture_refs=("capture-finish-forged@1",),
+        receipt_refs=("receipt-finish-forged@1",),
+        checkpoint_refs=("checkpoint-finish-forged@1",),
+    )
+    recorded = _append(
+        ledger,
+        "run-portfolio",
+        "assessment-finish-forged",
+        "batch-coverage-assessment",
+        {
+            "schema_version": 1,
+            "kind": "batch-coverage-assessment",
+            "run_id": "run-portfolio",
+            "portfolio_ref": portfolio_ref.to_dict(),
+            "assessment": forged_assessment.to_dict(),
+            "status": "recorded",
+        },
+        (
+            portfolio_ref,
+            ArtifactRef("run-portfolio", capture.id, capture.revision),
+            ArtifactRef("run-portfolio", receipt.id, receipt.revision),
+            ArtifactRef("run-portfolio", checkpoint.id, checkpoint.revision),
+        ),
+    )
+    event = HostEvent.from_value(
+        {
+            "event_id": "worker-finished-portfolio-forged",
+            "kind": "worker_finished",
+            "run_id": "run-portfolio",
+            "attempt_id": lease.id,
+            "expected_revision": ledger.get_revision("run-portfolio"),
+            "sequence": 1,
+            "actor": "codex",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "payload": {
+                "outcome": {"assessment_ref": ArtifactRef("run-portfolio", recorded.id, recorded.revision).to_dict()}
+            },
+        }
+    )
+
+    with pytest.raises(CoordinatorConflictError, match="search_portfolio_assessment_required"):
+        coordinator.ingest_host_event(event)
+
+
+def test_acquisition_worker_finished_accepts_real_batch_assessment(tmp_path) -> None:
+    ledger, coordinator, portfolio = _portfolio_dispatch_setup(tmp_path)
+    portfolio_ref = ArtifactRef("run-portfolio", portfolio.id, portfolio.revision)
+    lease = coordinator.dispatch(
+        run_id="run-portfolio",
+        work_item={
+            "work_item_id": "acquire-finish-valid",
+            "objective": "Acquire primary implementation evidence.",
+            "success_oracle": "oracle-1",
+            "acquisition": True,
+            "decision_slot_id": "slot-1",
+            "query_id": portfolio.payload["query_variants"][0]["query_id"],
+            "method_id": "repo-inspect",
+            "search_portfolio_ref": portfolio_ref.to_dict(),
+        },
+        worker_id="worker-1",
+        expected_revision=ledger.get_revision("run-portfolio"),
+        attempt_id="attempt-portfolio-valid",
+    )
+    capture_service = DurableSourceCaptureService(ledger, ContentAddressedStore(tmp_path))
+    capture = capture_service.capture(
+        run_id="run-portfolio",
+        capture_id="capture-finish-valid",
+        attempt_id=lease.id,
+        data=b"primary implementation evidence",
+        media_type="text/plain",
+        method_id="repo-inspect",
+        provider_id="git",
+        expected_revision=ledger.get_revision("run-portfolio"),
+    )
+    receipt = capture_service.receipt(
+        run_id="run-portfolio",
+        receipt_id="receipt-finish-valid",
+        capture=capture,
+        attempt_id=lease.id,
+        method_id="repo-inspect",
+        provider_id="git",
+        expected_revision=ledger.get_revision("run-portfolio"),
+    )
+    checkpoint = capture_service.checkpoint(
+        run_id="run-portfolio",
+        checkpoint_id="checkpoint-finish-valid",
+        attempt_id=lease.id,
+        action_id="assess-finish-valid",
+        source_capture_refs=(capture.artifact_ref,),
+        facts=({"claim": "capture is committed"},),
+        expected_revision=ledger.get_revision("run-portfolio"),
+    )
+    recorded = SearchPortfolioService(ledger).record_assessment(
+        run_id="run-portfolio",
+        assessment=assess_acquisition_batch(
+            assessment_id="assessment-finish-valid",
+            portfolio_id=portfolio.id,
+            decision_slot_id="slot-1",
+            attempt_id=lease.id,
+            batch_id="batch-finish-valid",
+            coverage="complete",
+            novelty="new",
+            source_depth="full_source",
+            provenance_independence="independent",
+            contradictions=(),
+            implementation_uncertainty="low",
+            oracle_readiness="ready",
+            unresolved_decision_risk="bounded",
+            causal_refs=("capture-finish-valid@1", "receipt-finish-valid@1", "checkpoint-finish-valid@1"),
+            capture_refs=("capture-finish-valid@1",),
+            receipt_refs=("receipt-finish-valid@1",),
+            checkpoint_refs=("checkpoint-finish-valid@1",),
+        ),
+        portfolio_ref=portfolio_ref,
+        capture_artifacts=(ledger.get_artifact(capture.artifact_ref),),
+        receipt_artifacts=(ledger.get_artifact(receipt.artifact_ref),),
+        checkpoint_artifacts=(ledger.get_artifact(checkpoint.artifact_ref),),
+        expected_revision=ledger.get_revision("run-portfolio"),
+    )
+    missing_ref_event = HostEvent.from_value(
+        {
+            "event_id": "worker-finished-portfolio-missing-ref",
+            "kind": "worker_finished",
+            "run_id": "run-portfolio",
+            "attempt_id": lease.id,
+            "expected_revision": ledger.get_revision("run-portfolio"),
+            "sequence": 1,
+            "actor": "codex",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "payload": {"outcome": {"status": "finished"}},
+        }
+    )
+    with pytest.raises(CoordinatorConflictError, match="search_portfolio_assessment_required"):
+        coordinator.ingest_host_event(missing_ref_event)
+    event = HostEvent.from_value(
+        {
+            "event_id": "worker-finished-portfolio-valid",
+            "kind": "worker_finished",
+            "run_id": "run-portfolio",
+            "attempt_id": lease.id,
+            "expected_revision": ledger.get_revision("run-portfolio"),
+            "sequence": 1,
+            "actor": "codex",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "payload": {
+                "outcome": {"assessment_ref": ArtifactRef("run-portfolio", recorded.id, recorded.revision).to_dict()}
+            },
+        }
+    )
+
+    observed = coordinator.ingest_host_event(event)
+
+    assert observed.id == "worker-finished-portfolio-valid"
 
 
 def test_decision_frame_persistence_rolls_back_on_fault(tmp_path, monkeypatch) -> None:

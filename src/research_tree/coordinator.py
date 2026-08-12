@@ -25,6 +25,11 @@ from .strategy_projection import (
     StrategyProjectionError,
     macro_stage,
 )
+from .search_portfolio import (
+    SEARCH_PORTFOLIO_KIND,
+    SearchPortfolioError,
+    SearchPortfolioService,
+)
 from .feedback import (
     CORRECTION_ACTION_ROLES,
     CORRECTION_AFFECTED_ROLES,
@@ -1301,6 +1306,8 @@ class ResearchRunCoordinator:
             raise CoordinatorConflictError("unknown_attempt")
         if self._artifact_ref(lease) in self._quarantined_refs(run_id):
             raise StaleStateError("host_event")
+        if any(envelope.kind == "worker_finished" for envelope in envelopes):
+            self._require_acquisition_assessment(run_id, lease, envelopes)
         previous_sequences = [
             int(item.payload.get("sequence", 0))
             for item in artifacts
@@ -1353,6 +1360,61 @@ class ResearchRunCoordinator:
             raise CoordinatorConflictError("stale_revision") from error
         return tuple(created[::2])
 
+    def _require_acquisition_assessment(
+        self,
+        run_id: str,
+        lease: ArtifactRevision,
+        envelopes: Sequence[HostEvent],
+    ) -> None:
+        work_item = lease.payload.get("work_item")
+        if not isinstance(work_item, Mapping) or work_item.get("acquisition") is not True:
+            return
+        portfolio_value = work_item.get("search_portfolio_ref")
+        if not isinstance(portfolio_value, Mapping):
+            raise CoordinatorConflictError("search_portfolio_assessment_required")
+        try:
+            portfolio_ref = ArtifactRef.from_dict(portfolio_value)
+        except (RuntimeStoreError, TypeError, ValueError) as error:
+            raise CoordinatorConflictError("search_portfolio_assessment_required") from error
+        service = SearchPortfolioService(self.ledger)
+        method_id = work_item.get("method_id")
+        query_id = work_item.get("query_id")
+        try:
+            portfolio = service.validate_persisted_portfolio(run_id=run_id, portfolio_ref=portfolio_ref)
+            query = next(
+                item
+                for item in portfolio.payload["query_variants"]
+                if isinstance(item, Mapping) and item.get("query_id") == query_id and item.get("method_id") == method_id
+            )
+            provider_id = query["provider_id"]
+        except (KeyError, SearchPortfolioError, StopIteration, TypeError, ValueError):
+            raise CoordinatorConflictError("search_portfolio_assessment_required") from None
+        if (
+            not isinstance(method_id, str)
+            or not method_id.strip()
+            or not isinstance(provider_id, str)
+            or not provider_id.strip()
+        ):
+            raise CoordinatorConflictError("search_portfolio_assessment_required")
+        for envelope in envelopes:
+            if envelope.kind != "worker_finished":
+                continue
+            outcome = envelope.payload.get("outcome")
+            if not isinstance(outcome, Mapping) or not isinstance(outcome.get("assessment_ref"), Mapping):
+                raise CoordinatorConflictError("search_portfolio_assessment_required")
+            try:
+                assessment_ref = ArtifactRef.from_dict(outcome["assessment_ref"])
+                service.validate_recorded_assessment(
+                    run_id=run_id,
+                    assessment_ref=assessment_ref,
+                    portfolio_ref=portfolio_ref,
+                    attempt_id=lease.id,
+                    expected_method_id=method_id,
+                    expected_provider_id=provider_id,
+                )
+            except (RuntimeStoreError, SearchPortfolioError, TypeError, ValueError) as error:
+                raise CoordinatorConflictError("search_portfolio_assessment_required") from error
+
     def dispatch(
         self,
         *,
@@ -1397,6 +1459,78 @@ class ResearchRunCoordinator:
         )
         if current.payload.get("strategy_display_digest") != projection.display_digest:
             raise CoordinatorConflictError("strategy_projection_stale")
+        portfolio_artifact = None
+        if work_item.get("acquisition") is True:
+            portfolio_value = work_item.get("search_portfolio_ref")
+            if portfolio_value is None:
+                raise CoordinatorConflictError("search_portfolio_required")
+            try:
+                portfolio_ref = _ref(portfolio_value, "search_portfolio_ref")
+                portfolio_artifact = self.ledger.get_artifact(portfolio_ref)
+            except (CoordinatorConflictError, RuntimeStoreError) as error:
+                raise CoordinatorConflictError("search_portfolio_invalid") from error
+            if (
+                portfolio_artifact.kind != SEARCH_PORTFOLIO_KIND
+                or portfolio_artifact.round_id != run_id
+                or not self.ledger.is_latest_artifact(portfolio_ref)
+                or portfolio_artifact.payload.get("status") != "active"
+            ):
+                raise CoordinatorConflictError("search_portfolio_invalid")
+            lineage = portfolio_artifact.payload.get("lineage")
+            requested_slot = work_item.get("decision_slot_id")
+            try:
+                portfolio_artifact = SearchPortfolioService(self.ledger).validate_persisted_portfolio(
+                    run_id=run_id,
+                    portfolio_ref=portfolio_ref,
+                )
+                if not isinstance(lineage, Mapping):
+                    raise ValueError("missing portfolio lineage")
+                if not isinstance(requested_slot, str) or not requested_slot.strip():
+                    raise ValueError("missing decision slot")
+                query_id = work_item.get("query_id")
+                method_id = work_item.get("method_id")
+                if not isinstance(query_id, str) or not isinstance(method_id, str):
+                    raise ValueError("missing query or method")
+                query = next(
+                    (
+                        item
+                        for item in portfolio_artifact.payload["query_variants"]
+                        if isinstance(item, Mapping) and item.get("query_id") == query_id
+                    ),
+                    None,
+                )
+                selected = next(
+                    (
+                        item
+                        for item in portfolio_artifact.payload["method_selection"]
+                        if isinstance(item, Mapping) and item.get("method_id") == method_id
+                    ),
+                    None,
+                )
+                if (
+                    query is None
+                    or query.get("method_id") != method_id
+                    or selected is None
+                    or selected.get("status") != "accepted"
+                ):
+                    raise ValueError("query or method is not dispatchable")
+                planned_strategy = _ref(lineage["strategy_ref"], "portfolio strategy_ref")
+                planned_target = _ref(lineage["decision_map_ref"], "portfolio decision_map_ref")
+                planned_intent = _ref(lineage["intent_model_ref"], "portfolio intent_model_ref")
+                planned_brief = _ref(lineage["working_brief_ref"], "portfolio working_brief_ref")
+                registry_ref = _ref(lineage["method_registry_ref"], "portfolio method_registry_ref")
+                if (
+                    planned_strategy != ArtifactRef(run_id, projection_artifact.id, projection_artifact.revision)
+                    or planned_target != projection.target_ref
+                    or not {planned_intent, planned_brief, planned_strategy, planned_target, registry_ref}.issubset(
+                        set(portfolio_artifact.parent_refs)
+                    )
+                    or requested_slot is not None
+                    and portfolio_artifact.payload.get("decision_slot_id") != requested_slot
+                ):
+                    raise ValueError("stale or mismatched portfolio lineage")
+            except (CoordinatorConflictError, KeyError, TypeError, ValueError, SearchPortfolioError) as error:
+                raise CoordinatorConflictError("search_portfolio_invalid") from error
         selected_attempt = attempt_id or "attempt-" + hashlib.sha256(canonical_json_bytes(work_item)).hexdigest()[:24]
         validate_identifier(selected_attempt, "attempt_id")
         for item in self.ledger.load_run(run_id).artifacts:
@@ -1419,6 +1553,8 @@ class ResearchRunCoordinator:
         ]
         if frame_artifact is not None:
             parent_refs.append(ArtifactRef(run_id, frame_artifact.id, frame_artifact.revision))
+        if portfolio_artifact is not None:
+            parent_refs.append(ArtifactRef(run_id, portfolio_artifact.id, portfolio_artifact.revision))
         try:
             return self.ledger.append_artifact(
                 run_id,

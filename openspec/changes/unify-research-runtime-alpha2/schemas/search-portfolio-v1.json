@@ -4,16 +4,154 @@
   "title": "Alpha2 SearchPortfolio",
   "type": "object",
   "additionalProperties": false,
-  "required": ["portfolio_id", "run_id", "slot_id", "intent_revision", "brief_revision", "subquestions", "methods", "reassessment_policy", "status"],
+  "required": ["schema_version", "kind", "run_id", "portfolio_id", "intent_revision", "working_brief_revision", "strategy_revision", "decision_slot_id", "evidence_deficit", "authority_envelope", "subquestions", "query_variants", "method_boundaries", "method_selection", "prior_acquisition_refs", "stop_criteria", "replan_triggers", "method_registry_version", "method_registry_digest", "method_registry_id", "lineage", "slot_closure_oracle", "method_capability", "status"],
   "properties": {
+    "schema_version": { "const": 1 },
+    "kind": { "const": "search-portfolio" },
     "portfolio_id": { "type": "string", "minLength": 1 },
     "run_id": { "type": "string", "minLength": 1 },
-    "slot_id": { "type": "string", "minLength": 1 },
+    "decision_slot_id": { "type": "string", "minLength": 1 },
     "intent_revision": { "type": "string", "minLength": 1 },
-    "brief_revision": { "type": "string", "minLength": 1 },
-    "subquestions": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["id", "text", "kind", "decision_impact"], "additionalProperties": false, "properties": { "id": { "type": "string" }, "text": { "type": "string", "minLength": 1 }, "kind": { "type": "string", "enum": ["explicit", "implicit", "validation", "implementation", "counterevidence"] }, "decision_impact": { "type": "string", "enum": ["p0", "p1", "optional"] } } } },
-    "methods": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["method_id", "provider_id", "failure_boundary", "query_refs"], "additionalProperties": false, "properties": { "method_id": { "type": "string" }, "provider_id": { "type": "string" }, "failure_boundary": { "type": "string", "minLength": 1 }, "query_refs": { "type": "array", "items": { "type": "string" } } } } },
-    "reassessment_policy": { "type": "object", "required": ["after_batch", "allowed_dispositions"], "additionalProperties": false, "properties": { "after_batch": { "type": "boolean", "const": true }, "allowed_dispositions": { "type": "array", "items": { "type": "string", "enum": ["deepen", "broaden", "pivot", "validate", "sufficient_for_slot"] } } } },
-    "status": { "type": "string", "enum": ["draft", "active", "superseded", "closed"] }
+    "working_brief_revision": { "type": "string", "minLength": 1 },
+    "strategy_revision": { "type": "string", "minLength": 1 },
+    "evidence_deficit": { "type": "string", "minLength": 1 },
+    "authority_envelope": { "type": "string", "minLength": 1 },
+    "subquestions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/subquestion" } },
+    "query_variants": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/queryVariant" } },
+    "method_boundaries": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/methodBoundary" } },
+    "method_selection": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/methodSelection" } },
+    "prior_acquisition_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "stop_criteria": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "replan_triggers": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "method_registry_version": { "type": "string", "minLength": 1 },
+    "method_registry_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "method_registry_id": { "type": "string", "minLength": 1 },
+    "lineage": { "$ref": "#/$defs/lineage" },
+    "slot_closure_oracle": { "type": "string", "minLength": 1 },
+    "method_capability": { "$ref": "#/$defs/methodCapability" },
+    "status": { "type": "string", "enum": ["active", "blocked"] }
+  },
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "artifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["round_id", "artifact_id", "revision"],
+      "properties": {
+        "round_id": { "$ref": "#/$defs/nonEmptyString" },
+        "artifact_id": { "$ref": "#/$defs/nonEmptyString" },
+        "revision": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "subquestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subquestion_id", "category", "question", "question_origin", "originating_deficit", "expected_decision_effect", "stop_or_replan_trigger"],
+      "properties": {
+        "subquestion_id": { "$ref": "#/$defs/nonEmptyString" },
+        "category": { "$ref": "#/$defs/nonEmptyString" },
+        "question": { "$ref": "#/$defs/nonEmptyString" },
+        "question_origin": { "type": "string", "enum": ["explicit", "implicit"] },
+        "originating_deficit": { "$ref": "#/$defs/nonEmptyString" },
+        "expected_decision_effect": { "$ref": "#/$defs/nonEmptyString" },
+        "stop_or_replan_trigger": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "queryVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query_id", "subquestion_id", "originating_slot_id", "query", "method_id", "provider_id", "target_evidence_class", "expected_decision_effect", "query_rewrite_reason"],
+      "properties": {
+        "query_id": { "$ref": "#/$defs/nonEmptyString" },
+        "subquestion_id": { "$ref": "#/$defs/nonEmptyString" },
+        "originating_slot_id": { "$ref": "#/$defs/nonEmptyString" },
+        "query": { "$ref": "#/$defs/nonEmptyString" },
+        "method_id": { "$ref": "#/$defs/nonEmptyString" },
+        "provider_id": { "$ref": "#/$defs/nonEmptyString" },
+        "target_evidence_class": { "$ref": "#/$defs/nonEmptyString" },
+        "expected_decision_effect": { "$ref": "#/$defs/nonEmptyString" },
+        "query_rewrite_reason": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "methodBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method_id", "provider_id", "corpus_id", "boundary_kind", "permission_profile", "expected_evidence_class", "available", "provenance_group", "limitations", "limitation_code", "fallback_method_id", "retryable", "retry_limit", "input_media", "invocation_adapter", "output_schema", "timeout_seconds", "extraction_path", "failure_boundary"],
+      "properties": {
+        "method_id": { "$ref": "#/$defs/nonEmptyString" },
+        "provider_id": { "$ref": "#/$defs/nonEmptyString" },
+        "corpus_id": { "$ref": "#/$defs/nonEmptyString" },
+        "boundary_kind": { "type": "string", "enum": ["search_provider", "repository_inspection", "primary_source", "documentation_lookup", "scholarly_lookup", "experiment", "direct_retrieval"] },
+        "permission_profile": { "$ref": "#/$defs/nonEmptyString" },
+        "expected_evidence_class": { "$ref": "#/$defs/nonEmptyString" },
+        "available": { "type": "boolean" },
+        "provenance_group": { "$ref": "#/$defs/nonEmptyString" },
+        "limitations": { "type": "array", "items": { "$ref": "#/$defs/nonEmptyString" } },
+        "limitation_code": { "type": ["string", "null"] },
+        "fallback_method_id": { "type": ["string", "null"] },
+        "retryable": { "type": "boolean" },
+        "retry_limit": { "type": "integer", "minimum": 0 },
+        "input_media": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/nonEmptyString" } },
+        "invocation_adapter": { "$ref": "#/$defs/nonEmptyString" },
+        "output_schema": { "$ref": "#/$defs/nonEmptyString" },
+        "timeout_seconds": { "type": "integer", "minimum": 1 },
+        "extraction_path": { "$ref": "#/$defs/nonEmptyString" },
+        "failure_boundary": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "methodSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method_id", "method_registry_version", "status", "reason", "provider_id", "corpus_id", "boundary_kind", "input_media", "permission_profile", "invocation_adapter", "output_schema", "timeout_seconds", "extraction_path", "failure_boundary", "provenance_group", "expected_evidence_class", "capability", "retryable", "retry_limit", "limitations", "fallback_method_id", "alternate_evidence_class"],
+      "properties": {
+        "method_id": { "$ref": "#/$defs/nonEmptyString" },
+        "method_registry_version": { "$ref": "#/$defs/nonEmptyString" },
+        "status": { "type": "string", "enum": ["accepted", "rejected"] },
+        "reason": { "type": ["string", "null"] },
+        "provider_id": { "$ref": "#/$defs/nonEmptyString" },
+        "corpus_id": { "$ref": "#/$defs/nonEmptyString" },
+        "boundary_kind": { "$ref": "#/$defs/nonEmptyString" },
+        "input_media": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/nonEmptyString" } },
+        "permission_profile": { "$ref": "#/$defs/nonEmptyString" },
+        "invocation_adapter": { "$ref": "#/$defs/nonEmptyString" },
+        "output_schema": { "$ref": "#/$defs/nonEmptyString" },
+        "timeout_seconds": { "type": "integer", "minimum": 1 },
+        "extraction_path": { "$ref": "#/$defs/nonEmptyString" },
+        "failure_boundary": { "$ref": "#/$defs/nonEmptyString" },
+        "provenance_group": { "$ref": "#/$defs/nonEmptyString" },
+        "expected_evidence_class": { "$ref": "#/$defs/nonEmptyString" },
+        "capability": { "$ref": "#/$defs/nonEmptyString" },
+        "retryable": { "type": "boolean" },
+        "retry_limit": { "type": "integer", "minimum": 0 },
+        "limitations": { "type": "array", "items": { "$ref": "#/$defs/nonEmptyString" } },
+        "fallback_method_id": { "type": ["string", "null"] },
+        "alternate_evidence_class": { "type": ["string", "null"] }
+      }
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["intent_model_ref", "working_brief_ref", "strategy_ref", "decision_map_ref", "method_registry_ref", "decision_slot_id"],
+      "properties": {
+        "intent_model_ref": { "$ref": "#/$defs/artifactRef" },
+        "working_brief_ref": { "$ref": "#/$defs/artifactRef" },
+        "strategy_ref": { "$ref": "#/$defs/artifactRef" },
+        "decision_map_ref": { "$ref": "#/$defs/artifactRef" },
+        "method_registry_ref": { "$ref": "#/$defs/artifactRef" },
+        "decision_slot_id": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "methodCapability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method_registry_version", "available_boundary_count", "degraded_method_ids", "degraded", "blocking_reason"],
+      "properties": {
+        "method_registry_version": { "$ref": "#/$defs/nonEmptyString" },
+        "available_boundary_count": { "type": "integer", "minimum": 0 },
+        "degraded_method_ids": { "type": "array", "items": { "$ref": "#/$defs/nonEmptyString" } },
+        "degraded": { "type": "boolean" },
+        "blocking_reason": { "type": ["string", "null"] }
+      }
+    }
   }
 }

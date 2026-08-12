@@ -373,7 +373,7 @@ class DurableSourceCaptureService:
         *,
         run_id: str,
         receipt_id: str,
-        capture: SourceCapture,
+        capture: SourceCapture | None = None,
         attempt_id: str,
         method_id: str,
         provider_id: str,
@@ -382,11 +382,19 @@ class DurableSourceCaptureService:
         failure_history: Sequence[Mapping[str, str]] = (),
         **metadata: Any,
     ) -> AcquisitionReceipt:
-        if capture.run_id != run_id or capture.attempt_id != attempt_id or capture.artifact_ref is None:
+        if status == "succeeded" and capture is None:
+            raise CaptureIncompleteError("capture_incomplete: successful receipt requires a committed capture")
+        if capture is not None and (
+            capture.run_id != run_id or capture.attempt_id != attempt_id or capture.artifact_ref is None
+        ):
             raise CaptureIncompleteError("capture_incomplete: receipt capture identity is not committed")
+        if capture is None and status not in {"failed", "blocked", "unknown"}:
+            raise CaptureIncompleteError("capture_incomplete: captureless receipt requires failed or blocked status")
+        if capture is None and not failure_history:
+            raise CaptureIncompleteError("capture_incomplete: captureless receipt requires failure history")
         payload = AcquisitionReceipt(
             receipt_id,
-            capture.capture_id,
+            None if capture is None else capture.capture_id,
             attempt_id,
             method_id,
             provider_id,
@@ -401,7 +409,7 @@ class DurableSourceCaptureService:
             receipt_id,
             ACQUISITION_RECEIPT_KIND,
             payload.to_dict(),
-            parent_refs=(capture.artifact_ref,),
+            parent_refs=() if capture is None else (capture.artifact_ref,),
             expected_revision=expected_revision,
         )
         result = AcquisitionReceipt.from_dict(payload.to_dict())
