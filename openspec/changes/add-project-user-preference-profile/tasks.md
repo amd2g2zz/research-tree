@@ -17,5 +17,5 @@
 
 ## 4. Delivery Evidence
 
-- [ ] 4.1 Run focused/full tests, Ruff, strict local and umbrella OpenSpec validation, governance, and diff checks.
-- [ ] 4.2 Update alpha2 group 29 schemas, registries, task completion, and source-bound verification evidence.
+- [x] 4.1 Run focused/full tests, Ruff, strict local and umbrella OpenSpec validation, governance, and diff checks.
+- [x] 4.2 Update alpha2 group 29 schemas, registries, task completion, and source-bound verification evidence.
