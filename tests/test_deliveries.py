@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from copy import deepcopy
 import inspect
 from pathlib import Path
 
@@ -274,9 +273,7 @@ def context(tmp_path: Path):
             "slot-observability": "work-observability",
         },
     )
-    isolation_work = next(
-        item for item in items if item.payload["decision_slot_id"] == "slot-isolation"
-    )
+    isolation_work = next(item for item in items if item.payload["decision_slot_id"] == "slot-isolation")
     from research_tree import FindingPackCompiler
 
     finding = FindingPackCompiler(store).compile(
@@ -328,9 +325,7 @@ def compile_deliveries(
 def test_compiles_traceable_agent_package_and_independent_human_brief(tmp_path: Path) -> None:
     modules, store, round_record, model, brief, target, _finding, decision = context(tmp_path)
 
-    deliveries = compile_deliveries(
-        modules, store, round_record, brief, target, [decision]
-    )
+    deliveries = compile_deliveries(modules, store, round_record, brief, target, [decision])
 
     technical = deliveries.technical_package
     human = deliveries.human_brief
@@ -339,7 +334,10 @@ def test_compiles_traceable_agent_package_and_independent_human_brief(tmp_path: 
     closure = {entry["decision_slot_id"]: entry for entry in document["blueprint_closure"]}
 
     assert technical.kind == "technical-research-package"
-    assert human.kind == "human-brief"
+    assert human.kind == "human-research-report"
+    assert deliveries.human_research_report is human
+    assert deliveries.human_brief is human
+    assert human.payload["markdown"].startswith("# Human Research Report:")
     assert record["intent_hypothesis_ids"] == ("intent-agent",)
     assert record["repository_touchpoints"] == ({"path": "src/agent.py", "symbol": "run"},)
     assert record["validation"]["oracle"].startswith("one fixture")
@@ -396,9 +394,7 @@ def test_human_brief_makes_unclosed_decisions_and_readiness_follow_up_standalone
 ) -> None:
     modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
 
-    human = compile_deliveries(
-        modules, store, round_record, brief, target, [decision]
-    ).human_brief
+    human = compile_deliveries(modules, store, round_record, brief, target, [decision]).human_brief
 
     document = human.payload["document"]
     assert document["unclosed_blueprint_items"] == (
@@ -501,9 +497,7 @@ def test_directly_written_p0_decision_revisions_are_semantically_revalidated(
     if case == "empty_anchor":
         invalid_payload["anchors"] = [{"kind": "finding", "ref": ""}]
     elif case == "unconstrained_touchpoint":
-        invalid_payload["repository_touchpoints"] = [
-            {"path": "src/not-the-slot.py", "symbol": "run"}
-        ]
+        invalid_payload["repository_touchpoints"] = [{"path": "src/not-the-slot.py", "symbol": "run"}]
     elif case == "task_without_touchpoint":
         invalid_payload["change_tasks"] = [
             {
@@ -594,9 +588,7 @@ def test_public_payload_validators_reject_nested_schema_drift(tmp_path: Path) ->
 def test_rollout_and_observability_are_structured_or_explicitly_unknown(tmp_path: Path) -> None:
     modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
 
-    technical = compile_deliveries(
-        modules, store, round_record, brief, target, [decision]
-    ).technical_package
+    technical = compile_deliveries(modules, store, round_record, brief, target, [decision]).technical_package
 
     operational = technical.payload["document"]["rollout_and_observability"]
     assert operational["rollout"] == {
@@ -633,23 +625,20 @@ def test_rehydrated_deliveries_preserve_exact_sources_and_rendered_documents(
     deliveries = compile_deliveries(modules, store, round_record, brief, target, [decision])
 
     rehydrated = modules["RunStore"](store.root).load_round(round_record.id)
-    stored_technical = next(
-        artifact for artifact in rehydrated.artifacts if artifact == deliveries.technical_package
-    )
-    stored_human = next(
-        artifact for artifact in rehydrated.artifacts if artifact == deliveries.human_brief
-    )
+    stored_technical = next(artifact for artifact in rehydrated.artifacts if artifact == deliveries.technical_package)
+    stored_human = next(artifact for artifact in rehydrated.artifacts if artifact == deliveries.human_brief)
 
     assert stored_technical.payload["markdown"] == deliveries.technical_package.payload["markdown"]
     assert stored_human.payload["markdown"] == deliveries.human_brief.payload["markdown"]
-    assert modules["ArtifactRef"](
-        round_record.id, decision.id, decision.revision
-    ) in stored_technical.parent_refs
-    assert modules["ArtifactRef"](
-        round_record.id,
-        deliveries.technical_package.id,
-        deliveries.technical_package.revision,
-    ) in stored_human.parent_refs
+    assert modules["ArtifactRef"](round_record.id, decision.id, decision.revision) in stored_technical.parent_refs
+    assert (
+        modules["ArtifactRef"](
+            round_record.id,
+            deliveries.technical_package.id,
+            deliveries.technical_package.revision,
+        )
+        in stored_human.parent_refs
+    )
 
 
 def test_readiness_cannot_pass_while_blueprint_closure_is_missing(tmp_path: Path) -> None:
@@ -722,9 +711,7 @@ def test_public_payload_validators_reject_shallow_placeholder_documents() -> Non
 def test_technical_package_makes_operational_handoff_explicit(tmp_path: Path) -> None:
     modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
 
-    technical = compile_deliveries(
-        modules, store, round_record, brief, target, [decision]
-    ).technical_package
+    technical = compile_deliveries(modules, store, round_record, brief, target, [decision]).technical_package
     handoff = technical.payload["document"]["operational_handoff"]
 
     assert set(handoff) == {"observability", "rollout", "rollback"}

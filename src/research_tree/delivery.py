@@ -31,6 +31,7 @@ from .run_ledger import LedgerError, RunLedger
 
 
 TECHNICAL_RESEARCH_PACKAGE_KIND = "technical-research-package"
+HUMAN_RESEARCH_REPORT_KIND = "human-research-report"
 HUMAN_BRIEF_KIND = "human-brief"
 READINESS_GATES = (
     "intent_alignment",
@@ -73,7 +74,13 @@ class DeliveryArtifacts:
     """The two immutable outputs compiled from one structured snapshot."""
 
     technical_package: ArtifactRevision
-    human_brief: ArtifactRevision
+    human_research_report: ArtifactRevision
+
+    @property
+    def human_brief(self) -> ArtifactRevision:
+        """Compatibility alias for callers migrating from the alpha1 name."""
+
+        return self.human_research_report
 
 
 class _DeliveryCompilerBase:
@@ -88,9 +95,7 @@ class _DeliveryCompilerBase:
             raise InvalidDeliveryError("delivery compiler requires a RunStore or RunLedger")
         if isinstance(store, RunLedger):
             if not isinstance(evidence_resolver, EvidenceResolver) or evidence_resolver.ledger is not store:
-                raise InvalidDeliveryError(
-                    "canonical delivery requires a matching ledger-backed EvidenceResolver"
-                )
+                raise InvalidDeliveryError("canonical delivery requires a matching ledger-backed EvidenceResolver")
         elif evidence_resolver is not None:
             raise InvalidDeliveryError("RunStore delivery cannot accept an EvidenceResolver")
         self._store = store
@@ -109,7 +114,7 @@ class _DeliveryCompilerBase:
         readiness: Mapping[str, Any],
         expected_revision: int | None = None,
     ) -> DeliveryArtifacts:
-        """Append a technical package and a separate concise human brief.
+        """Append a technical package and a co-primary human research report.
 
         Both payloads and their validation are completed before either artifact
         is appended. The method deliberately has no worker-prose, arbitrary
@@ -128,16 +133,10 @@ class _DeliveryCompilerBase:
             validate_identifier(technical_package_id, "technical_package_id")
             validate_identifier(human_brief_id, "human_brief_id")
             if technical_package_id == human_brief_id:
-                raise InvalidDeliveryError(
-                    "technical_package_id and human_brief_id must be distinct"
-                )
-            _ensure_id_compatibility(
-                snapshot.artifacts, technical_package_id, TECHNICAL_RESEARCH_PACKAGE_KIND
-            )
-            _ensure_id_compatibility(snapshot.artifacts, human_brief_id, HUMAN_BRIEF_KIND)
-            brief = _resolve_exact(
-                snapshot.artifacts, working_brief, WORKING_BRIEF_KIND, "working_brief"
-            )
+                raise InvalidDeliveryError("technical_package_id and human_brief_id must be distinct")
+            _ensure_id_compatibility(snapshot.artifacts, technical_package_id, TECHNICAL_RESEARCH_PACKAGE_KIND)
+            _ensure_id_compatibility(snapshot.artifacts, human_brief_id, HUMAN_RESEARCH_REPORT_KIND)
+            brief = _resolve_exact(snapshot.artifacts, working_brief, WORKING_BRIEF_KIND, "working_brief")
             target = _resolve_exact(
                 snapshot.artifacts,
                 blueprint_target,
@@ -145,9 +144,7 @@ class _DeliveryCompilerBase:
                 "blueprint_target",
             )
             if brief.round_id != round_id or target.round_id != round_id:
-                raise InvalidDeliveryError(
-                    "working_brief and blueprint_target must belong to delivery round"
-                )
+                raise InvalidDeliveryError("working_brief and blueprint_target must belong to delivery round")
             model = _resolve_brief_model(snapshot.artifacts, brief)
             _ensure_target_lineage(target, brief, model)
             inputs = _resolve_brief_inputs(snapshot.artifacts, brief)
@@ -175,7 +172,7 @@ class _DeliveryCompilerBase:
             previous_human = _latest_artifact(
                 snapshot.artifacts,
                 human_brief_id,
-                HUMAN_BRIEF_KIND,
+                HUMAN_RESEARCH_REPORT_KIND,
             )
             next_package_ref = ArtifactRef(
                 round_id,
@@ -227,7 +224,11 @@ class _DeliveryCompilerBase:
             + evidence_refs
         )
         package_refs = _unique_refs(
-            (() if previous_package is None else (ArtifactRef(round_id, previous_package.id, previous_package.revision),))
+            (
+                ()
+                if previous_package is None
+                else (ArtifactRef(round_id, previous_package.id, previous_package.revision),)
+            )
             + source_refs
         )
         human_refs = _unique_refs(
@@ -248,7 +249,7 @@ class _DeliveryCompilerBase:
                             technical_payload,
                             package_refs,
                         ),
-                        (human_brief_id, HUMAN_BRIEF_KIND, human_payload, human_refs),
+                        (human_brief_id, HUMAN_RESEARCH_REPORT_KIND, human_payload, human_refs),
                     ),
                     expected_revision=expected_revision,
                 )
@@ -270,11 +271,14 @@ class _DeliveryCompilerBase:
             human_brief = self._store.append_artifact(
                 round_id,
                 human_brief_id,
-                HUMAN_BRIEF_KIND,
+                HUMAN_RESEARCH_REPORT_KIND,
                 human_payload,
                 parent_refs=human_refs,
             )
-        return DeliveryArtifacts(technical_package=technical_package, human_brief=human_brief)
+        return DeliveryArtifacts(
+            technical_package=technical_package,
+            human_research_report=human_brief,
+        )
 
 
 class CanonicalDeliveryCompiler(_DeliveryCompilerBase):
@@ -326,14 +330,18 @@ def validate_technical_package_payload(payload: Mapping[str, Any]) -> None:
 def validate_human_brief_payload(payload: Mapping[str, Any]) -> None:
     """Validate the smaller requester-facing document before append."""
 
-    _require_exact_keys(
-        payload, {"technical_package_ref", "document", "markdown"}, "human brief payload"
-    )
+    _require_exact_keys(payload, {"technical_package_ref", "document", "markdown"}, "human brief payload")
     ref = _mapping_value(payload["technical_package_ref"], "human brief technical_package_ref")
     _validate_artifact_ref(ref, "technical_package_ref")
     document = _mapping_value(payload["document"], "human brief document")
     _validate_human_document(document)
     _nonempty_string(payload["markdown"], "human brief markdown")
+
+
+def validate_human_research_report_payload(payload: Mapping[str, Any]) -> None:
+    """Compatibility-aware validator for the canonical human report payload."""
+
+    validate_human_brief_payload(payload)
 
 
 def _validate_technical_document(document: Mapping[str, Any]) -> None:
@@ -367,9 +375,7 @@ def _validate_technical_document(document: Mapping[str, Any]) -> None:
     _validate_operational_contract(document["rollout_and_observability"])
     _validate_operational_handoff(document["operational_handoff"])
     _validate_risks_and_validation(document["risks_and_validation"])
-    readiness = _normalize_readiness(
-        _mapping_value(document["readiness_record"], "technical package readiness_record")
-    )
+    readiness = _normalize_readiness(_mapping_value(document["readiness_record"], "technical package readiness_record"))
     _ensure_readiness_matches_closure(closure, readiness)
     _validate_traceability(document["traceability"])
 
@@ -400,9 +406,7 @@ def _validate_human_document(document: Mapping[str, Any]) -> None:
     if understood["leading_interpretation"] != "":
         _nonempty_string(understood["leading_interpretation"], "human leading_interpretation")
     for index, item in enumerate(
-        _mapping_sequence(
-            understood["material_alternatives"], "human material_alternatives", allow_empty=True
-        )
+        _mapping_sequence(understood["material_alternatives"], "human material_alternatives", allow_empty=True)
     ):
         label = f"human material_alternatives[{index}]"
         _require_exact_keys(item, {"id", "interpretation", "status"}, label)
@@ -411,9 +415,7 @@ def _validate_human_document(document: Mapping[str, Any]) -> None:
         _nonempty_string(item["status"], f"{label}.status")
 
     direction = _mapping_value(document["recommended_direction"], "human recommended_direction")
-    _require_exact_keys(
-        direction, {"technical_outcome", "selected_directions"}, "human recommended_direction"
-    )
+    _require_exact_keys(direction, {"technical_outcome", "selected_directions"}, "human recommended_direction")
     _nonempty_string(direction["technical_outcome"], "human technical_outcome")
     for index, item in enumerate(
         _mapping_sequence(direction["selected_directions"], "human selected_directions", allow_empty=True)
@@ -445,9 +447,7 @@ def _validate_human_document(document: Mapping[str, Any]) -> None:
     _nonempty_string(near_term["milestone"], "human near_term_result.milestone")
     _nonempty_string(near_term["validation"], "human near_term_result.validation")
 
-    implementation_readiness = _mapping_value(
-        document["implementation_readiness"], "human implementation_readiness"
-    )
+    implementation_readiness = _mapping_value(document["implementation_readiness"], "human implementation_readiness")
     _require_exact_keys(
         implementation_readiness,
         {"risk_tier", "gates", "closure"},
@@ -461,9 +461,7 @@ def _validate_human_document(document: Mapping[str, Any]) -> None:
     _validate_blueprint_closure(implementation_readiness["closure"])
     _validate_human_unclosed_items(document["unclosed_blueprint_items"])
     _validate_readiness_findings(document["readiness_findings"], "human readiness_findings")
-    _identifier_sequence(
-        document["next_work_item_ids"], "human next_work_item_ids", allow_empty=True
-    )
+    _identifier_sequence(document["next_work_item_ids"], "human next_work_item_ids", allow_empty=True)
     for index, risk in enumerate(
         _mapping_sequence(document["risks_and_uncertainty"], "human risks_and_uncertainty", allow_empty=True)
     ):
@@ -492,9 +490,7 @@ def _validate_round_and_scope(value: Any) -> None:
         "technical package round_and_scope",
     )
     _identifier(scope["round_id"], "technical package round_and_scope.round_id")
-    _nonempty_string(
-        scope["working_interpretation"], "technical package round_and_scope.working_interpretation"
-    )
+    _nonempty_string(scope["working_interpretation"], "technical package round_and_scope.working_interpretation")
     _nonempty_string(scope["technical_outcome"], "technical package round_and_scope.technical_outcome")
     _validate_json_sequence(scope["triggers"], "technical package round_and_scope.triggers")
     selected_inputs = _identifier_sequence(
@@ -591,9 +587,7 @@ def _validate_blueprint_closure(value: Any) -> list[Mapping[str, Any]]:
         _enum_value(item["priority"], f"{label}.priority", {"P0", "P1", "P2"})
         _nonempty_string(item["question"], f"{label}.question")
         _identifier_sequence(item["intent_hypothesis_ids"], f"{label}.intent_hypothesis_ids", allow_empty=True)
-        status = _enum_value(
-            item["status"], f"{label}.status", {"missing", *DECISION_STATUSES}
-        )
+        status = _enum_value(item["status"], f"{label}.status", {"missing", *DECISION_STATUSES})
         if status in {"selected", "conditional"}:
             _nonempty_string(item["selected_option"], f"{label}.selected_option")
         elif item["selected_option"] is not None:
@@ -604,9 +598,7 @@ def _validate_blueprint_closure(value: Any) -> list[Mapping[str, Any]]:
 
 
 def _validate_finding_records(value: Any) -> None:
-    for index, finding in enumerate(
-        _mapping_sequence(value, "technical package research_findings", allow_empty=True)
-    ):
+    for index, finding in enumerate(_mapping_sequence(value, "technical package research_findings", allow_empty=True)):
         label = f"technical package research_findings[{index}]"
         _require_exact_keys(
             finding,
@@ -635,9 +627,7 @@ def _validate_finding_records(value: Any) -> None:
             )
             for field in ("claim", "applicability", "limitation"):
                 _nonempty_string(observation[field], f"{observation_label}.{field}")
-            _validate_anchor_template(
-                observation["anchor"], f"{observation_label}.anchor", ANCHOR_KINDS - {"finding"}
-            )
+            _validate_anchor_template(observation["anchor"], f"{observation_label}.anchor", ANCHOR_KINDS - {"finding"})
             _enum_value(observation["confidence"], f"{observation_label}.confidence", {"low", "medium", "high"})
         for effect_index, effect in enumerate(
             _mapping_sequence(finding["option_effects"], f"{label}.option_effects", allow_empty=True)
@@ -649,15 +639,11 @@ def _validate_finding_records(value: Any) -> None:
         _string_sequence(
             finding["implementation_implications"], f"{label}.implementation_implications", allow_empty=True
         )
-        _string_sequence(
-            finding["remaining_uncertainties"], f"{label}.remaining_uncertainties", allow_empty=True
-        )
+        _string_sequence(finding["remaining_uncertainties"], f"{label}.remaining_uncertainties", allow_empty=True)
 
 
 def _validate_decision_records(value: Any) -> None:
-    for index, record in enumerate(
-        _mapping_sequence(value, "technical package decision_records", allow_empty=True)
-    ):
+    for index, record in enumerate(_mapping_sequence(value, "technical package decision_records", allow_empty=True)):
         label = f"technical package decision_records[{index}]"
         _require_exact_keys(
             record,
@@ -696,9 +682,7 @@ def _validate_decision_records(value: Any) -> None:
             selected = _nonempty_string(selected, f"{label}.selected_option")
         elif selected is not None:
             raise InvalidDeliveryError(f"{label}.selected_option must be null when status is {status}")
-        _validate_decision_alternatives(
-            record["alternatives"], None, selected, f"{label}.alternatives"
-        )
+        _validate_decision_alternatives(record["alternatives"], None, selected, f"{label}.alternatives")
         anchors = _mapping_sequence(record["anchors"], f"{label}.anchors", allow_empty=True)
         if priority == "P0" and not anchors:
             raise InvalidDeliveryError(f"{label}.anchors must not be empty for P0")
@@ -738,9 +722,7 @@ def _validate_recommended_design(value: Any) -> None:
 
 def _validate_implementation_plan(value: Any) -> None:
     seen_orders: set[int] = set()
-    for index, item in enumerate(
-        _mapping_sequence(value, "technical package implementation_plan", allow_empty=True)
-    ):
+    for index, item in enumerate(_mapping_sequence(value, "technical package implementation_plan", allow_empty=True)):
         label = f"technical package implementation_plan[{index}]"
         _require_exact_keys(
             item,
@@ -801,9 +783,7 @@ def _validate_operational_contract(value: Any) -> None:
                 label,
             )
             _identifier(item["decision_slot_id"], f"{label}.decision_slot_id")
-            item_status = _enum_value(
-                item["status"], f"{label}.status", {"missing", *DECISION_STATUSES}
-            )
+            item_status = _enum_value(item["status"], f"{label}.status", {"missing", *DECISION_STATUSES})
             if item_status in {"selected", "conditional"}:
                 _nonempty_string(item["selected_option"], f"{label}.selected_option")
             elif item["selected_option"] is not None:
@@ -835,9 +815,7 @@ def _validate_operational_handoff(value: Any) -> None:
         )
     ):
         _validate_operational_item(item, f"technical package operational_handoff.observability.items[{index}]")
-    _nonempty_string(
-        observability["next_action"], "technical package operational_handoff.observability.next_action"
-    )
+    _nonempty_string(observability["next_action"], "technical package operational_handoff.observability.next_action")
 
     rollout = _mapping_value(handoff["rollout"], "technical package operational_handoff.rollout")
     _require_exact_keys(
@@ -914,9 +892,7 @@ def _validate_operational_item(value: Any, label: str) -> None:
 
 
 def _validate_risks_and_validation(value: Any) -> None:
-    for index, risk in enumerate(
-        _mapping_sequence(value, "technical package risks_and_validation", allow_empty=True)
-    ):
+    for index, risk in enumerate(_mapping_sequence(value, "technical package risks_and_validation", allow_empty=True)):
         label = f"technical package risks_and_validation[{index}]"
         _require_exact_keys(risk, {"kind", "decision_slot_id", "statement", "validation", "response"}, label)
         _enum_value(risk["kind"], f"{label}.kind", {"decision_status", "assumption", "uncertainty"})
@@ -949,9 +925,7 @@ def _validate_traceability(value: Any) -> None:
 
 
 def _validate_human_unclosed_items(value: Any) -> None:
-    for index, item in enumerate(
-        _mapping_sequence(value, "human unclosed_blueprint_items", allow_empty=True)
-    ):
+    for index, item in enumerate(_mapping_sequence(value, "human unclosed_blueprint_items", allow_empty=True)):
         label = f"human unclosed_blueprint_items[{index}]"
         _require_exact_keys(
             item,
@@ -1126,18 +1100,10 @@ def _human_document(
 ) -> dict[str, Any]:
     intent_basis = _mapping_value(technical_document["intent_basis"], "intent_basis")
     hypotheses = _mapping_sequence(intent_basis["hypotheses"], "intent hypotheses", allow_empty=True)
-    records = _mapping_sequence(
-        technical_document["decision_records"], "decision_records", allow_empty=True
-    )
-    plan = _mapping_sequence(
-        technical_document["implementation_plan"], "implementation_plan", allow_empty=True
-    )
-    risks = _mapping_sequence(
-        technical_document["risks_and_validation"], "risks_and_validation", allow_empty=True
-    )
-    closure = _mapping_sequence(
-        technical_document["blueprint_closure"], "blueprint_closure", allow_empty=True
-    )
+    records = _mapping_sequence(technical_document["decision_records"], "decision_records", allow_empty=True)
+    plan = _mapping_sequence(technical_document["implementation_plan"], "implementation_plan", allow_empty=True)
+    risks = _mapping_sequence(technical_document["risks_and_validation"], "risks_and_validation", allow_empty=True)
+    closure = _mapping_sequence(technical_document["blueprint_closure"], "blueprint_closure", allow_empty=True)
     unclosed = [
         {
             "decision_slot_id": item["decision_slot_id"],
@@ -1151,12 +1117,8 @@ def _human_document(
         if item["status"] in {"missing", "conditional", "deferred", "blocked"}
     ]
     priority_order = {"P0": 0, "P1": 1, "P2": 2}
-    unclosed.sort(
-        key=lambda item: (priority_order[item["priority"]], item["decision_slot_id"])
-    )
-    readiness_findings = _mapping_sequence(
-        readiness["findings"], "readiness findings", allow_empty=True
-    )
+    unclosed.sort(key=lambda item: (priority_order[item["priority"]], item["decision_slot_id"]))
+    readiness_findings = _mapping_sequence(readiness["findings"], "readiness findings", allow_empty=True)
     choices = [
         {
             "decision_slot_id": item["decision_slot_id"],
@@ -1217,14 +1179,9 @@ def _human_document(
             "closure": closure,
         },
         "unclosed_blueprint_items": unclosed,
-        "readiness_findings": [
-            {"gate": item["gate"], "summary": item["summary"]}
-            for item in readiness_findings
-        ],
+        "readiness_findings": [{"gate": item["gate"], "summary": item["summary"]} for item in readiness_findings],
         "next_work_item_ids": list(
-            _identifier_sequence(
-                readiness["next_work_item_ids"], "readiness next_work_item_ids", allow_empty=True
-            )
+            _identifier_sequence(readiness["next_work_item_ids"], "readiness next_work_item_ids", allow_empty=True)
         ),
         "risks_and_uncertainty": [
             {
@@ -1258,9 +1215,7 @@ def _artifact_map(artifacts: Sequence[ArtifactRevision]) -> dict[ArtifactRef, Ar
     return {ArtifactRef(item.round_id, item.id, item.revision): item for item in artifacts}
 
 
-def _resolve_brief_model(
-    artifacts: Sequence[ArtifactRevision], brief: ArtifactRevision
-) -> ArtifactRevision:
+def _resolve_brief_model(artifacts: Sequence[ArtifactRevision], brief: ArtifactRevision) -> ArtifactRevision:
     model_id = _identifier(brief.payload.get("intent_model_id"), "working_brief intent_model_id")
     by_ref = _artifact_map(artifacts)
     for ref in brief.parent_refs:
@@ -1270,9 +1225,7 @@ def _resolve_brief_model(
     raise InvalidDeliveryError("working_brief has no exact Intent Model parent reference")
 
 
-def _ensure_target_lineage(
-    target: ArtifactRevision, brief: ArtifactRevision, model: ArtifactRevision
-) -> None:
+def _ensure_target_lineage(target: ArtifactRevision, brief: ArtifactRevision, model: ArtifactRevision) -> None:
     if target.payload.get("brief_id") != brief.id or target.payload.get("intent_model_id") != model.id:
         raise InvalidDeliveryError("Blueprint Target does not belong to supplied Brief and Intent Model")
     refs = set(target.parent_refs)
@@ -1327,9 +1280,7 @@ def _resolve_decisions(
     seen_slots: set[str] = set()
     seen_findings: set[ArtifactRef] = set()
     for index, supplied in enumerate(values):
-        decision = _resolve_exact(
-            artifacts, supplied, DECISION_LEDGER_KIND, f"decision_entries[{index}]"
-        )
+        decision = _resolve_exact(artifacts, supplied, DECISION_LEDGER_KIND, f"decision_entries[{index}]")
         if decision.round_id != round_id:
             raise InvalidDeliveryError("Decision Ledger entry must belong to delivery round")
         if _latest_artifact(artifacts, decision.id, DECISION_LEDGER_KIND) != decision:
@@ -1340,15 +1291,11 @@ def _resolve_decisions(
         if decision.id in seen_ids or slot_id in seen_slots:
             raise InvalidDeliveryError("delivery cannot include ambiguous Decision Ledger entries")
         if target_ref not in decision.parent_refs or decision.payload.get("blueprint_target_id") != target.id:
-            raise InvalidDeliveryError(
-                "Decision Ledger entry must belong to the exact Blueprint Target revision"
-            )
+            raise InvalidDeliveryError("Decision Ledger entry must belong to the exact Blueprint Target revision")
         linked_findings: list[ArtifactRevision] = []
         for ref in decision.parent_refs:
             if strict and ref.round_id != round_id:
-                raise InvalidDeliveryError(
-                    "Decision Ledger entry has foreign parent lineage"
-                )
+                raise InvalidDeliveryError("Decision Ledger entry has foreign parent lineage")
             finding = by_ref.get(ref)
             if finding is not None and finding.kind == FINDING_PACK_KIND:
                 linked_findings.append(finding)
@@ -1395,9 +1342,7 @@ def _resolve_strict_delivery_evidence(
         if isinstance(observations, (str, bytes)) or not isinstance(observations, Sequence):
             raise InvalidDeliveryError(f"Finding Pack {finding.id} observations are malformed")
         if not observations:
-            raise InvalidDeliveryError(
-                f"Finding Pack {finding.id} requires at least one strict observation"
-            )
+            raise InvalidDeliveryError(f"Finding Pack {finding.id} requires at least one strict observation")
         for index, observation in enumerate(observations):
             if not isinstance(observation, Mapping):
                 raise InvalidDeliveryError(f"Finding Pack {finding.id} observation {index} is malformed")
@@ -1405,9 +1350,7 @@ def _resolve_strict_delivery_evidence(
                 anchor = EvidenceAnchor.from_dict(observation["anchor"])
                 resolved = resolver.resolve(anchor)
             except (KeyError, TypeError, ValueError, EvidenceValidationError) as error:
-                raise InvalidDeliveryError(
-                    f"Finding Pack {finding.id} evidence is not resolvable: {error}"
-                ) from error
+                raise InvalidDeliveryError(f"Finding Pack {finding.id} evidence is not resolvable: {error}") from error
             reference = resolved.artifact_ref
             if not isinstance(reference, ArtifactRef) or reference.round_id != round_id:
                 raise InvalidDeliveryError(
@@ -1430,15 +1373,12 @@ def _resolve_strict_delivery_evidence(
         linked = [
             artifact
             for reference in decision.parent_refs
-            if (artifact := by_ref.get(reference)) is not None
-            and artifact.kind == FINDING_PACK_KIND
+            if (artifact := by_ref.get(reference)) is not None and artifact.kind == FINDING_PACK_KIND
         ]
         status = decision.payload.get("status")
         if status in {"selected", "conditional"}:
             if not linked:
-                raise InvalidDeliveryError(
-                    f"Decision Ledger {decision.id} requires a linked strict Finding Pack"
-                )
+                raise InvalidDeliveryError(f"Decision Ledger {decision.id} requires a linked strict Finding Pack")
             linked_ids = {finding.id for finding in linked}
             finding_anchors = {
                 anchor.get("ref")
@@ -1446,14 +1386,10 @@ def _resolve_strict_delivery_evidence(
                 if isinstance(anchor, Mapping) and anchor.get("kind") == "finding"
             }
             if not finding_anchors or not finding_anchors <= linked_ids:
-                raise InvalidDeliveryError(
-                    f"Decision Ledger {decision.id} requires a linked Finding Pack anchor"
-                )
+                raise InvalidDeliveryError(f"Decision Ledger {decision.id} requires a linked Finding Pack anchor")
         for finding in linked:
             if finding.payload.get("decision_slot_id") != decision.payload.get("decision_slot_id"):
-                raise InvalidDeliveryError(
-                    f"Finding Pack {finding.id} is scoped to a different Decision Slot"
-                )
+                raise InvalidDeliveryError(f"Finding Pack {finding.id} is scoped to a different Decision Slot")
             finding_ref = ArtifactRef(round_id, finding.id, finding.revision)
             for reference in finding_refs.get(finding_ref, ()):
                 if reference not in decision.parent_refs:
@@ -1471,8 +1407,7 @@ def _resolve_strict_delivery_evidence(
             }
             if decision.payload.get("selected_option") not in supported_options:
                 raise InvalidDeliveryError(
-                    "selected or conditional Decision Ledger requires a Finding Pack "
-                    "support effect for selected_option"
+                    "selected or conditional Decision Ledger requires a Finding Pack support effect for selected_option"
                 )
     return tuple(resolved_refs)
 
@@ -1521,32 +1456,22 @@ def _validate_implementation_decision(
     if _identifier(data["decision_slot_id"], f"Decision Ledger {decision.id}.decision_slot_id") != slot_id:
         raise InvalidDeliveryError(f"Decision Ledger {decision.id} does not match its Decision Slot")
     _identifier(data["blueprint_target_id"], f"Decision Ledger {decision.id}.blueprint_target_id")
-    status = _enum_value(
-        data["status"], f"Decision Ledger {decision.id}.status", DECISION_STATUSES
-    )
+    status = _enum_value(data["status"], f"Decision Ledger {decision.id}.status", DECISION_STATUSES)
     options = _string_sequence(slot.get("alternatives"), f"slot {slot_id} alternatives")
     selected_option = data["selected_option"]
     if status in {"selected", "conditional"}:
-        selected_option = _nonempty_string(
-            selected_option, f"Decision Ledger {decision.id}.selected_option"
-        )
+        selected_option = _nonempty_string(selected_option, f"Decision Ledger {decision.id}.selected_option")
         if selected_option not in options:
             raise InvalidDeliveryError(
                 f"Decision Ledger {decision.id}.selected_option is absent from its Decision Slot"
             )
     elif selected_option is not None:
-        raise InvalidDeliveryError(
-            f"Decision Ledger {decision.id} {status} status must not select an option"
-        )
+        raise InvalidDeliveryError(f"Decision Ledger {decision.id} {status} status must not select an option")
     _nonempty_string(data.get("design_consequence"), f"Decision Ledger {decision.id}.design_consequence")
     _nonempty_string(data.get("fallback"), f"Decision Ledger {decision.id}.fallback")
-    _nonempty_string(
-        data.get("reversal_condition"), f"Decision Ledger {decision.id}.reversal_condition"
-    )
+    _nonempty_string(data.get("reversal_condition"), f"Decision Ledger {decision.id}.reversal_condition")
     _nonempty_string(data.get("revision_reason"), f"Decision Ledger {decision.id}.revision_reason")
-    _validate_validation(
-        data["validation"], f"Decision Ledger {decision.id}.validation"
-    )
+    _validate_validation(data["validation"], f"Decision Ledger {decision.id}.validation")
     _validate_decision_alternatives(
         data["alternatives"],
         options,
@@ -1563,12 +1488,8 @@ def _validate_implementation_decision(
         slot,
         f"Decision Ledger {decision.id}.repository_touchpoints",
     )
-    tasks = _validate_change_tasks(
-        data["change_tasks"], slot, f"Decision Ledger {decision.id}.change_tasks"
-    )
-    _string_sequence(
-        data["assumptions"], f"Decision Ledger {decision.id}.assumptions", allow_empty=True
-    )
+    tasks = _validate_change_tasks(data["change_tasks"], slot, f"Decision Ledger {decision.id}.change_tasks")
+    _string_sequence(data["assumptions"], f"Decision Ledger {decision.id}.assumptions", allow_empty=True)
     if slot.get("priority") != "P0":
         return
     if not _identifier_sequence(slot.get("intent_hypothesis_ids"), f"slot {slot_id} hypotheses", allow_empty=True):
@@ -1582,9 +1503,7 @@ def _validate_implementation_decision(
     finding_ids = {item.id for item in findings}
     finding_anchors = {anchor["ref"] for anchor in anchors if anchor["kind"] == "finding"}
     if not finding_anchors or not finding_anchors <= finding_ids:
-        raise InvalidDeliveryError(
-            f"P0 Decision Ledger {decision.id} requires a linked Finding Pack anchor"
-        )
+        raise InvalidDeliveryError(f"P0 Decision Ledger {decision.id} requires a linked Finding Pack anchor")
     effects: set[str] = set()
     for finding in findings:
         finding_payload = _mapping_value(finding.payload, f"Finding Pack {finding.id}")
@@ -1592,9 +1511,7 @@ def _validate_implementation_decision(
             finding_payload.get("blueprint_target_id") != data["blueprint_target_id"]
             or finding_payload.get("decision_slot_id") != slot_id
         ):
-            raise InvalidDeliveryError(
-                f"Finding Pack {finding.id} is not scoped to Decision Slot {slot_id}"
-            )
+            raise InvalidDeliveryError(f"Finding Pack {finding.id} is not scoped to Decision Slot {slot_id}")
         for index, effect in enumerate(
             _mapping_sequence(
                 finding_payload.get("option_effects"),
@@ -1607,12 +1524,8 @@ def _validate_implementation_decision(
                 {"option", "effect"},
                 f"Finding Pack {finding.id}.option_effects[{index}]",
             )
-            option = _nonempty_string(
-                effect["option"], f"Finding Pack {finding.id}.option_effects[{index}].option"
-            )
-            _enum_value(
-                effect["effect"], f"Finding Pack {finding.id}.option_effects[{index}].effect", OPTION_EFFECTS
-            )
+            option = _nonempty_string(effect["option"], f"Finding Pack {finding.id}.option_effects[{index}].option")
+            _enum_value(effect["effect"], f"Finding Pack {finding.id}.option_effects[{index}].effect", OPTION_EFFECTS)
             effects.add(option)
     if selected_option not in effects:
         raise InvalidDeliveryError(
@@ -1653,14 +1566,8 @@ def _validate_decision_alternatives(
         item_label = f"{label}[{index}]"
         _require_exact_keys(alternative, {"option", "disposition", "reason"}, item_label)
         option = _nonempty_string(alternative["option"], f"{item_label}.option")
-        if (
-            (slot_options is not None and option not in slot_options)
-            or option == selected_option
-            or option in seen
-        ):
-            raise InvalidDeliveryError(
-                f"{item_label}.option must be a distinct unselected Decision Slot option"
-            )
+        if (slot_options is not None and option not in slot_options) or option == selected_option or option in seen:
+            raise InvalidDeliveryError(f"{item_label}.option must be a distinct unselected Decision Slot option")
         seen.add(option)
         normalized.append(
             {
@@ -1690,9 +1597,7 @@ def _validate_decision_anchors(
         kind = _enum_value(anchor["kind"], f"{item_label}.kind", ANCHOR_KINDS)
         reference = _nonempty_string(anchor["ref"], f"{item_label}.ref")
         if kind == "finding" and reference not in finding_ids:
-            raise InvalidDeliveryError(
-                f"{item_label}.ref must name a Finding Pack linked from this Decision Ledger"
-            )
+            raise InvalidDeliveryError(f"{item_label}.ref must name a Finding Pack linked from this Decision Ledger")
         normalized.append({"kind": kind, "ref": reference})
     return normalized
 
@@ -1708,9 +1613,7 @@ def _slot_touchpoints(slot: Mapping[str, Any], label: str) -> set[tuple[str, str
         symbol_raw = point["symbol"]
         if symbol_raw is not None and not isinstance(symbol_raw, str):
             raise InvalidDeliveryError(f"{point_label}.symbol must be a string or null")
-        symbol = None if symbol_raw is None else _nonempty_string(
-            symbol_raw, f"{point_label}.symbol"
-        )
+        symbol = None if symbol_raw is None else _nonempty_string(symbol_raw, f"{point_label}.symbol")
         result.add((path, symbol))
     return result
 
@@ -1735,9 +1638,7 @@ def _validate_constrained_touchpoints(
         symbol_raw = point["symbol"]
         if symbol_raw is not None and not isinstance(symbol_raw, str):
             raise InvalidDeliveryError(f"{item_label}.symbol must be a string or null")
-        symbol = None if symbol_raw is None else _nonempty_string(
-            symbol_raw, f"{item_label}.symbol"
-        )
+        symbol = None if symbol_raw is None else _nonempty_string(symbol_raw, f"{item_label}.symbol")
         if allowed and (path, symbol) not in allowed:
             raise InvalidDeliveryError(f"{item_label} is not constrained by its Decision Slot")
         if not allowed and not greenfield:
@@ -1748,9 +1649,7 @@ def _validate_constrained_touchpoints(
     if allowed and not normalized:
         raise InvalidDeliveryError(f"{label} requires at least one Decision Slot touchpoint")
     if not allowed and not greenfield:
-        raise InvalidDeliveryError(
-            f"{label} requires a Decision Slot touchpoint or an explicit greenfield assumption"
-        )
+        raise InvalidDeliveryError(f"{label} requires a Decision Slot touchpoint or an explicit greenfield assumption")
     return normalized
 
 
@@ -1777,9 +1676,7 @@ def _validate_change_tasks(
             {
                 "id": task_id,
                 "description": _nonempty_string(task["description"], f"{item_label}.description"),
-                "acceptance_oracle": _nonempty_string(
-                    task["acceptance_oracle"], f"{item_label}.acceptance_oracle"
-                ),
+                "acceptance_oracle": _nonempty_string(task["acceptance_oracle"], f"{item_label}.acceptance_oracle"),
                 "repository_touchpoints": _validate_constrained_touchpoints(
                     task["repository_touchpoints"], slot, f"{item_label}.repository_touchpoints"
                 ),
@@ -1813,9 +1710,7 @@ def _normalize_readiness(value: Mapping[str, Any]) -> dict[str, Any]:
         normalized_findings.append(
             {"gate": gate, "summary": _nonempty_string(finding["summary"], "readiness finding summary")}
         )
-    next_ids = _identifier_sequence(
-        value["next_work_item_ids"], "readiness.next_work_item_ids", allow_empty=True
-    )
+    next_ids = _identifier_sequence(value["next_work_item_ids"], "readiness.next_work_item_ids", allow_empty=True)
     return {
         "risk_tier": tier,
         "gates": normalized_gates,
@@ -1824,22 +1719,13 @@ def _normalize_readiness(value: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _ensure_readiness_matches_closure(
-    closure: Sequence[Mapping[str, Any]], readiness: Mapping[str, Any]
-) -> None:
-    blocking = [
-        item
-        for item in closure
-        if item.get("status") in {"missing", "blocked"}
-    ]
+def _ensure_readiness_matches_closure(closure: Sequence[Mapping[str, Any]], readiness: Mapping[str, Any]) -> None:
+    blocking = [item for item in closure if item.get("status") in {"missing", "blocked"}]
     gates = _mapping_value(readiness.get("gates"), "readiness gates")
     if blocking and gates.get("decision_closure") == "pass":
-        slots = ", ".join(
-            _cell(item.get("decision_slot_id")) for item in blocking
-        )
+        slots = ", ".join(_cell(item.get("decision_slot_id")) for item in blocking)
         raise InvalidDeliveryError(
-            "readiness.gates.decision_closure cannot be pass while Blueprint Closure is unclosed: "
-            f"{slots}"
+            f"readiness.gates.decision_closure cannot be pass while Blueprint Closure is unclosed: {slots}"
         )
 
 
@@ -1932,9 +1818,7 @@ def _round_and_scope(round_id: str, brief: ArtifactRevision) -> dict[str, Any]:
         "working_interpretation": _string_value(
             brief.payload.get("working_interpretation"), "working_brief working_interpretation"
         ),
-        "technical_outcome": _string_value(
-            brief.payload.get("technical_outcome"), "working_brief technical_outcome"
-        ),
+        "technical_outcome": _string_value(brief.payload.get("technical_outcome"), "working_brief technical_outcome"),
         "triggers": _json_list(brief.payload.get("triggers")),
         "selected_input_ids": _json_list(brief.payload.get("selected_input_ids")),
         "input_roles": _json_mapping(brief.payload.get("input_roles")),
@@ -2014,9 +1898,7 @@ def _finding_records(findings: Sequence[ArtifactRevision]) -> list[dict[str, Any
             {
                 "finding_id": finding.id,
                 "revision": finding.revision,
-                "decision_slot_id": _identifier(
-                    data.get("decision_slot_id"), "Finding Pack decision_slot_id"
-                ),
+                "decision_slot_id": _identifier(data.get("decision_slot_id"), "Finding Pack decision_slot_id"),
                 "observations": _json_list(data.get("observations")),
                 "option_effects": _json_list(data.get("option_effects")),
                 "implementation_implications": _json_list(data.get("implementation_implications")),
@@ -2116,9 +1998,7 @@ def _operational_surface(
                     "status": "missing",
                     "selected_option": None,
                     "validation": _json_mapping(slot.get("validation")),
-                    "fallback": _nonempty_string(
-                        slot.get("fallback"), f"slot {slot_id}.fallback"
-                    ),
+                    "fallback": _nonempty_string(slot.get("fallback"), f"slot {slot_id}.fallback"),
                     "change_task_ids": [],
                     "next_action": "Create or converge a Decision Ledger entry for this slot.",
                 }
@@ -2133,9 +2013,7 @@ def _operational_surface(
                 "fallback": record["fallback"],
                 "change_task_ids": [
                     _identifier(task.get("id"), "change task id")
-                    for task in _mapping_sequence(
-                        record["change_tasks"], "operational change_tasks", allow_empty=True
-                    )
+                    for task in _mapping_sequence(record["change_tasks"], "operational change_tasks", allow_empty=True)
                 ],
                 "next_action": _validation_next_action(record["validation"]),
             }
@@ -2144,9 +2022,7 @@ def _operational_surface(
         return {
             "status": "unknown",
             "items": [],
-            "next_action": (
-                f"Add an explicit {slot_kind} Decision Slot before defining {subject} steps."
-            ),
+            "next_action": (f"Add an explicit {slot_kind} Decision Slot before defining {subject} steps."),
         }
     if all(item["status"] == "selected" for item in items):
         return {
@@ -2169,12 +2045,8 @@ def _operational_handoff(
 ) -> dict[str, Any]:
     """Build a directly actionable operational view from recorded fields only."""
 
-    observability = _mapping_value(
-        rollout_and_observability["observability"], "observability surface"
-    )
-    observability_items = _mapping_sequence(
-        observability["items"], "observability items", allow_empty=True
-    )
+    observability = _mapping_value(rollout_and_observability["observability"], "observability surface")
+    observability_items = _mapping_sequence(observability["items"], "observability items", allow_empty=True)
     statuses = {item["status"] for item in observability_items}
     if "missing" in statuses:
         observability_status = "missing"
@@ -2231,9 +2103,7 @@ def _operational_handoff(
 
 def _stable_slot_order(slots: Mapping[str, Mapping[str, Any]]) -> list[str]:
     remaining = {
-        slot_id: set(
-            _identifier_sequence(slot.get("depends_on"), f"slot {slot_id} depends_on", allow_empty=True)
-        )
+        slot_id: set(_identifier_sequence(slot.get("depends_on"), f"slot {slot_id} depends_on", allow_empty=True))
         for slot_id, slot in slots.items()
     }
     for slot_id, dependencies in remaining.items():
@@ -2328,13 +2198,29 @@ def _render_technical_markdown(round_id: str, document: Mapping[str, Any]) -> st
         lines.append(f"- Repository input `{_cell(repository['input_id'])}`")
         lines.append(f"  - Anchors: {_anchors(repository['anchors'])}")
         lines.append(f"  - Observed facts: {_observations(repository['facts'])}")
-    lines.extend(["", "## Blueprint Closure", "", "| Priority | Decision slot | Status | Closure or fallback |", "| --- | --- | --- | --- |"])
+    lines.extend(
+        [
+            "",
+            "## Blueprint Closure",
+            "",
+            "| Priority | Decision slot | Status | Closure or fallback |",
+            "| --- | --- | --- | --- |",
+        ]
+    )
     for closure in _mapping_sequence(document["blueprint_closure"], "blueprint_closure", allow_empty=True):
         lines.append(
             f"| {_cell(closure['priority'])} | {_cell(closure['decision_slot_id'])} | "
             f"{_cell(closure['status'])} | {_cell(closure['closure_or_fallback'])} |"
         )
-    lines.extend(["", "## Research Strategy and Findings", "", "| Finding | Evidence | Technical implication |", "| --- | --- | --- |"])
+    lines.extend(
+        [
+            "",
+            "## Research Strategy and Findings",
+            "",
+            "| Finding | Evidence | Technical implication |",
+            "| --- | --- | --- |",
+        ]
+    )
     findings = _mapping_sequence(document["research_findings"], "research_findings", allow_empty=True)
     if not findings:
         lines.append("| No Finding Pack was supplied | - | No recommendation is inferred |")
@@ -2342,10 +2228,7 @@ def _render_technical_markdown(round_id: str, document: Mapping[str, Any]) -> st
         implications = _joined(finding["implementation_implications"])
         for observation in _mapping_sequence(finding["observations"], "finding observations", allow_empty=True):
             anchor = _mapping_value(observation["anchor"], "observation anchor")
-            lines.append(
-                f"| {_cell(observation['claim'])} | {_cell(_anchor_label(anchor))} | "
-                f"{_cell(implications)} |"
-            )
+            lines.append(f"| {_cell(observation['claim'])} | {_cell(_anchor_label(anchor))} | {_cell(implications)} |")
     lines.extend(["", "## Recommended Design", ""])
     design = _mapping_value(document["recommended_design"], "recommended_design")
     for group in DESIGN_GROUPS:
@@ -2360,14 +2243,29 @@ def _render_technical_markdown(round_id: str, document: Mapping[str, Any]) -> st
         else:
             lines.append("- No structured decision was supplied.")
         lines.append("")
-    lines.extend(["## Decisions and Alternatives", "", "| Decision | Selected approach | Alternatives | Anchors | Reversal condition |", "| --- | --- | --- | --- | --- |"])
+    lines.extend(
+        [
+            "## Decisions and Alternatives",
+            "",
+            "| Decision | Selected approach | Alternatives | Anchors | Reversal condition |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+    )
     for record in _mapping_sequence(document["decision_records"], "decision_records", allow_empty=True):
         lines.append(
             f"| {_cell(record['decision_slot_id'])} | {_cell(record['selected_option'] or record['status'])} | "
             f"{_alternatives(record['alternatives'])} | {_anchors(record['anchors'])} | "
             f"{_cell(record['reversal_condition'])} |"
         )
-    lines.extend(["", "## Implementation Plan", "", "| Order | Work item | Repository touch points | Depends on | Validation | Rollback |", "| --- | --- | --- | --- | --- |"])
+    lines.extend(
+        [
+            "",
+            "## Implementation Plan",
+            "",
+            "| Order | Work item | Repository touch points | Depends on | Validation | Rollback |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+    )
     plan = _mapping_sequence(document["implementation_plan"], "implementation_plan", allow_empty=True)
     if not plan:
         lines.append("| - | No task is emitted until a Decision Ledger entry provides one | - | - | - | - |")
@@ -2378,9 +2276,7 @@ def _render_technical_markdown(round_id: str, document: Mapping[str, Any]) -> st
             f"{_joined(item['depends_on'])} | {_cell(validation['kind'])}: {_cell(validation['oracle'])} | "
             f"{_cell(item['rollback'])} |"
         )
-    operational = _mapping_value(
-        document["rollout_and_observability"], "rollout_and_observability"
-    )
+    operational = _mapping_value(document["rollout_and_observability"], "rollout_and_observability")
     lines.extend(["", "## Rollout and Observability", ""])
     for name in ("rollout", "observability"):
         surface = _mapping_value(operational[name], f"{name} surface")
@@ -2400,17 +2296,13 @@ def _render_technical_markdown(round_id: str, document: Mapping[str, Any]) -> st
         lines.append(f"- Next action: {_cell(surface['next_action'])}")
         lines.append("")
     handoff = _mapping_value(document["operational_handoff"], "operational_handoff")
-    handoff_observability = _mapping_value(
-        handoff["observability"], "operational_handoff.observability"
-    )
+    handoff_observability = _mapping_value(handoff["observability"], "operational_handoff.observability")
     handoff_rollout = _mapping_value(handoff["rollout"], "operational_handoff.rollout")
     lines.extend(["## Operational Handoff", ""])
     lines.append(f"- Observability status: {_cell(handoff_observability['status'])}")
     lines.append(f"- Observability next action: {_cell(handoff_observability['next_action'])}")
     lines.append(f"- Rollout status: {_cell(handoff_rollout['status'])}")
-    for item in _mapping_sequence(
-        handoff_rollout["items"], "operational_handoff rollout items", allow_empty=True
-    ):
+    for item in _mapping_sequence(handoff_rollout["items"], "operational_handoff rollout items", allow_empty=True):
         validation = _mapping_value(item["validation"], "operational_handoff rollout validation")
         lines.append(
             f"- Rollout `{_cell(item['change_task_id'])}`: {_cell(item['description'])}; "
@@ -2418,10 +2310,10 @@ def _render_technical_markdown(round_id: str, document: Mapping[str, Any]) -> st
         )
     lines.append(f"- Rollout next action: {_cell(handoff_rollout['next_action'])}")
     for item in _mapping_sequence(handoff["rollback"], "operational_handoff rollback", allow_empty=True):
-        lines.append(
-            f"- Rollback `{_cell(item['change_task_id'])}`: {_cell(item['fallback'])}"
-        )
-    lines.extend(["", "## Risks and Validation", "", "| Risk or assumption | Validation | Response |", "| --- | --- | --- |"])
+        lines.append(f"- Rollback `{_cell(item['change_task_id'])}`: {_cell(item['fallback'])}")
+    lines.extend(
+        ["", "## Risks and Validation", "", "| Risk or assumption | Validation | Response |", "| --- | --- | --- |"]
+    )
     risks = _mapping_sequence(document["risks_and_validation"], "risks_and_validation", allow_empty=True)
     if not risks:
         lines.append("| No additional structured risk was supplied | - | - |")
@@ -2443,13 +2335,11 @@ def _render_technical_markdown(round_id: str, document: Mapping[str, Any]) -> st
     return "\n".join(lines) + "\n"
 
 
-def _render_human_markdown(
-    round_id: str, package_ref: ArtifactRef, document: Mapping[str, Any]
-) -> str:
+def _render_human_markdown(round_id: str, package_ref: ArtifactRef, document: Mapping[str, Any]) -> str:
     understood = _mapping_value(document["what_was_understood"], "what_was_understood")
     direction = _mapping_value(document["recommended_direction"], "recommended_direction")
     near_term = _mapping_value(document["near_term_result"], "near_term_result")
-    lines = [f"# Human Brief: {round_id}", "", "## What Was Understood", ""]
+    lines = [f"# Human Research Report: {round_id}", "", "## What Was Understood", ""]
     lines.append(_cell(understood["working_interpretation"]))
     if understood["leading_interpretation"]:
         lines.append(f"Leading interpretation: {_cell(understood['leading_interpretation'])}")
@@ -2495,17 +2385,13 @@ def _render_human_markdown(
         )
         lines.append(f"  - Fallback: {_cell(item['closure_or_fallback'])}")
     lines.extend(["", "## Readiness Findings", ""])
-    readiness_findings = _mapping_sequence(
-        document["readiness_findings"], "human readiness_findings", allow_empty=True
-    )
+    readiness_findings = _mapping_sequence(document["readiness_findings"], "human readiness_findings", allow_empty=True)
     if not readiness_findings:
         lines.append("- No additional readiness finding was supplied.")
     for finding in readiness_findings:
         lines.append(f"- {_cell(finding['gate'])}: {_cell(finding['summary'])}")
     lines.extend(["", "## Next Research Work", ""])
-    next_work_item_ids = _string_sequence(
-        document["next_work_item_ids"], "human next_work_item_ids", allow_empty=True
-    )
+    next_work_item_ids = _string_sequence(document["next_work_item_ids"], "human next_work_item_ids", allow_empty=True)
     if not next_work_item_ids:
         lines.append("- No additional work item was supplied.")
     lines.extend(f"- `{_cell(work_item_id)}`" for work_item_id in next_work_item_ids)
@@ -2524,23 +2410,13 @@ def _validation_next_action(validation: Any) -> str:
     return f"Run {data['kind']} validation: {data['oracle']}"
 
 
-def _ensure_id_compatibility(
-    artifacts: Sequence[ArtifactRevision], artifact_id: str, expected_kind: str
-) -> None:
-    foreign = {
-        artifact.kind
-        for artifact in artifacts
-        if artifact.id == artifact_id and artifact.kind != expected_kind
-    }
+def _ensure_id_compatibility(artifacts: Sequence[ArtifactRevision], artifact_id: str, expected_kind: str) -> None:
+    foreign = {artifact.kind for artifact in artifacts if artifact.id == artifact_id and artifact.kind != expected_kind}
     if foreign:
-        raise InvalidDeliveryError(
-            f"artifact id {artifact_id!r} is already used by kinds: {sorted(foreign)}"
-        )
+        raise InvalidDeliveryError(f"artifact id {artifact_id!r} is already used by kinds: {sorted(foreign)}")
 
 
-def _latest_artifact(
-    artifacts: Sequence[ArtifactRevision], artifact_id: str, kind: str
-) -> ArtifactRevision | None:
+def _latest_artifact(artifacts: Sequence[ArtifactRevision], artifact_id: str, kind: str) -> ArtifactRevision | None:
     matches = [artifact for artifact in artifacts if artifact.id == artifact_id and artifact.kind == kind]
     return max(matches, key=lambda artifact: artifact.revision, default=None)
 
@@ -2644,8 +2520,7 @@ def _require_exact_keys(value: Mapping[str, Any], expected: set[str], label: str
     actual = set(value)
     if actual != expected:
         raise InvalidDeliveryError(
-            f"{label} has unexpected keys; missing={sorted(expected - actual)}, "
-            f"extra={sorted(actual - expected)}"
+            f"{label} has unexpected keys; missing={sorted(expected - actual)}, extra={sorted(actual - expected)}"
         )
 
 
@@ -2685,17 +2560,13 @@ def _anchor_label(value: Mapping[str, Any]) -> str:
 
 def _alternatives(value: Any) -> str:
     rendered = [
-        f"{item.get('option')} ({item.get('disposition')})"
-        for item in _json_list(value)
-        if isinstance(item, Mapping)
+        f"{item.get('option')} ({item.get('disposition')})" for item in _json_list(value) if isinstance(item, Mapping)
     ]
     return ", ".join(_cell(item) for item in rendered) or "-"
 
 
 def _observations(value: Any) -> str:
-    rendered = [
-        item.get("observation", "") for item in _json_list(value) if isinstance(item, Mapping)
-    ]
+    rendered = [item.get("observation", "") for item in _json_list(value) if isinstance(item, Mapping)]
     return "; ".join(_cell(item) for item in rendered) or "-"
 
 
