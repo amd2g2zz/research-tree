@@ -351,6 +351,7 @@ def test_alpha2_registry_has_resolvable_ownership_and_noncyclic_boundaries() -> 
         23,
         25,
         26,
+        27,
         28,
         29,
         31,
@@ -364,12 +365,8 @@ def test_alpha2_registry_has_resolvable_ownership_and_noncyclic_boundaries() -> 
         57,
         59,
     )
-    assert report.unverified_groups == (
-        *(
-            group
-            for group in range(6, 33)
-            if group not in {6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 20, 23, 25, 26, 28, 29, 31, 32}
-        ),
+    assert report.unverified_groups == tuple(
+        group for group in range(6, 33) if group not in {6, 7, 8, 9, 10, 11, 12, 14, 16, 20, 23, 25, 26, 27, 28, 29, 31, 32}
     )
 
 
@@ -398,6 +395,7 @@ def test_cli_emits_deterministic_real_registry_report(capsys: pytest.CaptureFixt
         23,
         25,
         26,
+        27,
         28,
         29,
         31,
@@ -412,11 +410,7 @@ def test_cli_emits_deterministic_real_registry_report(capsys: pytest.CaptureFixt
         59,
     ]
     assert payload["unverified_groups"] == [
-        *(
-            group
-            for group in range(6, 33)
-            if group not in {6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 20, 23, 25, 26, 28, 29, 31, 32}
-        ),
+        group for group in range(6, 33) if group not in {6, 7, 8, 9, 10, 11, 12, 14, 16, 20, 23, 25, 26, 27, 28, 29, 31, 32}
     ]
 
 

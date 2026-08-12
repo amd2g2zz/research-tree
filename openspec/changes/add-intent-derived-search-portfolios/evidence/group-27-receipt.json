@@ -1,0 +1,9 @@
+{
+  "command": "uv run pytest -q tests/test_search_portfolio.py tests/test_research_run_coordinator.py tests/test_source_capture.py tests/test_acquisition.py tests/test_worker_orchestration.py tests/test_adaptive_policy.py && uv run ruff check src/research_tree/__init__.py src/research_tree/coordinator.py src/research_tree/policy.py src/research_tree/search_portfolio.py src/research_tree/source_capture.py tests/test_research_run_coordinator.py tests/test_search_portfolio.py && uv run ruff format --check src/research_tree/__init__.py src/research_tree/coordinator.py src/research_tree/policy.py src/research_tree/search_portfolio.py src/research_tree/source_capture.py tests/test_research_run_coordinator.py tests/test_search_portfolio.py",
+  "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+  "exit_code": 0,
+  "output_digest": "4c8854913c000356df3ec18c8859952fa918523c92a3e1d20cbfdb22f632bd66",
+  "raw_output_ref": "openspec/changes/add-intent-derived-search-portfolios/evidence/group-27-output.txt",
+  "recorded_at": "2026-08-12T12:00:00.758132+00:00",
+  "source_revision": "814f5078676e131d46ba9fc9cf9b7982230488ea"
+}
