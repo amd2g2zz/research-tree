@@ -16,4 +16,4 @@
 ## 4. TDD And Verification
 
 - [x] 4.1 Add failing tests for oracle leakage, false completion, unresolved P0 evidence, recovery loss, unavailable hosts, parity drift, self-review, and proxy-only quality.
-- [ ] 4.2 Run focused/full tests, Ruff, strict issue and umbrella OpenSpec, evaluation governance, OpenSpec governance, and diff checks.
+- [x] 4.2 Run focused/full tests, Ruff, strict issue and umbrella OpenSpec, evaluation governance, OpenSpec governance, and diff checks.
