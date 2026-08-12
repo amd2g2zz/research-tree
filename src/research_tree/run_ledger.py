@@ -40,7 +40,7 @@ class LedgerIntegrityError(LedgerError, DataIntegrityError):
 class RunLedger:
     """Own canonical run lineage in a workspace-scoped SQLite database."""
 
-    SCHEMA_VERSION = 4
+    SCHEMA_VERSION = 5
 
     def __init__(self, workspace: str | Path) -> None:
         self.workspace = Path(workspace).resolve()
@@ -136,6 +136,20 @@ class RunLedger:
                     FOREIGN KEY (run_id, frame_id, artifact_revision)
                       REFERENCES artifacts(run_id, artifact_id, revision)
                 );
+                CREATE TABLE IF NOT EXISTS strategy_projections (
+                    run_id TEXT NOT NULL,
+                    projection_id TEXT NOT NULL,
+                    artifact_revision INTEGER NOT NULL CHECK (artifact_revision > 0),
+                    strategy_revision INTEGER NOT NULL CHECK (strategy_revision > 0),
+                    status TEXT NOT NULL,
+                    display_digest TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    payload_json BLOB NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (run_id, projection_id, artifact_revision),
+                    FOREIGN KEY (run_id, projection_id, artifact_revision)
+                      REFERENCES artifacts(run_id, artifact_id, revision)
+                );
                 """
             )
             connection.execute(
@@ -221,6 +235,85 @@ class RunLedger:
                 self._before_commit()
             except sqlite3.IntegrityError as error:
                 raise LedgerIntegrityError("decision frame append violated a ledger constraint") from error
+        return artifact
+
+    def append_strategy_projection(
+        self,
+        run_id: str,
+        projection_id: str,
+        payload: Any,
+        *,
+        parent_refs: Iterable[ArtifactRef],
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        """Atomically append a StrategyProjection and its v5 read model."""
+
+        self.initialize()
+        run_id = validate_identifier(run_id, "run_id")
+        projection_id = validate_identifier(projection_id, "projection_id")
+        if not isinstance(payload, dict):
+            raise LedgerIntegrityError("strategy projection payload must be a mapping")
+        parent_refs = tuple(parent_refs)
+        with self._connect() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                current = self._require_expected_revision(connection, run_id, expected_revision)
+                for reference in parent_refs:
+                    self._require_artifact(connection, reference)
+                next_revision = self._next_artifact_revision(connection, run_id, projection_id)
+                artifact = ArtifactRevision.create(
+                    artifact_id=projection_id,
+                    round_id=run_id,
+                    revision=next_revision,
+                    kind="strategy-projection",
+                    payload=payload,
+                    parent_refs=parent_refs,
+                )
+                connection.execute(
+                    "INSERT INTO artifacts(run_id, artifact_id, revision, artifact_json, content_hash) "
+                    "VALUES(?, ?, ?, ?, ?)",
+                    (run_id, projection_id, next_revision, _json(artifact.to_dict()), artifact.content_hash),
+                )
+                for reference in parent_refs:
+                    connection.execute(
+                        "INSERT INTO artifact_parents(run_id, artifact_id, revision, parent_run_id, "
+                        "parent_artifact_id, parent_revision) VALUES(?, ?, ?, ?, ?, ?)",
+                        (
+                            run_id,
+                            projection_id,
+                            next_revision,
+                            reference.round_id,
+                            reference.artifact_id,
+                            reference.revision,
+                        ),
+                    )
+                connection.execute(
+                    "INSERT INTO strategy_projections(run_id, projection_id, artifact_revision, strategy_revision, "
+                    "status, display_digest, content_hash, payload_json, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        run_id,
+                        projection_id,
+                        next_revision,
+                        payload["revision"],
+                        payload["status"],
+                        payload["display_digest"],
+                        payload["content_hash"],
+                        _json(payload),
+                        artifact.created_at,
+                    ),
+                )
+                self._insert_event(
+                    connection,
+                    LineageEvent.create(
+                        round_id=run_id,
+                        kind="artifact-appended",
+                        artifact_ref=ArtifactRef(run_id, projection_id, next_revision),
+                    ),
+                )
+                self._increment_revision(connection, run_id, current)
+                self._before_commit()
+            except sqlite3.IntegrityError as error:
+                raise LedgerIntegrityError("strategy projection append violated a ledger constraint") from error
         return artifact
 
     def register_content(self, content: ContentObject) -> ContentObject:

@@ -224,3 +224,20 @@ CREATE TABLE decision_frames (
   FOREIGN KEY(run_id, frame_id, artifact_revision)
     REFERENCES artifacts(run_id, artifact_id, revision)
 );
+
+-- Migration v5 (#85): immutable StrategyProjection read model. Legacy rows
+-- are intentionally not backfilled; artifacts remain the lineage authority.
+CREATE TABLE strategy_projections (
+  run_id TEXT NOT NULL REFERENCES runs(run_id),
+  projection_id TEXT NOT NULL,
+  artifact_revision INTEGER NOT NULL,
+  strategy_revision INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  display_digest TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(run_id, projection_id, artifact_revision),
+  FOREIGN KEY(run_id, projection_id, artifact_revision)
+    REFERENCES artifacts(run_id, artifact_id, revision)
+);

@@ -19,6 +19,12 @@ from .domain import (
 )
 from .host_events import HostEvent, HostEventError, HostEventSequenceError
 from .decision_frame import DECISION_FRAME_KIND, DecisionFrame
+from .strategy_projection import (
+    STRATEGY_PROJECTION_KIND,
+    StrategyProjection,
+    StrategyProjectionError,
+    macro_stage,
+)
 from .feedback import (
     CORRECTION_ACTION_ROLES,
     CORRECTION_AFFECTED_ROLES,
@@ -311,6 +317,173 @@ class ResearchRunCoordinator:
                 raise CoordinatorConflictError("decision_frame_target_mismatch")
         return artifact
 
+    def persist_strategy_projection(
+        self, projection: StrategyProjection, *, expected_revision: int
+    ) -> ArtifactRevision:
+        """Append an immutable projection, replaying an identical write."""
+
+        if not isinstance(projection, StrategyProjection):
+            raise CoordinatorConflictError("strategy_projection_invalid")
+        try:
+            existing = [
+                item
+                for item in self.ledger.load_run(projection.run_id).artifacts
+                if item.id == projection.projection_id and item.kind == STRATEGY_PROJECTION_KIND
+            ]
+        except RuntimeStoreError as error:
+            raise CoordinatorConflictError("strategy_projection_run_missing") from error
+        payload = projection.to_dict()
+        if existing:
+            current = max(existing, key=lambda item: item.revision)
+            if not _same_payload(current, payload):
+                raise CoordinatorEventConflictError("strategy_projection_conflict")
+            return projection
+        current = self._latest_state(projection.run_id)
+        if current.payload.get("state") != "alignment":
+            raise CoordinatorConflictError("strategy_projection_requires_alignment")
+        try:
+            self.require_decision_frame(
+                projection.decision_frame_ref, run_id=projection.run_id, target_ref=projection.target_ref
+            )
+            self._load(projection.alignment_handoff_ref, "alignment-handoff")
+            self._load(projection.target_ref, "blueprint-target")
+            if (
+                projection.alignment_handoff_ref
+                not in self._load(projection.target_ref, "blueprint-target").parent_refs
+            ):
+                raise CoordinatorConflictError("strategy_projection_handoff_lineage")
+            self.ledger.append_strategy_projection(
+                projection.run_id,
+                projection.projection_id,
+                payload,
+                parent_refs=(projection.decision_frame_ref, projection.alignment_handoff_ref, projection.target_ref),
+                expected_revision=expected_revision,
+            )
+            return projection
+        except StrategyProjectionError as error:
+            raise CoordinatorConflictError("strategy_projection_invalid") from error
+        except LedgerConflictError as error:
+            raise CoordinatorConflictError("stale_revision") from error
+
+    def require_strategy_projection(
+        self,
+        projection_ref: ArtifactRef,
+        *,
+        run_id: str,
+        require_displayed: bool = False,
+    ) -> tuple[ArtifactRevision, StrategyProjection]:
+        try:
+            artifact = self.ledger.get_artifact(projection_ref)
+            projection = StrategyProjection.from_dict(dict(artifact.payload))
+        except (RuntimeStoreError, StrategyProjectionError, TypeError, ValueError) as error:
+            raise CoordinatorConflictError("strategy_projection_invalid") from error
+        if artifact.kind != STRATEGY_PROJECTION_KIND or artifact.round_id != run_id or projection.run_id != run_id:
+            raise CoordinatorConflictError("strategy_projection_cross_run")
+        if not self.ledger.is_latest_artifact(projection_ref):
+            raise CoordinatorConflictError("strategy_projection_stale")
+        if require_displayed and projection.status not in {"displayed", "confirmed"}:
+            raise CoordinatorConflictError("strategy_projection_not_displayed")
+        return artifact, projection
+
+    def display_strategy(
+        self, run_id: str, projection: StrategyProjection, *, expected_revision: int, idempotency_key: str | None = None
+    ) -> ArtifactRevision:
+        if isinstance(projection, ArtifactRevision):
+            artifact, projection = self.require_strategy_projection(
+                ArtifactRef(run_id, projection.id, projection.revision), run_id=run_id
+            )
+        else:
+            artifact, _ = self.require_strategy_projection(
+                ArtifactRef(run_id, projection.projection_id, projection.revision), run_id=run_id
+            )
+        if artifact.payload.get("display_digest") != projection.display_digest:
+            raise CoordinatorConflictError("strategy_projection_stale")
+        return self.transition(
+            run_id,
+            "alignment_projection_ready",
+            "coordinator",
+            expected_revision=expected_revision,
+            idempotency_key=idempotency_key,
+            payload={
+                "projection_ref": ArtifactRef(run_id, artifact.id, artifact.revision).to_dict(),
+                "display_digest": projection.display_digest,
+            },
+        )
+
+    def confirm_handoff(
+        self,
+        run_id: str,
+        *,
+        projection_ref: ArtifactRef,
+        confirmation: str,
+        expected_revision: int,
+        actor: str = "human",
+        idempotency_key: str | None = None,
+    ) -> ArtifactRevision:
+        if not isinstance(confirmation, str) or not confirmation.strip():
+            raise CoordinatorConflictError("confirmation_required")
+        if confirmation.strip().lower() in {"ok", "okay", "yes", "continue", "go ahead", "proceed"}:
+            raise CoordinatorConflictError("generic_confirmation")
+        artifact, projection = self.require_strategy_projection(projection_ref, run_id=run_id, require_displayed=True)
+        if projection.display_digest not in confirmation:
+            raise CoordinatorConflictError("confirmation_digest_mismatch")
+        return self.transition(
+            run_id,
+            "handoff_confirmed",
+            actor,
+            expected_revision=expected_revision,
+            idempotency_key=idempotency_key,
+            payload={
+                "projection_ref": ArtifactRef(run_id, artifact.id, artifact.revision).to_dict(),
+                "display_digest": projection.display_digest,
+                "confirmation": confirmation,
+            },
+        )
+
+    def revise_strategy(
+        self,
+        run_id: str,
+        *,
+        projection_ref: ArtifactRef,
+        changes: Mapping[str, Any],
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        artifact, projection = self.require_strategy_projection(projection_ref, run_id=run_id)
+        values = projection.to_dict()
+        values.update(dict(changes))
+        values.update(
+            {
+                "projection_id": projection.projection_id,
+                "run_id": run_id,
+                "revision": projection.revision + 1,
+                "status": "displayed",
+            }
+        )
+        values["decision_frame_ref"] = projection.decision_frame_ref
+        values["alignment_handoff_ref"] = projection.alignment_handoff_ref
+        values["target_ref"] = projection.target_ref
+        values.pop("schema_version", None)
+        values.pop("kind", None)
+        values.pop("display_payload", None)
+        values.pop("display_digest", None)
+        values.pop("content_hash", None)
+        revised = StrategyProjection.create(**values)
+        try:
+            return self.ledger.append_strategy_projection(
+                run_id,
+                revised.projection_id,
+                revised.to_dict(),
+                parent_refs=(
+                    ArtifactRef(run_id, artifact.id, artifact.revision),
+                    revised.decision_frame_ref,
+                    revised.alignment_handoff_ref,
+                    revised.target_ref,
+                ),
+                expected_revision=expected_revision,
+            )
+        except LedgerConflictError as error:
+            raise CoordinatorConflictError("stale_revision") from error
+
     def initialize(
         self,
         *,
@@ -340,6 +513,8 @@ class ResearchRunCoordinator:
             legal_actions=("alignment_projection_ready", "authority_impossible", "supersede"),
             idempotency_key=idempotency_key,
         )
+        payload["macro_stage"] = 1
+        payload["state_digest"] = _digest({key: value for key, value in payload.items() if key != "state_digest"})
         authority = self._lineage_authority(blueprint_target, alignment_handoff)
         if authority is not None:
             bindings, task_id, domain_id = authority
@@ -425,6 +600,7 @@ class ResearchRunCoordinator:
         legal_actions: Sequence[str],
         idempotency_key: str | None = None,
         reason: str | None = None,
+        macro_stage_value: int | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "state": state,
@@ -432,6 +608,8 @@ class ResearchRunCoordinator:
             "unmet_obligations": sorted(set(obligations)),
             "legal_next_actions": list(legal_actions),
         }
+        if macro_stage_value is not None:
+            body["macro_stage"] = macro_stage_value
         body["state_digest"] = _digest(body)
         if idempotency_key is not None:
             body["idempotency_key"] = idempotency_key
@@ -498,12 +676,16 @@ class ResearchRunCoordinator:
             obligations=payload.get("unmet_obligations", current.payload.get("unmet_obligations", ())),
             legal_actions=self._next_actions(target_state),
             idempotency_key=key,
+            macro_stage_value=macro_stage(target_state, prior_stage=current.payload.get("macro_stage")),
         )
         state_payload["transition_payload"] = dict(payload)
         state_payload["previous_state_ref"] = ArtifactRef(run_id, current.id, current.revision).to_dict()
         self._carry_correction_context(current, state_payload)
         if "authority_binding" in payload:
             state_payload["active_authority"] = dict(payload["authority_binding"])
+        if "projection_ref" in payload:
+            state_payload["strategy_projection_ref"] = dict(payload["projection_ref"])
+            state_payload["strategy_display_digest"] = payload.get("display_digest")
         state_payload["state_digest"] = _digest(
             {key: value for key, value in state_payload.items() if key != "state_digest"}
         )
@@ -862,6 +1044,8 @@ class ResearchRunCoordinator:
             "domain_id",
             "authority_streams",
             "active_authority",
+            "strategy_projection_ref",
+            "strategy_display_digest",
         ):
             if key in current.payload:
                 state_payload[key] = thaw_json(current.payload[key])
@@ -873,6 +1057,22 @@ class ResearchRunCoordinator:
         payload: Mapping[str, Any] | None = None,
     ) -> bool:
         inputs = self._completion_inputs(run_id)
+        if event in {"alignment_projection_ready", "handoff_confirmed"}:
+            projection_ref = (payload or {}).get("projection_ref")
+            display_digest = (payload or {}).get("display_digest")
+            try:
+                reference = _ref(projection_ref, "projection_ref")
+                artifact, projection = self.require_strategy_projection(
+                    reference, run_id=run_id, require_displayed=event == "handoff_confirmed"
+                )
+            except CoordinatorConflictError:
+                return False
+            if display_digest != projection.display_digest or artifact.payload.get("display_digest") != display_digest:
+                return False
+            if event == "alignment_projection_ready":
+                return projection.status in {"displayed", "confirmed"}
+            confirmation = (payload or {}).get("confirmation")
+            return isinstance(confirmation, str) and projection.display_digest in confirmation
         if event == "handoff_confirmed":
             current = self._latest_state(run_id)
             if current.payload.get("correction_event_id") is not None:
@@ -922,6 +1122,12 @@ class ResearchRunCoordinator:
         payload: Mapping[str, Any] | None = None,
     ) -> ArtifactRevision:
         current = self._latest_state(run_id)
+        if current.payload.get("state") in {"alignment", "handoff_pending"} and event not in {
+            "alignment_projection_ready",
+            "handoff_confirmed",
+        }:
+            if event == "dispatch":
+                raise CoordinatorConflictError("strategy_projection_confirmation_required")
         transition_payload = dict(payload or {})
         if event in CORRECTION_SENSITIVE_EVENTS:
             self._assert_current_authority(
@@ -973,10 +1179,16 @@ class ResearchRunCoordinator:
                 current=current,
                 event=event,
                 actor=actor,
-                reason="guard_failed",
+                reason="projection_required"
+                if event in {"alignment_projection_ready", "handoff_confirmed"}
+                else "guard_failed",
                 expected_revision=expected_revision,
             )
-            raise IllegalTransitionError("guard_failed")
+            raise IllegalTransitionError(
+                "projection_required"
+                if event in {"alignment_projection_ready", "handoff_confirmed"}
+                else "guard_failed"
+            )
         if event == "delivery_accepted":
             return self.complete(
                 run_id,
@@ -1173,6 +1385,18 @@ class ResearchRunCoordinator:
         else:
             frame_artifact = None
         current = self._latest_state(run_id)
+        if current.payload.get("state") != "autonomous_research":
+            raise CoordinatorConflictError("strategy_projection_confirmation_required")
+        projection_value = current.payload.get("strategy_projection_ref")
+        if projection_value is None:
+            raise CoordinatorConflictError("strategy_projection_confirmation_required")
+        projection_artifact, projection = self.require_strategy_projection(
+            _ref(projection_value, "strategy_projection_ref"),
+            run_id=run_id,
+            require_displayed=True,
+        )
+        if current.payload.get("strategy_display_digest") != projection.display_digest:
+            raise CoordinatorConflictError("strategy_projection_stale")
         selected_attempt = attempt_id or "attempt-" + hashlib.sha256(canonical_json_bytes(work_item)).hexdigest()[:24]
         validate_identifier(selected_attempt, "attempt_id")
         for item in self.ledger.load_run(run_id).artifacts:
@@ -1189,7 +1413,10 @@ class ResearchRunCoordinator:
             "idempotency_key": selected_attempt,
             "lease_revision": 1,
         }
-        parent_refs = [ArtifactRef(run_id, current.id, current.revision)]
+        parent_refs = [
+            ArtifactRef(run_id, current.id, current.revision),
+            ArtifactRef(run_id, projection_artifact.id, projection_artifact.revision),
+        ]
         if frame_artifact is not None:
             parent_refs.append(ArtifactRef(run_id, frame_artifact.id, frame_artifact.revision))
         try:

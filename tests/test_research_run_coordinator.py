@@ -15,6 +15,7 @@ from research_tree.coordinator import (
 from research_tree.domain import ArtifactRef
 from research_tree.decision_frame import DecisionFrame, IntentHypothesis
 from research_tree.run_ledger import RunLedger
+from research_tree.strategy_projection import StrategyProjection
 
 
 def _append(ledger: RunLedger, run_id: str, artifact_id: str, kind: str, payload: dict, parents=()):
@@ -28,7 +29,9 @@ def _append(ledger: RunLedger, run_id: str, artifact_id: str, kind: str, payload
     )
 
 
-def _ready_frame(run_id: str = "run-57", frame_id: str = "frame-1") -> DecisionFrame:
+def _ready_frame(
+    run_id: str = "run-57", frame_id: str = "frame-1", target_ref: ArtifactRef | None = None
+) -> DecisionFrame:
     return DecisionFrame.create(
         frame_id=frame_id,
         run_id=run_id,
@@ -54,7 +57,54 @@ def _ready_frame(run_id: str = "run-57", frame_id: str = "frame-1") -> DecisionF
                 evidence_ranked=True,
             ),
         ),
+        target_ref=target_ref,
     )
+
+
+def _prepare_strategy(ledger: RunLedger, coordinator: ResearchRunCoordinator) -> StrategyProjection:
+    artifacts = ledger.load_run("run-57").artifacts
+    handoff = next(item for item in artifacts if item.kind == "alignment-handoff")
+    target = next(item for item in artifacts if item.kind == "blueprint-target")
+    target_ref = ArtifactRef("run-57", target.id, target.revision)
+    frame = coordinator.persist_decision_frame(
+        _ready_frame(frame_id="strategy-frame", target_ref=target_ref),
+        expected_revision=ledger.get_revision("run-57"),
+    )
+    projection = StrategyProjection.create(
+        projection_id="strategy-projection",
+        run_id="run-57",
+        decision_frame_ref=ArtifactRef("run-57", frame.id, frame.revision),
+        alignment_handoff_ref=ArtifactRef("run-57", handoff.id, handoff.revision),
+        target_ref=target_ref,
+        current_understanding="Validate the requester decision.",
+        assumptions=("requester owns outcome",),
+        decision_targets=("decision-1",),
+        tracks=({"id": "track-1"},),
+        method_hypotheses=({"method": "repository"},),
+        depth="deep",
+        evidence_expectations=("independent source",),
+        autonomy_envelope={"allowed": ["research"]},
+        replanning_policy={"same_round": ["depth"]},
+        success_oracles=("oracle-1",),
+        delivery_contract={"technical": "package", "human": "report"},
+        stop_rule="oracles pass",
+        revision=1,
+        status="displayed",
+    )
+    coordinator.persist_strategy_projection(projection, expected_revision=ledger.get_revision("run-57"))
+    return projection
+
+
+def _confirm_strategy(ledger: RunLedger, coordinator: ResearchRunCoordinator) -> StrategyProjection:
+    projection = _prepare_strategy(ledger, coordinator)
+    coordinator.display_strategy("run-57", projection, expected_revision=ledger.get_revision("run-57"))
+    coordinator.confirm_handoff(
+        "run-57",
+        projection_ref=ArtifactRef("run-57", projection.id, projection.revision),
+        confirmation=f"I accept {projection.display_digest} and authorize research.",
+        expected_revision=ledger.get_revision("run-57"),
+    )
+    return projection
 
 
 def _setup(tmp_path):
@@ -85,10 +135,7 @@ def _initialize(tmp_path):
 
 
 def _advance_to_awaiting_acceptance(ledger: RunLedger, coordinator: ResearchRunCoordinator) -> None:
-    coordinator.transition(
-        "run-57", "alignment_projection_ready", "coordinator", expected_revision=ledger.get_revision("run-57")
-    )
-    coordinator.transition("run-57", "handoff_confirmed", "human", expected_revision=ledger.get_revision("run-57"))
+    _confirm_strategy(ledger, coordinator)
     coordinator.transition("run-57", "batch_checkpoint", "coordinator", expected_revision=ledger.get_revision("run-57"))
     coordinator.transition("run-57", "all_slots_closed", "coordinator", expected_revision=ledger.get_revision("run-57"))
     coordinator.transition("run-57", "readiness_passed", "coordinator", expected_revision=ledger.get_revision("run-57"))
@@ -151,20 +198,11 @@ def test_illegal_transition_is_rejected_without_state_mutation(tmp_path) -> None
 
 def test_legal_transition_enforces_matrix_actor_and_replay(tmp_path) -> None:
     ledger, coordinator, _, _, _ = _initialize(tmp_path)
-    first = coordinator.transition(
-        run_id="run-57",
-        event="alignment_projection_ready",
-        actor="coordinator",
-        expected_revision=ledger.get_revision("run-57"),
-        idempotency_key="projection-1",
+    projection = _prepare_strategy(ledger, coordinator)
+    first = coordinator.display_strategy(
+        "run-57", projection, expected_revision=ledger.get_revision("run-57"), idempotency_key="projection-1"
     )
-    replay = coordinator.transition(
-        run_id="run-57",
-        event="alignment_projection_ready",
-        actor="coordinator",
-        expected_revision=0,
-        idempotency_key="projection-1",
-    )
+    replay = coordinator.display_strategy("run-57", projection, expected_revision=0, idempotency_key="projection-1")
 
     assert first == replay
     assert first.payload["state"] == "handoff_pending"
@@ -180,18 +218,7 @@ def test_legal_transition_enforces_matrix_actor_and_replay(tmp_path) -> None:
 
 def test_completion_exposes_all_missing_obligations_and_ignores_worker_finish(tmp_path) -> None:
     ledger, coordinator, _, _, _ = _initialize(tmp_path)
-    coordinator.transition(
-        run_id="run-57",
-        event="alignment_projection_ready",
-        actor="coordinator",
-        expected_revision=ledger.get_revision("run-57"),
-    )
-    coordinator.transition(
-        run_id="run-57",
-        event="handoff_confirmed",
-        actor="human",
-        expected_revision=ledger.get_revision("run-57"),
-    )
+    _confirm_strategy(ledger, coordinator)
     coordinator.ingest_event(
         run_id="run-57",
         event_id="host-finished-1",
@@ -289,6 +316,15 @@ def test_dispatch_requires_executable_oracle_and_recovery_quarantines_lease(tmp_
             expected_revision=ledger.get_revision("run-57"),
         )
 
+    with pytest.raises(CoordinatorConflictError, match="strategy_projection"):
+        coordinator.dispatch(
+            run_id="run-57",
+            work_item={"work_item_id": "work-1", "objective": "inspect", "success_oracle": "oracle-1"},
+            worker_id="worker-1",
+            expected_revision=ledger.get_revision("run-57"),
+            attempt_id="attempt-1",
+        )
+    _confirm_strategy(ledger, coordinator)
     lease = coordinator.dispatch(
         run_id="run-57",
         work_item={"work_item_id": "work-1", "objective": "inspect", "success_oracle": "oracle-1"},
@@ -383,6 +419,7 @@ def test_frame_gate_rejects_cross_run_and_canonical_dispatch_bypass(tmp_path) ->
 
 def test_ready_frame_is_retained_in_canonical_dispatch_lineage(tmp_path) -> None:
     ledger, coordinator, _, _, _ = _initialize(tmp_path)
+    _confirm_strategy(ledger, coordinator)
     frame_artifact = coordinator.persist_decision_frame(_ready_frame(), expected_revision=ledger.get_revision("run-57"))
     lease = coordinator.dispatch(
         run_id="run-57",
