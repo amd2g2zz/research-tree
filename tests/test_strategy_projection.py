@@ -86,3 +86,50 @@ def test_schema_fixture_is_versioned() -> None:
     )
     assert schema["$id"].endswith("strategy-projection-v1.json")
     assert schema["properties"]["schema_version"]["const"] == 1
+
+
+def test_projection_binds_preference_influence_lineage() -> None:
+    item = projection(
+        preference_influences=(
+            {
+                "profile_revision": 4,
+                "observation_id": "obs-4",
+                "key": "research.depth",
+                "selected_value": "deep",
+                "precedence": "profile",
+                "reversal_condition": "current explicit input requests another depth",
+            },
+        )
+    )
+    restored = StrategyProjection.from_dict(item.to_dict())
+    assert restored.preference_influences[0]["observation_id"] == "obs-4"
+    assert item.display_payload["preference_influences"][0]["precedence"] == "profile"
+
+    with pytest.raises(StrategyProjectionError, match="precedence"):
+        projection(
+            preference_influences=(
+                {
+                    "profile_revision": 4,
+                    "observation_id": "obs-4",
+                    "key": "research.depth",
+                    "selected_value": "deep",
+                    "precedence": "implicit",
+                    "reversal_condition": "requester correction",
+                },
+            )
+        )
+
+
+def test_legacy_projection_without_preference_field_remains_readable() -> None:
+    item = projection()
+    payload = item.to_dict()
+    payload.pop("preference_influences")
+    payload["display_payload"].pop("preference_influences")
+    payload["display_digest"] = hashlib.sha256(canonical_json_bytes(payload["display_payload"])).hexdigest()
+    payload["content_hash"] = hashlib.sha256(
+        canonical_json_bytes({**payload["display_payload"], "display_digest": payload["display_digest"]})
+    ).hexdigest()
+
+    restored = StrategyProjection.from_dict(payload)
+    assert restored.preference_influences == ()
+    assert restored.to_dict()["preference_influences"] == []
