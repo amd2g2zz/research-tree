@@ -149,6 +149,16 @@ from .strategy_projection import (
     StrategyProjectionError,
     macro_stage,
 )
+from .preferences import (
+    PREFERENCE_OBSERVATION_KIND,
+    PREFERENCE_SCHEMA_VERSION,
+    USER_PREFERENCE_PROFILE_KIND,
+    PreferenceEntry,
+    PreferenceObservation,
+    PreferenceService,
+    PreferenceValidationError,
+    UserPreferenceProfile,
+)
 from .openspec import (
     InvalidOpenSpecExportError,
     OpenSpecExport,
@@ -592,6 +602,14 @@ __all__ = [
     "StrategyProjection",
     "StrategyProjectionError",
     "macro_stage",
+    "PREFERENCE_OBSERVATION_KIND",
+    "PREFERENCE_SCHEMA_VERSION",
+    "USER_PREFERENCE_PROFILE_KIND",
+    "PreferenceEntry",
+    "PreferenceObservation",
+    "PreferenceService",
+    "PreferenceValidationError",
+    "UserPreferenceProfile",
     "WorkItemCompiler",
     "WorkItemError",
     "WorkItemPlanner",

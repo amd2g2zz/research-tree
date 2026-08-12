@@ -40,7 +40,7 @@ class LedgerIntegrityError(LedgerError, DataIntegrityError):
 class RunLedger:
     """Own canonical run lineage in a workspace-scoped SQLite database."""
 
-    SCHEMA_VERSION = 5
+    SCHEMA_VERSION = 6
 
     def __init__(self, workspace: str | Path) -> None:
         self.workspace = Path(workspace).resolve()
@@ -150,12 +150,105 @@ class RunLedger:
                     FOREIGN KEY (run_id, projection_id, artifact_revision)
                       REFERENCES artifacts(run_id, artifact_id, revision)
                 );
+                CREATE TABLE IF NOT EXISTS preference_observations (
+                    project_id TEXT NOT NULL,
+                    observation_id TEXT NOT NULL,
+                    turn_number INTEGER NOT NULL CHECK (turn_number > 0),
+                    observation_json BLOB NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (project_id, observation_id)
+                );
+                CREATE TABLE IF NOT EXISTS user_preference_profiles (
+                    project_id TEXT NOT NULL,
+                    revision INTEGER NOT NULL CHECK (revision > 0),
+                    profile_json BLOB NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (project_id, revision)
+                );
                 """
             )
             connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(?, datetime('now'))",
                 (self.SCHEMA_VERSION,),
             )
+
+    def append_preference_state(self, observation: dict[str, Any], profile: dict[str, Any]) -> None:
+        """Atomically append one observation and its resulting profile revision."""
+
+        self.initialize()
+        with self._connect() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                existing = connection.execute(
+                    "SELECT content_hash FROM preference_observations WHERE project_id = ? AND observation_id = ?",
+                    (observation["project_id"], observation["observation_id"]),
+                ).fetchone()
+                if existing is not None:
+                    if existing[0] != observation["content_hash"]:
+                        raise LedgerIntegrityError("preference observation id conflict")
+                    return
+                connection.execute(
+                    "INSERT INTO preference_observations(project_id, observation_id, turn_number, observation_json, "
+                    "content_hash, created_at) VALUES(?, ?, ?, ?, ?, datetime('now'))",
+                    (
+                        observation["project_id"],
+                        observation["observation_id"],
+                        observation["turn_number"],
+                        _json(observation),
+                        observation["content_hash"],
+                    ),
+                )
+                self._insert_preference_profile(connection, profile)
+                self._before_commit()
+            except sqlite3.IntegrityError as error:
+                raise LedgerIntegrityError("preference state append violated a ledger constraint") from error
+
+    def append_preference_profile(self, profile: dict[str, Any]) -> None:
+        """Append a reset or administrative profile revision."""
+
+        self.initialize()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._insert_preference_profile(connection, profile)
+
+    @staticmethod
+    def _insert_preference_profile(connection: sqlite3.Connection, profile: dict[str, Any]) -> None:
+        connection.execute(
+            "INSERT INTO user_preference_profiles(project_id, revision, profile_json, content_hash, created_at) "
+            "VALUES(?, ?, ?, ?, datetime('now'))",
+            (profile["project_id"], profile["revision"], _json(profile), profile["content_hash"]),
+        )
+
+    def load_preference_profile(self, project_id: str) -> dict[str, Any] | None:
+        self.initialize()
+        project_id = validate_identifier(project_id, "project_id")
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT profile_json FROM user_preference_profiles WHERE project_id = ? ORDER BY revision DESC LIMIT 1",
+                (project_id,),
+            ).fetchone()
+        return None if row is None else json.loads(row[0])
+
+    def load_preference_observations(self, project_id: str) -> tuple[dict[str, Any], ...]:
+        self.initialize()
+        project_id = validate_identifier(project_id, "project_id")
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT observation_json FROM preference_observations WHERE project_id = ? "
+                "ORDER BY turn_number, observation_id",
+                (project_id,),
+            ).fetchall()
+        return tuple(json.loads(row[0]) for row in rows)
+
+    def delete_preference_project(self, project_id: str) -> None:
+        self.initialize()
+        project_id = validate_identifier(project_id, "project_id")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("DELETE FROM user_preference_profiles WHERE project_id = ?", (project_id,))
+            connection.execute("DELETE FROM preference_observations WHERE project_id = ?", (project_id,))
 
     def append_decision_frame(
         self,

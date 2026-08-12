@@ -12,14 +12,13 @@ from .domain import ArtifactRevision, RuntimeStoreError, thaw_json
 from .recursive_search import RecursiveResearchCoordinator
 from .alignment_handoff import initialize_research_from_alignment
 from .storage import RunStore
+from .preferences import PreferenceService
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="research-tree",
-        description=(
-            "Manage persisted research rounds and recursive research-tree state."
-        ),
+        description=("Manage persisted research rounds and recursive research-tree state."),
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -46,12 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
             "the round must already exist (run create-round first)"
         ),
     )
-    alignment_init.add_argument(
-        "--store", type=Path, required=True, help="run-store root created with create-round"
-    )
-    alignment_init.add_argument(
-        "--round-id", required=True, help="existing round identifier from create-round"
-    )
+    alignment_init.add_argument("--store", type=Path, required=True, help="run-store root created with create-round")
+    alignment_init.add_argument("--round-id", required=True, help="existing round identifier from create-round")
     alignment_init.add_argument("--tree-id", default="research-tree")
     alignment_init.add_argument("--alignment-db", type=Path, required=True)
 
@@ -67,9 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     tree_ingest.add_argument("--tree-id", default="research-tree")
     tree_ingest.add_argument("--finding", action="append", required=True)
 
-    tree_recover = commands.add_parser(
-        "tree-recover", help="replay Finding Packs created after the last checkpoint"
-    )
+    tree_recover = commands.add_parser("tree-recover", help="replay Finding Packs created after the last checkpoint")
     tree_recover.add_argument("--store", type=Path, required=True)
     tree_recover.add_argument("--round-id", required=True)
     tree_recover.add_argument("--tree-id", default="research-tree")
@@ -83,6 +76,27 @@ def build_parser() -> argparse.ArgumentParser:
     tree_deliver.add_argument("--tree-id", default="research-tree")
     tree_deliver.add_argument("--technical-report", type=Path, required=True)
     tree_deliver.add_argument("--human-report", type=Path, required=True)
+
+    profile_inspect = commands.add_parser("profile-inspect", help="inspect one project-local preference profile")
+    profile_inspect.add_argument("--store", type=Path, required=True)
+    profile_inspect.add_argument("--project-id", required=True)
+
+    profile_correct = commands.add_parser("profile-correct", help="record an explicit project preference correction")
+    profile_correct.add_argument("--store", type=Path, required=True)
+    profile_correct.add_argument("--project-id", required=True)
+    profile_correct.add_argument("--key", required=True)
+    profile_correct.add_argument("--value", required=True)
+    profile_correct.add_argument("--turn", type=int, required=True)
+    profile_correct.add_argument("--source-ref", required=True)
+    profile_correct.add_argument("--reversal-condition", required=True)
+
+    profile_reset = commands.add_parser("profile-reset", help="reset one project profile but retain observations")
+    profile_reset.add_argument("--store", type=Path, required=True)
+    profile_reset.add_argument("--project-id", required=True)
+
+    profile_delete = commands.add_parser("profile-delete", help="delete one project's preference records")
+    profile_delete.add_argument("--store", type=Path, required=True)
+    profile_delete.add_argument("--project-id", required=True)
     return parser
 
 
@@ -154,6 +168,26 @@ def main(argv: Sequence[str] | None = None) -> int:
                 human_report=arguments.human_report,
             )
             output = artifact.to_dict()
+        elif arguments.command == "profile-inspect":
+            output = PreferenceService(arguments.store).inspect(arguments.project_id).to_dict()
+        elif arguments.command == "profile-correct":
+            output = (
+                PreferenceService(arguments.store)
+                .correct(
+                    project_id=arguments.project_id,
+                    key=arguments.key,
+                    value=arguments.value,
+                    turn_number=arguments.turn,
+                    source_ref=arguments.source_ref,
+                    reversal_condition=arguments.reversal_condition,
+                )
+                .to_dict()
+            )
+        elif arguments.command == "profile-reset":
+            output = PreferenceService(arguments.store).reset(arguments.project_id).to_dict()
+        elif arguments.command == "profile-delete":
+            PreferenceService(arguments.store).delete(arguments.project_id)
+            output = {"deleted": True, "project_id": arguments.project_id}
         else:
             artifact = RecursiveResearchCoordinator(store).recover(
                 round_id=arguments.round_id,
@@ -189,9 +223,7 @@ def _latest_findings(
     findings: list[ArtifactRevision] = []
     for finding_id in finding_ids:
         candidates = [
-            artifact
-            for artifact in snapshot.artifacts
-            if artifact.id == finding_id and artifact.kind == "finding-pack"
+            artifact for artifact in snapshot.artifacts if artifact.id == finding_id and artifact.kind == "finding-pack"
         ]
         if not candidates:
             raise ValueError(f"Finding Pack does not exist: {finding_id}")
