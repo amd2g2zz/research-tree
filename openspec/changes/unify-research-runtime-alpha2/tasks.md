@@ -159,7 +159,7 @@ substitute for local evidence.
 - [x] 14.2 Publish the Alpha2 lifecycle matrix and active capability-spec entry points used by the ratified architecture.
 - [x] 14.3 Bind issue #66 to group 14 and the `ratify-alpha2-runtime-contract` change in the execution registries.
 - [x] 14.4 Reject absent ADR sections, missing lifecycle/spec sources, and stale issue-to-change mappings through focused contract tests.
-- [ ] 14.5 Run the tracked group 14 acceptance command and record a source-bound verification receipt.
+- [x] 14.5 Run the tracked group 14 acceptance command and record a source-bound verification receipt.
 
 ## 15. Worker Orchestration and Acquisition (#54, #56, #58, #60, #61, #80, #83)
 

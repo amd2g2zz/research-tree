@@ -11,4 +11,4 @@
 ## 3. Verification Evidence
 
 - [x] 3.1 Run focused ratification and governance checks, lint/format checks, and strict OpenSpec validation.
-- [ ] 3.2 Record source-bound raw output and receipt for group 14 while leaving groups 25-27 planned.
+- [x] 3.2 Record source-bound raw output and receipt for group 14 while leaving groups 25-27 planned.
