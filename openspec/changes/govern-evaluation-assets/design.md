@@ -53,4 +53,3 @@ tracked additions and returns group 20 to planned.
 ## Open Questions
 
 None for this issue; release-specific retention durations remain owned by #64.
-
