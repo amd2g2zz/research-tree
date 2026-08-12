@@ -73,8 +73,16 @@ from generated packages and SHALL enforce the configured review thresholds.
 
 #### Scenario: Oversized PR is rejected
 - **WHEN** a PR exceeds 50 changed files or 1500 non-generated changed lines without
-  a maintainer-approved exception artifact
+  the exact maintainer-controlled `delivery:oversized-approved` label in the GitHub
+  pull-request event
 - **THEN** the gate fails
+
+#### Scenario: Oversized PR exception is auditable
+- **WHEN** a maintainer applies the exact `delivery:oversized-approved` label
+- **THEN** the event-driven gate accepts the hard-limit exception and still emits
+  the split-review warning
+- **AND** PR body text, similar labels, or missing label metadata do not grant the
+  exception
 
 #### Scenario: Generated output is counted separately
 - **WHEN** generated host packages change
