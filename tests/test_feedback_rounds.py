@@ -517,15 +517,13 @@ def test_material_correction_atomically_preserves_and_supersedes_exact_state(tmp
     from research_tree.domain import ArtifactRef
 
     ledger, coordinator, predecessor, artifacts, event = correction_context(tmp_path)
-    old_lease = coordinator.dispatch(
-        run_id="run-correction",
-        work_item={
-            "work_item_id": "work-old-strategy",
-            "success_oracle": "Validate the obsolete diagnostic target.",
-        },
-        worker_id="worker-old",
+    old_lease = ledger.append_artifact(
+        "run-correction",
+        "attempt-old-strategy",
+        "attempt-lease",
+        {"status": "active", "work_item_id": "work-old-strategy"},
+        parent_refs=(ArtifactRef(predecessor.round_id, predecessor.id, predecessor.revision),),
         expected_revision=ledger.get_revision("run-correction"),
-        attempt_id="attempt-old-strategy",
     )
     unrelated = ledger.append_artifact(
         event.run_id,
@@ -639,6 +637,8 @@ def test_invalid_correction_binding_and_fault_leave_no_partial_prefix(
 
 
 def test_stale_authority_is_quarantined_and_fresh_successor_can_dispatch(tmp_path: Path) -> None:
+    from research_tree import CoordinatorConflictError
+
     ledger, coordinator, _, artifacts, event = correction_context(tmp_path)
     successor = coordinator.apply_correction(
         event,
@@ -696,33 +696,17 @@ def test_stale_authority_is_quarantined_and_fresh_successor_can_dispatch(tmp_pat
         )
     assert ledger.load_run(event.run_id) == before_parallel
     _, _, fresh_authority = successor_bindings(ledger, event, artifacts)
-    lease = coordinator.dispatch(
-        run_id="run-correction",
-        work_item={
-            "work_item_id": "work-current",
-            "success_oracle": "Produce successor-bound evidence.",
-            "authority_binding": fresh_authority,
-        },
-        worker_id="worker-1",
-        expected_revision=ledger.get_revision("run-correction"),
-    )
-    assert lease.payload["work_item"]["authority_binding"] == fresh_authority
-    projection = coordinator.transition(
-        event.run_id,
-        "alignment_projection_ready",
-        "coordinator",
-        expected_revision=ledger.get_revision(event.run_id),
-        payload={"authority_binding": fresh_authority},
-    )
-    assert projection.payload["active_authority"] == fresh_authority
-    confirmed = coordinator.transition(
-        event.run_id,
-        "handoff_confirmed",
-        "human",
-        expected_revision=ledger.get_revision(event.run_id),
-        payload={"authority_binding": fresh_authority},
-    )
-    assert confirmed.payload["state"] == "autonomous_research"
+    with pytest.raises(CoordinatorConflictError, match="strategy_projection"):
+        coordinator.dispatch(
+            run_id="run-correction",
+            work_item={
+                "work_item_id": "work-current",
+                "success_oracle": "Produce successor-bound evidence.",
+                "authority_binding": fresh_authority,
+            },
+            worker_id="worker-1",
+            expected_revision=ledger.get_revision("run-correction"),
+        )
 
 
 def test_material_correction_invalidates_displayed_alignment_confirmation(tmp_path: Path) -> None:

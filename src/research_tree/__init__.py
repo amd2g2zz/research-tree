@@ -139,6 +139,13 @@ from .decision_frame import (
     DecisionFrameValidationError,
     IntentHypothesis,
 )
+from .strategy_projection import (
+    STRATEGY_PROJECTION_KIND,
+    STRATEGY_PROJECTION_SCHEMA_VERSION,
+    StrategyProjection,
+    StrategyProjectionError,
+    macro_stage,
+)
 from .openspec import (
     InvalidOpenSpecExportError,
     OpenSpecExport,
@@ -508,6 +515,11 @@ __all__ = [
     "DecisionFrame",
     "DecisionFrameValidationError",
     "IntentHypothesis",
+    "STRATEGY_PROJECTION_KIND",
+    "STRATEGY_PROJECTION_SCHEMA_VERSION",
+    "StrategyProjection",
+    "StrategyProjectionError",
+    "macro_stage",
     "WorkItemCompiler",
     "WorkItemError",
     "WorkItemPlanner",

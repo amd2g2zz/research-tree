@@ -22,6 +22,7 @@ from research_tree.host_events import (
 )
 from research_tree.run_ledger import RunLedger
 from research_tree.domain import ArtifactRef
+from strategy_support import confirm_strategy
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -51,6 +52,7 @@ def _coordinator(tmp_path):
         blueprint_target=target,
         expected_revision=ledger.get_revision("run-host"),
     )
+    confirm_strategy(ledger, coordinator, "run-host")
     lease = coordinator.dispatch(
         run_id="run-host",
         work_item={"objective": "observe", "success_oracle": "coordinator verifies"},
@@ -136,7 +138,7 @@ def test_ingestion_is_atomic_replayable_and_non_authoritative(tmp_path) -> None:
     artifacts = ledger.load_run("run-host").artifacts
     assert sum(item.kind == HOST_EVENT_KIND for item in artifacts) == 1
     assert sum(item.kind == HOST_EVENT_PROJECTION_KIND for item in artifacts) == 1
-    assert coordinator.state("run-host").payload["state"] == "alignment"
+    assert coordinator.state("run-host").payload["state"] == "autonomous_research"
     assert all(item.payload.get("authoritative") is False for item in artifacts if item.kind == HOST_EVENT_KIND)
 
     with pytest.raises(CoordinatorEventConflictError, match="event_id_conflict"):
@@ -150,7 +152,9 @@ def test_ingestion_is_atomic_replayable_and_non_authoritative(tmp_path) -> None:
             )
         )
     with pytest.raises(CoordinatorEventConflictError, match="event_id_conflict"):
-        coordinator.ingest_host_event(HostEvent.from_value({**event.to_dict(), "actor": "hermes", "expected_revision": 0}))
+        coordinator.ingest_host_event(
+            HostEvent.from_value({**event.to_dict(), "actor": "hermes", "expected_revision": 0})
+        )
 
 
 def test_sequence_gap_stale_revision_and_unknown_attempt_do_not_mutate(tmp_path) -> None:
@@ -203,7 +207,9 @@ def test_recovery_event_pair_is_atomic_and_replayable(tmp_path, monkeypatch) -> 
     crash_ledger, crash_coordinator, _ = _coordinator(tmp_path / "crash")
     crash_revision = crash_ledger.get_revision("run-host")
     crash_events = tuple(
-        HostEvent.from_value({**item.to_dict(), "event_id": f"crash-{item.event_id}", "expected_revision": crash_revision})
+        HostEvent.from_value(
+            {**item.to_dict(), "event_id": f"crash-{item.event_id}", "expected_revision": crash_revision}
+        )
         for item in events
     )
 

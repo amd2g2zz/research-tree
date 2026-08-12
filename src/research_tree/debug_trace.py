@@ -265,7 +265,13 @@ class CausalTraceService:
             raise CausalTraceError("missing_cause: event identity")
         if body.get("from") != previous.payload.get("state") or body.get("to") != state.payload.get("state"):
             raise CausalTraceError("missing_cause: state edge")
-        inputs = _safe_value(body.get("payload", {}), "transition inputs")
+        raw_inputs = body.get("payload", {})
+        if isinstance(raw_inputs, Mapping) and "confirmation" in raw_inputs:
+            raw_inputs = {key: value for key, value in raw_inputs.items() if key != "confirmation"}
+            raw_inputs["confirmation_digest"] = hashlib.sha256(
+                str(body.get("payload", {}).get("confirmation", "")).encode("utf-8")
+            ).hexdigest()
+        inputs = _safe_value(raw_inputs, "transition inputs")
         actor = _safe_code(body.get("actor", "coordinator"), "actor")
         action = _safe_code(body.get("event", "unknown"), "action")
         host = _safe_code(inputs.get("host", "coordinator"), "host") if isinstance(inputs, Mapping) else "coordinator"

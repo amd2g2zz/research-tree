@@ -30,7 +30,7 @@ def test_initialize_is_idempotent_and_applies_durability_settings(tmp_path: Path
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert connection.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
         assert connection.execute("PRAGMA synchronous").fetchone()[0] == 2
-        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 4
+        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 5
         assert (
             connection.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='decision_frames'"

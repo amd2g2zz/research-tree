@@ -16,6 +16,7 @@ from research_tree.debug_trace import (
 )
 from research_tree.domain import ArtifactRef
 from research_tree.run_ledger import RunLedger
+from strategy_support import confirm_strategy
 
 
 def project(tmp_path: Path) -> Path:
@@ -46,10 +47,7 @@ def canonical_run(tmp_path: Path):
         blueprint_target=target,
         expected_revision=2,
     )
-    coordinator.transition(
-        "run-63", "alignment_projection_ready", "coordinator", expected_revision=ledger.get_revision("run-63")
-    )
-    coordinator.transition("run-63", "handoff_confirmed", "human", expected_revision=ledger.get_revision("run-63"))
+    confirm_strategy(ledger, coordinator, "run-63")
     return ledger, coordinator
 
 

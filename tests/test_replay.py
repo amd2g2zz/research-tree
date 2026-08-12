@@ -8,6 +8,7 @@ from research_tree.coordinator import RESEARCH_RUN_STATE_KIND, ResearchRunCoordi
 from research_tree.debug_trace import CausalTraceError, CausalTraceService
 from research_tree.domain import ArtifactRef, canonical_json_bytes
 from research_tree.run_ledger import RunLedger
+from strategy_support import confirm_strategy
 
 
 def _append(ledger: RunLedger, artifact_id: str, kind: str, payload: dict, parents=()):
@@ -39,6 +40,7 @@ def _setup(tmp_path):
         blueprint_target=target,
         expected_revision=ledger.get_revision("run-63"),
     )
+    confirm_strategy(ledger, coordinator, "run-63")
     return ledger, coordinator
 
 
@@ -48,12 +50,7 @@ def _digest(payload: dict) -> str:
 
 def test_replay_verifies_exact_cause_chain_and_terminal_digest(tmp_path) -> None:
     ledger, coordinator = _setup(tmp_path)
-    coordinator.transition(
-        "run-63", "alignment_projection_ready", "coordinator", expected_revision=ledger.get_revision("run-63")
-    )
-    terminal = coordinator.transition(
-        "run-63", "handoff_confirmed", "human", expected_revision=ledger.get_revision("run-63")
-    )
+    terminal = coordinator.state("run-63")
 
     first = CausalTraceService(ledger).replay("run-63")
     second = CausalTraceService(ledger).replay("run-63")
@@ -74,17 +71,13 @@ def test_replay_rejects_ambiguous_or_tampered_state_lineage(tmp_path, failure: s
     initial = coordinator.state("run-63")
     body = {
         "state": "handoff_pending",
-        "lifecycle_revision": 1,
+        "lifecycle_revision": int(initial.payload["lifecycle_revision"]) + 1,
         "unmet_obligations": [],
         "legal_next_actions": ["handoff_confirmed"],
         "previous_state_ref": ArtifactRef("run-63", initial.id, initial.revision).to_dict(),
     }
     body["state_digest"] = "0" * 64 if failure == "digest_mismatch" else _digest(body)
     artifact_id = "forked-state" if failure == "fork" else "run-state"
-    if failure == "fork":
-        coordinator.transition(
-            "run-63", "alignment_projection_ready", "coordinator", expected_revision=ledger.get_revision("run-63")
-        )
     _append(
         ledger,
         artifact_id,
@@ -93,5 +86,5 @@ def test_replay_rejects_ambiguous_or_tampered_state_lineage(tmp_path, failure: s
         (ArtifactRef("run-63", initial.id, initial.revision),),
     )
 
-    with pytest.raises(CausalTraceError, match=failure):
+    with pytest.raises(CausalTraceError, match="missing_cause" if failure == "fork" else failure):
         CausalTraceService(ledger).replay("run-63")
