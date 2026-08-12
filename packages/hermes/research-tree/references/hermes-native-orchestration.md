@@ -124,3 +124,12 @@ The adapter does not call `delegate_task` and never writes canonical lifecycle
 state. Goals, Kanban cards, hooks, child exits, empty queues, batches, and
 reports remain observations; only the coordinator ledger can close slots,
 accept delivery, or complete a run.
+
+Before delegation, record explicit live Hermes capability observations and run
+`probe-host --observations <json>`. Use `project-workflow --request <json>` to
+bind a bounded batch to canonical action, phase, child, permission, and
+checkpoint ids. After restart, cancellation, provider failure, or a
+permission/namespace limit, run `reconcile-host --request <json>` before retry.
+Goals, Kanban, hooks, and scheduled drain are optional mirrors; their absence
+selects explicit fallback behavior and never weakens checkpoint or completion
+gates.

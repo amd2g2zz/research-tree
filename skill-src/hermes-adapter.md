@@ -32,6 +32,12 @@ Follow `references/skill-activation.md`: only exact `/research-tree activation-p
 - Treat an interrupted delegation as `unknown`, inspect persisted artifacts
   and Hermes live delegation transcripts before retrying, and never count a
   child summary as execution evidence by itself.
+- Run `scripts/hermes_execution_adapter.py probe-host` with explicit live
+  observations before selecting delegation, goals, Kanban, hooks, or scheduled
+  drain. Use `project-workflow` for the bounded delegation batch and
+  `reconcile-host` after restart. Optional surfaces may fall back independently;
+  absent or denied native workflow support selects `coordinator-dispatch-v1`,
+  and no goal, Kanban card, hook, or drain result owns completion.
 - Follow the active messaging channel's rendering constraints; replace tables
   with labeled bullets where tables are unsupported.
 - Keep research artifacts in the writable task workspace. Do not modify the

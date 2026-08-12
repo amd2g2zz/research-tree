@@ -32,3 +32,9 @@ Follow `references/skill-activation.md`: only exact `$research-tree activation-p
   completion checks when Python is available. This executable state is
   authoritative over the visible plan; never mark a run complete when its
   integrity check fails.
+- Before mapping ready actions to collaboration, run `probe-host` with the
+  surfaces exposed in the current session. Use `project-workflow` to bind the
+  concurrent wave to action, phase, child, permission, and checkpoint ids; use
+  `reconcile-host` after interruption before retrying unknown children. Partial,
+  denied, or failed collaboration falls back to `coordinator-dispatch-v1` and
+  never turns `update_plan` completion into canonical completion.

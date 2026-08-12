@@ -131,3 +131,14 @@ Hooks may observe lifecycle or remind the agent to persist a checkpoint. A Stop
 or SubagentStop gate must be bounded, reentrancy-safe, and based on an explicit
 completion oracle. Never store prompts, child summaries, transcript content,
 tool inputs, secrets, or research evidence in hook logs.
+
+## Executable workflow contract
+
+Before projecting a dynamic wave, write explicit current-session capability
+observations to workspace JSON and run `probe-host --observations <json>`. Pass
+that result with canonical actions to `project-workflow --request <json>`.
+After compaction, restart, contradiction, cancellation, provider failure, or a
+permission/namespace limit, call `reconcile-host --request <json>` before retry
+or replan. Preserve `workflow_id` and `script_id`; quarantine unfinished phases
+from superseded strategies. The task list and workflow completion remain
+non-authoritative.

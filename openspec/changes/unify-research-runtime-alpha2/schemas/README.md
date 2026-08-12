@@ -27,6 +27,8 @@ tools, and release evidence.
 | slot-closure-assessment-v1.json | Closure token inputs and lifecycle | closure evaluator |
 | host-event-v1.json | Cross-host event wire protocol | event ingestion |
 | native-workflow-run-v1.json | Non-authoritative host workflow projection | host adapter/coordinator |
+| preference-observation-v1.json | Privacy-bounded project preference evidence | alignment/coordinator |
+| user-preference-profile-v1.json | Hysteretic project preference read model | alignment/coordinator |
 | insight-digest-v1.json | Synthesized facts, gaps, and contradictions | insight service |
 | research-run-v1.json | Canonical run state | coordinator |
 | delivery-manifest-v1.json | Claim-to-lineage delivery index | delivery compiler |

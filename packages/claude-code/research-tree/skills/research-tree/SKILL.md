@@ -103,6 +103,12 @@ Follow `references/skill-activation.md`: only exact `/research-tree activation-p
   `claude` for atomic task attempts, crash recovery, Finding Pack validation,
   and completion checks when Python is available. The native task list mirrors
   this state; it does not replace it.
+- Before selecting dynamic phases, run `probe-host` with explicit session
+  capability observations. Build bounded phase/child projections with
+  `project-workflow`, and after restart or contradictory evidence use
+  `reconcile-host` before resuming or replanning. A failed or denied native
+  surface selects `coordinator-dispatch-v1`; never infer availability from a
+  task-list UI or reuse a stale capability digest.
 - The installed package contains `SKILL.md`, bundled references/assets, and the
   dependency-free native execution adapter. It does not contain the repository
   Python runtime, lifecycle hooks, builder, or evaluation corpus.
