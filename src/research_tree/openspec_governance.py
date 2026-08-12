@@ -3,15 +3,14 @@ from __future__ import annotations
 import json
 import argparse
 import re
+import shlex
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 
-LIFECYCLE_STATES = frozenset(
-    {"planned", "in_progress", "blocked", "unavailable", "verified", "superseded"}
-)
+LIFECYCLE_STATES = frozenset({"planned", "in_progress", "blocked", "unavailable", "verified", "superseded"})
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 
@@ -149,9 +148,7 @@ def _load_groups(path: Path) -> tuple[GroupDefinition, ...]:
                 depends_on=_int_list(raw.get("depends_on"), "depends_on"),
                 owner=_string(raw.get("owner"), "owner"),
                 outputs=_string_list(raw.get("outputs"), "outputs"),
-                acceptance_command=_string(
-                    raw.get("acceptance_command"), "acceptance_command"
-                ),
+                acceptance_command=_string(raw.get("acceptance_command"), "acceptance_command"),
                 rollback=_string(raw.get("rollback"), "rollback"),
             )
         )
@@ -171,9 +168,7 @@ def _load_verification(path: Path) -> tuple[VerificationRecord, ...]:
         if state not in LIFECYCLE_STATES:
             raise ValueError(f"unknown lifecycle state: {state}")
         evidence = raw.get("evidence_refs", [])
-        if not isinstance(evidence, list) or not all(
-            isinstance(value, str) and value for value in evidence
-        ):
+        if not isinstance(evidence, list) or not all(isinstance(value, str) and value for value in evidence):
             raise ValueError("evidence_refs must be a string list")
         receipt = raw.get("command_receipt")
         if receipt is not None and not isinstance(receipt, dict):
@@ -210,9 +205,7 @@ def _load_issues(path: Path) -> tuple[IssueExecutionMapping, ...]:
             IssueExecutionMapping(
                 issue=_positive_int(raw.get("issue"), "issue"),
                 primary_group=_positive_int(raw.get("primary_group"), "primary_group"),
-                supporting_groups=_int_list(
-                    raw.get("supporting_groups"), "supporting_groups"
-                ),
+                supporting_groups=_int_list(raw.get("supporting_groups"), "supporting_groups"),
                 capabilities=_string_list(raw.get("capabilities"), "capabilities"),
                 openspec_change=_string(raw.get("openspec_change"), "openspec_change"),
             )
@@ -274,10 +267,7 @@ def _find_cycles(groups: Mapping[int, GroupDefinition]) -> list[tuple[int, ...]]
     def visit(group_id: int) -> None:
         if group_id in visiting:
             cycle = tuple(visiting[visiting.index(group_id) :] + [group_id])
-            rotated = min(
-                tuple(cycle[index:-1] + cycle[:index] + (cycle[index],))
-                for index in range(len(cycle) - 1)
-            )
+            rotated = min(tuple(cycle[index:-1] + cycle[:index] + (cycle[index],)) for index in range(len(cycle) - 1))
             cycles.add(rotated)
             return
         if group_id in visited or group_id not in groups:
@@ -293,18 +283,11 @@ def _find_cycles(groups: Mapping[int, GroupDefinition]) -> list[tuple[int, ...]]
     return sorted(cycles)
 
 
-def _verification_is_complete(
-    record: VerificationRecord, definition: GroupDefinition | None
-) -> bool:
+def _verification_is_complete(record: VerificationRecord, definition: GroupDefinition | None) -> bool:
     if record.state != "verified":
         return True
     receipt = record.command_receipt
-    if (
-        definition is None
-        or not record.evidence_refs
-        or not record.rollback
-        or not isinstance(receipt, Mapping)
-    ):
+    if definition is None or not record.evidence_refs or not record.rollback or not isinstance(receipt, Mapping):
         return False
     command = receipt.get("command")
     exit_code = receipt.get("exit_code")
@@ -327,6 +310,19 @@ def _verification_is_complete(
         and isinstance(recorded_at, str)
         and bool(recorded_at)
     )
+
+
+def _missing_acceptance_entrypoints(command: str, repository: Path) -> tuple[str, ...]:
+    tokens = shlex.split(command, posix=False)
+    missing: list[str] = []
+    for raw_token in tokens:
+        token = raw_token.strip("\"'")
+        candidate = Path(token)
+        if candidate.suffix != ".py" or candidate.is_absolute():
+            continue
+        if not (repository / candidate).is_file():
+            missing.append(candidate.as_posix())
+    return tuple(sorted(set(missing)))
 
 
 def _dependency_violation(
@@ -372,7 +368,7 @@ def _dependency_violation(
     return None
 
 
-def validate_governance(inputs: GovernanceInputs) -> GovernanceReport:
+def validate_governance(inputs: GovernanceInputs, *, repository: Path | None = None) -> GovernanceReport:
     violations: list[GovernanceViolation] = []
     groups: dict[int, GroupDefinition] = {}
     for definition in inputs.groups:
@@ -425,6 +421,15 @@ def validate_governance(inputs: GovernanceInputs) -> GovernanceReport:
                     message=f"verified group {group_id} lacks complete evidence or receipt",
                 )
             )
+        if repository is not None and record.state == "verified":
+            for entrypoint in _missing_acceptance_entrypoints(groups[group_id].acceptance_command, repository):
+                violations.append(
+                    GovernanceViolation(
+                        code="missing_acceptance_entrypoint",
+                        subject=group_id,
+                        message=(f"verified group {group_id} acceptance entrypoint does not exist: {entrypoint}"),
+                    )
+                )
 
     for cycle in _find_cycles(groups):
         violations.append(
@@ -461,10 +466,7 @@ def validate_governance(inputs: GovernanceInputs) -> GovernanceReport:
                 GovernanceViolation(
                     code="duplicate_primary_group_owner",
                     subject=mapping.primary_group,
-                    message=(
-                        f"task group {mapping.primary_group} is owned by "
-                        f"issues #{prior} and #{mapping.issue}"
-                    ),
+                    message=(f"task group {mapping.primary_group} is owned by issues #{prior} and #{mapping.issue}"),
                 )
             )
         primary_owners[mapping.primary_group] = mapping.issue
@@ -495,9 +497,7 @@ def validate_governance(inputs: GovernanceInputs) -> GovernanceReport:
                 GovernanceViolation(
                     code="capability_owner_mismatch",
                     subject=row.capability,
-                    message=(
-                        f"issue #{row.issue} does not own capability {row.capability}"
-                    ),
+                    message=(f"issue #{row.issue} does not own capability {row.capability}"),
                 )
             )
         allowed_groups = {mapping.primary_group, *mapping.supporting_groups}
@@ -516,23 +516,17 @@ def validate_governance(inputs: GovernanceInputs) -> GovernanceReport:
                     GovernanceViolation(
                         code="capability_owner_mismatch",
                         subject=row.capability,
-                        message=(
-                            f"group {group_id} is not owned or supported by issue #{row.issue}"
-                        ),
+                        message=(f"group {group_id} is not owned or supported by issue #{row.issue}"),
                         path=(group_id,),
                     )
                 )
 
     ordered_violations = tuple(sorted(set(violations), key=_violation_key))
-    verified_groups = tuple(
-        sorted(group_id for group_id, record in verification.items() if record.state == "verified")
-    )
+    verified_groups = tuple(sorted(group_id for group_id, record in verification.items() if record.state == "verified"))
     unavailable_groups = tuple(
         sorted(group_id for group_id, record in verification.items() if record.state == "unavailable")
     )
-    unverified_groups = tuple(
-        sorted(group_id for group_id in groups if group_id not in verified_groups)
-    )
+    unverified_groups = tuple(sorted(group_id for group_id in groups if group_id not in verified_groups))
     valid = not ordered_violations
     return GovernanceReport(
         valid=valid,
@@ -545,13 +539,7 @@ def validate_governance(inputs: GovernanceInputs) -> GovernanceReport:
 
 
 def default_registry_paths(repository: Path) -> tuple[Path, Path, Path, Path]:
-    registry_root = (
-        repository
-        / "openspec"
-        / "changes"
-        / "unify-research-runtime-alpha2"
-        / "registries"
-    )
+    registry_root = repository / "openspec" / "changes" / "unify-research-runtime-alpha2" / "registries"
     return (
         registry_root / "task-execution-v1.json",
         registry_root / "task-verification-v1.json",
@@ -561,9 +549,7 @@ def default_registry_paths(repository: Path) -> tuple[Path, Path, Path, Path]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Validate Alpha2 OpenSpec execution governance"
-    )
+    parser = argparse.ArgumentParser(description="Validate Alpha2 OpenSpec execution governance")
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument("--task-registry", type=Path)
     parser.add_argument("--verification", type=Path)
@@ -580,7 +566,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.delivery_matrix or defaults[3],
     )
     try:
-        report = validate_governance(load_governance_inputs(*paths))
+        report = validate_governance(load_governance_inputs(*paths), repository=args.repo.resolve())
     except ValueError as exc:
         print(json.dumps({"valid": False, "errors": [str(exc)]}, sort_keys=True))
         return 2

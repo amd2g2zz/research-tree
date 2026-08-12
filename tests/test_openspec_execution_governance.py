@@ -174,6 +174,51 @@ def test_verified_group_rejects_a_substituted_or_source_less_command_receipt(tmp
     assert "verified_record_incomplete" in codes(report)
 
 
+def test_verified_group_requires_repository_relative_python_entrypoint(
+    tmp_path: Path,
+) -> None:
+    definition = group(1)
+    definition["acceptance_command"] = "uv run python scripts/missing.py"
+    receipt = verified_record(1)
+    receipt["command_receipt"]["command"] = definition["acceptance_command"]  # type: ignore[index]
+
+    report = validate_governance(
+        load_governance_inputs(
+            *inputs(
+                tmp_path,
+                groups=[definition],
+                verification=[receipt],
+                issues=[issue(53, 1, "ledger")],
+                capabilities=[capability("ledger", 53, [1])],
+            )
+        ),
+        repository=tmp_path,
+    )
+
+    assert "missing_acceptance_entrypoint" in codes(report)
+
+
+def test_planned_group_allows_future_acceptance_entrypoint(tmp_path: Path) -> None:
+    definition = group(1)
+    definition["acceptance_command"] = "uv run python scripts/future.py"
+
+    report = validate_governance(
+        load_governance_inputs(
+            *inputs(
+                tmp_path,
+                groups=[definition],
+                verification=[record(1, "planned")],
+                issues=[issue(53, 1, "ledger")],
+                capabilities=[capability("ledger", 53, [1])],
+            )
+        ),
+        repository=tmp_path,
+    )
+
+    assert report.valid is True
+    assert "missing_acceptance_entrypoint" not in codes(report)
+
+
 def test_verified_group_rejects_direct_and_transitive_incomplete_dependencies(
     tmp_path: Path,
 ) -> None:
@@ -287,9 +332,9 @@ def test_alpha2_registry_has_resolvable_ownership_and_noncyclic_boundaries() -> 
 
     assert report.valid is True
     assert report.release_ready is False
-    assert report.verified_groups == (1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 16, 23, 28, 31, 32, 33, 34, 35)
+    assert report.verified_groups == (1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 14, 16, 23, 28, 31, 32, 33, 34, 35)
     assert report.unverified_groups == tuple(
-        group for group in range(6, 33) if group not in {6, 7, 8, 9, 11, 16, 23, 28, 31, 32}
+        group for group in range(6, 33) if group not in {6, 7, 8, 9, 11, 14, 16, 23, 28, 31, 32}
     )
 
 
@@ -299,9 +344,9 @@ def test_cli_emits_deterministic_real_registry_report(capsys: pytest.CaptureFixt
     payload = json.loads(capsys.readouterr().out)
     assert payload["valid"] is True
     assert payload["release_ready"] is False
-    assert payload["verified_groups"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 16, 23, 28, 31, 32, 33, 34, 35]
+    assert payload["verified_groups"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 14, 16, 23, 28, 31, 32, 33, 34, 35]
     assert payload["unverified_groups"] == [
-        group for group in range(6, 33) if group not in {6, 7, 8, 9, 11, 16, 23, 28, 31, 32}
+        group for group in range(6, 33) if group not in {6, 7, 8, 9, 11, 14, 16, 23, 28, 31, 32}
     ]
 
 
