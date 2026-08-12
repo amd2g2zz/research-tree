@@ -32,6 +32,7 @@ class Alpha1MigrationService:
     """Read legacy host state while leaving it outside canonical authority."""
 
     _SURFACES = (
+        ("alignment_checkpoint", ".research-tree-alignment", None),
         ("native_checkpoint", ".research-tree-native", "native"),
         ("hermes_checkpoint", ".research-tree-hermes", "hermes"),
     )
@@ -45,7 +46,9 @@ class Alpha1MigrationService:
             root = self.workspace / relative_root
             if not root.is_dir():
                 continue
-            paths = sorted((*root.rglob("*.json"), *root.rglob("*.jsonl")), key=lambda item: item.as_posix())
+            paths = sorted(
+                (*root.rglob("*.json"), *root.rglob("*.jsonl"), *root.rglob("*.db")), key=lambda item: item.as_posix()
+            )
             for path in paths:
                 if not path.is_file() or path.is_symlink():
                     continue
@@ -115,7 +118,9 @@ class Alpha1MigrationService:
         return {"cutover": "disabled", "legacy_material": "retained_read_only"}
 
     @staticmethod
-    def _diagnostic(raw: bytes, expected_host: str) -> str | None:
+    def _diagnostic(raw: bytes, expected_host: str | None) -> str | None:
+        if expected_host is None:
+            return None if raw.startswith(b"SQLite format 3\x00") else "partial_or_corrupt_store"
         try:
             value = json.loads(raw)
         except (UnicodeDecodeError, json.JSONDecodeError):

@@ -22,6 +22,9 @@ def test_inventory_and_projection_are_deterministic_and_read_only(tmp_path: Path
     hermes = tmp_path / ".research-tree-hermes"
     hermes.mkdir()
     (hermes / "events.jsonl").write_text('{"status":"complete"}\n', encoding="utf-8")
+    alignment = tmp_path / ".research-tree-alignment" / "run-1"
+    alignment.mkdir(parents=True)
+    (alignment / "alignment.db").write_bytes(b"SQLite format 3\x00legacy")
 
     service = Alpha1MigrationService(tmp_path)
     first = service.inventory()
@@ -30,7 +33,11 @@ def test_inventory_and_projection_are_deterministic_and_read_only(tmp_path: Path
 
     assert first == second
     assert first.fingerprint == projection["inventory_fingerprint"]
-    assert {item.surface for item in first.items} == {"native_checkpoint", "hermes_checkpoint"}
+    assert {item.surface for item in first.items} == {
+        "alignment_checkpoint",
+        "native_checkpoint",
+        "hermes_checkpoint",
+    }
     assert all(item.completion_authority == "none" for item in first.items)
     assert projection["mode"] == "read_only"
     assert not (native / "migration.json").exists()
