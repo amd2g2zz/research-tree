@@ -8,6 +8,11 @@ Research Tree uses two protected long-lived branches with different roles:
 GitHub defaults new pull requests to `master`. That does not make `master` a
 valid base for ordinary Alpha2 work; explicitly change the base to `dev`.
 
+Before changing documentation, consult the
+[documentation authority model](documentation-authority.md). Edit the listed
+canonical authoring source, not a generated package or historical record, and
+run `uv run python scripts/check_docs.py` with the normal delivery checks.
+
 ## Start One Issue
 
 Each delivery issue owns one branch, one worktree, and one pull request. Start

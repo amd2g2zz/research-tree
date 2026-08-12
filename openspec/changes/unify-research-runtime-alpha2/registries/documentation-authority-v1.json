@@ -1,103 +1,22 @@
 {
   "schema_version": 1,
-  "precedence": [
-    "accepted-product-contract",
-    "accepted-architecture-decision",
-    "active-openspec-change",
-    "host-compatibility-contract",
-    "user-guide",
-    "operational-note",
-    "historical-record",
-    "generated-copy"
-  ],
+  "precedence": ["product", "architecture", "active-change", "reference", "guide", "operational", "historical", "generated", "evaluation"],
+  "forbidden_active_terms": ["Human Brief"],
   "entries": [
-    {
-      "path": "PRODUCT.md",
-      "class": "normative",
-      "authority": "product",
-      "audience": "contributors-and-agents",
-      "owner": "product",
-      "lifecycle": "active",
-      "canonical_edit": "PRODUCT.md",
-      "update_trigger": "accepted product behavior change",
-      "superseded_by": null
-    },
-    {
-      "path": "README.md",
-      "class": "user-guide",
-      "authority": "discoverability",
-      "audience": "users-and-installers",
-      "owner": "maintainers",
-      "lifecycle": "active",
-      "canonical_edit": "README.md",
-      "update_trigger": "supported workflow or layout change",
-      "superseded_by": null
-    },
-    {
-      "path": "openspec/changes/",
-      "class": "active-change",
-      "authority": "implementation-plan",
-      "audience": "implementers-and-reviewers",
-      "owner": "change-owner",
-      "lifecycle": "active-per-change",
-      "canonical_edit": "the selected change directory",
-      "update_trigger": "scope, contract, or task change",
-      "superseded_by": "openspec archive plus ADR/product sync"
-    },
-    {
-      "path": "docs/adr/",
-      "class": "architecture-decision",
-      "authority": "architecture",
-      "audience": "implementers-and-reviewers",
-      "owner": "maintainers",
-      "lifecycle": "active-or-superseded",
-      "canonical_edit": "new ADR or explicit supersession",
-      "update_trigger": "irreversible architecture choice",
-      "superseded_by": "successor ADR"
-    },
-    {
-      "path": "docs/specs/",
-      "class": "historical-specification",
-      "authority": "historical",
-      "audience": "maintainers-and-auditors",
-      "owner": "maintainers",
-      "lifecycle": "historical-unless-indexed",
-      "canonical_edit": "new active spec, not in-place rewrite",
-      "update_trigger": "historical correction only",
-      "superseded_by": "registry entry and successor contract"
-    },
-    {
-      "path": "references/",
-      "class": "normative-reference",
-      "authority": "runtime-contract",
-      "audience": "skill-authors-and-agents",
-      "owner": "runtime",
-      "lifecycle": "active",
-      "canonical_edit": "references source file",
-      "update_trigger": "runtime behavior or host contract change",
-      "superseded_by": "new reference with explicit link"
-    },
-    {
-      "path": "skill-src/",
-      "class": "authoring-source",
-      "authority": "skill-source",
-      "audience": "skill-maintainers",
-      "owner": "skill",
-      "lifecycle": "active",
-      "canonical_edit": "skill-src, assets, or references source",
-      "update_trigger": "skill behavior or host adapter change",
-      "superseded_by": null
-    },
-    {
-      "path": "packages/",
-      "class": "generated-copy",
-      "authority": "distribution",
-      "audience": "host-installers",
-      "owner": "release",
-      "lifecycle": "rebuildable",
-      "canonical_edit": "registered package source and builder",
-      "update_trigger": "source or builder digest change",
-      "superseded_by": "new generated revision"
-    }
+    {"path": "PRODUCT.md", "class": "normative", "authority": "product", "audience": "contributors-and-agents", "owner": "product", "lifecycle": "active", "canonical_edit": "PRODUCT.md", "update_trigger": "accepted product behavior change", "superseded_by": null, "validation_rule": "governed"},
+    {"path": "README.md", "class": "normative", "authority": "guide", "audience": "users-and-installers", "owner": "maintainers", "lifecycle": "active", "canonical_edit": "README.md", "update_trigger": "supported workflow change", "superseded_by": null, "validation_rule": "governed"},
+    {"path": "docs/development-workflow.md", "class": "operational", "authority": "workflow", "audience": "contributors", "owner": "maintainers", "lifecycle": "active", "canonical_edit": "docs/development-workflow.md", "update_trigger": "delivery workflow change", "superseded_by": null, "validation_rule": "governed"},
+    {"path": "docs/documentation-authority.md", "class": "normative", "authority": "documentation-governance", "audience": "contributors-and-agents", "owner": "maintainers", "lifecycle": "active", "canonical_edit": "docs/documentation-authority.md and the authority registry", "update_trigger": "documentation lifecycle or canonical source change", "superseded_by": null, "validation_rule": "governed"},
+    {"path": "docs/evaluation-assets.md", "class": "evaluation", "authority": "evaluation-governance", "audience": "evaluators", "owner": "evaluation", "lifecycle": "active", "canonical_edit": "docs/evaluation-assets.md", "update_trigger": "evaluation namespace change", "superseded_by": null, "validation_rule": "governed"},
+    {"path": "docs/adr/", "class": "normative", "authority": "architecture", "audience": "implementers-and-reviewers", "owner": "maintainers", "lifecycle": "active", "canonical_edit": "new ADR or explicit supersession", "update_trigger": "irreversible architecture decision", "superseded_by": "successor ADR", "validation_rule": "governed"},
+    {"path": "docs/specs/", "class": "historical", "authority": "historical", "audience": "maintainers-and-auditors", "owner": "maintainers", "lifecycle": "historical", "canonical_edit": "successor product contract or OpenSpec", "update_trigger": "historical correction", "superseded_by": "PRODUCT.md", "validation_rule": "governed"},
+    {"path": "docs/reviews/", "class": "historical", "authority": "review-record", "audience": "maintainers-and-auditors", "owner": "maintainers", "lifecycle": "historical", "canonical_edit": "new review record", "update_trigger": "audit correction", "superseded_by": "successor review", "validation_rule": "governed"},
+    {"path": "docs/", "class": "operational", "authority": "operational", "audience": "contributors", "owner": "maintainers", "lifecycle": "active", "canonical_edit": "document source", "update_trigger": "operational guidance change", "superseded_by": "successor document", "validation_rule": "governed", "legacy_compatibility": "Historical delivery artifact names remain traceable pending targeted source migration."},
+    {"path": "openspec/changes/", "class": "active-change", "authority": "implementation-plan", "audience": "implementers-and-reviewers", "owner": "change-owner", "lifecycle": "active", "canonical_edit": "selected change directory", "update_trigger": "scope or contract change", "superseded_by": "OpenSpec archive plus ADR or product sync", "validation_rule": "governed", "legacy_compatibility": "Accepted and historical changes preserve prior delivery terminology."},
+    {"path": "references/", "class": "normative", "authority": "reference", "audience": "skill-authors-and-agents", "owner": "runtime", "lifecycle": "active", "canonical_edit": "reference source", "update_trigger": "runtime or host contract change", "superseded_by": "successor reference", "validation_rule": "governed", "legacy_compatibility": "References retain artifact-name compatibility while the runtime persists the legacy artifact kind."},
+    {"path": "assets/", "class": "normative", "authority": "template", "audience": "skill-authors", "owner": "skill", "lifecycle": "active", "canonical_edit": "template source", "update_trigger": "delivery contract change", "superseded_by": "successor template", "validation_rule": "governed", "legacy_compatibility": "Template filenames and persisted artifact labels retain compatibility."},
+    {"path": "skill-src/", "class": "normative", "authority": "authoring-source", "audience": "skill-maintainers", "owner": "skill", "lifecycle": "active", "canonical_edit": "skill-src source", "update_trigger": "skill behavior change", "superseded_by": "successor source", "validation_rule": "governed", "legacy_compatibility": "The host-facing source names the persisted legacy artifact for compatibility."},
+    {"path": "packages/", "class": "generated", "authority": "distribution", "audience": "host-installers", "owner": "release", "lifecycle": "generated", "canonical_edit": "skill-src, assets, references, scripts, and build_skill_packages.py", "update_trigger": "source or builder change", "superseded_by": "new generated revision", "validation_rule": "package-build-check", "legacy_compatibility": "Generated copies inherit compatibility terminology only from their canonical authoring source."},
+    {"path": "evaluation/", "class": "evaluation", "authority": "evaluation-evidence", "audience": "evaluators", "owner": "evaluation", "lifecycle": "active", "canonical_edit": "governed evaluation source", "update_trigger": "evaluation contract change", "superseded_by": "successor evaluation manifest", "validation_rule": "governed"}
   ]
 }

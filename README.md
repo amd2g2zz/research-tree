@@ -26,6 +26,11 @@ Contributors should read the [development workflow](docs/development-workflow.md
 `master` remains the default and release branch; ordinary development changes
 are integrated through pull requests targeting `dev`.
 
+The [documentation authority model](docs/documentation-authority.md) identifies
+the canonical edit source and lifecycle for product contracts, OpenSpec changes,
+ADRs, historical RT records, skill sources, generated packages, operations, and
+evaluation evidence.
+
 Evaluation source assets use the single governed `evaluation/` namespace; see
 [evaluation asset governance](docs/evaluation-assets.md) for tracked classes,
 disposable output, oracle isolation, and the public Alpha1 validation command.
@@ -69,7 +74,7 @@ The implementation-facing package records:
 
 ### Human Research Report
 
-The requester-facing report is persisted as the Human Brief artifact. It is a
+The requester-facing report is the Human Research Report. It is a
 professional, evidence-bearing explanation of the recommended direction,
 important choices, feasibility limits, uncertainty, and what has actually been
 verified. It is not a shallow executive summary.
@@ -93,7 +98,7 @@ flowchart TD
     I -->|grow, prune, defer| P
     I -->|closure oracles pass| L[Decision Ledger and readiness gate]
     L --> T[Technical Research Package]
-    L --> B[Human Brief]
+    L --> B[Human Research Report]
 ```
 
 The Alignment Graph is a temporal heterogeneous multigraph backed by SQLite;
@@ -461,7 +466,7 @@ need persisted and validated research artifacts. Its public API includes:
 - finding and Decision Ledger compilation;
 - persisted recursive-tree selection, ingestion, and crash recovery;
 - readiness, assurance, verification, and evaluation contracts;
-- Technical Research Package and Human Brief delivery;
+- Technical Research Package and Human Research Report delivery;
 - feedback rounds and opt-in OpenSpec export.
 
 The command-line interface exposes alignment handoff compilation, round
