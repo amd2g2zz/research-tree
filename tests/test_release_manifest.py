@@ -40,3 +40,17 @@ def test_release_harness_is_a_deterministic_public_entrypoint() -> None:
 
     assert first == second
     assert first["manifest_id"] == "alpha2-release-candidate-v1"
+
+
+def test_release_harness_can_assert_expected_candidate_failure(
+    capsys,
+) -> None:
+    path = ROOT / "evaluation/harness/run_release_gates.py"
+    spec = importlib.util.spec_from_file_location("run_release_gates", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module.main(["--expect-status", "fail"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "fail"

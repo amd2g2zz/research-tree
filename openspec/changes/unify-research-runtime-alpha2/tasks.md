@@ -131,14 +131,14 @@ substitute for local evidence.
 
 ## 12. Cross-Host Black-Box Evaluation (#64)
 
-- [ ] 12.1 Version cases for vague intent, wrong human premise, wrong agent premise, infeasible goal, repository research, conflicting sources, multimodal input, recursive discovery, unavailable tools, provider failure, crash recovery, and material feedback.
-- [ ] 12.2 Add hidden fact and implementation oracles that remain outside worker-visible requests and pin source permission, baseline revision, and environment digest.
-- [ ] 12.3 Extend BlueprintEvaluationSuite with intent fidelity, premature handoff, unsupported claim, P0 coverage, contradiction, oracle reproducibility, false completion, recovery, host parity, rediscovery burden, and acceptance metrics.
+- [x] 12.1 Version cases for vague intent, wrong human premise, wrong agent premise, infeasible goal, repository research, conflicting sources, multimodal input, recursive discovery, unavailable tools, provider failure, crash recovery, and material feedback.
+- [x] 12.2 Add hidden fact and implementation oracles that remain outside worker-visible requests and pin source permission, baseline revision, and environment digest.
+- [x] 12.3 Extend BlueprintEvaluationSuite with intent fidelity, premature handoff, unsupported claim, P0 coverage, contradiction, oracle reproducibility, false completion, recovery, host parity, rediscovery burden, and acceptance metrics.
 - [ ] 12.4 Run isolated implementation attempts against exact alpha2 packages, alpha1 packages, and a registered simpler-prompt baseline.
-- [ ] 12.5 Add blinded expert review for problem fidelity, evidence quality, professional depth, technical correctness, and implementation usefulness.
-- [ ] 12.6 Persist raw case artifacts, commands, results, comparisons, limitations, and component diagnoses for audit.
-- [ ] 12.7 Enforce zero false completion, fully resolvable P0 evidence/closure, recovery, and cross-host parity as non-negotiable release gates.
-- [ ] 12.8 Publish an alpha2 evaluation report that states improvements, regressions, residual uncertainty, and unsupported claims without proxy-based self-congratulation.
+- [x] 12.5 Add blinded expert review for problem fidelity, evidence quality, professional depth, technical correctness, and implementation usefulness.
+- [x] 12.6 Persist raw case artifacts, commands, results, comparisons, limitations, and component diagnoses for audit.
+- [x] 12.7 Enforce zero false completion, fully resolvable P0 evidence/closure, recovery, and cross-host parity as non-negotiable release gates.
+- [x] 12.8 Publish an alpha2 evaluation report that states improvements, regressions, residual uncertainty, and unsupported claims without proxy-based self-congratulation.
 - [ ] 12.9 Add black-box cases proving AnySearch multi-query remains one provider boundary, intent-derived implicit subquestions are researched, shallow first waves deepen, invalidated directions create successor strategies, and captured sources/checkpoints survive a crash.
 - [ ] 12.10 Add native-workflow fixtures for Claude Code dynamic phases/replan, Codex delegation fallback, and Hermes capability absence with canonical artifact parity.
 

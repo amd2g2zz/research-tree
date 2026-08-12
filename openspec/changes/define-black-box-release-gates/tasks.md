@@ -11,7 +11,7 @@
 ## 3. Governed Assets
 
 - [x] 3.1 Add versioned public black-box cases, manifest/result schemas, harness metadata, and compact retained release evidence under governed evaluation paths.
-- [ ] 3.2 Register the issue acceptance command, group-12 ownership, umbrella task completion, and source-bound evidence references.
+- [x] 3.2 Register the issue acceptance command, group-12 ownership, umbrella task completion, and source-bound evidence references.
 
 ## 4. TDD And Verification
 

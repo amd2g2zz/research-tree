@@ -16,7 +16,7 @@ def run(path: Path) -> dict[str, Any]:
     return decision.to_dict()
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "manifest",
@@ -24,9 +24,12 @@ def main() -> int:
         type=Path,
         default=Path("evaluation/results/alpha2-release-candidate-v1.json"),
     )
-    args = parser.parse_args()
+    parser.add_argument("--expect-status", choices=("pass", "fail"))
+    args = parser.parse_args(argv)
     result = run(args.manifest)
     print(json.dumps(result, indent=2, sort_keys=True))
+    if args.expect_status:
+        return 0 if result["status"] == args.expect_status else 1
     return 0 if result["status"] == "pass" else 1
 
 
