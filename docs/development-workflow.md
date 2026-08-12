@@ -38,6 +38,20 @@ Preflight fails on dirty tracked, staged, or untracked state; a stale base;
 invalid naming; duplicate issue ownership or worktree paths; or unavailable
 remote metadata. It never stashes, resets, deletes, or repairs the worktree.
 
+## Repository Layout And Clean Checkout
+
+The [repository path registry](../openspec/changes/unify-research-runtime-alpha2/registries/repository-paths-v1.json) is the authority for sources, generated distributions, local installations, and runtime or operator-managed material. Edit `skill-src/`, `assets/`, `references/`, and `scripts/`; regenerate and check `packages/` and `.claude-plugin/` rather than editing generated files.
+
+Repository-local `.agents/`, `.claude/`, `.codex/`, `.research-tree*/`, raw material, research runs, build output, and caches remain ignored protected material. The layout checker only classifies and reports them.
+
+```bash
+uv run python scripts/check_repository_layout.py
+uv run python scripts/check_repository_layout.py --workflow-probe
+uv run python scripts/check_repository_layout.py --migration-plan
+```
+
+The workflow probe runs package validation/tests, a temporary project-scoped Codex install, and migration inventory without changing the checkout. A migration plan is inspection-only; resolve collisions and retain its confirmation token before any separately approved manual relocation.
+
 ## Deliver To dev
 
 An ordinary delivery PR must target `dev`, close exactly one delivery issue,

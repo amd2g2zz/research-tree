@@ -21,3 +21,21 @@ Desktop.ini
 .research-tree-hooks/
 .research-tree-debug/
 .research-tree-alignment/
+.research-tree-native/
+.research-tree-hermes/
+
+# Repository-local installed skills and runtime state. These paths are never
+# cleaned by repository tooling; see the governed path registry.
+.agents/
+.claude/
+.codex/
+.research-tree/
+
+# Rebuildable or operator-owned local output.
+build/
+dist/
+raw/
+research-runs/
+evaluation/experiences/
+.pytest_cache/
+.ruff_cache/
