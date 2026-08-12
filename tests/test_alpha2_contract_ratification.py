@@ -11,20 +11,39 @@ CHANGE = ROOT / "openspec" / "changes" / "unify-research-runtime-alpha2"
 def test_required_alpha2_adrs_define_the_architecture_boundaries() -> None:
     expected = {
         "ADR-002-single-completion-authority.md": [
-            "## Context", "## Decision", "## Consequences", "## Rejected Alternatives", "## Migration",
-            "ResearchRunCoordinator", "host, worker, hook, or report",
+            "## Context",
+            "## Decision",
+            "## Consequences",
+            "## Rejected Alternatives",
+            "## Migration",
+            "ResearchRunCoordinator",
+            "host, worker, hook, or report",
         ],
         "ADR-003-separate-graph-boundaries.md": [
-            "## Context", "## Decision", "## Consequences", "## Rejected Alternatives", "## Migration",
+            "## Context",
+            "## Decision",
+            "## Consequences",
+            "## Rejected Alternatives",
+            "## Migration",
             "rebuildable projection",
         ],
         "ADR-004-sqlite-and-content-addressed-storage.md": [
-            "## Context", "## Decision", "## Consequences", "## Rejected Alternatives", "## Migration",
-            "SQLite", "content-addressed",
+            "## Context",
+            "## Decision",
+            "## Consequences",
+            "## Rejected Alternatives",
+            "## Migration",
+            "SQLite",
+            "content-addressed",
         ],
         "ADR-005-host-adapters-as-event-translators.md": [
-            "## Context", "## Decision", "## Consequences", "## Rejected Alternatives", "## Migration",
-            "HostEvent", "fail-open",
+            "## Context",
+            "## Decision",
+            "## Consequences",
+            "## Rejected Alternatives",
+            "## Migration",
+            "HostEvent",
+            "fail-open",
         ],
     }
     for filename, required_text in expected.items():
