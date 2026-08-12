@@ -18,6 +18,6 @@
 
 ## 4. Evidence And Verification
 
-- [ ] 4.1 Run the focused checker, package, and documentation acceptance checks; record a source-bound group-21 receipt.
+- [x] 4.1 Run the focused checker, package, and documentation acceptance checks; record a source-bound group-21 receipt.
 - [x] 4.2 Run strict issue/umbrella OpenSpec, package parity, documentation/governance checks, full regression, and diff checks.
 - [ ] 4.3 Mark final verification complete, create the #70 PR to `dev`, merge it, and clean the worktree only after reachability is confirmed.
