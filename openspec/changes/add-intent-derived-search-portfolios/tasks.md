@@ -1,7 +1,7 @@
 ## 1. Portfolio Contracts
 
-- [ ] 1.1 Add SearchPortfolio, MethodBoundary, subquestion, query variant, and BatchCoverageAssessment contracts with strict validation.
-- [ ] 1.2 Reject hidden/private fields, empty lineage, unsupported dispositions, query-count independence claims, and authority-expanding pivots.
+- [x] 1.1 Add SearchPortfolio, MethodBoundary, subquestion, query variant, and BatchCoverageAssessment contracts with strict validation.
+- [x] 1.2 Reject hidden/private fields, empty lineage, unsupported dispositions, query-count independence claims, and authority-expanding pivots.
 
 ## 2. Portfolio Planning
 
@@ -15,7 +15,7 @@
 
 ## 4. Evidence And Registry
 
-- [ ] 4.1 Add focused fixtures for hidden mechanism, AnySearch single-boundary, degraded backend, shallow first wave, failed retrieval, contradiction pivot, and crash-resume lineage.
+- [x] 4.1 Add focused fixtures for hidden mechanism, AnySearch single-boundary, degraded backend, shallow first wave, failed retrieval, contradiction pivot, and crash-resume lineage.
 - [ ] 4.2 Register group-27 ownership, issue map, umbrella tasks, and source-bound evidence receipt.
 
 ## 5. Verification

@@ -235,6 +235,14 @@ from .policy import (
     PolicyProposal,
     VerifiedEvidence,
 )
+from .search_portfolio import (
+    BatchCoverageAssessment,
+    MethodBoundary,
+    SearchPortfolio,
+    SearchPortfolioError,
+    derive_search_portfolio,
+    distinct_method_boundaries,
+)
 from .recursive_search import (
     RecursiveResearchCoordinator,
     RecursiveSearchConfig,
@@ -376,6 +384,12 @@ __all__ = [
     "PolicyDisposition",
     "PolicyProposal",
     "VerifiedEvidence",
+    "BatchCoverageAssessment",
+    "MethodBoundary",
+    "SearchPortfolio",
+    "SearchPortfolioError",
+    "derive_search_portfolio",
+    "distinct_method_boundaries",
     "RecursiveSearchConfig",
     "RecursiveResearchCoordinator",
     "initialize_research_state",
