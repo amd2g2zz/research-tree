@@ -21,7 +21,7 @@
     { "issue": 61, "primary_group": 9, "supporting_groups": [], "capabilities": ["hermes-native-orchestration"], "openspec_change": "integrate-hermes-native-adapter" },
     { "issue": 62, "primary_group": 10, "supporting_groups": [], "capabilities": ["semantic-research-delivery"], "openspec_change": "enforce-semantic-dual-delivery" },
     { "issue": 63, "primary_group": 11, "supporting_groups": [], "capabilities": ["runtime-observability"], "openspec_change": "add-causal-observability" },
-    { "issue": 64, "primary_group": 12, "supporting_groups": [20], "capabilities": ["research-quality-evaluation"], "openspec_change": "build-cross-host-release-gates" },
+    { "issue": 64, "primary_group": 12, "supporting_groups": [20], "capabilities": ["research-quality-evaluation"], "openspec_change": "define-black-box-release-gates" },
     { "issue": 65, "primary_group": 13, "supporting_groups": [], "capabilities": ["alpha2-migration-packaging"], "openspec_change": "migrate-alpha1-state" },
     { "issue": 66, "primary_group": 14, "supporting_groups": [], "capabilities": ["alpha2-contract-ratification"], "openspec_change": "ratify-alpha2-runtime-contract" },
     { "issue": 67, "primary_group": 22, "supporting_groups": [18], "capabilities": ["implementation-release-contract", "release-evidence"], "openspec_change": "complete-alpha2-release" },

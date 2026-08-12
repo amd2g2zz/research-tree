@@ -1,0 +1,9 @@
+{
+  "command": "uv run python evaluation/harness/run_release_gates.py --expect-status fail",
+  "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+  "exit_code": 0,
+  "output_digest": "b510f378c0e2113d23f69109c28b1e5e3e7e4103911e3656f69493ad43f6141a",
+  "raw_output_ref": "openspec/changes/define-black-box-release-gates/evidence/group-12-output.txt",
+  "recorded_at": "2026-08-12T07:43:46.965121+00:00",
+  "source_revision": "26113a537f15eaab1ee9a4c8606e05956b50162c"
+}

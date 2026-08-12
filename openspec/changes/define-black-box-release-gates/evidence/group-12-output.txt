@@ -1,0 +1,75 @@
+{
+  "integrity_gates": [
+    {
+      "failures": [],
+      "name": "zero_false_completion",
+      "status": "pass"
+    },
+    {
+      "failures": [],
+      "name": "p0_resolution",
+      "status": "pass"
+    },
+    {
+      "failures": [],
+      "name": "evidence_and_closure",
+      "status": "pass"
+    },
+    {
+      "failures": [],
+      "name": "recovery",
+      "status": "pass"
+    },
+    {
+      "failures": [],
+      "name": "semantic_delivery",
+      "status": "pass"
+    },
+    {
+      "failures": [
+        "hermes"
+      ],
+      "name": "required_host_parity",
+      "status": "fail"
+    },
+    {
+      "failures": [],
+      "name": "quality_thresholds",
+      "status": "pass"
+    },
+    {
+      "failures": [],
+      "name": "independent_implementation_improvement",
+      "status": "pass"
+    },
+    {
+      "failures": [],
+      "name": "independent_evidence",
+      "status": "pass"
+    }
+  ],
+  "limitations": [
+    "Live provider behavior is not claimed by this deterministic replay."
+  ],
+  "manifest_id": "alpha2-release-candidate-v1",
+  "quality_diagnostics": {
+    "contradiction_handling": 0.8,
+    "depth": 0.85,
+    "implementation_success": 1.0,
+    "intent_fidelity": 0.9,
+    "professional_usefulness": 0.9,
+    "rediscovery_control": 0.8,
+    "unsupported_claim_control": 1.0
+  },
+  "quality_thresholds": {
+    "contradiction_handling": 0.7,
+    "depth": 0.7,
+    "implementation_success": 0.8,
+    "intent_fidelity": 0.7,
+    "professional_usefulness": 0.7,
+    "rediscovery_control": 0.6,
+    "unsupported_claim_control": 0.9
+  },
+  "source_revision": "c535d0558518717e103ab15ed3ad9d4d7ccb57c9",
+  "status": "fail"
+}

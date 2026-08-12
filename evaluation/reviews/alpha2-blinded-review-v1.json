@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "alpha2-blinded-review-v1",
+  "case_id": "alpha2-release-v1",
+  "source_revision": "c535d0558518717e103ab15ed3ad9d4d7ccb57c9",
+  "environment": "blinded public artifact review protocol v1",
+  "producer": "independent-review-panel",
+  "recorded_at": "2026-08-12T06:00:00Z",
+  "artifact_refs": ["evaluation/results/alpha2-release-candidate-v1.json"],
+  "limitations": ["Fixture demonstrates review provenance and separation; it is not a live expert panel result."],
+  "content_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "dimensions": ["problem_fidelity", "evidence_quality", "professional_depth", "technical_correctness", "implementation_usefulness"]
+}

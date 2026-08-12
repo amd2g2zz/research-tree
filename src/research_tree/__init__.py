@@ -66,6 +66,14 @@ from .evaluation import (
     TimeSplitCase,
     validate_blueprint_evaluation_payload,
 )
+from .release_evaluation import (
+    IntegrityGate,
+    InvalidReleaseManifest,
+    ReleaseCaseResult,
+    ReleaseDecision,
+    ReleaseManifest,
+    evaluate_release,
+)
 from .readiness import (
     CanonicalReadinessVerifier,
     InvalidReadinessError,
@@ -452,6 +460,8 @@ __all__ = [
     "DeliveryAcceptance",
     "InvalidDecisionLedgerError",
     "InvalidEvaluationError",
+    "InvalidReleaseManifest",
+    "IntegrityGate",
     "InvalidFeedbackError",
     "InvalidFindingPackError",
     "InvalidBlueprintTargetError",
@@ -482,6 +492,9 @@ __all__ = [
     "READINESS_RECORD_KIND",
     "ReadinessError",
     "ReadinessVerifier",
+    "ReleaseCaseResult",
+    "ReleaseDecision",
+    "ReleaseManifest",
     "RESEARCH_STRATEGY_KIND",
     "ROUND_SUPERSESSION_KIND",
     "RunStore",
@@ -624,6 +637,7 @@ __all__ = [
     "validate_human_research_report_payload",
     "validate_semantic_deliveries",
     "validate_blueprint_evaluation_payload",
+    "evaluate_release",
     "validate_readiness_record_payload",
     "validate_risk_verification_payload",
     "validate_technical_package_payload",
