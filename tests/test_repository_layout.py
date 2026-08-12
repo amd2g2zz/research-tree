@@ -40,6 +40,10 @@ def entry(path: str, **overrides: object) -> dict[str, object]:
     return value
 
 
+def error(code: str, path: str, detail: str) -> dict[str, str]:
+    return {"code": code, "path": path, "detail": detail}
+
+
 def test_registry_covers_tracked_roots_and_required_lifecycle() -> None:
     registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
 
@@ -73,16 +77,8 @@ def test_checker_reports_missing_lifecycle_and_unregistered_tracked_root(tmp_pat
     report = checker().validate_repository(tmp_path, registry, tracked_roots={"src", "README.md"})
 
     assert report["errors"] == [
-        {
-            "code": "unregistered-tracked-root",
-            "path": "README.md",
-            "detail": "add a registry entry for this checkout root",
-        },
-        {
-            "code": "invalid-registry",
-            "path": "entries[0].lifecycle",
-            "detail": "field is required",
-        },
+        error("unregistered-tracked-root", "README.md", "add a registry entry for this checkout root"),
+        error("invalid-registry", "entries[0].lifecycle", "field is required"),
     ]
 
 
@@ -99,26 +95,10 @@ def test_checker_rejects_schema_type_drift(tmp_path: Path) -> None:
     report = checker().validate_repository(tmp_path, registry, tracked_roots={"src"})
 
     assert report["errors"] == [
-        {
-            "code": "invalid-registry",
-            "path": "entries[0].canonical_command",
-            "detail": "canonical_command must be a string or null",
-        },
-        {
-            "code": "invalid-registry",
-            "path": "entries[0].distributed",
-            "detail": "distributed must be a boolean",
-        },
-        {
-            "code": "invalid-registry",
-            "path": "entries[0].owner",
-            "detail": "owner must be non-empty",
-        },
-        {
-            "code": "invalid-registry",
-            "path": "entries[0].tracked",
-            "detail": "tracked must be a boolean",
-        },
+        error("invalid-registry", "entries[0].canonical_command", "canonical_command must be a string or null"),
+        error("invalid-registry", "entries[0].distributed", "distributed must be a boolean"),
+        error("invalid-registry", "entries[0].owner", "owner must be non-empty"),
+        error("invalid-registry", "entries[0].tracked", "tracked must be a boolean"),
     ]
 
 
@@ -155,16 +135,8 @@ def test_checker_rejects_invalid_registry_envelope(tmp_path: Path) -> None:
     )
 
     assert report["errors"] == [
-        {
-            "code": "invalid-registry",
-            "path": "entries",
-            "detail": "registry requires at least one entry",
-        },
-        {
-            "code": "invalid-registry",
-            "path": "unexpected",
-            "detail": "field is not allowed",
-        },
+        error("invalid-registry", "entries", "registry requires at least one entry"),
+        error("invalid-registry", "unexpected", "field is not allowed"),
     ]
 
 
@@ -197,11 +169,7 @@ def test_checker_rejects_empty_operator_migration_target(tmp_path: Path) -> None
     )
 
     assert report["errors"] == [
-        {
-            "code": "invalid-registry",
-            "path": "entries[0].migration_target",
-            "detail": "migration_target must be non-empty",
-        }
+        error("invalid-registry", "entries[0].migration_target", "migration_target must be non-empty")
     ]
 
 
@@ -228,11 +196,7 @@ def test_checker_reports_missing_exact_ignore_and_protects_registered_local_root
     report = checker().validate_repository(tmp_path, registry, tracked_roots=set())
 
     assert report["errors"] == [
-        {
-            "code": "missing-ignore-rule",
-            "path": ".codex/",
-            "detail": "registered untracked root requires an exact .gitignore rule",
-        }
+        error("missing-ignore-rule", ".codex/", "registered untracked root requires an exact .gitignore rule")
     ]
     assert report["protected_local_paths"] == [".codex/"]
     assert (tmp_path / ".codex" / "hooks.json").is_file()
@@ -264,11 +228,7 @@ def test_checker_rejects_git_tracked_installed_copy(tmp_path: Path) -> None:
     )
 
     assert report["errors"] == [
-        {
-            "code": "tracked-policy-mismatch",
-            "path": ".agents/",
-            "detail": "registry marks this path untracked but Git contains it",
-        }
+        error("tracked-policy-mismatch", ".agents/", "registry marks this path untracked but Git contains it")
     ]
 
 
@@ -283,11 +243,7 @@ def test_checker_rejects_registered_tracked_path_missing_from_git(tmp_path: Path
     )
 
     assert report["errors"] == [
-        {
-            "code": "tracked-policy-mismatch",
-            "path": "src/",
-            "detail": "registry marks this path tracked but Git has no files",
-        }
+        error("tracked-policy-mismatch", "src/", "registry marks this path tracked but Git has no files")
     ]
 
 
@@ -389,16 +345,8 @@ def test_checker_reports_unregistered_checkout_root_and_install_boundary_drift(t
     )
 
     assert report["errors"] == [
-        {
-            "code": "invalid-installed-boundary",
-            "path": ".agents/",
-            "detail": ".agents/ must be installed_copy and generated_or_link",
-        },
-        {
-            "code": "unregistered-checkout-root",
-            "path": "scratch",
-            "detail": "add a registry entry or relocate this path",
-        },
+        error("invalid-installed-boundary", ".agents/", ".agents/ must be installed_copy and generated_or_link"),
+        error("unregistered-checkout-root", "scratch", "add a registry entry or relocate this path"),
     ]
 
 
@@ -425,11 +373,11 @@ def test_checker_rejects_runtime_output_under_authoring_source(tmp_path: Path) -
     report = checker().validate_repository(tmp_path, registry, tracked_roots={"src"})
 
     assert report["errors"] == [
-        {
-            "code": "misplaced-runtime-output",
-            "path": "src/.research-tree/",
-            "detail": "runtime state belongs in .research-tree/ via research-tree run-status",
-        }
+        error(
+            "misplaced-runtime-output",
+            "src/.research-tree/",
+            "runtime state belongs in .research-tree/ via research-tree run-status",
+        )
     ]
 
 
@@ -512,11 +460,11 @@ def test_checker_requires_migration_map_for_operator_migrated_path(tmp_path: Pat
     )
 
     assert report["errors"] == [
-        {
-            "code": "invalid-registry",
-            "path": "entries[0].migration_target",
-            "detail": "operator-migrated paths require a target and disposition",
-        }
+        error(
+            "invalid-registry",
+            "entries[0].migration_target",
+            "operator-migrated paths require a target and disposition",
+        )
     ]
 
 

@@ -40,17 +40,9 @@ remote metadata. It never stashes, resets, deletes, or repairs the worktree.
 
 ## Repository Layout And Clean Checkout
 
-The machine-readable [repository path registry](../openspec/changes/unify-research-runtime-alpha2/registries/repository-paths-v1.json)
-is the authority for tracked authoring sources, generated distributions,
-repository-local host installations, and runtime or operator-managed material.
-Edit `skill-src/`, `assets/`, `references/`, and `scripts/`; regenerate and
-check `packages/` and `.claude-plugin/` from those sources rather than editing
-generated distribution files directly.
+The [repository path registry](../openspec/changes/unify-research-runtime-alpha2/registries/repository-paths-v1.json) is the authority for sources, generated distributions, local installations, and runtime or operator-managed material. Edit `skill-src/`, `assets/`, `references/`, and `scripts/`; regenerate and check `packages/` and `.claude-plugin/` rather than editing generated files.
 
-Repository-local `.agents/`, `.claude/`, `.codex/`, `.research-tree*/`, raw
-acquisition material, research runs, build output, and caches remain ignored
-and protected local material. The layout checker is read-only: it classifies
-and reports paths but never moves, deletes, or rewrites them.
+Repository-local `.agents/`, `.claude/`, `.codex/`, `.research-tree*/`, raw material, research runs, build output, and caches remain ignored protected material. The layout checker only classifies and reports them.
 
 ```bash
 uv run python scripts/check_repository_layout.py
@@ -58,11 +50,7 @@ uv run python scripts/check_repository_layout.py --workflow-probe
 uv run python scripts/check_repository_layout.py --migration-plan
 ```
 
-The workflow probe runs package validation, supported package and migration
-tests, a temporary project-scoped Codex installation, and a migration-inventory
-sample without changing the checkout. A migration plan is an inspection-only
-report. Resolve every reported collision and retain its confirmation token
-before performing any separately approved manual relocation of user material.
+The workflow probe runs package validation/tests, a temporary project-scoped Codex install, and migration inventory without changing the checkout. A migration plan is inspection-only; resolve collisions and retain its confirmation token before any separately approved manual relocation.
 
 ## Deliver To dev
 

@@ -52,10 +52,6 @@ def _tracked_paths(repository: Path) -> set[str]:
     return {path.decode("utf-8", errors="surrogateescape") for path in result.stdout.split(b"\0") if path}
 
 
-def _tracked_roots(repository: Path) -> set[str]:
-    return {_root_name(path) for path in _tracked_paths(repository)}
-
-
 def _checkout_roots(repository: Path) -> set[str]:
     return {path.name for path in repository.iterdir() if path.name != ".git"}
 
@@ -236,11 +232,6 @@ def _load_registry(
     if len(paths) != len(set(paths)):
         errors.append(_error("invalid-registry", "entries", "paths must be unique"))
     return entries, errors
-
-
-def _entry_for_root(root: str, entries: list[dict[str, Any]]) -> dict[str, Any] | None:
-    matches = [entry for entry in entries if _root_name(str(entry.get("path", ""))) == root]
-    return matches[0] if len(matches) == 1 else None
 
 
 def _entry_contains_tracked_path(entry: dict[str, Any], tracked_path: str) -> bool:
