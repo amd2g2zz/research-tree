@@ -153,15 +153,13 @@ substitute for local evidence.
 - [ ] 13.7 Stop writing `.research-tree-native` and `.research-tree-hermes` completion state only after all black-box release gates pass.
 - [ ] 13.8 Document unsupported schema behavior, recovery, migration, rollback, and final legacy-path removal.
 
-## 14. Canonical Schemas and Lifecycle Contract (#53, #56, #57, #60, #80, #82, #83)
+## 14. Ratified Architecture and Lifecycle Contract (#66)
 
-- [ ] 14.1 Create schemas/ with versioned JSON schemas, valid/invalid examples, owner metadata, and migration notes for every canonical entity.
-- [ ] 14.2 Define the exact InputRecord, PermissionProfile, AlignmentMessage, FeedbackEvent, ResearchRun, DecisionSlot, ResearchAction, SearchPortfolio, WorkItem, AttemptLease, SourceCapture, AcquisitionReceipt, AnalysisCheckpoint, EvidenceArtifact, EvidenceAnchor, OracleSpec, OracleRun, SlotClosureAssessment, InsightDigest, ReadinessRecord, HostEvent, NativeWorkflowRun, DeliveryManifest, DeliveryAcceptance, and ReleaseManifest fields.
-- [ ] 14.3 Publish the schema, protocol, package, template, and database compatibility matrix with reader/writer support, lossless migrators, deprecation, and rejection rules.
-- [ ] 14.4 Implement shared validators and contract-test generation so runtime ingestion and host emission use the same schemas.
-- [ ] 14.5 Publish the lifecycle matrix for alignment, handoff_pending, autonomous_research, synthesis, readiness, delivery_pending, awaiting_acceptance, completed, paused, blocked, superseded, authority_blocked, and failed.
-- [ ] 14.6 Define pause, resume, cancel, provider outage, safety violation, infeasible objective, acceptance rejection, and supersession transitions with guards, side effects, actors, and stable errors.
-- [ ] 14.7 Add replay tests for illegal, stale, duplicate, out-of-order, and terminal transitions and verify identical semantic digests on Windows and POSIX.
+- [x] 14.1 Publish ADR-002 through ADR-005 for completion authority, graph boundaries, SQLite/CAS storage, and host event translation.
+- [x] 14.2 Publish the Alpha2 lifecycle matrix and active capability-spec entry points used by the ratified architecture.
+- [x] 14.3 Bind issue #66 to group 14 and the `ratify-alpha2-runtime-contract` change in the execution registries.
+- [x] 14.4 Reject absent ADR sections, missing lifecycle/spec sources, and stale issue-to-change mappings through focused contract tests.
+- [ ] 14.5 Run the tracked group 14 acceptance command and record a source-bound verification receipt.
 
 ## 15. Worker Orchestration and Acquisition (#54, #56, #58, #60, #61, #80, #83)
 

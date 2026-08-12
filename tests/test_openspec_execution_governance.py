@@ -174,6 +174,51 @@ def test_verified_group_rejects_a_substituted_or_source_less_command_receipt(tmp
     assert "verified_record_incomplete" in codes(report)
 
 
+def test_verified_group_requires_repository_relative_python_entrypoint(
+    tmp_path: Path,
+) -> None:
+    definition = group(1)
+    definition["acceptance_command"] = "uv run python scripts/missing.py"
+    receipt = verified_record(1)
+    receipt["command_receipt"]["command"] = definition["acceptance_command"]  # type: ignore[index]
+
+    report = validate_governance(
+        load_governance_inputs(
+            *inputs(
+                tmp_path,
+                groups=[definition],
+                verification=[receipt],
+                issues=[issue(53, 1, "ledger")],
+                capabilities=[capability("ledger", 53, [1])],
+            )
+        ),
+        repository=tmp_path,
+    )
+
+    assert "missing_acceptance_entrypoint" in codes(report)
+
+
+def test_planned_group_allows_future_acceptance_entrypoint(tmp_path: Path) -> None:
+    definition = group(1)
+    definition["acceptance_command"] = "uv run python scripts/future.py"
+
+    report = validate_governance(
+        load_governance_inputs(
+            *inputs(
+                tmp_path,
+                groups=[definition],
+                verification=[record(1, "planned")],
+                issues=[issue(53, 1, "ledger")],
+                capabilities=[capability("ledger", 53, [1])],
+            )
+        ),
+        repository=tmp_path,
+    )
+
+    assert report.valid is True
+    assert "missing_acceptance_entrypoint" not in codes(report)
+
+
 def test_verified_group_rejects_direct_and_transitive_incomplete_dependencies(
     tmp_path: Path,
 ) -> None:
