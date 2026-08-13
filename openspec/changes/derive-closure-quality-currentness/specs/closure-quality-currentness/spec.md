@@ -7,14 +7,15 @@ current exact Finding graph. It SHALL resolve each qualifying Finding through
 strict evidence, receipt, and capture lineage, and independence SHALL require
 at least two distinct usable `(method_id, provider_id)` boundaries. Caller
 provided provenance groups, counterevidence dispositions, and contradiction
-flags SHALL NOT alter derived checks, successor obligations, persisted payload
-fields, or a closure token.
+flags SHALL NOT be accepted by the API, persisted, migrated, or included in a
+closure token.
 
-#### Scenario: Caller supplies favorable claims for one capture boundary
+#### Scenario: Removed caller quality keyword is rejected
 
-- **WHEN** every qualifying Finding resolves to one capture method/provider
-  boundary while the caller supplies multiple favorable quality arguments
-- **THEN** the assessment is inconclusive and emits a `method_switch` successor
+- **WHEN** a caller invokes `assess()` with a prior provenance,
+  counterevidence, or contradiction keyword
+- **THEN** the API rejects the invocation instead of accepting or ignoring the
+  legacy claim
 
 #### Scenario: Canonical graph has independent capture boundaries
 
@@ -44,18 +45,18 @@ runs beyond the exact supplied candidate set.
   contradictory Finding reference and all other derived checks pass
 - **THEN** the contradiction check is satisfied without trusting a caller flag
 
-### Requirement: Version-two assessments bind deterministic derived inputs
+### Requirement: Current assessments bind deterministic derived inputs
 
 A passed version-two `slot-closure-assessment` SHALL persist evaluator identity,
 exact parent references, derived checks and diagnostics, successor obligations,
 assessor version, and a deterministic token digest. The token envelope SHALL
-exclude caller quality arguments. Existing version-one assessments SHALL remain
-immutable history and SHALL fail version-two currentness validation.
+exclude caller quality arguments. Version-one assessments SHALL be unsupported:
+the runtime SHALL NOT provide a schema, parser, migration, or replay path for
+them.
 
-#### Scenario: Same graph receives different caller quality arguments
+#### Scenario: Same graph is assessed twice
 
-- **WHEN** the core evaluator assesses identical canonical graph inputs with
-  different caller provenance, counterevidence, or contradiction arguments
+- **WHEN** the core evaluator assesses identical canonical graph inputs twice
 - **THEN** the derived payload and token digest are identical
 
 #### Scenario: Derived quality is insufficient
@@ -101,9 +102,9 @@ propagate corrections, expose a new CLI command, or mark parent group 39
 verified. Byte-identical generic-writer authority SHALL remain a #156 and #158
 boundary.
 
-#### Scenario: Replay rejects a non-authoritative stored assessment
+#### Scenario: Replay rejects an unsupported or non-authoritative assessment
 
-- **WHEN** currentness validation rejects malformed, stale, tampered, or
-  non-replayable history
-- **THEN** the artifact remains immutable history and completion registration
-  remains the responsibility of #156 and #158
+- **WHEN** currentness validation receives a version-one, malformed, stale,
+  tampered, or non-replayable payload
+- **THEN** it rejects the payload without a compatibility or migration path,
+  and completion registration remains the responsibility of #156 and #158

@@ -11,12 +11,12 @@ stored assessments have no replay check.
 - Derive method/provider independence and selected-option contradiction
   coverage only from the current canonical Finding, evidence, receipt, capture,
   and OracleRun graph.
-- Preserve the established `assess()` argument shape, but make its caller
-  quality arguments non-authoritative and absent from the persisted result and
-  token envelope.
-- Introduce a versioned closure-assessment payload and deterministic
-  `is_current()` replay that rejects malformed, stale, tampered, or
-  non-replayable assessments.
+- Replace the established `assess()` argument shape with exact graph inputs.
+  Caller quality arguments are removed rather than accepted or persisted.
+- Replace the prior closure-assessment payload with one current contract and
+  deterministic `is_current()` replay that rejects malformed, stale,
+  tampered, or non-replayable assessments. No compatibility reader, migration,
+  or legacy schema remains available.
 - Register Alpha2 group 47 / GitHub issue #161 as a planned, independently
   verifiable child slice.
 

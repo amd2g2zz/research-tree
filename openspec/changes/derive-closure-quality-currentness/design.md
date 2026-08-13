@@ -18,8 +18,9 @@ registration, correction propagation, or the parent group-39 receipt.
   Finding-to-evidence-to-receipt-to-capture chain.
 - Require an exact current passed candidate OracleRun to witness a
   contradiction Finding for the decision's selected option.
-- Persist a replayable version-two assessment envelope and provide an
-  `is_current()` API that replays it against exact current graph inputs.
+- Persist the current version-two assessment envelope and provide an
+  `is_current()` API that replays it against exact current graph inputs. The
+  prior envelope is unsupported and has no compatibility reader or migration.
 - Fail closed for malformed, incomplete, stale, and tampered assessments.
 
 **Non-Goals:**
@@ -43,17 +44,17 @@ registration, correction propagation, or the parent group-39 receipt.
    `input_refs`. There is no claim that an OracleRun adjudicates every possible
    contradiction or that an omitted run can be detected.
 
-2. **Ignore caller quality arguments completely.** `assess()` retains
-   `provenance_groups`, `counterevidence_disposition`, and
-   `active_contradiction` for source compatibility, but none may affect derived
-   checks, successors, persisted payload fields, or the token. This makes the
-   same canonical graph idempotent regardless of caller-supplied claims.
+2. **Remove caller quality arguments completely.** `assess()` accepts only
+   exact graph inputs. `provenance_groups`, `counterevidence_disposition`, and
+   `active_contradiction` are not accepted, persisted, migrated, or replayed.
+   This makes the same canonical graph idempotent without a compatibility
+   shim.
 
-3. **Version the replay envelope.** Version-two assessments persist evaluator
-   identity, exact parent references, derived checks and diagnostics, successor
-   obligations, assessor version, and a deterministic token digest. Version-one
-   artifacts remain history and fail currentness under the version-two replay
-   contract.
+3. **Replace the replay envelope.** Version-two assessments are the only
+   supported payload. They persist evaluator identity, exact parent references,
+   derived checks and diagnostics, successor obligations, assessor version, and
+   a deterministic token digest. Version-one artifacts have no parser, schema,
+   migration, or replay path.
 
 4. **Replay exact state fail-closed.** `is_current()` reparses the stored
    version-two assessment; resolves the exact Finding/evidence/receipt/capture/
@@ -69,21 +70,20 @@ registration, correction propagation, or the parent group-39 receipt.
 
 ## Risks / Trade-offs
 
-- **Existing fixtures use caller claims.** Retain the call shape and update
-  only focused fixtures to prove the arguments cannot influence results.
+- **Callers must use exact graph inputs.** The removed quality keywords fail at
+  the API boundary; focused fixtures prove no compatibility shim remains.
 - **No formal adjudication artifact exists.** Treat an unwitnessed selected
   option contradiction as unresolved and emit adversarial follow-up work.
 - **Replay could duplicate assessment logic.** Centralize snapshot and token
   construction so issue and replay share derivation.
-- **Historical assessments cannot replay.** Retain them as immutable history
-  and fail them closed under the new API.
+- **Prior assessments cannot replay.** They are unsupported and fail closed;
+  Git history is the only retained record.
 
 ## Migration Plan
 
-No historical artifact is rewritten. Add a version-two schema while retaining
-the version-one schema as historical documentation. Rollback treats
-unprovable or stale version-two closures as inconclusive and retains all
-immutable lineage.
+Replace the version-one schema and example with the version-two contract. No
+legacy payload is migrated, replayed, or retained as an active artifact.
+Rollback treats unprovable or stale version-two closures as inconclusive.
 
 ## Open Questions
 

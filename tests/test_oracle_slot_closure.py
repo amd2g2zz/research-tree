@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from pathlib import Path
 
 import pytest
 
@@ -28,6 +30,7 @@ from research_tree.source_capture import (
 
 RUN_ID = "run-oracle"
 CAPTURED_AT = "2026-08-13T00:00:00+00:00"
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _digest(label: str) -> str:
@@ -73,8 +76,16 @@ def _spec() -> OracleSpec:
     )
 
 
-def _oracle_run(service: OracleService, ledger: RunLedger, *, verdict: str = "passed"):
-    input_artifact = _append(ledger, "input-1", "input", {"value": "current"})
+def _oracle_run(
+    service: OracleService,
+    ledger: RunLedger,
+    *,
+    verdict: str = "passed",
+    input_refs: tuple[ArtifactRef, ...] | None = None,
+):
+    if input_refs is None:
+        input_artifact = _append(ledger, "input-1", "input", {"value": "current"})
+        input_refs = (_ref(input_artifact),)
     result_artifact = _append(ledger, "result-1", "result", {"value": "ok"})
     event_artifact = _append(ledger, "event-1", "tool-event", {"exit": 0})
     spec = service.create_spec(
@@ -87,7 +98,7 @@ def _oracle_run(service: OracleService, ledger: RunLedger, *, verdict: str = "pa
         round_id=RUN_ID,
         attempt_id="oracle-attempt-1",
         spec=spec,
-        input_refs=(_ref(input_artifact),),
+        input_refs=input_refs,
         method="pytest",
         environment_digest=_digest("environment"),
         expected_revision=ledger.get_revision(RUN_ID),
@@ -98,7 +109,7 @@ def _oracle_run(service: OracleService, ledger: RunLedger, *, verdict: str = "pa
             oracle_run_id="oracle-run-1",
             oracle_spec_ref=_ref(spec),
             attempt_ref=_ref(attempt),
-            input_refs=(_ref(input_artifact),),
+            input_refs=input_refs,
             method="pytest",
             environment_digest=_digest("environment"),
             toolchain_digest=_digest("toolchain"),
@@ -126,6 +137,8 @@ def _source_graph(
     forged_capture: bool = False,
     forged_evidence: bool = False,
     round_id: str = RUN_ID,
+    method_id: str = "web-fetch",
+    provider_id: str = "fixture-provider",
 ):
     store = ContentAddressedStore(ledger.workspace)
     capture_data = f"capture:{capture_id}".encode()
@@ -144,8 +157,8 @@ def _source_graph(
                 media_type=capture_content.media_type,
                 size_bytes=capture_content.byte_size,
                 captured_at=CAPTURED_AT,
-                method_id="web-fetch",
-                provider_id="fixture-provider",
+                method_id=method_id,
+                provider_id=provider_id,
                 provenance_group="fixture-source",
                 origin_capture_id=origin_capture_id,
             ).to_dict(),
@@ -159,8 +172,8 @@ def _source_graph(
                 receipt_id=f"receipt-{capture_id}",
                 capture_id=capture_id,
                 attempt_id=attempt_id,
-                method_id="web-fetch",
-                provider_id="fixture-provider",
+                method_id=method_id,
+                provider_id=provider_id,
                 requested_at=CAPTURED_AT,
                 completed_at=CAPTURED_AT,
                 status="succeeded",
@@ -176,8 +189,8 @@ def _source_graph(
             attempt_id=attempt_id,
             data=capture_data,
             media_type="text/plain",
-            method_id="web-fetch",
-            provider_id="fixture-provider",
+            method_id=method_id,
+            provider_id=provider_id,
             provenance_group="fixture-source",
             locator={"url": f"https://{capture_id}.test/report"},
             origin_capture_id=origin_capture_id,
@@ -190,8 +203,8 @@ def _source_graph(
             receipt_id=f"receipt-{capture_id}",
             capture=capture_value,
             attempt_id=attempt_id,
-            method_id="web-fetch",
-            provider_id="fixture-provider",
+            method_id=method_id,
+            provider_id=provider_id,
             expected_revision=ledger.get_revision(round_id),
         )
         assert receipt_value.artifact_ref is not None
@@ -207,7 +220,7 @@ def _source_graph(
         content_digest=evidence_content.digest,
         size_bytes=evidence_content.byte_size,
         acquired_at=CAPTURED_AT,
-        acquisition_method="web-fetch",
+        acquisition_method=method_id,
         provenance_group="fixture-source",
         applicability="direct support",
         confidence="high",
@@ -246,7 +259,16 @@ def _source_graph(
     )
 
 
-def _finding(ledger: RunLedger, *, finding_id: str, target, anchor: EvidenceAnchor, effect: str):
+def _finding(
+    ledger: RunLedger,
+    *,
+    finding_id: str,
+    target,
+    anchor: EvidenceAnchor,
+    effect: str,
+    option: str = "a",
+    slot_id: str = "slot-1",
+):
     assert anchor.artifact_ref is not None
     return _append(
         ledger,
@@ -254,10 +276,10 @@ def _finding(ledger: RunLedger, *, finding_id: str, target, anchor: EvidenceAnch
         "finding-pack",
         {
             "blueprint_target_id": target.id,
-            "decision_slot_id": "slot-1",
+            "decision_slot_id": slot_id,
             "evidence_mode": "strict",
             "observations": [{"anchor": anchor.to_dict()}],
-            "option_effects": [{"option": "a", "effect": effect}],
+            "option_effects": [{"option": option, "effect": effect}],
         },
         (_ref(target), anchor.artifact_ref),
     )
@@ -269,12 +291,18 @@ def _assessment_inputs(
     forgery: str | None = None,
     hidden_contradiction: bool = False,
     include_origin: bool = False,
+    independent: bool = False,
+    contradiction_option: str = "a",
+    target_slot_id: str = "slot-1",
+    decision_slot_id: str = "slot-1",
+    decision_status: str = "selected",
+    selected_option: str | None = "a",
 ):
     target = _append(
         ledger,
         "target-1",
         "blueprint-target",
-        {"decision_slots": [{"id": "slot-1", "priority": "P0", "alternatives": ["a", "b"]}]},
+        {"slots": [{"id": target_slot_id, "priority": "P0", "alternatives": ["a", "b"]}]},
     )
     if forgery == "origin":
         forged_origin_content = ContentAddressedStore(ledger.workspace).ingest(b"forged-origin", "text/plain")
@@ -312,8 +340,34 @@ def _assessment_inputs(
         forged_capture=forgery == "capture",
         forged_evidence=forgery == "evidence",
     )
-    finding = _finding(ledger, finding_id="finding-support", target=target, anchor=anchor, effect="supports")
+    finding = _finding(
+        ledger,
+        finding_id="finding-support",
+        target=target,
+        anchor=anchor,
+        effect="supports",
+        slot_id=decision_slot_id,
+    )
     findings = [finding]
+    if independent:
+        _, independent_anchor = _source_graph(
+            ledger,
+            capture_id="capture-independent",
+            evidence_id="evidence-independent",
+            attempt_id="attempt-independent",
+            method_id="repository-read",
+            provider_id="fixture-repository",
+        )
+        findings.append(
+            _finding(
+                ledger,
+                finding_id="finding-independent",
+                target=target,
+                anchor=independent_anchor,
+                effect="supports",
+                slot_id=decision_slot_id,
+            )
+        )
     if hidden_contradiction:
         _, contradiction_anchor = _source_graph(
             ledger,
@@ -328,6 +382,8 @@ def _assessment_inputs(
                 target=target,
                 anchor=contradiction_anchor,
                 effect="contradicts",
+                option=contradiction_option,
+                slot_id=decision_slot_id,
             )
         )
     decision = _append(
@@ -335,9 +391,10 @@ def _assessment_inputs(
         "decision-1",
         "decision-ledger-entry",
         {
-            "decision_slot_id": "slot-1",
-            "status": "selected",
-            "selected_option": "a",
+            "blueprint_target_id": target.id,
+            "decision_slot_id": decision_slot_id,
+            "status": decision_status,
+            "selected_option": selected_option,
             "fallback": "use option b",
             "reversal_condition": "new counterevidence",
         },
@@ -359,9 +416,6 @@ def _assess(assessor: SlotClosureAssessor, ledger: RunLedger, target, decision, 
         findings=findings,
         oracle_runs=oracle_runs,
         evaluator_id=kwargs.pop("evaluator_id", "core-evaluator"),
-        provenance_groups=("independent-source", "independent-test"),
-        counterevidence_disposition=kwargs.pop("counterevidence_disposition", "searched and found none"),
-        active_contradiction=kwargs.pop("active_contradiction", False),
         expected_revision=ledger.get_revision(RUN_ID),
         **kwargs,
     )
@@ -424,7 +478,7 @@ def test_forged_worker_pass_cannot_issue_closure_token(tmp_path) -> None:
 def test_core_evaluator_issues_revision_bound_closure_token(tmp_path) -> None:
     ledger, service = _service(tmp_path)
     _, _, run = _oracle_run(service, ledger)
-    target, decision, findings = _assessment_inputs(ledger)
+    target, decision, findings = _assessment_inputs(ledger, independent=True)
     assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
 
     assessment = _assess(
@@ -447,24 +501,249 @@ def test_non_core_evaluator_cannot_manually_close_slot(tmp_path) -> None:
         _assess(assessor, ledger, target, decision, findings, oracle_runs=(run,), evaluator_id="worker-claims-close")
 
 
-def test_active_contradiction_yields_adversarial_successor_and_replay_is_idempotent(tmp_path) -> None:
+def test_deferred_decision_cannot_issue_a_closure_token(tmp_path) -> None:
+    ledger, service = _service(tmp_path)
+    _, _, run = _oracle_run(service, ledger)
+    target, decision, findings = _assessment_inputs(
+        ledger,
+        decision_status="deferred",
+        selected_option=None,
+    )
+    assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
+
+    with pytest.raises(ClosureAssessmentError, match="selected or conditional"):
+        _assess(assessor, ledger, target, decision, findings, oracle_runs=(run,))
+
+
+def test_decision_slot_must_exist_in_the_canonical_blueprint_target(tmp_path) -> None:
+    ledger, service = _service(tmp_path)
+    _, _, run = _oracle_run(service, ledger)
+    target, decision, findings = _assessment_inputs(ledger, target_slot_id="other-slot")
+    assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
+
+    with pytest.raises(ClosureAssessmentError, match="absent from the exact Blueprint Target"):
+        _assess(assessor, ledger, target, decision, findings, oracle_runs=(run,))
+
+
+def test_selected_option_must_belong_to_the_decision_slot(tmp_path) -> None:
+    ledger, service = _service(tmp_path)
+    _, _, run = _oracle_run(service, ledger)
+    target, decision, findings = _assessment_inputs(ledger, selected_option="outside-slot")
+    assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
+
+    with pytest.raises(ClosureAssessmentError, match="selected_option is absent from the Decision Slot"):
+        _assess(assessor, ledger, target, decision, findings, oracle_runs=(run,))
+
+
+def test_assessment_rejects_removed_caller_quality_arguments(tmp_path) -> None:
     ledger, service = _service(tmp_path)
     _, _, run = _oracle_run(service, ledger)
     target, decision, findings = _assessment_inputs(ledger)
     assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
+
+    with pytest.raises(TypeError, match="provenance_groups"):
+        _assess(
+            assessor,
+            ledger,
+            target,
+            decision,
+            findings,
+            oracle_runs=(run,),
+            provenance_groups=("claimed-one", "claimed-two"),
+        )
+
+
+def test_graph_derived_assessment_is_idempotent(tmp_path) -> None:
+    ledger, service = _service(tmp_path)
+    _, _, run = _oracle_run(service, ledger)
+    target, decision, findings = _assessment_inputs(ledger, independent=True)
+    assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
     arguments = dict(
         oracle_runs=(run,),
-        assessment_id="assessment-contradiction",
-        counterevidence_disposition="contradiction unresolved",
-        active_contradiction=True,
+        assessment_id="assessment-derived",
     )
 
     first = _assess(assessor, ledger, target, decision, findings, **arguments)
     replay = _assess(assessor, ledger, target, decision, findings, **arguments)
 
-    assert first.payload["status"] == "inconclusive"
-    assert "adversarial" in first.payload["successor_kinds"]
+    assert first.payload["status"] == "passed"
     assert replay == first
+    assert "provenance_groups" not in first.payload
+    assert "counterevidence_disposition" not in first.payload
+    assert "active_contradiction" not in first.payload
+
+
+def test_selected_option_contradiction_requires_an_exact_passed_oracle_witness(tmp_path) -> None:
+    ledger, service = _service(tmp_path)
+    _, _, unrelated_run = _oracle_run(service, ledger)
+    target, decision, findings = _assessment_inputs(
+        ledger,
+        independent=True,
+        hidden_contradiction=True,
+    )
+    assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
+
+    unresolved = _assess(
+        assessor,
+        ledger,
+        target,
+        decision,
+        findings,
+        oracle_runs=(unrelated_run,),
+        assessment_id="assessment-unresolved-contradiction",
+    )
+    _, _, witnessed_run = _oracle_run(
+        service,
+        ledger,
+        input_refs=(_ref(findings[-1]),),
+    )
+    witnessed = _assess(
+        assessor,
+        ledger,
+        target,
+        decision,
+        findings,
+        oracle_runs=(witnessed_run,),
+        assessment_id="assessment-witnessed-contradiction",
+    )
+
+    assert unresolved.payload["status"] == "inconclusive"
+    assert "adversarial" in unresolved.payload["successor_kinds"]
+    assert witnessed.payload["status"] == "passed"
+
+
+def test_unselected_option_contradiction_does_not_create_an_adversarial_obligation(tmp_path) -> None:
+    ledger, service = _service(tmp_path)
+    _, _, run = _oracle_run(service, ledger)
+    target, decision, findings = _assessment_inputs(
+        ledger,
+        independent=True,
+        hidden_contradiction=True,
+        contradiction_option="b",
+    )
+    assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
+
+    assessment = _assess(assessor, ledger, target, decision, findings, oracle_runs=(run,))
+
+    assert assessment.payload["status"] == "passed"
+    assert "adversarial" not in assessment.payload["successor_kinds"]
+
+
+def _passed_v2_assessment(tmp_path, *, include_origin: bool = False):
+    ledger, service = _service(tmp_path)
+    spec, attempt, run = _oracle_run(service, ledger)
+    target, decision, findings = _assessment_inputs(
+        ledger,
+        independent=True,
+        include_origin=include_origin,
+    )
+    assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
+    assessment = _assess(
+        assessor,
+        ledger,
+        target,
+        decision,
+        findings,
+        oracle_runs=(run,),
+        assessment_id="assessment-currentness",
+    )
+    assert assessment.payload["status"] == "passed"
+    return ledger, assessor, assessment, target, decision, findings, spec, attempt, run
+
+
+def test_currentness_replays_an_exact_derived_v2_assessment(tmp_path) -> None:
+    _, assessor, assessment, *_ = _passed_v2_assessment(tmp_path)
+
+    assert assessment.payload["assessment_revision"] == 2
+    assert assessor.is_current(assessment) is True
+
+
+def test_current_schema_and_fixture_match_the_runtime_assessment_envelope(tmp_path) -> None:
+    _, _, assessment, *_ = _passed_v2_assessment(tmp_path)
+    schema_root = ROOT / "openspec" / "changes" / "unify-research-runtime-alpha2" / "schemas"
+    schema = json.loads((schema_root / "slot-closure-assessment-v2.json").read_text(encoding="utf-8"))
+    examples = json.loads((schema_root / "examples" / "index-v1.json").read_text(encoding="utf-8"))
+    fixture = next(item for item in examples["entries"] if item["schema"] == "slot-closure-assessment-v2.json")
+
+    assert not (schema_root / "slot-closure-assessment-v1.json").exists()
+    assert all(item["schema"] != "slot-closure-assessment-v1.json" for item in examples["entries"])
+    assert set(schema["required"]) == set(assessment.payload)
+    assert set(schema["required"]) == set(fixture["valid"])
+    assert schema["additionalProperties"] is False
+    with pytest.raises(ClosureAssessmentError, match="unsupported fields"):
+        SlotClosureAssessment.from_dict({**thaw_json(assessment.payload), "extra": True})
+
+
+@pytest.mark.parametrize(
+    "lineage_item",
+    [
+        "target",
+        "decision",
+        "finding",
+        "oracle_run",
+        "oracle_spec",
+        "oracle_attempt",
+        "oracle_input",
+        "oracle_result",
+        "oracle_event",
+    ],
+)
+def test_currentness_rejects_a_superseded_direct_oracle_or_decision_input(tmp_path, lineage_item: str) -> None:
+    ledger, assessor, assessment, target, decision, findings, spec, attempt, run = _passed_v2_assessment(tmp_path)
+    oracle = OracleRun.from_revision(_ref(run), run)
+    items = {
+        "target": target,
+        "decision": decision,
+        "finding": findings[0],
+        "oracle_run": run,
+        "oracle_spec": spec,
+        "oracle_attempt": attempt,
+        "oracle_input": ledger.get_artifact(oracle.input_refs[0]),
+        "oracle_result": ledger.get_artifact(oracle.result_artifact_refs[0]),
+        "oracle_event": ledger.get_artifact(oracle.tool_event_refs[0]),
+    }
+    item = items[lineage_item]
+    _append(ledger, item.id, item.kind, thaw_json(item.payload), item.parent_refs)
+
+    assert assessor.is_current(assessment) is False
+
+
+@pytest.mark.parametrize("artifact_kind", ["evidence", "receipt", "capture", "origin"])
+def test_currentness_rejects_a_superseded_strict_evidence_chain_input(tmp_path, artifact_kind: str) -> None:
+    ledger, assessor, assessment, _, _, findings, *_ = _passed_v2_assessment(tmp_path, include_origin=True)
+    item = _bound_source_artifact(ledger, findings[0], artifact_kind)
+    _append(ledger, item.id, item.kind, thaw_json(item.payload), item.parent_refs)
+
+    assert assessor.is_current(assessment) is False
+
+
+def test_currentness_rejects_raw_legacy_and_tampered_assessments(tmp_path) -> None:
+    ledger, assessor, assessment, *_ = _passed_v2_assessment(tmp_path)
+    raw = _append(ledger, "assessment-raw", ASSESSMENT_KIND, {"status": "passed"})
+    v1_payload = thaw_json(assessment.payload)
+    v1_payload["assessment_id"] = "assessment-v1"
+    v1_payload["assessment_revision"] = 1
+    legacy = _append(
+        ledger,
+        "assessment-v1",
+        ASSESSMENT_KIND,
+        v1_payload,
+        assessment.parent_refs,
+    )
+    tampered_payload = thaw_json(assessment.payload)
+    tampered_payload["assessment_id"] = "assessment-tampered"
+    tampered_payload["checks"]["oracle"] = False
+    tampered = _append(
+        ledger,
+        "assessment-tampered",
+        ASSESSMENT_KIND,
+        tampered_payload,
+        assessment.parent_refs,
+    )
+
+    assert assessor.is_current(raw) is False
+    assert assessor.is_current(legacy) is False
+    assert assessor.is_current(tampered) is False
 
 
 @pytest.mark.parametrize("forgery", ["capture", "evidence", "origin"])
@@ -887,6 +1166,7 @@ def test_foreign_evidence_lineage_cannot_issue_a_token(tmp_path, foreign_parent:
         "decision-1",
         "decision-ledger-entry",
         {
+            "blueprint_target_id": target.id,
             "decision_slot_id": "slot-1",
             "status": "selected",
             "selected_option": "a",
