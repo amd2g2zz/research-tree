@@ -317,6 +317,11 @@
         "recorded_at": "2026-08-13T03:41:26.020616+00:00"
       },
       "rollback": "fail Hermes package compatibility and installation closed when executable cold-start validation fails"
+    },
+    {
+      "group": 46,
+      "state": "planned",
+      "rollback": "treat unprovable closure evidence as inconclusive and retain existing assessments as history"
     }
   ]
 }

@@ -41,6 +41,7 @@
     { "issue": 98, "primary_group": 33, "supporting_groups": [], "capabilities": ["content-addressed-artifacts"], "openspec_change": "add-content-addressed-artifacts" },
     { "issue": 99, "primary_group": 34, "supporting_groups": [], "capabilities": ["legacy-runstore-import"], "openspec_change": "import-alpha1-runstore" },
     { "issue": 112, "primary_group": 35, "supporting_groups": [], "capabilities": ["integrated-evidence-reconciliation"], "openspec_change": "reconcile-foundation-verification-receipts" },
-    { "issue": 155, "primary_group": 42, "supporting_groups": [], "capabilities": ["isolated-hermes-executable-bundle"], "openspec_change": "make-isolated-hermes-bundle-executable" }
+    { "issue": 155, "primary_group": 42, "supporting_groups": [], "capabilities": ["isolated-hermes-executable-bundle"], "openspec_change": "make-isolated-hermes-bundle-executable" },
+    { "issue": 160, "primary_group": 46, "supporting_groups": [], "capabilities": ["closure-evidence-content-binding"], "openspec_change": "bind-closure-evidence-content" }
   ]
 }
