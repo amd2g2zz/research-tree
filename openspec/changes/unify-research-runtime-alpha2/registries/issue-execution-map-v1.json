@@ -10,7 +10,7 @@
     { "issue": 117, "role": "follow_up", "status": "planned", "pull_request": null }
   ],
   "issues": [
-    { "issue": 53, "primary_group": 2, "supporting_groups": [13, 14, 17], "capabilities": ["durable-research-runtime", "canonical-schemas", "security-execution-boundary"], "openspec_change": "enforce-alpha2-storage-foundation" },
+    { "issue": 53, "primary_group": 2, "supporting_groups": [14, 17], "capabilities": ["durable-research-runtime", "canonical-schemas", "security-execution-boundary"], "openspec_change": "enforce-alpha2-storage-foundation" },
     { "issue": 54, "primary_group": 3, "supporting_groups": [4], "capabilities": ["evidence-verification"], "openspec_change": "add-resolvable-evidence-artifacts" },
     { "issue": 55, "primary_group": 1, "supporting_groups": [], "capabilities": ["alpha1-adversarial-baseline"], "openspec_change": "establish-alpha1-adversarial-baseline" },
     { "issue": 56, "primary_group": 4, "supporting_groups": [], "capabilities": ["oracle-slot-closure"], "openspec_change": "add-oracle-slot-closure" },
@@ -22,7 +22,6 @@
     { "issue": 62, "primary_group": 10, "supporting_groups": [], "capabilities": ["semantic-research-delivery"], "openspec_change": "enforce-semantic-dual-delivery" },
     { "issue": 63, "primary_group": 11, "supporting_groups": [], "capabilities": ["runtime-observability"], "openspec_change": "add-causal-observability" },
     { "issue": 64, "primary_group": 12, "supporting_groups": [20], "capabilities": ["research-quality-evaluation"], "openspec_change": "define-black-box-release-gates" },
-    { "issue": 65, "primary_group": 13, "supporting_groups": [], "capabilities": ["alpha2-migration-packaging"], "openspec_change": "migrate-alpha1-state" },
     { "issue": 66, "primary_group": 14, "supporting_groups": [], "capabilities": ["alpha2-contract-ratification"], "openspec_change": "ratify-alpha2-runtime-contract" },
     { "issue": 67, "primary_group": 22, "supporting_groups": [18], "capabilities": ["implementation-release-contract", "release-evidence"], "openspec_change": "complete-alpha2-release" },
     { "issue": 68, "primary_group": 19, "supporting_groups": [], "capabilities": ["documentation-governance"], "openspec_change": "govern-documentation-authority" },
@@ -39,11 +38,11 @@
     { "issue": 86, "primary_group": 29, "supporting_groups": [], "capabilities": ["project-user-preference-profile"], "openspec_change": "add-project-user-preference-profile" },
     { "issue": 87, "primary_group": 31, "supporting_groups": [], "capabilities": ["decision-frame"], "openspec_change": "clarify-intent-before-strategy" },
     { "issue": 98, "primary_group": 33, "supporting_groups": [], "capabilities": ["content-addressed-artifacts"], "openspec_change": "add-content-addressed-artifacts" },
-    { "issue": 99, "primary_group": 34, "supporting_groups": [], "capabilities": ["legacy-runstore-import"], "openspec_change": "import-alpha1-runstore" },
     { "issue": 112, "primary_group": 35, "supporting_groups": [], "capabilities": ["integrated-evidence-reconciliation"], "openspec_change": "reconcile-foundation-verification-receipts" },
     { "issue": 155, "primary_group": 42, "supporting_groups": [], "capabilities": ["isolated-hermes-executable-bundle"], "openspec_change": "make-isolated-hermes-bundle-executable" },
     { "issue": 160, "primary_group": 46, "supporting_groups": [], "capabilities": ["closure-evidence-content-binding"], "openspec_change": "bind-closure-evidence-content" },
     { "issue": 164, "primary_group": 54, "supporting_groups": [], "capabilities": ["legacy-cli-surface-removal"], "openspec_change": "remove-legacy-cli-surface" },
+    { "issue": 167, "primary_group": 55, "supporting_groups": [], "capabilities": ["legacy-runstore-import-removal"], "openspec_change": "remove-legacy-runstore-import-authority" },
     { "issue": 169, "primary_group": 57, "supporting_groups": [], "capabilities": ["current-only-skill-setup"], "openspec_change": "remove-legacy-setup-migration" }
   ]
 }

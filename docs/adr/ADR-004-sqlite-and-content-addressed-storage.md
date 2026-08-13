@@ -30,5 +30,6 @@ cannot become evidence merely because bytes exist on disk.
 
 ## Migration
 
-Alpha1 RunStore rounds are imported idempotently as `legacy_unverified` history.
-Compatibility readers remain available until recovery and rollback gates pass.
+No migration, importer, or compatibility reader is provided. The current runtime
+accepts only canonical SQLite and content-addressed state, leaving previously
+persisted user data untouched.

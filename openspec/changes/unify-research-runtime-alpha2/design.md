@@ -1,8 +1,8 @@
 ## Context
 
-Alpha1 contains two partially overlapping post-handoff systems. The structured product path persists Inputs, Intent Models, Working Briefs, Blueprint Targets, Work Items, Finding Packs, Decision Ledger entries, readiness records, and compiled deliveries. A newer recursive path separately tracks Decision Slot evidence, frontier nodes, validation strings, report manifests, and completion. Native and Hermes adapters add further host-local checkpoints and report gates.
-
-This split lets a host batch, recursive state, or shape-valid Markdown claim completion without passing the stronger Decision Ledger and Readiness contracts. It also makes crash recovery and diagnosis ambiguous because alignment SQLite, filesystem RunStore, native state, Hermes state, and report files may disagree.
+Research Tree uses one current coordinator for structured lifecycle, evidence,
+readiness, delivery, and completion authority. Host adapters may emit events or
+checkpoint work, but they cannot create a second authority.
 
 Alpha2 is a local, Python 3.11+ skill runtime for Codex, Claude Code, and Hermes. It must remain dependency-light, support Windows and POSIX hosts, preserve strict UTF-8 without BOM, tolerate long-horizon execution without cost-based termination, and retain separate host package formats. Users collaborate with the agent before strategy handoff; after explicit confirmation, normal research decisions are autonomous until authority, safety, feasibility, or final acceptance requires human input.
 
@@ -107,8 +107,8 @@ canonical inputs, builds both structured documents, and evaluates a typed claim
 index and depth rubric before exposing the pair. Acceptance is a typed feedback
 transition: current exact-pair acceptance may complete, research-quality
 rejection resumes the same round, and target/scope/intent correction creates a
-successor round. Legacy Human Brief artifacts remain read-only migration input
-and never satisfy Alpha2 delivery obligations.
+successor round. Retired delivery artifacts never satisfy Alpha2 delivery
+obligations.
 
 ### 9. Completion is a conjunction of independently checkable facts
 
@@ -122,7 +122,9 @@ A run completes only when:
 6. required independent implementation or hidden-oracle evaluation passes; and
 7. the user explicitly accepts the exact delivery revisions.
 
-Empty frontier, exhausted local capacity, completed worker waves, hook success, report existence, or generic acknowledgement are not completion conditions. Alpha1 states `aligned`, `searching`, `delivery_pending`, `complete`, and `unknown` map respectively to `handoff_pending`, `autonomous_research`, `delivery_pending`, `completed`, and attempt-level `unknown`; they are never accepted as new canonical state names.
+Empty frontier, exhausted local capacity, completed worker waves, hook success,
+report existence, or generic acknowledgement are not completion conditions.
+Retired state labels are never accepted as canonical state names.
 
 ### 10. Traces explain causes; black-box cases decide release
 
@@ -140,7 +142,7 @@ Generated package documentation is never an authoring source. Build provenance a
 
 Alpha2 selects one canonical evaluation namespace. Versioned cases, schemas, harness code, public fixtures, hidden-oracle interfaces, registered baselines, scored results, expert reviews, raw transcripts, and disposable output occupy non-overlapping governed paths. Every retained result binds the case version, implementation revision, host/package identity, command, environment, evaluator, and referenced artifacts.
 
-Raw provider logs, secrets, hidden oracle bodies, and unredacted transcripts are not public evaluation fixtures. Retention, redaction, size, and ignore policies are enforced. The current `evaluation/cases/v1.json`, untracked `evaluation/experiences`, and ambiguous `evals/` root receive explicit migration dispositions before #55 or #64 can define release evidence.
+Raw provider logs, secrets, hidden oracle bodies, and unredacted transcripts are not public evaluation fixtures. Retention, redaction, size, and ignore policies are enforced. The current `evaluation/cases/v1.json`, untracked `evaluation/experiences`, and ambiguous `evals/` root receive explicit lifecycle dispositions before #55 or #64 can define release evidence.
 
 ### 13. Repository paths encode ownership and mutability
 
@@ -162,13 +164,13 @@ The minimum implementation surface is explicit:
 | policy | local AdaptiveResearchPolicy | baseline-zero, growth, pruning, contradiction, and method-switch traces |
 | interaction | alignment planner and handoff/acceptance contracts | one-prompt, stale-confirmation, disagreement, and feedback runs |
 | delivery | semantic compilers and report manifest | claim-to-source, implementation boundary, depth, and acceptance gates |
-| operations | migration, CLI, setup, trace, and audit export | clean-checkout, install, rollback, and replay evidence |
+| operations | CLI, setup, trace, and audit export | clean-checkout, install, rollback, and replay evidence |
 
 No capability is considered delivered if its proof is only a unit test for a helper while the end-to-end contract remains unexercised.
 
 ### 15. Failure semantics are part of the public API
 
-Expected failures use stable machine-readable codes and a common shape containing `code`, `category`, `retryability`, `run_id`, `attempt_id` when applicable, `unmet_obligations`, `safe_message`, `evidence_refs`, and `next_action`. The registry distinguishes invalid input, stale revision, permission denial, unavailable provider, unknown attempt, failed oracle, unresolved evidence, contradiction, migration collision, canonical-store outage, and terminal authority block.
+Expected failures use stable machine-readable codes and a common shape containing `code`, `category`, `retryability`, `run_id`, `attempt_id` when applicable, `unmet_obligations`, `safe_message`, `evidence_refs`, and `next_action`. The registry distinguishes invalid input, stale revision, permission denial, unavailable provider, unknown attempt, failed oracle, unresolved evidence, contradiction, canonical-store outage, and terminal authority block.
 
 Every failure path has an explicit state effect, retry policy, escalation owner, and audit event. A textual blocked message without persisted cause and recovery action is not a valid outcome.
 
@@ -178,11 +180,12 @@ Implementation proceeds in slices that each cross storage, coordinator, adapter,
 
 ### 17. The initial persistence layout is fixed for alpha2
 
-Alpha2 uses one workspace-scoped database at .research-tree/run-ledger.sqlite3 with schema migrations recorded in schema_migrations. The database is the authority for all runs in that workspace; round_id remains a compatibility alias mapped to run_id plus a lineage revision. The CAS root is .research-tree/cas/sha256/<first-two>/<digest>. Temporary staging is .research-tree/staging/; rebuildable projections are .research-tree/projections/; retained redacted evaluation results are evaluation/results/; raw and disposable evaluation runs stay under ignored .research-tree/evaluation-runs/.
+Alpha2 uses one workspace-scoped database at .research-tree/run-ledger.sqlite3 with schema revisions recorded in schema_migrations. The database is the authority for all runs in that workspace; the canonical run id plus a lineage revision identifies current state. The CAS root is .research-tree/cas/sha256/<first-two>/<digest>. Temporary staging is .research-tree/staging/; rebuildable projections are .research-tree/projections/; retained redacted evaluation results are evaluation/results/; raw and disposable evaluation runs stay under ignored .research-tree/evaluation-runs/.
 
-SQLite schema v1 includes runs, artifacts, artifact_parents, events, attempts, leases, evidence, oracles, closures, insights, host_events, deliveries, acceptances, migrations, and audit_exports, with foreign keys, unique (run_id, event_id), unique content digests, and expected-revision optimistic concurrency. CAS writes are staged, fsynced, digest-checked, and linked in the same coordinator operation; orphan blobs are quarantined for GC and never treated as evidence.
+SQLite schema v1 includes runs, artifacts, artifact_parents, events, attempts, leases, evidence, oracles, closures, insights, host_events, deliveries, acceptances, and audit_exports, with foreign keys, unique (run_id, event_id), unique content digests, and expected-revision optimistic concurrency. CAS writes are staged, fsynced, digest-checked, and linked in the same coordinator operation; orphan blobs are quarantined for GC and never treated as evidence.
 
-Field-level legacy mapping is fixed in registries/legacy-field-map-v1.json. In particular, round_id is an alias rather than a second key, old tree and host status values are observations to be translated, and validation_result.status and human-brief cannot write canonical closure or acceptance.
+No legacy field map is loaded. Current inputs must satisfy the canonical schema
+without aliases, projections, or import dispositions.
 
 ### 18. Policy formulas and calibration are deterministic
 
@@ -213,7 +216,7 @@ evaluation/ is the sole tracked evaluation source namespace. Its registered subt
 The checked-in registries under `registries/` are not illustrative notes. The
 lifecycle matrix, error catalog, host capability matrix, task execution registry,
 delivery coverage matrix, documentation authority registry, evaluation path registry,
-repository path registry, and legacy field map are loaded by contract validation.
+repository path registry are loaded by contract validation.
 Each registry has a version, owner, digest in the release manifest, and an explicit
 unknown-entry behavior. A missing registry entry is a release-blocking error; a host
 capability marked `host-dependent` is treated as unsupported until an adapter probe
@@ -262,7 +265,7 @@ and can still harden an unsupported hypothesis into product policy.
 
 ## Risks / Trade-offs
 
-- **[Migration rejects previously "complete" runs]** -> Import legacy artifacts with explicit `legacy_unverified` dispositions and require alpha2 closure/readiness before completion.
+- **[Retired artifacts are presented as current input]** -> Reject them at the boundary; only canonical artifacts can satisfy closure or readiness.
 - **[SQLite single-writer contention]** -> Keep transactions short, make the coordinator the only canonical writer, use WAL for readers, and persist worker output outside the transaction before ingestion.
 - **[Evidence resolution cannot prove truth]** -> Separate provenance/integrity from semantic confidence, require counterevidence and risk-tiered oracles, and expose residual uncertainty.
 - **[Automated semantic evaluation can be gamed]** -> Use deterministic invariants first, then hidden implementation oracles and blinded expert review; an LLM judge is never sole authority.
@@ -271,32 +274,32 @@ and can still harden an unsupported hypothesis into product policy.
 - **[Saved notes leak private reasoning or secrets]** -> Persist only the bounded AnalysisCheckpoint schema, redact secrets and full prompts, and prohibit private chain-of-thought fields.
 - **[Search diversity is simulated by query count]** -> Record method/provider failure boundaries and test that repeated calls to one provider do not satisfy independent-method coverage.
 - **[Long-horizon research can stall]** -> Persist attempts, no-change penalties, method-switch actions, leases, and resumable checkpoints; operational limits pause rather than complete.
-- **[Removing old paths is disruptive]** -> Stage import, read-only compatibility projections, shadow evaluation, and explicit cutover; never use permanent dual writes.
+- **[Removing old paths is disruptive]** -> Use a version-control cutover and clear release notes; runtime provides no import, projection, or compatibility route.
 - **[Human acceptance can delay terminal completion]** -> Separate research/readiness completion from final delivery acceptance while keeping the overall run non-complete and resumable.
 - **[Governance work expands the alpha2 critical path]** -> Treat documentation, evaluation assets, and path boundaries as release integrity work; sequence inventories early and avoid unrelated content rewrites.
-- **[Directory migration can overwrite local evidence]** -> Inventory and classify first, never automatically delete untracked paths, and require an explicit migration map with collision checks.
+- **[Directory reclassification can overwrite local evidence]** -> Inventory and classify first, never automatically delete untracked paths, and require an explicit path map with collision checks.
 - **[Historical documents can be mistaken for current requirements]** -> Preserve them with supersession metadata and exclude them from active-contract validation unless explicitly referenced.
 - **[A large contract remains unimplemented behind green schema checks]** -> Require a vertical-slice smoke path and requirement-to-evidence matrix before each capability is marked complete.
-- **[New API names diverge from existing services]** -> Define compatibility aliases and an explicit deprecation/removal matrix before changing public entry points.
+- **[New API names diverge from existing services]** -> Define an explicit removal matrix before changing public entry points.
 
-## Migration Plan
+## Current-Only Cutover Plan
 
-1. Freeze alpha1 at tag `0.0.1-a1` and land adversarial semantic regression fixtures.
-2. Ratify the contract registry, capability specs, transition matrix, error catalog, and ADRs; introduce the storage protocol, SQLite RunLedger, CAS, and idempotent legacy importer without changing current reads.
+1. Land adversarial semantic regression fixtures for the canonical runtime.
+2. Ratify the contract registry, capability specs, transition matrix, error catalog, and ADRs; introduce the storage protocol, SQLite RunLedger, and CAS as current-only authority.
 3. Add canonical entity validators and examples for SearchPortfolio, SourceCapture, AcquisitionReceipt, AnalysisCheckpoint, Evidence Artifact, OracleRun, SlotClosureAssessment, Work Item, Attempt, HostEvent, DeliveryAcceptance, and release manifests.
-4. Add source-capture/checkpoint continuity, Evidence Artifact, OracleRun, and SlotClosureAssessment implementations and migrate canonical Finding Pack ingestion.
+4. Add source-capture/checkpoint continuity, Evidence Artifact, OracleRun, SlotClosureAssessment, and canonical Finding Pack ingestion.
 5. Introduce ResearchRunCoordinator behind an alpha2 feature boundary and route the structured Decision Ledger/Readiness/Delivery path through it.
 6. Demote recursive search to AdaptiveResearchPolicy and remove its closure/delivery authority.
-7. Convert Codex and Claude Code adapters, then Hermes, to Host Event Protocol translators; add capability-negotiated native workflow projections and host-neutral fallbacks. Keep legacy state read-only for comparison.
+7. Convert Codex and Claude Code adapters, then Hermes, to Host Event Protocol translators; add capability-negotiated native workflow projections and host-neutral fallbacks.
 8. Replace fixed alignment planning, adapter report gates, and Human Brief naming; add revision-bound acceptance and the one-prompt interaction contract.
 9. Ratify the documentation authority registry, repository path registry, evaluation asset taxonomy, and host capability matrix; inventory current tracked and untracked classes without deleting user artifacts.
-10. Migrate documentation and evaluation definitions, enforce generated-package provenance, and establish governed locations for retained baselines, expert reviews, and redacted run evidence.
-11. Expose the stable coordinator CLI/API, migration commands, trace/replay commands, setup smoke checks, and a clean-checkout vertical-slice command.
-12. Run cross-host shadow and black-box evaluation against alpha1 from a clean checkout. Fix all false-completion, parity, asset-provenance, layout, and contract violations.
-13. Cut over package builds and setup documentation. Stop writing legacy state paths and mark unsupported schema versions explicitly.
-14. Remove compatibility projections only after migration, rollback, vertical-slice, and release-manifest checks pass.
+10. Update documentation and evaluation definitions, enforce generated-package provenance, and establish governed locations for retained baselines, expert reviews, and redacted run evidence.
+11. Expose the stable coordinator CLI/API, trace/replay commands, setup smoke checks, and a clean-checkout vertical-slice command.
+12. Run cross-host black-box evaluation from a clean checkout. Fix all false-completion, parity, asset-provenance, layout, and contract violations.
+13. Cut over package builds and setup documentation. Reject unsupported schema versions explicitly.
+14. Remove retired authorities through source deletion and release verification.
 
-Rollback before cutover restores alpha1 readers against untouched legacy inputs. Rollback after cutover restores the prior application version while retaining the append-only alpha2 database; alpha2 writes are never back-projected as trusted alpha1 closure.
+Rollback before release is a Git revert. Rollback after release restores the prior application version while retaining user-owned data unchanged; runtime never reintroduces a legacy reader or projection.
 
 ## Open Questions
 

@@ -56,7 +56,7 @@ def test_integrated_receipt_records_merged_slices_and_boundary() -> None:
         assert command["output_digest"] == hashlib.sha256(raw_bytes).hexdigest()
 
 
-def test_group_35_owns_integrated_receipt_and_future_gaps_remain_unverified() -> None:
+def test_group_35_owns_integrated_receipt_and_preserves_historical_future_gap_evidence() -> None:
     inputs = load_governance_inputs(*default_registry_paths(ROOT))
     report = validate_governance(inputs)
 
@@ -85,18 +85,18 @@ def test_group_35_owns_integrated_receipt_and_future_gaps_remain_unverified() ->
         31,
         32,
         33,
-        34,
         35,
         42,
         46,
         54,
+        55,
         57,
     )
     assert report.unverified_groups == (
         *(
             group
             for group in range(6, 33)
-            if group not in {6, 7, 8, 9, 10, 11, 12, 14, 16, 20, 23, 25, 26, 28, 29, 31, 32}
+            if group not in {6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 20, 23, 25, 26, 28, 29, 31, 32}
         ),
     )
 

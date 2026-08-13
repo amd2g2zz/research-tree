@@ -2,8 +2,8 @@
 
 This directory is the implementation and CI input for the alpha2 contract
 specifications. The OpenSpec prose explains behavior; these files freeze the
-wire shape used by Python validators, SQLite rows, host adapters, migration
-tools, and release evidence.
+wire shape used by Python validators, SQLite rows, host adapters, and release
+evidence.
 
 ## Registry
 
@@ -40,9 +40,7 @@ tools, and release evidence.
 | release-manifest-v1.json | Immutable release gate evidence | release evaluator |
 | path-registry-v1.json | Repository path ownership and lifecycle | layout checker |
 | examples/index-v1.json | Smallest valid, P0, and negative contract fixtures | contract harness |
-| sqlite-v1.sql | Initial workspace ledger DDL and constraints | storage migration |
-| compatibility-matrix.md | Alpha1 to alpha2 field and authority mapping | migration verifier |
-| ../registries/legacy-field-map-v1.json | Field-level legacy import rules | migration verifier |
+| sqlite-v1.sql | Initial workspace ledger DDL and constraints | storage schema |
 
 The companion registries freeze the lifecycle matrix, error catalog, host capability
 negotiation, task execution metadata, delivery coverage, documentation authority,
@@ -53,20 +51,8 @@ All schemas use JSON Schema 2020-12, reject unknown fields, and require
 canonical UTF-8-without-BOM JSON hashing: NFC-normalized strings, sorted keys,
 no insignificant whitespace, finite JSON numbers, and SHA-256 over the object
 with its content_hash member omitted. A schema change requires a new version, a
-compatibility row, a valid and invalid example, and a lossless migration or an
-explicit rejection disposition.
-
-## Legacy Mapping
-
-| Alpha1 surface | Alpha2 disposition |
-| --- | --- |
-| round_id | compatibility alias mapped to run_id and lineage revision |
-| filesystem RunStore | imported through migration tool; source remains digest-addressable |
-| alignment SQLite | imported as alignment artifacts and event history; no independent completion writes |
-| research-tree-state | projection only; coordinator owns Slot and run status |
-| native/Hermes state.json | read-only import/projection; host events become canonical |
-| human-brief | legacy delivery kind; imported as unverified and cannot satisfy acceptance |
-| validation_result.status | observation only; OracleRun is authoritative |
+versioning decision, a valid and invalid example, and an explicit rejection
+disposition for unsupported input.
 
 ## Validation
 

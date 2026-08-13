@@ -1,17 +1,17 @@
-...............................................................................                                                                                                                                                     [100%]
-79 passed in 12.30s
+...........................................................................                                                                                                                                                         [100%]
+75 passed in 13.30s
 All checks passed!
 5 files already formatted
 {
   "marketplace": {
-    "marketplace": "D:\\codebase\\research-tree-worktrees\\issue-164-legacy-cli-containment\\.claude-plugin\\marketplace.json",
+    "marketplace": "D:\\codebase\\research-tree-worktrees\\issue-167-remove-legacy-import\\.claude-plugin\\marketplace.json",
     "valid": true,
     "errors": []
   },
   "packages": [
     {
       "host": "codex",
-      "package": "D:\\codebase\\research-tree-worktrees\\issue-164-legacy-cli-containment\\packages\\codex\\research-tree",
+      "package": "D:\\codebase\\research-tree-worktrees\\issue-167-remove-legacy-import\\packages\\codex\\research-tree",
       "valid": true,
       "resources": [
         "assets/brief-template.md",
@@ -34,7 +34,7 @@ All checks passed!
     },
     {
       "host": "claude",
-      "package": "D:\\codebase\\research-tree-worktrees\\issue-164-legacy-cli-containment\\packages\\claude-code\\research-tree",
+      "package": "D:\\codebase\\research-tree-worktrees\\issue-167-remove-legacy-import\\packages\\claude-code\\research-tree",
       "valid": true,
       "resources": [
         "assets/brief-template.md",
@@ -57,7 +57,7 @@ All checks passed!
     },
     {
       "host": "hermes",
-      "package": "D:\\codebase\\research-tree-worktrees\\issue-164-legacy-cli-containment\\packages\\hermes\\research-tree",
+      "package": "D:\\codebase\\research-tree-worktrees\\issue-167-remove-legacy-import\\packages\\hermes\\research-tree",
       "valid": true,
       "resources": [
         "assets/brief-template.md",

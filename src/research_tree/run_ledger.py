@@ -19,10 +19,6 @@ from .domain import (
     validate_identifier,
 )
 from .content_store import ContentAddressedStore, ContentObject
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .legacy_import import LegacyImportReceipt
 
 
 class LedgerError(Exception):
@@ -113,14 +109,6 @@ class RunLedger:
                     FOREIGN KEY (run_id, artifact_id, revision)
                       REFERENCES artifacts(run_id, artifact_id, revision),
                     FOREIGN KEY (digest) REFERENCES content_objects(digest)
-                );
-                CREATE TABLE IF NOT EXISTS legacy_imports (
-                    source_digest TEXT PRIMARY KEY,
-                    source_locator TEXT NOT NULL,
-                    run_id TEXT,
-                    disposition TEXT NOT NULL,
-                    detail_json BLOB NOT NULL,
-                    created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS decision_frames (
                     run_id TEXT NOT NULL,
@@ -529,40 +517,6 @@ class RunLedger:
         if content.availability != "available":
             raise LedgerIntegrityError(f"content is not available: {content.digest}")
         return store.read(content)
-
-    def record_import_receipt(self, receipt: "LegacyImportReceipt") -> "LegacyImportReceipt":
-        self.initialize()
-        with self._connect() as connection:
-            existing = connection.execute(
-                "SELECT source_locator, run_id, disposition, detail_json, created_at "
-                "FROM legacy_imports WHERE source_digest = ?",
-                (receipt.source_digest,),
-            ).fetchone()
-            if existing is not None:
-                return _legacy_import_receipt(receipt.source_digest, *tuple(existing))
-            connection.execute(
-                "INSERT INTO legacy_imports(source_digest, source_locator, run_id, disposition, detail_json, created_at) "
-                "VALUES(?, ?, ?, ?, ?, ?)",
-                (
-                    receipt.source_digest,
-                    receipt.source_locator,
-                    receipt.run_id,
-                    receipt.disposition,
-                    receipt.detail_json,
-                    receipt.created_at,
-                ),
-            )
-        return receipt
-
-    def get_import_receipt(self, source_digest: str) -> "LegacyImportReceipt | None":
-        self.initialize()
-        with self._connect() as connection:
-            row = connection.execute(
-                "SELECT source_digest, source_locator, run_id, disposition, detail_json, created_at "
-                "FROM legacy_imports WHERE source_digest = ?",
-                (source_digest,),
-            ).fetchone()
-        return None if row is None else _legacy_import_receipt(*tuple(row))
 
     def create_run(self, run_id: str, parent_run_id: str | None = None) -> RoundRecord:
         self.initialize()
@@ -1005,10 +959,3 @@ def _json(value: Any) -> str:
 
 def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _legacy_import_receipt(*values: Any) -> "LegacyImportReceipt":
-    # Imported lazily to keep the importer dependent on the ledger, not vice versa.
-    from .legacy_import import LegacyImportReceipt
-
-    return LegacyImportReceipt(*values)

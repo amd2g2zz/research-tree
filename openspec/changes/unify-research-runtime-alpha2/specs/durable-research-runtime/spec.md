@@ -61,32 +61,14 @@ The system SHALL treat provider, token, concurrency, wall-clock, and local execu
 - **WHEN** an operational limit is reached while a P0 Decision Slot remains unclosed
 - **THEN** the system persists a resumable checkpoint and does not emit completion
 
-### Requirement: Legacy state is imported without inheriting trust
-The system SHALL import alpha1 filesystem rounds, alignment databases, native checkpoints, and Hermes checkpoints idempotently while marking legacy findings, validation, closure, and delivery claims with explicit verification dispositions.
+### Requirement: SQLite scope, schema versioning, and CAS consistency are fixed
 
-#### Scenario: Legacy run claims completion using a structural report gate
-- **WHEN** migration imports an alpha1 run whose reports passed only byte and heading checks
-- **THEN** the reports remain historical artifacts and the alpha2 run cannot complete until current closure and readiness requirements pass
-
-### Requirement: SQLite scope, migration, and CAS consistency are fixed
-
-Alpha2 SHALL use the workspace database and CAS layout defined by the design, with schema_migrations, foreign keys, unique event and digest constraints, staged CAS writes, orphan quarantine, and explicit WAL/locking behavior on Windows and POSIX.
-
-#### Scenario: Import encounters a conflicting legacy id
-
-- **WHEN** two legacy stores map to one canonical id with different bytes or lineage
-- **THEN** migration records conflict and quarantines both candidates until an operator disposition is persisted
+Alpha2 SHALL use the workspace database and CAS layout defined by the design,
+with schema version records, foreign keys, unique event and digest constraints,
+staged CAS writes, orphan quarantine, and explicit WAL/locking behavior on
+Windows and POSIX. It SHALL accept only canonical current inputs.
 
 #### Scenario: CAS write succeeds but database commit fails
 
 - **WHEN** a staged blob is not referenced by a committed ledger transaction
 - **THEN** it remains quarantined and cannot influence evidence, and a later GC may remove it only after the retention window
-
-### Requirement: Migration has verifiable operations
-
-Migration SHALL expose inventory, dry-run, apply, verify, rollback, and status operations and SHALL report source digest, destination refs, disposition (imported, legacy_unverified, quarantined, conflict, or already_imported), and operator confirmation.
-
-#### Scenario: Migration is repeated
-
-- **WHEN** the same source digest is imported again
-- **THEN** the operation is idempotent and reports already_imported without duplicate canonical revisions

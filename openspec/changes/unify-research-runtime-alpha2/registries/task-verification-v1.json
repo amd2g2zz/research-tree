@@ -90,7 +90,7 @@
         "raw_output_ref": "openspec/changes/introduce-research-run-coordinator/evidence/group-5-output.txt",
         "recorded_at": "2026-08-11T18:00:00+08:00"
       },
-      "rollback": "route reads to legacy projection"
+      "rollback": "revert the release through Git before publication"
     },
     {"group":6,"state":"verified","evidence_refs":["openspec/changes/refactor-adaptive-research-policy/evidence/group-6-output.txt","openspec/changes/refactor-adaptive-research-policy/evidence/group-6-receipt.json","openspec/changes/refactor-adaptive-research-policy/evidence/policy-fixtures.json"],"command_receipt":{"command":"uv run pytest -q tests/test_adaptive_policy.py tests/test_evidence_delta.py tests/test_insights.py && uv run ruff check src/research_tree/policy.py src/research_tree/evidence_delta.py src/research_tree/insights.py tests/test_adaptive_policy.py tests/test_evidence_delta.py tests/test_insights.py && uv run ruff format --check src/research_tree/policy.py src/research_tree/evidence_delta.py src/research_tree/insights.py tests/test_adaptive_policy.py tests/test_evidence_delta.py tests/test_insights.py","exit_code":0,"environment_digest":"52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f","output_digest":"196727ca8a4f92f845aede9077ee994cbc3c1bb791cf297b52a7b20ace210132","source_revision":"b098948e68d557ee7cf6047b97349a6ad931f56c","raw_output_ref":"openspec/changes/refactor-adaptive-research-policy/evidence/group-6-output.txt","recorded_at":"2026-08-11T13:35:44.313954+00:00"},"rollback":"freeze optional frontier growth"},
     {
@@ -170,7 +170,6 @@
       },
       "rollback": "reject candidate manifest"
     },
-    { "group": 13, "state": "planned" },
     { "group": 14, "state": "verified", "evidence_refs": ["openspec/changes/reconcile-group-14-contract-verification/evidence/group-14-output.txt", "openspec/changes/reconcile-group-14-contract-verification/evidence/group-14-receipt.json"], "command_receipt": { "command": "uv run python scripts/validate_contracts.py", "exit_code": 0, "environment_digest": "d476b6ec39a19742178e4da2b44aa787397dbce695427af4097bfcfe8f0abd0c", "output_digest": "5c9258a0de83f38243aa16ddbdf4932629810a56e692fb8852a52f3a6f665024", "source_revision": "90fdb25a2385ce3ded971a15fcb447f8f5c460ca", "raw_output_ref": "openspec/changes/reconcile-group-14-contract-verification/evidence/group-14-output.txt", "recorded_at": "2026-08-12T11:37:49.0167905+08:00" }, "rollback": "reject implementation slice" },
     { "group": 15, "state": "planned" },
     {"group":16,"state":"verified","evidence_refs":["openspec/changes/refactor-adaptive-research-policy/evidence/group-16-output.txt","openspec/changes/refactor-adaptive-research-policy/evidence/group-16-receipt.json","openspec/changes/refactor-adaptive-research-policy/evidence/policy-fixtures.json"],"command_receipt":{"command":"uv run pytest -q tests/test_insight_digest.py tests/test_policy_replay.py && uv run ruff check src/research_tree/policy.py src/research_tree/insights.py tests/test_insight_digest.py tests/test_policy_replay.py && uv run ruff format --check src/research_tree/policy.py src/research_tree/insights.py tests/test_insight_digest.py tests/test_policy_replay.py","exit_code":0,"environment_digest":"52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f","output_digest":"5ac90e2ff0734f62fc02934ab04189f66ec4a2112c2448d102eda4a06a0b2691","source_revision":"b098948e68d557ee7cf6047b97349a6ad931f56c","raw_output_ref":"openspec/changes/refactor-adaptive-research-policy/evidence/group-16-output.txt","recorded_at":"2026-08-11T13:35:45.729050+00:00"},"rollback":"use prior policy version"},
@@ -263,24 +262,6 @@
       "rollback": "disable CAS references and retain ledger metadata"
     },
     {
-      "group": 34,
-      "state": "verified",
-      "evidence_refs": [
-        "openspec/changes/reconcile-foundation-verification-receipts/evidence/group-34-output.txt",
-        "openspec/changes/reconcile-foundation-verification-receipts/evidence/group-34-receipt.json"
-      ],
-      "command_receipt": {
-        "command": "uv run pytest -q tests/test_legacy_runstore_import.py",
-        "exit_code": 0,
-        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
-        "output_digest": "940a2cb6c1c498722dd3b3be1bfc2007e62bde2e71d3a95fdaa863c635f32baa",
-        "source_revision": "dcabcd5b11771d46ad9b00a3fc7ae5f437186996",
-        "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/group-34-output.txt",
-        "recorded_at": "2026-08-10T03:22:24.185027+00:00"
-      },
-      "rollback": "disable importer and retain source RunStore read-only"
-    },
-    {
       "group": 35,
       "state": "verified",
       "evidence_refs": [
@@ -344,15 +325,33 @@
         "openspec/changes/remove-legacy-cli-surface/evidence/group-54-receipt.json"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_cli.py tests/test_recursive_search.py tests/test_runtime_discoverability.py tests/test_legacy_runstore_import.py tests/test_repository_layout.py tests/test_skill_packages.py && uv run ruff check src/research_tree/cli.py scripts/check_repository_layout.py tests/test_cli.py tests/test_runtime_discoverability.py tests/test_repository_layout.py && uv run ruff format --check src/research_tree/cli.py scripts/check_repository_layout.py tests/test_cli.py tests/test_runtime_discoverability.py tests/test_repository_layout.py && uv run python scripts/build_skill_packages.py --check",
+        "command": "uv run pytest -q tests/test_cli.py tests/test_recursive_search.py tests/test_runtime_discoverability.py tests/test_repository_layout.py tests/test_skill_packages.py && uv run ruff check src/research_tree/cli.py scripts/check_repository_layout.py tests/test_cli.py tests/test_runtime_discoverability.py tests/test_repository_layout.py && uv run ruff format --check src/research_tree/cli.py scripts/check_repository_layout.py tests/test_cli.py tests/test_runtime_discoverability.py tests/test_repository_layout.py && uv run python scripts/build_skill_packages.py --check",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
-        "output_digest": "bfe5338417051f298180327f37a020326c891e23d3fca083ee85ecad1678b4bc",
-        "source_revision": "a3e74d2d08043ff2eee8d3208d528fa27bac9f61",
+        "output_digest": "4efe8fa81b253ef2a9346c891893440fa22b18b95051804f20038fc3f4dcea17",
+        "source_revision": "22abe973b6fa522ccbcfffa16900842038041150",
         "raw_output_ref": "openspec/changes/remove-legacy-cli-surface/evidence/group-54-output.txt",
-        "recorded_at": "2026-08-13T10:34:16.708170+00:00"
+        "recorded_at": "2026-08-13T12:16:06.720840+00:00"
       },
       "rollback": "revert the removal through Git before release; do not restore a compatibility route"
+    },
+    {
+      "group": 55,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/remove-legacy-runstore-import-authority/evidence/group-55-output.txt",
+        "openspec/changes/remove-legacy-runstore-import-authority/evidence/group-55-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_legacy_import_removal.py tests/test_sqlite_ledger.py && uv run ruff check src/research_tree/run_ledger.py src/research_tree/__init__.py tests/test_legacy_import_removal.py tests/test_sqlite_ledger.py && uv run ruff format --check src/research_tree/run_ledger.py src/research_tree/__init__.py tests/test_legacy_import_removal.py tests/test_sqlite_ledger.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "34a9f46f5146227e0a40a733aa1677d454887b2dcde3923004857f8f02a4b66b",
+        "source_revision": "22abe973b6fa522ccbcfffa16900842038041150",
+        "raw_output_ref": "openspec/changes/remove-legacy-runstore-import-authority/evidence/group-55-output.txt",
+        "recorded_at": "2026-08-13T12:16:08.345163+00:00"
+      },
+      "rollback": "revert the removal through Git before release; do not restore an importer or compatibility route"
     },
     {
       "group": 57,
