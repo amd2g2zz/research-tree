@@ -335,6 +335,10 @@
         "recorded_at": "2026-08-13T06:58:27.291245+00:00"
       },
       "rollback": "treat unprovable closure evidence as inconclusive and retain existing assessments as history"
+    },
+    {
+      "group": 54,
+      "state": "planned"
     }
   ]
 }

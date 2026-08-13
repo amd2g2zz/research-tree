@@ -1,14 +1,8 @@
 from __future__ import annotations
 
-import json
-import os
 from pathlib import Path
-import subprocess
-import sys
 
 import pytest
-
-
 def finding(
     finding_id: str,
     *,
@@ -805,84 +799,6 @@ def test_persisted_coordinator_exposes_successor_actions_across_processes(
     )
     assert actions_after_restart
     assert actions_after_restart[0]["parent_id"] == first_action["id"]
-    assert actions_after_restart[0]["question"] == "An independent execution check is still required."
-
-
-def test_cli_runs_persisted_recursive_growth_across_processes(tmp_path: Path) -> None:
-    from research_tree import RunStore
-
-    root = tmp_path / "run-store"
-    slots_path = tmp_path / "decision-slots.json"
-    slots_path.write_text(json.dumps(slots()), encoding="utf-8")
-
-    def cli(*arguments: str) -> dict[str, object]:
-        completed = subprocess.run(
-            [sys.executable, "-m", "research_tree", *arguments],
-            text=True,
-            capture_output=True,
-            check=False,
-            env={
-                **os.environ,
-                "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src"),
-            },
-        )
-        assert completed.returncode == 0, completed.stderr
-        return json.loads(completed.stdout)
-
-    cli("create-round", "--store", str(root), "--round-id", "round-cli-tree")
-    cli(
-        "tree-init",
-        "--store",
-        str(root),
-        "--round-id",
-        "round-cli-tree",
-        "--decision-slots",
-        str(slots_path),
-    )
-    first = cli(
-        "tree-next",
-        "--store",
-        str(root),
-        "--round-id",
-        "round-cli-tree",
-        "--max-parallelism",
-        "1",
-    )
-    first_action = first["actions"][0]
-    store = RunStore(root)
-    stored = store.append_artifact(
-        "round-cli-tree",
-        "finding-cli-one",
-        "finding-pack",
-        finding(
-            "finding-cli-one",
-            anchor="source:cli-primary",
-            node_id=first_action["id"],
-            uncertainty="The CLI recovery path still needs independent execution.",
-        ),
-    )
-    ingest = cli(
-        "tree-ingest",
-        "--store",
-        str(root),
-        "--round-id",
-        "round-cli-tree",
-        "--finding",
-        stored.id,
-    )
-    assert ingest["revision"] == 2
-
-    successor = cli(
-        "tree-next",
-        "--store",
-        str(root),
-        "--round-id",
-        "round-cli-tree",
-        "--max-parallelism",
-        "2",
-    )
-    assert successor["actions"]
-    assert successor["actions"][0]["parent_id"] == first_action["id"]
-    assert successor["actions"][0]["question"] == (
-        "The CLI recovery path still needs independent execution."
+    assert actions_after_restart[0]["question"] == (
+        "An independent execution check is still required."
     )

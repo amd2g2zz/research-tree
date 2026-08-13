@@ -469,58 +469,10 @@ need persisted and validated research artifacts. Its public API includes:
 - Technical Research Package and Human Research Report delivery;
 - feedback rounds and opt-in OpenSpec export.
 
-The command-line interface exposes alignment handoff compilation, round
-management, persisted recursive-tree initialization, frontier selection,
-Finding Pack ingestion, and crash
-recovery. Use the `research_tree` Python API for composed workflow services.
-
-```bash
-STORE=.research-tree-demo
-
-uv run python -m research_tree create-round \
-  --store "$STORE" \
-  --round-id round-first
-
-uv run python -m research_tree show-round \
-  --store "$STORE" \
-  --round-id round-first
-
-uv run python -m research_tree tree-init \
-  --store "$STORE" \
-  --round-id round-first \
-  --decision-slots ./decision-slots.json
-
-# Or compile a confirmed local Alignment Graph directly into revision zero.
-# The round above must already exist.
-uv run python -m research_tree tree-init-alignment \
-  --store "$STORE" \
-  --round-id round-first \
-  --alignment-db .research-tree-alignment/run-001/alignment.db
-
-uv run python -m research_tree tree-next \
-  --store "$STORE" \
-  --round-id round-first
-
-uv run python -m research_tree tree-ingest \
-  --store "$STORE" \
-  --round-id round-first \
-  --finding finding-001
-
-uv run python -m research_tree tree-recover \
-  --store "$STORE" \
-  --round-id round-first
-
-# Completion requires both persisted, non-shallow reports.
-uv run python -m research_tree tree-deliver \
-  --store "$STORE" \
-  --round-id round-first \
-  --technical-report ./technical-research-package.md \
-  --human-report ./human-research-report.md
-```
-
-Use the same `--store` path to reconstruct a round after restarting the
-process. Creating an existing round ID is rejected instead of overwriting its
-state.
+The `research-tree` console entrypoint is reserved for the canonical runtime
+and currently registers no operational commands. Use the `research_tree`
+Python API for composed workflow services; no legacy round, tree, profile, or
+migration command is published.
 
 See [`src/research_tree/__init__.py`](src/research_tree/__init__.py) for the
 public API and [`tests/test_e2e_blueprint.py`](tests/test_e2e_blueprint.py) for

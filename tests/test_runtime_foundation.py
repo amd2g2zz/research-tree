@@ -2,14 +2,9 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import json
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
-
-
 def runtime_api():
     from research_tree import (
         ArtifactNotFoundError,
@@ -272,47 +267,3 @@ def test_store_requires_an_explicit_root_and_ignores_ambient_workspace(
 
     assert (explicit_root / "rounds" / "round-explicit" / "round.json").is_file()
     assert not ambient_root.exists()
-
-
-def test_cli_can_create_and_show_a_persisted_round(tmp_path: Path) -> None:
-    root = tmp_path / "store"
-    environment = os.environ.copy()
-    environment["PYTHONUTF8"] = "1"
-
-    created = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "research_tree",
-            "create-round",
-            "--store",
-            str(root),
-            "--round-id",
-            "round-cli",
-        ],
-        capture_output=True,
-        check=False,
-        encoding="utf-8",
-        env=environment,
-    )
-    assert created.returncode == 0, created.stderr
-    assert json.loads(created.stdout)["id"] == "round-cli"
-
-    shown = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "research_tree",
-            "show-round",
-            "--store",
-            str(root),
-            "--round-id",
-            "round-cli",
-        ],
-        capture_output=True,
-        check=False,
-        encoding="utf-8",
-        env=environment,
-    )
-    assert shown.returncode == 0, shown.stderr
-    assert json.loads(shown.stdout)["record"]["id"] == "round-cli"
