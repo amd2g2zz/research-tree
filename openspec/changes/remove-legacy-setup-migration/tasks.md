@@ -6,18 +6,18 @@
 
 ## 2. Focused Regressions
 
-- [ ] 2.1 Replace legacy migration tests with no-mutation rejection tests for
+- [x] 2.1 Replace legacy migration tests with no-mutation rejection tests for
   checkout-root and old Claude package links.
-- [ ] 2.2 Add parser and public-surface regressions proving refresh and
+- [x] 2.2 Add parser and public-surface regressions proving refresh and
   migration outcomes are absent while missing/current installs still work.
 
 ## 3. Current-Only Setup Implementation
 
-- [ ] 3.1 Remove legacy source recognition, migration actions, and all
+- [x] 3.1 Remove legacy source recognition, migration actions, and all
   existing-target replacement from install and status paths.
-- [ ] 3.2 Remove stale-link refresh helpers, CLI registration, and confirmation
+- [x] 3.2 Remove stale-link refresh helpers, CLI registration, and confirmation
   options without changing current host layouts.
-- [ ] 3.3 Rebuild packages from source only if maintained package content
+- [x] 3.3 Rebuild packages from source only if maintained package content
   changes, keeping generated output separate from source commits.
 
 ## 4. Verification And Handoff
