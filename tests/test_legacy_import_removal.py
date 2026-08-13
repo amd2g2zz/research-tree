@@ -47,6 +47,6 @@ def test_active_governance_registers_only_the_removal_slice() -> None:
     assert 34 not in {item["group"] for item in execution["groups"]}
     assert 34 not in {item["group"] for item in verification["groups"]}
     assert {item["group"] for item in execution["groups"]} >= {55}
-    assert next(item for item in verification["groups"] if item["group"] == 55)["state"] == "planned"
+    assert next(item for item in verification["groups"] if item["group"] == 55)["state"] == "verified"
     assert all("legacy-runstore-import" not in item["capabilities"] for item in issue_map["issues"])
     assert all(item["capability"] != "legacy-runstore-import" for item in matrix["capability_rows"])

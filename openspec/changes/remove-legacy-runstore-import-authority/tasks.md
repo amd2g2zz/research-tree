@@ -21,9 +21,9 @@
 
 ## 4. Verification And Handoff
 
-- [ ] 4.1 Run the group-55 focused acceptance command, strict OpenSpec
+- [x] 4.1 Run the group-55 focused acceptance command, strict OpenSpec
   validation, governance validation, and regression checks.
-- [ ] 4.2 Commit the source removal before recording source-bound group-55
+- [x] 4.2 Commit the source removal before recording source-bound group-55
   verification evidence.
-- [ ] 4.3 Record the group-55 receipt, mark the registry verified, and run the
+- [x] 4.3 Record the group-55 receipt, mark the registry verified, and run the
   required final checks.

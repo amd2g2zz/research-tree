@@ -1,9 +1,9 @@
 {
-  "command": "uv run pytest -q tests/test_cli.py tests/test_recursive_search.py tests/test_runtime_discoverability.py tests/test_legacy_runstore_import.py tests/test_repository_layout.py tests/test_skill_packages.py && uv run ruff check src/research_tree/cli.py scripts/check_repository_layout.py tests/test_cli.py tests/test_runtime_discoverability.py tests/test_repository_layout.py && uv run ruff format --check src/research_tree/cli.py scripts/check_repository_layout.py tests/test_cli.py tests/test_runtime_discoverability.py tests/test_repository_layout.py && uv run python scripts/build_skill_packages.py --check",
+  "command": "uv run pytest -q tests/test_cli.py tests/test_recursive_search.py tests/test_runtime_discoverability.py tests/test_repository_layout.py tests/test_skill_packages.py && uv run ruff check src/research_tree/cli.py scripts/check_repository_layout.py tests/test_cli.py tests/test_runtime_discoverability.py tests/test_repository_layout.py && uv run ruff format --check src/research_tree/cli.py scripts/check_repository_layout.py tests/test_cli.py tests/test_runtime_discoverability.py tests/test_repository_layout.py && uv run python scripts/build_skill_packages.py --check",
   "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
   "exit_code": 0,
-  "output_digest": "bfe5338417051f298180327f37a020326c891e23d3fca083ee85ecad1678b4bc",
+  "output_digest": "4723efbfbf22bb2ca16d868a063beef4bb5ff0f882af33e0e35b728c0fccb60d",
   "raw_output_ref": "openspec/changes/remove-legacy-cli-surface/evidence/group-54-output.txt",
-  "recorded_at": "2026-08-13T10:34:16.708170+00:00",
-  "source_revision": "a3e74d2d08043ff2eee8d3208d528fa27bac9f61"
+  "recorded_at": "2026-08-13T11:01:07.556405+00:00",
+  "source_revision": "082cc960513cf05805ebd00f1cbd67be41d067fd"
 }
