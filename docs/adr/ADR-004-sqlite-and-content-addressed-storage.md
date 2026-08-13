@@ -28,7 +28,8 @@ cannot become evidence merely because bytes exist on disk.
 - Store large blobs in SQLite: lock duration and database churn increase.
 - A graph database: local artifact-centric transactions do not require one.
 
-## Migration
+## Current Runtime Scope
 
-Alpha1 RunStore rounds are imported idempotently as `legacy_unverified` history.
-Compatibility readers remain available until recovery and rollback gates pass.
+The current runtime accepts only canonical SQLite and content-addressed state.
+It leaves previously persisted user data untouched and exposes no recovery path
+for retired sources.

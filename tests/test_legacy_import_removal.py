@@ -38,6 +38,7 @@ def test_new_ledger_omits_legacy_import_receipts_and_preserves_canonical_tables(
 def test_active_governance_registers_only_the_removal_slice() -> None:
     umbrella_root = Path(__file__).resolve().parents[1] / "openspec" / "changes" / "unify-research-runtime-alpha2"
     registry_root = umbrella_root / "registries"
+    repository_root = umbrella_root.parents[2]
     execution = json.loads((registry_root / "task-execution-v1.json").read_text(encoding="utf-8"))
     verification = json.loads((registry_root / "task-verification-v1.json").read_text(encoding="utf-8"))
     issue_map = json.loads((registry_root / "issue-execution-map-v1.json").read_text(encoding="utf-8"))
@@ -72,6 +73,7 @@ def test_active_governance_registers_only_the_removal_slice() -> None:
         registry_root / "task-verification-v1.json",
         registry_root / "issue-execution-map-v1.json",
         registry_root / "delivery-matrix-v1.json",
+        repository_root / "docs" / "adr" / "ADR-004-sqlite-and-content-addressed-storage.md",
     )
     retired_claims = (
         "compatibility-matrix.md",
@@ -85,7 +87,11 @@ def test_active_governance_registers_only_the_removal_slice() -> None:
         "read-only compatibility projections",
         "route reads to legacy projection",
         "restore alpha1 reader",
+        "Alpha1 RunStore rounds are imported idempotently",
+        "Compatibility readers remain available",
     )
     active_text = "\n".join(path.read_text(encoding="utf-8") for path in active_sources)
 
     assert all(claim not in active_text for claim in retired_claims)
+    assert not (repository_root / "openspec" / "changes" / "import-alpha1-runstore").exists()
+    assert (repository_root / "openspec" / "changes" / "archive" / "2026-08-13-import-alpha1-runstore").is_dir()
