@@ -309,6 +309,10 @@ The setup command defaults to a user-scoped link installation. On Windows it
 falls back to a directory junction when a symbolic link cannot be created.
 Use `--mode copy` when you need an independent copy.
 
+Setup creates a target only when it is missing. An existing target that is not
+the selected current host package is `unsupported` and remains untouched;
+there is no setup migration or refresh command.
+
 Install all supported user packages in one operation:
 
 ```bash

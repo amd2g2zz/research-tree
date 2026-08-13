@@ -11,6 +11,8 @@ current-only compatibility policy.
   `research-tree-setup install` and `status`.
 - **BREAKING**: Retire the `research-tree-setup refresh` command and its
   stale-link mutation helpers.
+- Archive the completed cross-host activation change as historical evidence
+  without synchronizing its retired setup delta into the active umbrella.
 - Keep new installation and status reporting for current Codex, Claude Code,
   and Hermes package targets.
 - Report any existing non-current target as unsupported without unlinking,
@@ -32,6 +34,7 @@ current-only compatibility policy.
 ## Impact
 
 This changes `src/research_tree/skill_setup.py`, focused setup regressions,
-the setup command help, Alpha2 execution registries, and generated host
-packages after rebuilding from source. It does not inspect or alter any
-user-owned runtime directory, nor does it change current host package layouts.
+the setup command help, Alpha2 execution registries, active installation
+contracts, and generated host packages after rebuilding from source. It does
+not inspect or alter any user-owned runtime directory, nor does it change
+current host package layouts.

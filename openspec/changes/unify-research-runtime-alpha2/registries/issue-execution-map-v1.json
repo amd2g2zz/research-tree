@@ -28,7 +28,7 @@
     { "issue": 68, "primary_group": 19, "supporting_groups": [], "capabilities": ["documentation-governance"], "openspec_change": "govern-documentation-authority" },
     { "issue": 69, "primary_group": 20, "supporting_groups": [], "capabilities": ["evaluation-asset-governance"], "openspec_change": "govern-evaluation-assets" },
     { "issue": 70, "primary_group": 21, "supporting_groups": [], "capabilities": ["repository-layout-governance"], "openspec_change": "govern-repository-layout" },
-    { "issue": 71, "primary_group": 32, "supporting_groups": [], "capabilities": ["skill-activation-integrity"], "openspec_change": "verify-cross-host-skill-activation" },
+    { "issue": 71, "primary_group": 32, "supporting_groups": [], "capabilities": ["skill-activation-integrity"], "openspec_change": "archive/2026-08-13-verify-cross-host-skill-activation" },
     { "issue": 72, "primary_group": 24, "supporting_groups": [], "capabilities": ["claude-glm-black-box-regression"], "openspec_change": "add-claude-glm-regression-fixture" },
     { "issue": 73, "primary_group": 23, "supporting_groups": [], "capabilities": ["transactional-correction-invalidation"], "openspec_change": "invalidate-stale-alignment-state" },
     { "issue": 80, "primary_group": 25, "supporting_groups": [15], "capabilities": ["durable-source-capture", "worker-orchestration"], "openspec_change": "enforce-durable-source-capture" },

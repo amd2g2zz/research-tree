@@ -48,6 +48,11 @@ policy introduced by #164 and tracked by #165.
 4. **Use Git for rollback.** Reverting this narrow deletion restores the prior
    source revision; no runtime fallback or migration interface is added.
 
+5. **Archive superseded setup semantics.** The completed cross-host activation
+   change remains intact under `openspec/changes/archive/` with its evidence.
+   Its stale-link and refresh delta is not synchronized; the active umbrella
+   contract is replaced with the current-only unsupported/no-mutation rule.
+
 ## Risks / Trade-offs
 
 - Existing legacy setup users must remove or relocate their own target before
@@ -61,6 +66,8 @@ policy introduced by #164 and tracked by #165.
 
 Focused tests prove a legacy checkout link and an old Claude package link both
 remain byte-for-byte and path-for-path unchanged after `install`, `status`, and
-the retired `refresh` parser path. They also prove missing/current installs for
-all supported hosts retain their behavior. Group 57 runs the focused setup,
-activation, and package tests plus Ruff and package validation.
+the retired parser path. They also prove missing/current installs for all
+supported hosts retain their behavior. Governance tests prove that #71 is
+archived as historical evidence and that the active umbrella publishes no
+refresh behavior. Group 57 runs the focused setup, activation, and package
+tests plus Ruff and package validation.

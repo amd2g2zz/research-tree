@@ -94,7 +94,9 @@ substitute for local evidence.
 - [ ] 8.7 Prove equivalent Codex and Claude event fixtures produce the same canonical semantic digest.
 - [x] 8.8 Define activation evidence states for discovery, current installation, live body injection, and post-activation behavior; require explicit host receipts instead of inferring activation from a file read.
 - [x] 8.9 Add host-specific activation markers, side-effect-free probes, package digests, and bounded receipts for Codex, Claude Code, and Hermes.
-- [x] 8.10 Add stale-link classification and non-destructive refresh handling to setup/status, including the legacy repository-root path failure mode.
+- [x] 8.10 Replace the obsolete stale-link refresh protocol with current-only
+  setup/status behavior: every existing non-current target is unsupported and
+  remains unchanged.
 - [x] 8.11 Run native activation probes in isolated Codex, Claude Code, and Hermes fixtures; mark unavailable CLIs as unavailable evidence and retain exact outputs.
 
 ## 9. Hermes-Native Long-Horizon Adapter (#61, #82)
