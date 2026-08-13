@@ -406,6 +406,24 @@
         "recorded_at": "2026-08-13T12:58:30.783983+00:00"
       },
       "rollback": "revert the removal through Git before release; do not restore a projection reader, alias, or default inference"
+    },
+    {
+      "group": 60,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/remove-legacy-insight-payload-reader/evidence/group-60-output.txt",
+        "openspec/changes/remove-legacy-insight-payload-reader/evidence/group-60-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_insight_digest.py tests/test_insights.py && uv run ruff check src/research_tree/insights.py tests/test_insight_digest.py tests/test_insights.py && uv run ruff format --check src/research_tree/insights.py tests/test_insight_digest.py tests/test_insights.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "6ee0c44ec6c641839b437cd36919d60923b80652347c3b09bd83d77e5090eb03",
+        "source_revision": "fdb74043df4fa0f0bd31c8023d83f991550bb775",
+        "raw_output_ref": "openspec/changes/remove-legacy-insight-payload-reader/evidence/group-60-output.txt",
+        "recorded_at": "2026-08-13T13:48:29.451422+00:00"
+      },
+      "rollback": "revert the removal through Git before release; do not restore a digest reader, adapter, alias, default, migration, or user-data action"
     }
   ]
 }
