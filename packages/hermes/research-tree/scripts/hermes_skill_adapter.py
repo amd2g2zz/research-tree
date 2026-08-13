@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -18,11 +20,10 @@ MAX_DESCRIPTION_LENGTH = 1024
 MAX_SKILL_CHARS = 100_000
 RECOMMENDED_SKILL_CHARS = 20_000
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
-RESOURCE_RE = re.compile(
-    r"`((?:references|templates|scripts|assets)/[^`\r\n]+)`"
-)
+RESOURCE_RE = re.compile(r"`((?:references|templates|scripts|assets)/[^`\r\n]+)`")
 NATIVE_REFERENCE = Path("references/hermes-native-orchestration.md")
 RUNTIME_HOOK = Path("scripts/hermes_runtime_hook.py")
+EXECUTABLE_CLOSURE = Path("scripts/hermes_executable_closure.json")
 NATIVE_MARKERS = (
     "delegate_task(tasks=[...])",
     "session_search",
@@ -110,6 +111,106 @@ def _frontmatter(text: str) -> tuple[dict[str, str], str]:
     return values, body
 
 
+def _safe_executable_path(value: object) -> Path:
+    if not isinstance(value, str) or not value:
+        raise ValueError("Hermes executable closure paths must be non-empty strings")
+    relative = Path(value)
+    if relative.is_absolute() or ".." in relative.parts or relative.parts[:1] != ("scripts",):
+        raise ValueError(f"Hermes executable closure path is invalid: {value}")
+    return relative
+
+
+def _load_executable_closure(skill_dir: Path) -> tuple[list[str], list[dict[str, object]], list[str]]:
+    errors: list[str] = []
+    manifest = skill_dir / EXECUTABLE_CLOSURE
+    try:
+        value = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [], [], [f"invalid Hermes executable closure: {exc}"]
+    if not isinstance(value, dict) or value.get("schema") != 1:
+        return [], [], ["Hermes executable closure must contain schema 1"]
+    raw_files = value.get("files")
+    raw_entrypoints = value.get("entrypoints")
+    if not isinstance(raw_files, list) or not raw_files:
+        errors.append("Hermes executable closure must contain non-empty files")
+        raw_files = []
+    if not isinstance(raw_entrypoints, list) or not raw_entrypoints:
+        errors.append("Hermes executable closure must contain non-empty entrypoints")
+        raw_entrypoints = []
+
+    closure: list[str] = []
+    for raw_file in raw_files:
+        try:
+            relative = _safe_executable_path(raw_file)
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+        normalized = relative.as_posix()
+        if normalized in closure:
+            errors.append(f"duplicate Hermes executable dependency: {normalized}")
+            continue
+        closure.append(normalized)
+
+    entrypoints: list[dict[str, object]] = []
+    entrypoint_paths: set[str] = set()
+    for raw_entrypoint in raw_entrypoints:
+        if not isinstance(raw_entrypoint, dict):
+            errors.append("Hermes executable entrypoints must be objects")
+            continue
+        try:
+            relative = _safe_executable_path(raw_entrypoint.get("path"))
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+        arguments = raw_entrypoint.get("arguments")
+        if not isinstance(arguments, list) or not all(isinstance(argument, str) for argument in arguments):
+            errors.append(f"Hermes executable entrypoint arguments are invalid: {relative.as_posix()}")
+            continue
+        normalized = relative.as_posix()
+        if normalized not in closure:
+            errors.append(f"Hermes executable entrypoint is outside closure: {normalized}")
+            continue
+        if normalized in entrypoint_paths:
+            errors.append(f"duplicate Hermes executable entrypoint: {normalized}")
+            continue
+        entrypoint_paths.add(normalized)
+        entrypoints.append({"path": normalized, "arguments": list(arguments)})
+    missing_entrypoints = sorted(set(closure) - entrypoint_paths)
+    if missing_entrypoints:
+        errors.append("Hermes executable closure is missing entrypoint: " + ", ".join(missing_entrypoints))
+    return closure, entrypoints, errors
+
+
+def _cold_start_errors(skill_dir: Path, entrypoints: list[dict[str, object]]) -> list[str]:
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    environment.pop("PYTHONHOME", None)
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    errors: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="research-tree-hermes-cold-start-") as raw_directory:
+        working_directory = Path(raw_directory) / "unrelated-working-directory"
+        working_directory.mkdir()
+        for entrypoint in entrypoints:
+            relative = str(entrypoint["path"])
+            arguments = [str(argument) for argument in entrypoint["arguments"]]
+            try:
+                completed = subprocess.run(
+                    [sys.executable, "-B", "-E", "-S", str(skill_dir / relative), *arguments],
+                    cwd=working_directory,
+                    env=environment,
+                    text=True,
+                    capture_output=True,
+                    timeout=10,
+                    check=False,
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                errors.append(f"Hermes executable cold start failed: {relative} ({type(exc).__name__})")
+                continue
+            if completed.returncode != 0:
+                errors.append(f"Hermes executable cold start failed: {relative} (exit {completed.returncode})")
+    return errors
+
+
 def validate(skill_dir: Path, mode: str) -> dict[str, object]:
     skill_dir = skill_dir.resolve()
     skill_file = skill_dir / "SKILL.md"
@@ -117,6 +218,8 @@ def validate(skill_dir: Path, mode: str) -> dict[str, object]:
     warnings: list[str] = []
     description = ""
     resources: list[str] = []
+    executable_closure: list[str] = []
+    executable_entrypoints: list[dict[str, object]] = []
     skill_chars = 0
 
     if not skill_file.is_file():
@@ -134,10 +237,7 @@ def validate(skill_dir: Path, mode: str) -> dict[str, object]:
         if text:
             skill_chars = len(text)
             if len(text) > MAX_SKILL_CHARS:
-                errors.append(
-                    f"SKILL.md has {len(text)} characters; Hermes limit is "
-                    f"{MAX_SKILL_CHARS}"
-                )
+                errors.append(f"SKILL.md has {len(text)} characters; Hermes limit is {MAX_SKILL_CHARS}")
             elif len(text) > RECOMMENDED_SKILL_CHARS:
                 warnings.append(
                     f"SKILL.md has {len(text)} characters; split it below "
@@ -161,9 +261,7 @@ def validate(skill_dir: Path, mode: str) -> dict[str, object]:
             elif len(description) > MAX_DESCRIPTION_LENGTH:
                 errors.append("frontmatter description exceeds 1024 characters")
 
-            resources = sorted(
-                set(RESOURCE_RE.findall(text)) | {RUNTIME_HOOK.as_posix()}
-            )
+            resources = sorted(set(RESOURCE_RE.findall(text)) | {RUNTIME_HOOK.as_posix()})
             for relative in resources:
                 target = (skill_dir / relative).resolve()
                 try:
@@ -188,34 +286,31 @@ def validate(skill_dir: Path, mode: str) -> dict[str, object]:
                     "delegate_task(max_iterations=",
                 ):
                     if unsupported in native:
-                        errors.append(
-                            "Hermes native contract uses unsupported model argument: "
-                            + unsupported
-                        )
+                        errors.append("Hermes native contract uses unsupported model argument: " + unsupported)
 
             if not (skill_dir / RUNTIME_HOOK).is_file():
                 errors.append(f"missing Hermes runtime hook: {RUNTIME_HOOK}")
 
-            if "ask_user_question" in text and not (
-                "ordinary dialogue" in text and "Never call a named tool" in text
-            ):
+            executable_closure, executable_entrypoints, closure_errors = _load_executable_closure(skill_dir)
+            errors.extend(closure_errors)
+            for relative in executable_closure:
+                target = skill_dir / relative
+                if not target.is_file():
+                    errors.append(f"missing executable dependency: {relative}")
+            if mode in {"external-dir", "github-bundle"} and not errors:
+                errors.extend(_cold_start_errors(skill_dir, executable_entrypoints))
+
+            if "ask_user_question" in text and not ("ordinary dialogue" in text and "Never call a named tool" in text):
                 errors.append("host-specific question tool lacks a portable fallback")
 
     if mode == "single-file" and resources:
-        errors.append(
-            "Hermes direct-URL installation is single-file but this skill "
-            "requires bundled resources"
-        )
+        errors.append("Hermes direct-URL installation is single-file but this skill requires bundled resources")
 
-    compact_description = (
-        description if len(description) <= 60 else description[:57] + "..."
-    )
+    compact_description = description if len(description) <= 60 else description[:57] + "..."
     if description and not compact_description.lower().startswith("use "):
         warnings.append("put the activation trigger in the first 60 characters")
 
-    activation_payload_estimate = skill_chars + sum(
-        2 * len(relative) + 12 for relative in resources
-    ) + 500
+    activation_payload_estimate = skill_chars + sum(2 * len(relative) + 12 for relative in resources) + 500
 
     return {
         "compatible": not errors,
@@ -230,6 +325,8 @@ def validate(skill_dir: Path, mode: str) -> dict[str, object]:
             "level": "high" if skill_chars > RECOMMENDED_SKILL_CHARS else "low",
         },
         "resources": resources,
+        "executable_closure": executable_closure,
+        "executable_entrypoints": executable_entrypoints,
         "errors": errors,
         "warnings": warnings,
     }
@@ -246,13 +343,14 @@ def stage(source: Path, output: Path) -> Path:
     if not result["compatible"]:
         raise ValueError("source validation failed: " + "; ".join(result["errors"]))
 
+    bundle_files = {Path("SKILL.md"), EXECUTABLE_CLOSURE}
+    bundle_files.update(Path(relative) for relative in result["resources"])
+    bundle_files.update(Path(relative) for relative in result["executable_closure"])
     target.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source / "SKILL.md", target / "SKILL.md")
-    for relative in result["resources"]:
-        src = source / relative
-        dst = target / relative
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
+    for relative in sorted(bundle_files):
+        destination = target / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source / relative, destination)
     return target
 
 
@@ -426,9 +524,7 @@ def main() -> int:
 
     if args.command == "doctor":
         result = doctor(args.skill_dir, args.hermes_home)
-        result["next_actions"] = [
-            action for action in result["next_actions"] if action is not None
-        ]
+        result["next_actions"] = [action for action in result["next_actions"] if action is not None]
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["healthy"] else 1
 

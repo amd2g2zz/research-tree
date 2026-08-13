@@ -299,6 +299,24 @@
         "recorded_at": "2026-08-11T00:00:00+00:00"
       },
       "rollback": "retain merged strict-slice evidence as historical and keep future groups planned"
+    },
+    {
+      "group": 42,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/make-isolated-hermes-bundle-executable/evidence/group-42-output.txt",
+        "openspec/changes/make-isolated-hermes-bundle-executable/evidence/group-42-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py tests/test_native_dynamic_workflows.py tests/test_hermes_execution_adapter.py tests/test_hermes_host_events.py && uv run ruff check scripts/build_skill_packages.py scripts/hermes_skill_adapter.py scripts/hermes_execution_adapter.py scripts/hermes_event_adapter.py scripts/hermes_runtime_hook.py tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py && uv run ruff format --check scripts/build_skill_packages.py scripts/hermes_skill_adapter.py scripts/hermes_execution_adapter.py scripts/hermes_event_adapter.py scripts/hermes_runtime_hook.py tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py && uv run python scripts/build_skill_packages.py --check",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "4ccb75bc40b84320cb250d3c5d23064a61797d66b4177b1dffba4c31b70d582c",
+        "source_revision": "0eb1f43addf870d6bbcee1e37fff2818c983b00a",
+        "raw_output_ref": "openspec/changes/make-isolated-hermes-bundle-executable/evidence/group-42-output.txt",
+        "recorded_at": "2026-08-13T03:41:26.020616+00:00"
+      },
+      "rollback": "fail Hermes package compatibility and installation closed when executable cold-start validation fails"
     }
   ]
 }

@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
+import sys
 import tempfile
 import tomllib
 
@@ -63,6 +66,7 @@ HERMES_FILES = (
     Path("scripts/hermes_execution_adapter.py"),
     Path("scripts/host_event_protocol.py"),
     Path("scripts/hermes_event_adapter.py"),
+    Path("scripts/hermes_executable_closure.json"),
 )
 CLAUDE_FILES = (
     Path("references/claude-code-compatibility.md"),
@@ -111,6 +115,101 @@ def _load_json(path: Path, label: str) -> dict[str, object]:
     if not isinstance(value, dict):
         raise ValueError(f"{label} must be a JSON object: {path}")
     return value
+
+
+def _hermes_executable_closure(root: Path) -> tuple[Path, ...]:
+    manifest = _load_json(root / "scripts" / "hermes_executable_closure.json", "Hermes executable closure")
+    files = manifest.get("files")
+    if manifest.get("schema") != 1 or not isinstance(files, list) or not files:
+        raise ValueError("Hermes executable closure must contain schema 1 and non-empty files")
+    closure: list[Path] = []
+    for item in files:
+        if not isinstance(item, str) or not item:
+            raise ValueError("Hermes executable closure files must be non-empty strings")
+        relative = Path(item)
+        if relative.is_absolute() or ".." in relative.parts or relative.parts[:1] != ("scripts",):
+            raise ValueError(f"Hermes executable closure path is invalid: {item}")
+        closure.append(relative)
+    if len(set(closure)) != len(closure):
+        raise ValueError("Hermes executable closure files must be unique")
+    return tuple(closure)
+
+
+def _hermes_executable_source_map() -> dict[Path, Path]:
+    source_map = {
+        relative: relative
+        for relative in HERMES_FILES
+        if relative.parent == Path("scripts") and relative != Path("scripts/hermes_executable_closure.json")
+    }
+    for source_relative, target_relative in COMMON_FILE_MAP:
+        if target_relative in source_map:
+            raise ValueError(f"duplicate Hermes executable package path: {target_relative.as_posix()}")
+        source_map[target_relative] = source_relative
+    return source_map
+
+
+def _hermes_executable_mappings(root: Path) -> tuple[tuple[Path, Path], ...]:
+    closure = _hermes_executable_closure(root)
+    source_map = _hermes_executable_source_map()
+    closure_set = set(closure)
+    expected_set = set(source_map)
+    missing = sorted(expected_set - closure_set)
+    unexpected = sorted(closure_set - expected_set)
+    if missing:
+        raise ValueError(
+            "Hermes executable closure is missing packaged dependency: "
+            + ", ".join(relative.as_posix() for relative in missing)
+        )
+    if unexpected:
+        raise ValueError(
+            "Hermes executable closure has unknown packaged dependency: "
+            + ", ".join(relative.as_posix() for relative in unexpected)
+        )
+    return tuple((source_map[relative], relative) for relative in closure)
+
+
+def _hermes_non_executable_files() -> tuple[Path, ...]:
+    executable_paths = set(_hermes_executable_source_map())
+    return tuple(relative for relative in HERMES_FILES if relative not in executable_paths)
+
+
+def _validate_hermes_executable_package(package: Path) -> list[str]:
+    adapter = package / "scripts" / "hermes_skill_adapter.py"
+    if not adapter.is_file():
+        return []
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    environment.pop("PYTHONHOME", None)
+    with tempfile.TemporaryDirectory(prefix="research-tree-hermes-package-check-") as raw_directory:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                "-E",
+                "-S",
+                str(adapter),
+                "validate",
+                "--skill-dir",
+                str(package),
+                "--mode",
+                "external-dir",
+            ],
+            cwd=raw_directory,
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    if completed.returncode == 0:
+        return []
+    try:
+        result = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return ["Hermes executable package validation failed without JSON diagnostics"]
+    failures = result.get("errors") if isinstance(result, dict) else None
+    if not isinstance(failures, list) or not all(isinstance(error, str) for error in failures):
+        return ["Hermes executable package validation failed without error diagnostics"]
+    return ["Hermes executable package validation failed: " + error for error in failures]
 
 
 def package_source(host: str, root: Path = ROOT) -> Path:
@@ -305,8 +404,19 @@ def validate_package(package: Path, host: str, root: Path = ROOT) -> dict[str, o
     expected_sources: dict[Path, Path] = {}
     for relative in COMMON_FILES:
         expected_sources[_skill_relative(host, relative)] = relative
-    for source_relative, target_relative in COMMON_FILE_MAP:
-        expected_sources[_skill_relative(host, target_relative)] = source_relative
+    if host == "hermes":
+        for relative in _hermes_non_executable_files():
+            expected_sources[relative] = relative
+        try:
+            executable_mappings = _hermes_executable_mappings(root)
+        except ValueError as error:
+            errors.append(str(error))
+        else:
+            for source_relative, target_relative in executable_mappings:
+                expected_sources[target_relative] = source_relative
+    else:
+        for source_relative, target_relative in COMMON_FILE_MAP:
+            expected_sources[_skill_relative(host, target_relative)] = source_relative
     if host == "codex":
         for relative in CODEX_FILES:
             expected_sources[_skill_relative(host, relative)] = relative
@@ -314,9 +424,6 @@ def validate_package(package: Path, host: str, root: Path = ROOT) -> dict[str, o
         for relative in CLAUDE_FILES:
             expected_sources[_skill_relative(host, relative)] = relative
         expected_sources[Path(".claude-plugin/plugin.json")] = CLAUDE_PLUGIN_SOURCE
-    if host == "hermes":
-        for relative in HERMES_FILES:
-            expected_sources[_skill_relative(host, relative)] = relative
     for source_relative, target_relative in HOST_FILE_MAP[host]:
         expected_sources[_skill_relative(host, target_relative)] = source_relative
     expected_files = {skill_relative, *expected_sources}
@@ -390,6 +497,8 @@ def validate_package(package: Path, host: str, root: Path = ROOT) -> dict[str, o
         errors.append("Codex package is missing agents/openai.yaml")
     if host != "codex" and (skill_root / "agents/openai.yaml").exists():
         errors.append(f"{host} package contains Codex-only agents/openai.yaml")
+    if host == "hermes" and not errors:
+        errors.extend(_validate_hermes_executable_package(package))
 
     return {
         "host": host,
@@ -414,16 +523,18 @@ def build_packages(root: Path = ROOT) -> dict[str, object]:
             skill_staged.mkdir(parents=True)
             (skill_staged / "SKILL.md").write_text(_render_skill(host, root), encoding="utf-8", newline="\n")
             _copy_files(root, skill_staged, COMMON_FILES)
-            _copy_mapped_files(root, skill_staged, COMMON_FILE_MAP)
             if host == "codex":
+                _copy_mapped_files(root, skill_staged, COMMON_FILE_MAP)
                 _copy_files(root, skill_staged, CODEX_FILES)
             if host == "claude":
+                _copy_mapped_files(root, skill_staged, COMMON_FILE_MAP)
                 _copy_files(root, skill_staged, CLAUDE_FILES)
                 plugin_manifest = staged / ".claude-plugin" / "plugin.json"
                 plugin_manifest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(root / CLAUDE_PLUGIN_SOURCE, plugin_manifest)
             if host == "hermes":
-                _copy_files(root, skill_staged, HERMES_FILES)
+                _copy_files(root, skill_staged, _hermes_non_executable_files())
+                _copy_mapped_files(root, skill_staged, _hermes_executable_mappings(root))
             _copy_mapped_files(root, skill_staged, HOST_FILE_MAP[host])
             validation = validate_package(staged, host, root)
             if not validation["valid"]:

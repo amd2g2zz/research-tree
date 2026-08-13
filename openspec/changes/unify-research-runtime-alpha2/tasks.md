@@ -330,3 +330,8 @@ substitute for local evidence.
 - [x] 32.2 Add host-native side-effect-free activation probes for Codex, Claude Code, and Hermes.
 - [x] 32.3 Diagnose missing, current, legacy, stale_link, and conflict installations without auto-rewriting user-owned paths.
 - [x] 32.4 Add isolated host activation, malformed marker, wrong-host package, stale link, and package drift regression tests.
+
+## 42. Isolated Hermes Executable Bundle (#155)
+
+- [x] 42.1 Define and stage the executable closure for every documented Hermes entrypoint, including fallback dependencies.
+- [x] 42.2 Run the group-42 focused acceptance command and bind its source-bound receipt before treating package compatibility as verified.
