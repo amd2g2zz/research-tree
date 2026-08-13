@@ -333,5 +333,5 @@ substitute for local evidence.
 
 ## 42. Isolated Hermes Executable Bundle (#155)
 
-- [ ] 42.1 Define and stage the executable closure for every documented Hermes entrypoint, including fallback dependencies.
-- [ ] 42.2 Run the group-42 focused acceptance command and bind its source-bound receipt before treating package compatibility as verified.
+- [x] 42.1 Define and stage the executable closure for every documented Hermes entrypoint, including fallback dependencies.
+- [x] 42.2 Run the group-42 focused acceptance command and bind its source-bound receipt before treating package compatibility as verified.

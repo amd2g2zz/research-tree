@@ -15,6 +15,6 @@
 
 ## 3. Verification And Delivery
 
-- [ ] 3.1 Run focused tests, Ruff, package parity, strict OpenSpec, and review
+- [x] 3.1 Run focused tests, Ruff, package parity, strict OpenSpec, and review
   the generated diff.
-- [ ] 3.2 Run the full issue acceptance suite and source-bound delivery checks.
+- [x] 3.2 Run the full issue acceptance suite and source-bound delivery checks.
