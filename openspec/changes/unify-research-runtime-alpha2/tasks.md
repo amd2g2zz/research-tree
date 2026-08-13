@@ -415,3 +415,12 @@ substitute for local evidence.
   dedicated scheduler behavior suite while leaving its source file for #179.
 - [ ] 62.3 Run the exact focused acceptance command and record a source-bound
   group-62 receipt only after the source commit.
+
+## 48. Typed SearchPortfolio Contract (#163)
+
+- [x] 48.1 Define strict SearchPortfolio, method registration, and
+  method/provider-boundary value objects without planning or persistence.
+- [x] 48.2 Reject malformed, unknown, duplicate, unavailable, and
+  non-independent method selections; serialize stable query references only.
+- [ ] 48.3 Run the focused group-48 acceptance command and record a
+  source-bound receipt before treating this child as verified.

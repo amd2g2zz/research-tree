@@ -646,8 +646,12 @@
       },
       "rollback": "revert the issue-151 boundary change; retain accepted immutable events and do not restore generic ingestion"
     },
-      {
-        "group": 62,
+    {
+      "group": 48,
+      "state": "planned"
+    },
+    {
+      "group": 62,
         "state": "verified",
         "evidence_refs": [
           "ci://delivery-governance/delivery-gate"
