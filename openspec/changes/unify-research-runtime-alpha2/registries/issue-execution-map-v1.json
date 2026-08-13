@@ -35,7 +35,7 @@
     { "issue": 83, "primary_group": 27, "supporting_groups": [15], "capabilities": ["research-acquisition", "search-portfolios"], "openspec_change": "add-intent-derived-search-portfolios" },
     { "issue": 84, "primary_group": 30, "supporting_groups": [], "capabilities": ["paired-alpha-benchmark"], "openspec_change": "benchmark-alpha1-alpha2-pairs" },
     { "issue": 85, "primary_group": 28, "supporting_groups": [], "capabilities": ["strategy-projection-handoff"], "openspec_change": "add-four-stage-strategy-handoff" },
-    { "issue": 86, "primary_group": 29, "supporting_groups": [], "capabilities": ["project-user-preference-profile"], "openspec_change": "add-project-user-preference-profile" },
+    { "issue": 86, "primary_group": 29, "supporting_groups": [], "capabilities": ["project-user-preference-profile"], "openspec_change": "archive/2026-08-13-add-project-user-preference-profile" },
     { "issue": 87, "primary_group": 31, "supporting_groups": [], "capabilities": ["decision-frame"], "openspec_change": "clarify-intent-before-strategy" },
     { "issue": 98, "primary_group": 33, "supporting_groups": [], "capabilities": ["content-addressed-artifacts"], "openspec_change": "add-content-addressed-artifacts" },
     { "issue": 112, "primary_group": 35, "supporting_groups": [], "capabilities": ["integrated-evidence-reconciliation"], "openspec_change": "reconcile-foundation-verification-receipts" },
@@ -43,6 +43,7 @@
     { "issue": 160, "primary_group": 46, "supporting_groups": [], "capabilities": ["closure-evidence-content-binding"], "openspec_change": "bind-closure-evidence-content" },
     { "issue": 164, "primary_group": 54, "supporting_groups": [], "capabilities": ["legacy-cli-surface-removal"], "openspec_change": "remove-legacy-cli-surface" },
     { "issue": 167, "primary_group": 55, "supporting_groups": [], "capabilities": ["legacy-runstore-import-removal"], "openspec_change": "remove-legacy-runstore-import-authority" },
-    { "issue": 169, "primary_group": 57, "supporting_groups": [], "capabilities": ["current-only-skill-setup"], "openspec_change": "remove-legacy-setup-migration" }
+    { "issue": 169, "primary_group": 57, "supporting_groups": [], "capabilities": ["current-only-skill-setup"], "openspec_change": "remove-legacy-setup-migration" },
+    { "issue": 173, "primary_group": 59, "supporting_groups": [], "capabilities": ["current-strategy-projection-reader"], "openspec_change": "remove-legacy-strategy-projection-reader" }
   ]
 }

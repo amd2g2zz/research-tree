@@ -82,7 +82,6 @@ class StrategyProjection:
     @classmethod
     def create(cls, **values: Any) -> "StrategyProjection":
         values = dict(values)
-        values.setdefault("preference_influences", ())
         required = {
             "projection_id",
             "run_id",
@@ -275,27 +274,15 @@ class StrategyProjection:
             "display_digest",
             "content_hash",
         }
-        legacy = "preference_influences" not in value
-        if legacy:
-            expected_keys.remove("preference_influences")
         if set(value) != expected_keys:
             raise StrategyProjectionError("projection fields do not match schema")
         if value.get("schema_version") != STRATEGY_PROJECTION_SCHEMA_VERSION:
             raise StrategyProjectionError("schema_version must be 1")
+        expected_display_keys = expected_keys - {"display_payload", "display_digest", "content_hash"}
+        display_payload = value.get("display_payload")
+        if not isinstance(display_payload, Mapping) or set(display_payload) != expected_display_keys:
+            raise StrategyProjectionError("display_payload mismatch")
         try:
-            if legacy:
-                legacy_payload = value["display_payload"]
-                if set(legacy_payload) != expected_keys - {"display_payload", "display_digest", "content_hash"}:
-                    raise StrategyProjectionError("display_payload mismatch")
-                legacy_display_digest = sha256(canonical_json_bytes(legacy_payload)).hexdigest()
-                legacy_content_hash = sha256(
-                    canonical_json_bytes({**legacy_payload, "display_digest": legacy_display_digest})
-                ).hexdigest()
-                if (
-                    value.get("display_digest") != legacy_display_digest
-                    or value.get("content_hash") != legacy_content_hash
-                ):
-                    raise StrategyProjectionError("projection digest mismatch")
             refs = {
                 name: ArtifactRef.from_dict(value[name])
                 for name in ("decision_frame_ref", "alignment_handoff_ref", "target_ref")
@@ -318,7 +305,7 @@ class StrategyProjection:
                         "success_oracles",
                         "delivery_contract",
                         "stop_rule",
-                        *(() if legacy else ("preference_influences",)),
+                        "preference_influences",
                         "revision",
                         "status",
                     )
@@ -327,10 +314,8 @@ class StrategyProjection:
             )
         except (KeyError, TypeError, ValueError) as error:
             raise StrategyProjectionError("invalid projection fields") from error
-        if not legacy and (
-            value.get("display_digest") != item.display_digest or value.get("content_hash") != item.content_hash
-        ):
-            raise StrategyProjectionError("projection digest mismatch")
-        if not legacy and value.get("display_payload") != item.display_payload:
+        if display_payload != item.display_payload:
             raise StrategyProjectionError("display_payload mismatch")
+        if value.get("display_digest") != item.display_digest or value.get("content_hash") != item.content_hash:
+            raise StrategyProjectionError("projection digest mismatch")
         return item

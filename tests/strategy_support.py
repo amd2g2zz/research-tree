@@ -54,6 +54,7 @@ def prepare_strategy(ledger: RunLedger, coordinator: ResearchRunCoordinator, run
         success_oracles=("oracle-1",),
         delivery_contract={"technical": "package", "human": "report"},
         stop_rule="oracles pass",
+        preference_influences=(),
         revision=1,
         status="displayed",
     )
