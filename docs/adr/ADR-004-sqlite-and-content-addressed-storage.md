@@ -28,8 +28,8 @@ cannot become evidence merely because bytes exist on disk.
 - Store large blobs in SQLite: lock duration and database churn increase.
 - A graph database: local artifact-centric transactions do not require one.
 
-## Current Runtime Scope
+## Migration
 
-The current runtime accepts only canonical SQLite and content-addressed state.
-It leaves previously persisted user data untouched and exposes no recovery path
-for retired sources.
+No migration, importer, or compatibility reader is provided. The current runtime
+accepts only canonical SQLite and content-addressed state, leaving previously
+persisted user data untouched.
