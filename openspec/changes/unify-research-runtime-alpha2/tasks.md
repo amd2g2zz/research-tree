@@ -364,3 +364,12 @@ substitute for local evidence.
   replacing, or otherwise mutating its user-owned contents.
 - [x] 57.3 Run the focused setup acceptance command and record a source-bound
   group-57 receipt before treating this child as verified.
+
+## 59. Current Strategy Projection Reader (#173)
+
+- [ ] 59.1 Remove strategy projection default inference and prior-shape
+  parsing so construction and loading require every canonical field.
+- [ ] 59.2 Retire active compatibility-read planning while preserving its
+  completed evidence only in the OpenSpec archive.
+- [ ] 59.3 Run the focused strict-reader acceptance command and record a
+  source-bound group-59 receipt before treating this child as verified.

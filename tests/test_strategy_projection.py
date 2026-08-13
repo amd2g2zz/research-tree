@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -37,6 +38,7 @@ def projection(**overrides: object) -> StrategyProjection:
         "success_oracles": ("oracle-primary",),
         "delivery_contract": {"technical": "package", "human": "report"},
         "stop_rule": "stop after current oracles pass or authority is required",
+        "preference_influences": (),
         "revision": 1,
         "status": "displayed",
     }
@@ -120,16 +122,70 @@ def test_projection_binds_preference_influence_lineage() -> None:
         )
 
 
-def test_legacy_projection_without_preference_field_remains_readable() -> None:
+def test_projection_rejects_prior_minimal_payloads_without_preference_lineage() -> None:
     item = projection()
-    payload = item.to_dict()
-    payload.pop("preference_influences")
-    payload["display_payload"].pop("preference_influences")
-    payload["display_digest"] = hashlib.sha256(canonical_json_bytes(payload["display_payload"])).hexdigest()
-    payload["content_hash"] = hashlib.sha256(
-        canonical_json_bytes({**payload["display_payload"], "display_digest": payload["display_digest"]})
+    outer_missing = item.to_dict()
+    outer_missing.pop("preference_influences")
+    outer_missing["display_digest"] = hashlib.sha256(canonical_json_bytes(outer_missing["display_payload"])).hexdigest()
+    outer_missing["content_hash"] = hashlib.sha256(
+        canonical_json_bytes({**outer_missing["display_payload"], "display_digest": outer_missing["display_digest"]})
     ).hexdigest()
 
-    restored = StrategyProjection.from_dict(payload)
-    assert restored.preference_influences == ()
-    assert restored.to_dict()["preference_influences"] == []
+    with pytest.raises(StrategyProjectionError, match="projection fields do not match schema"):
+        StrategyProjection.from_dict(outer_missing)
+
+    display_missing = item.to_dict()
+    display_missing["display_payload"].pop("preference_influences")
+    display_missing["display_digest"] = hashlib.sha256(
+        canonical_json_bytes(display_missing["display_payload"])
+    ).hexdigest()
+    display_missing["content_hash"] = hashlib.sha256(
+        canonical_json_bytes(
+            {**display_missing["display_payload"], "display_digest": display_missing["display_digest"]}
+        )
+    ).hexdigest()
+
+    with pytest.raises(StrategyProjectionError, match="display_payload mismatch"):
+        StrategyProjection.from_dict(display_missing)
+
+    values = {
+        key: value
+        for key, value in projection().to_dict().items()
+        if key
+        not in {
+            "schema_version",
+            "kind",
+            "display_payload",
+            "display_digest",
+            "content_hash",
+            "preference_influences",
+        }
+    }
+    with pytest.raises(StrategyProjectionError, match="missing fields: preference_influences"):
+        StrategyProjection.create(**values)
+
+
+def test_active_contracts_do_not_advertise_legacy_strategy_projection_reads() -> None:
+    root = Path(__file__).parents[1]
+    active_sources = (
+        root / "openspec/changes/unify-research-runtime-alpha2/tasks.md",
+        root / "openspec/changes/unify-research-runtime-alpha2/registries/task-execution-v1.json",
+        root / "openspec/changes/unify-research-runtime-alpha2/registries/task-verification-v1.json",
+        root / "openspec/changes/unify-research-runtime-alpha2/registries/issue-execution-map-v1.json",
+        root / "openspec/changes/unify-research-runtime-alpha2/registries/delivery-matrix-v1.json",
+    )
+    active_text = "\n".join(path.read_text(encoding="utf-8") for path in active_sources)
+
+    assert '"openspec_change": "add-project-user-preference-profile"' not in active_text
+    assert '"openspec_change": "archive/2026-08-13-add-project-user-preference-profile"' in active_text
+    assert "legacy-read compatibility" not in active_text
+    assert (root / "openspec/changes/add-project-user-preference-profile").exists() is False
+    assert (root / "openspec/changes/archive/2026-08-13-add-project-user-preference-profile").is_dir()
+
+
+def test_runtime_source_has_no_legacy_projection_reader_branch() -> None:
+    source = (Path(__file__).parents[1] / "src/research_tree/strategy_projection.py").read_text(encoding="utf-8")
+
+    assert 'values.setdefault("preference_influences", ())' not in source
+    assert 'legacy = "preference_influences" not in value' not in source
+    assert "legacy_payload" not in source

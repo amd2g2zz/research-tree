@@ -44,7 +44,8 @@
     { "capability": "closure-evidence-content-binding", "source_modules": ["src/research_tree/closure.py", "src/research_tree/source_capture.py", "src/research_tree/evidence.py"], "public_surface": ["SlotClosureAssessor.assess"], "task_groups": [46], "github_issue": "#160", "owner": "evidence" },
     { "capability": "legacy-cli-surface-removal", "source_modules": ["src/research_tree/cli.py", "pyproject.toml", "scripts/check_repository_layout.py"], "public_surface": ["research-tree reserved canonical boundary"], "task_groups": [54], "github_issue": "#164", "owner": "runtime" },
     { "capability": "legacy-runstore-import-removal", "source_modules": ["src/research_tree/run_ledger.py", "src/research_tree/__init__.py"], "public_surface": [], "task_groups": [55], "github_issue": "#167", "owner": "runtime" },
-    { "capability": "current-only-skill-setup", "source_modules": ["src/research_tree/skill_setup.py"], "public_surface": ["research-tree-setup install", "research-tree-setup status"], "task_groups": [57], "github_issue": "#169", "owner": "host-adapter" }
+    { "capability": "current-only-skill-setup", "source_modules": ["src/research_tree/skill_setup.py"], "public_surface": ["research-tree-setup install", "research-tree-setup status"], "task_groups": [57], "github_issue": "#169", "owner": "host-adapter" },
+    { "capability": "current-strategy-projection-reader", "source_modules": ["src/research_tree/strategy_projection.py"], "public_surface": ["StrategyProjection.create", "StrategyProjection.from_dict"], "task_groups": [59], "github_issue": "#173", "owner": "alignment" }
   ],
   "release_rule": "A capability row is not evidence of implementation. The generated requirement rows, tests, and immutable release manifest must all resolve before status becomes verified."
 }
