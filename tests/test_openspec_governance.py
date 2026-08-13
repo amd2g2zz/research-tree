@@ -49,3 +49,25 @@ def test_alpha2_dependency_graph_remains_acyclic() -> None:
     )
 
     assert not [violation for violation in report.violations if violation.code == "dependency_cycle"]
+
+
+def test_current_only_setup_contract_replaces_archived_refresh_behavior() -> None:
+    archive = ROOT / "openspec/changes/archive/2026-08-13-verify-cross-host-skill-activation"
+    active_change = ROOT / "openspec/changes/verify-cross-host-skill-activation"
+    issue_map = json.loads((REGISTRIES / "issue-execution-map-v1.json").read_text(encoding="utf-8"))
+    verification = json.loads((REGISTRIES / "task-verification-v1.json").read_text(encoding="utf-8"))
+    umbrella_spec = (CHANGE / "specs/skill-activation-integrity/spec.md").read_text(encoding="utf-8")
+    umbrella_tasks = (CHANGE / "tasks.md").read_text(encoding="utf-8")
+
+    assert archive.is_dir()
+    assert not active_change.exists()
+    assert next(item for item in issue_map["issues"] if item["issue"] == 71)["openspec_change"] == (
+        "archive/2026-08-13-verify-cross-host-skill-activation"
+    )
+    group_32 = next(item for item in verification["groups"] if item["group"] == 32)
+    assert all(reference.startswith("openspec/changes/archive/") for reference in group_32["evidence_refs"])
+    assert group_32["command_receipt"]["raw_output_ref"].startswith("openspec/changes/archive/")
+    assert "`unsupported`" in umbrella_spec
+    assert "`stale_link`" not in umbrella_spec
+    assert "refresh flag" not in umbrella_spec
+    assert "stale-link refresh protocol" in umbrella_tasks

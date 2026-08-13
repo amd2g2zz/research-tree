@@ -207,24 +207,16 @@ def _same_payload(target: Path, source: Path) -> bool:
 def installation_status(
     target: Path,
     source: Path,
-    *,
-    legacy_source: Path | None = None,
-    additional_legacy_sources: Iterable[Path] = (),
 ) -> str:
     if not _lexists(target):
         return "missing"
     if _same_source(target, source):
         return "current"
-    legacy_sources = tuple(additional_legacy_sources)
-    if legacy_source is not None:
-        legacy_sources = (legacy_source, *legacy_sources)
-    if any(_same_source(target, candidate) for candidate in legacy_sources):
-        return "legacy"
     if _is_link_like(target):
-        return "stale_link"
+        return "unsupported"
     if _same_payload(target, source):
         return "current"
-    return "conflict"
+    return "unsupported"
 
 
 def _create_link(source: Path, target: Path) -> None:
@@ -270,16 +262,6 @@ def _remove_created_target(target: Path, mode: str) -> None:
     raise SkillSetupError(f"created link is not removable as a link: {target}")
 
 
-def _remove_link_target(target: Path) -> None:
-    if target.is_symlink():
-        target.unlink()
-        return
-    if os.name == "nt":
-        target.rmdir()
-        return
-    raise SkillSetupError(f"legacy installation is not a removable link: {target}")
-
-
 def install_skill(
     hosts: Sequence[str],
     *,
@@ -304,11 +286,11 @@ def install_skill(
     targets = {
         host: _absolute(
             resolve_target(
-            host,
-            scope=scope,
-            home=home,
-            project_root=project_root,
-            codex_home=codex_home,
+                host,
+                scope=scope,
+                home=home,
+                project_root=project_root,
+                codex_home=codex_home,
             )
         )
         for host in ordered_hosts
@@ -321,41 +303,25 @@ def install_skill(
                 f"link target for {names} is inside the source checkout; use --mode copy for a project-scoped install"
             )
 
-    statuses = {
-        host: installation_status(
-            target,
-            sources[host],
-            legacy_source=repository,
-            additional_legacy_sources=(packages[host],) if host == "claude" else (),
-        )
-        for host, target in targets.items()
-    }
-    protected = [host for host, status in statuses.items() if status in {"conflict", "stale_link"}]
-    if protected:
-        details = ", ".join(f"{host}={statuses[host]}:{targets[host]}" for host in protected)
-        raise SkillSetupError(
-            "refusing to overwrite protected skill installation(s); stale links require "
-            "explicit refresh and conflicts remain user-owned: " + details
-        )
+    statuses = {host: installation_status(target, sources[host]) for host, target in targets.items()}
+    unsupported = [host for host, status in statuses.items() if status == "unsupported"]
+    if unsupported:
+        details = ", ".join(f"{host}={statuses[host]}:{targets[host]}" for host in unsupported)
+        raise SkillSetupError("refusing to modify unsupported user-owned skill installation(s): " + details)
 
     results: list[dict[str, str]] = []
-    created: list[tuple[Path, Path | None]] = []
+    created: list[Path] = []
     try:
         for host, target in targets.items():
             status = statuses[host]
             action = "unchanged" if status == "current" else "planned"
-            if status in {"missing", "legacy"} and not dry_run:
-                previous = repository if status == "legacy" else None
-                if status == "legacy":
-                    _remove_link_target(target)
-                created.append((target, previous))
+            if status == "missing" and not dry_run:
+                created.append(target)
                 if mode == "link":
                     _create_link(sources[host], target)
                 else:
                     _copy_payload(sources[host], target, payloads[host])
-                action = "migrated" if status == "legacy" else "installed"
-            elif status == "legacy":
-                action = "planned_migration"
+                action = "installed"
             results.append(
                 {
                     "host": host,
@@ -370,10 +336,8 @@ def install_skill(
                 }
             )
     except (OSError, SkillSetupError) as exc:
-        for target, previous in reversed(created):
+        for target in reversed(created):
             _remove_created_target(target, mode)
-            if previous is not None:
-                _create_link(previous, target)
         if isinstance(exc, SkillSetupError):
             raise
         raise SkillSetupError(str(exc)) from exc
@@ -404,19 +368,14 @@ def skill_status(
         _read_payload(skill_source)
         target = _absolute(
             resolve_target(
-            host,
-            scope=scope,
-            home=home,
-            project_root=project_root,
-            codex_home=codex_home,
+                host,
+                scope=scope,
+                home=home,
+                project_root=project_root,
+                codex_home=codex_home,
             )
         )
-        status = installation_status(
-            target,
-            skill_source,
-            legacy_source=repository,
-            additional_legacy_sources=(package,) if host == "claude" else (),
-        )
+        status = installation_status(target, skill_source)
         installations.append(
             {
                 "host": host,
@@ -437,103 +396,6 @@ def skill_status(
     }
 
 
-def _previous_link_source(target: Path) -> Path:
-    if target.is_symlink():
-        previous = target.readlink()
-        if not previous.is_absolute():
-            previous = target.parent / previous
-        return previous.resolve(strict=False)
-    return target.resolve(strict=False)
-
-
-def refresh_stale_links(
-    hosts: Sequence[str],
-    *,
-    source: Path,
-    scope: str,
-    home: Path,
-    project_root: Path,
-    codex_home: Path | None = None,
-    confirm_stale_link: bool = False,
-) -> dict[str, object]:
-    """Explicitly repoint only already classified stale links, with rollback."""
-    if not confirm_stale_link:
-        raise SkillSetupError("stale-link refresh requires explicit confirmation")
-    repository = source.expanduser().resolve()
-    ordered_hosts = tuple(dict.fromkeys(hosts))
-    packages = {host: resolve_package(repository, host) for host in ordered_hosts}
-    sources = {
-        host: package / "skills" / SKILL_NAME if host == "claude" else package for host, package in packages.items()
-    }
-    targets = {
-        host: _absolute(
-            resolve_target(
-                host,
-                scope=scope,
-                home=home,
-                project_root=project_root,
-                codex_home=codex_home,
-            )
-        )
-        for host in ordered_hosts
-    }
-    statuses = {
-        host: installation_status(
-            targets[host],
-            sources[host],
-            legacy_source=repository,
-            additional_legacy_sources=(packages[host],) if host == "claude" else (),
-        )
-        for host in ordered_hosts
-    }
-    invalid = [host for host, status in statuses.items() if status != "stale_link"]
-    if invalid:
-        details = ", ".join(f"{host}={statuses[host]}" for host in invalid)
-        raise SkillSetupError(f"refresh target is not a stale link: {details}")
-
-    previous = {host: _previous_link_source(targets[host]) for host in ordered_hosts}
-    changed: list[str] = []
-    try:
-        for host in ordered_hosts:
-            target = targets[host]
-            _remove_link_target(target)
-            changed.append(host)
-            _create_link(sources[host], target)
-    except (OSError, SkillSetupError) as exc:
-        restoration_errors = []
-        for host in reversed(changed):
-            target = targets[host]
-            try:
-                if _lexists(target):
-                    _remove_link_target(target)
-                _create_link(previous[host], target)
-            except (OSError, SkillSetupError) as restore_exc:
-                restoration_errors.append(f"{host}: {restore_exc}")
-        if restoration_errors:
-            raise SkillSetupError(f"refresh failed ({exc}); rollback failed: {'; '.join(restoration_errors)}") from exc
-        if isinstance(exc, SkillSetupError):
-            raise
-        raise SkillSetupError(str(exc)) from exc
-
-    return {
-        "repository": str(repository),
-        "scope": scope,
-        "installations": [
-            {
-                "host": host,
-                "target": str(targets[host]),
-                "skill_source": str(sources[host]),
-                "previous_source": str(previous[host]),
-                "status": "current",
-                "activation_state": "static_ready",
-                "live_activation": "unproven",
-                "action": "refreshed",
-            }
-            for host in ordered_hosts
-        ],
-    }
-
-
 def _selected_hosts(raw_hosts: Sequence[str] | None) -> tuple[str, ...]:
     if not raw_hosts or "all" in raw_hosts:
         return tuple(HOST_LAYOUTS)
@@ -546,7 +408,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Install isolated research-tree packages for Codex, Claude Code, or Hermes.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
-    for command in ("install", "status", "refresh"):
+    for command in ("install", "status"):
         child = commands.add_parser(command)
         child.add_argument(
             "--host",
@@ -566,8 +428,6 @@ def build_parser() -> argparse.ArgumentParser:
     install = commands.choices["install"]
     install.add_argument("--mode", choices=("link", "copy"), default="link")
     install.add_argument("--dry-run", action="store_true")
-    refresh = commands.choices["refresh"]
-    refresh.add_argument("--confirm-stale-link", action="store_true")
     return parser
 
 
@@ -587,7 +447,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 codex_home=arguments.codex_home,
                 dry_run=arguments.dry_run,
             )
-        elif arguments.command == "status":
+        else:
             result = skill_status(
                 hosts,
                 source=arguments.source,
@@ -595,16 +455,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 home=arguments.home,
                 project_root=arguments.project_root,
                 codex_home=arguments.codex_home,
-            )
-        else:
-            result = refresh_stale_links(
-                hosts,
-                source=arguments.source,
-                scope=arguments.scope,
-                home=arguments.home,
-                project_root=arguments.project_root,
-                codex_home=arguments.codex_home,
-                confirm_stale_link=arguments.confirm_stale_link,
             )
     except SkillSetupError as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2), file=sys.stderr)

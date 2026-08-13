@@ -49,8 +49,10 @@ def entry(path: str, *, document_class: str = "normative", lifecycle: str = "act
 def test_repository_registry_covers_documentation_classes_and_checker_passes() -> None:
     registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
     classes = {item["class"] for item in registry["entries"]}
+    archived_changes = next(item for item in registry["entries"] if item["path"] == "openspec/changes/archive/")
 
     assert {"normative", "generated", "historical", "operational", "evaluation"} <= classes
+    assert archived_changes["lifecycle"] == "historical"
     assert checker().validate_repository(ROOT, REGISTRY)["errors"] == []
 
 

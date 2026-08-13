@@ -94,7 +94,9 @@ substitute for local evidence.
 - [ ] 8.7 Prove equivalent Codex and Claude event fixtures produce the same canonical semantic digest.
 - [x] 8.8 Define activation evidence states for discovery, current installation, live body injection, and post-activation behavior; require explicit host receipts instead of inferring activation from a file read.
 - [x] 8.9 Add host-specific activation markers, side-effect-free probes, package digests, and bounded receipts for Codex, Claude Code, and Hermes.
-- [x] 8.10 Add stale-link classification and non-destructive refresh handling to setup/status, including the legacy repository-root path failure mode.
+- [x] 8.10 Replace the obsolete stale-link refresh protocol with current-only
+  setup/status behavior: every existing non-current target is unsupported and
+  remains unchanged.
 - [x] 8.11 Run native activation probes in isolated Codex, Claude Code, and Hermes fixtures; mark unavailable CLIs as unavailable evidence and retain exact outputs.
 
 ## 9. Hermes-Native Long-Horizon Adapter (#61, #82)
@@ -328,8 +330,10 @@ substitute for local evidence.
 
 - [x] 32.1 Define discovered, static_ready, and live_verified activation evidence states and safe receipt schema.
 - [x] 32.2 Add host-native side-effect-free activation probes for Codex, Claude Code, and Hermes.
-- [x] 32.3 Diagnose missing, current, legacy, stale_link, and conflict installations without auto-rewriting user-owned paths.
-- [x] 32.4 Add isolated host activation, malformed marker, wrong-host package, stale link, and package drift regression tests.
+- [x] 32.3 Diagnose missing, current, and unsupported installations without
+  rewriting user-owned non-current paths.
+- [x] 32.4 Add isolated host activation, malformed marker, wrong-host package,
+  unsupported-target, and package drift regression tests.
 
 ## 42. Isolated Hermes Executable Bundle (#155)
 
@@ -353,3 +357,12 @@ substitute for local evidence.
   exports, tests, and maintained public guidance without a replacement route.
 - [x] 54.3 Run the focused breaking-removal acceptance command and record a
   source-bound group-54 receipt before treating this child as verified.
+
+## 57. Current-Only Skill Setup (#169)
+
+- [x] 57.1 Remove setup migration and refresh paths while retaining missing and
+  current Codex, Claude Code, and Hermes installation behavior.
+- [x] 57.2 Reject every existing non-current target without moving, unlinking,
+  replacing, or otherwise mutating its user-owned contents.
+- [x] 57.3 Run the focused setup acceptance command and record a source-bound
+  group-57 receipt before treating this child as verified.

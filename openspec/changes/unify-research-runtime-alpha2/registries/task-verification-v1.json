@@ -243,7 +243,7 @@
       },
       "rollback": "remain in alignment"
     },
-    { "group": 32, "state": "verified", "evidence_refs": ["openspec/changes/verify-cross-host-skill-activation/evidence/group-32-output.txt", "openspec/changes/verify-cross-host-skill-activation/evidence/group-32-receipt.json"], "command_receipt": { "command": "uv run pytest -q tests/test_skill_activation.py tests/test_skill_setup.py tests/test_skill_packages.py && uv run ruff check src/research_tree/skill_activation.py src/research_tree/skill_setup.py scripts/check_skill_activation.py scripts/build_skill_packages.py tests/test_skill_activation.py tests/test_skill_setup.py tests/test_skill_packages.py && uv run ruff format --check src/research_tree/skill_activation.py scripts/check_skill_activation.py tests/test_skill_activation.py", "exit_code": 0, "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f", "output_digest": "d83d3e7c48fd3412f2e976fcaed274302dd403df10e5aacf13b03d537bba169b", "raw_output_ref": "openspec/changes/verify-cross-host-skill-activation/evidence/group-32-output.txt", "recorded_at": "2026-08-11T16:07:03.2835791Z", "source_revision": "0473171431dbcdd27bbaa99647682fc05d28f062" }, "rollback": "record each host as unavailable or failed; never infer live activation" },
+    { "group": 32, "state": "verified", "evidence_refs": ["openspec/changes/archive/2026-08-13-verify-cross-host-skill-activation/evidence/group-32-output.txt", "openspec/changes/archive/2026-08-13-verify-cross-host-skill-activation/evidence/group-32-receipt.json"], "command_receipt": { "command": "uv run pytest -q tests/test_skill_activation.py tests/test_skill_setup.py tests/test_skill_packages.py && uv run ruff check src/research_tree/skill_activation.py src/research_tree/skill_setup.py scripts/check_skill_activation.py scripts/build_skill_packages.py tests/test_skill_activation.py tests/test_skill_setup.py tests/test_skill_packages.py && uv run ruff format --check src/research_tree/skill_activation.py scripts/check_skill_activation.py tests/test_skill_activation.py", "exit_code": 0, "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f", "output_digest": "d83d3e7c48fd3412f2e976fcaed274302dd403df10e5aacf13b03d537bba169b", "raw_output_ref": "openspec/changes/archive/2026-08-13-verify-cross-host-skill-activation/evidence/group-32-output.txt", "recorded_at": "2026-08-11T16:07:03.2835791Z", "source_revision": "0473171431dbcdd27bbaa99647682fc05d28f062" }, "rollback": "record each host as unavailable or failed; never infer live activation" },
     {
       "group": 33,
       "state": "verified",
@@ -353,6 +353,24 @@
         "recorded_at": "2026-08-13T10:34:16.708170+00:00"
       },
       "rollback": "revert the removal through Git before release; do not restore a compatibility route"
+    },
+    {
+      "group": 57,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/remove-legacy-setup-migration/evidence/group-57-output.txt",
+        "openspec/changes/remove-legacy-setup-migration/evidence/group-57-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_skill_setup.py tests/test_skill_activation.py tests/test_skill_packages.py && uv run ruff check src/research_tree/skill_setup.py tests/test_skill_setup.py && uv run ruff format --check src/research_tree/skill_setup.py tests/test_skill_setup.py && uv run python scripts/build_skill_packages.py --check",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "d9fcacdccf138239cb695407246b785ed501de9d10cda822e91c920a18d40c7f",
+        "source_revision": "925f0dc7f4946f2f67daac0c0251120b0d0909b0",
+        "raw_output_ref": "openspec/changes/remove-legacy-setup-migration/evidence/group-57-output.txt",
+        "recorded_at": "2026-08-13T11:43:23.684775+00:00"
+      },
+      "rollback": "revert the removal through Git before release; do not restore setup migration or mutate user-owned targets"
     }
   ]
 }

@@ -13,11 +13,11 @@ skill body.
   the host-specific invocation command, and MUST NOT claim that research-tree
   is active
 
-#### Scenario: The installed target points at a different research-tree checkout
-- **WHEN** the target is a symlink or junction containing a research-tree skill
-  but does not resolve to the selected package
-- **THEN** setup status MUST report `stale_link`, preserve the target by default,
-  and require an explicit refresh flag before repointing it
+#### Scenario: The installed target is not the selected current package
+- **WHEN** the target already exists but does not resolve to the selected
+  current package
+- **THEN** setup status MUST report `unsupported` and MUST NOT treat the target
+  as a migration input, unlink, move, replace, or otherwise mutate it
 
 ### Requirement: Each host has an explicit activation proof
 Each generated host package MUST contain a host-specific activation marker and

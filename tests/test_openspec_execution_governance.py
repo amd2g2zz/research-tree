@@ -361,6 +361,7 @@ def test_alpha2_registry_has_resolvable_ownership_and_noncyclic_boundaries() -> 
         42,
         46,
         54,
+        57,
     )
     assert report.unverified_groups == (
         *(
@@ -406,6 +407,7 @@ def test_cli_emits_deterministic_real_registry_report(capsys: pytest.CaptureFixt
         42,
         46,
         54,
+        57,
     ]
     assert payload["unverified_groups"] == [
         *(
