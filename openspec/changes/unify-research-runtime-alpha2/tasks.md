@@ -337,6 +337,16 @@ substitute for local evidence.
 - [x] 46.3 Run the focused closure acceptance command and record a
   source-bound group-46 receipt before treating this child as verified.
 
+## 47. Closure Quality and Currentness (#161)
+
+- [ ] 47.1 Derive method/provider independence and selected-option
+  contradiction coverage from strict current closure evidence and Oracle input
+  lineage rather than caller claims.
+- [ ] 47.2 Persist a version-two closure assessment and replay it fail-closed
+  against exact current Finding, evidence, capture, and Oracle lineage.
+- [ ] 47.3 Run the focused closure acceptance command and record a
+  source-bound group-47 receipt before treating this child as verified.
+
 ## 54. Legacy CLI Surface Removal (#164)
 
 - [x] 54.1 Remove every published legacy round, tree, and profile command
