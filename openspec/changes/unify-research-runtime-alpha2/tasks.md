@@ -335,3 +335,12 @@ substitute for local evidence.
 
 - [x] 42.1 Define and stage the executable closure for every documented Hermes entrypoint, including fallback dependencies.
 - [x] 42.2 Run the group-42 focused acceptance command and bind its source-bound receipt before treating package compatibility as verified.
+
+## 46. Closure Evidence Content Binding (#160)
+
+- [x] 46.1 Require SourceCapture, AcquisitionReceipt, EvidenceArtifact, and
+  declared origin relationships to resolve through exact available CAS bindings.
+- [x] 46.2 Derive and require the complete current decision-bound Finding set
+  before closure assessment, rejecting caller omission or substitution.
+- [x] 46.3 Run the focused closure acceptance command and record a
+  source-bound group-46 receipt before treating this child as verified.

@@ -6,7 +6,16 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from .domain import ArtifactRef, ArtifactRevision, RuntimeStoreError, canonical_json_bytes, thaw_json, validate_identifier
+from .content_store import ContentAddressedStore, ContentStoreError
+from .domain import (
+    ArtifactRef,
+    ArtifactRevision,
+    RuntimeStoreError,
+    canonical_json_bytes,
+    thaw_json,
+    validate_identifier,
+)
+from .evidence import EVIDENCE_ARTIFACT_KIND, EvidenceAnchor, EvidenceArtifact, EvidenceResolver
 from .oracles import (
     ORACLE_ATTEMPT_KIND,
     ORACLE_RUN_KIND,
@@ -15,13 +24,14 @@ from .oracles import (
     OracleAttempt,
     OracleRun,
     OracleSpec,
-    validate_oracle_attempt_lineage,
     validate_oracle_run_lineage,
 )
 from .run_ledger import RunLedger
+from .source_capture import ACQUISITION_RECEIPT_KIND, SOURCE_CAPTURE_KIND, AcquisitionReceipt, SourceCapture
 
 
 ASSESSMENT_KIND = "slot-closure-assessment"
+FINDING_PACK_KIND = "finding-pack"
 
 
 class ClosureAssessmentError(InvalidOracleError):
@@ -78,7 +88,9 @@ class SlotClosureAssessment:
             raise ClosureAssessmentError("assessment status is unsupported")
         if not isinstance(self.checks, Mapping) or any(not isinstance(value, bool) for value in self.checks.values()):
             raise ClosureAssessmentError("checks must be a boolean mapping")
-        if not isinstance(self.successor_kinds, tuple) or any(not isinstance(value, str) or not value.strip() for value in self.successor_kinds):
+        if not isinstance(self.successor_kinds, tuple) or any(
+            not isinstance(value, str) or not value.strip() for value in self.successor_kinds
+        ):
             raise ClosureAssessmentError("successor_kinds must be a tuple of strings")
         _text(self.counterevidence_disposition, "counterevidence_disposition")
         if self.status == "passed" and not self.closure_token:
@@ -116,6 +128,7 @@ class SlotClosureAssessment:
         )
 
 
+# fmt: off
 class OracleService:
     """Persist OracleSpec, OracleAttempt, and OracleRun without lifecycle authority."""
 
@@ -176,7 +189,7 @@ class OracleService:
         parents = (run.oracle_spec_ref, run.attempt_ref, *run.input_refs, *run.tool_event_refs, *run.result_artifact_refs)
         return self._append(round_id, run.oracle_run_id, ORACLE_RUN_KIND, run.to_dict(), parents, expected_revision)
 
-
+# fmt: on
 class SlotClosureAssessor:
     """The only component allowed to issue an evaluator-owned closure token."""
 
@@ -198,7 +211,268 @@ class SlotClosureAssessor:
             raise ClosureAssessmentError(f"{kind} revision is stale")
         return ref
 
-    def assess(self, *, round_id: str, assessment_id: str, slot_id: str, blueprint_target: ArtifactRevision, decision: ArtifactRevision, findings: Sequence[ArtifactRevision], oracle_runs: Sequence[ArtifactRevision], evaluator_id: str, provenance_groups: Sequence[str], counterevidence_disposition: str, active_contradiction: bool, expected_revision: int) -> ArtifactRevision:
+    def _current_artifact(self, reference: ArtifactRef, kind: str) -> ArtifactRevision:
+        try:
+            artifact = self.ledger.get_artifact(reference)
+        except RuntimeStoreError as error:
+            raise ClosureAssessmentError(f"unresolved {kind} reference") from error
+        if artifact.kind != kind or not self.ledger.is_latest_artifact(reference):
+            raise ClosureAssessmentError(f"{kind} reference is stale or mismatched")
+        return artifact
+
+    def _current_by_id(self, round_id: str, artifact_id: str, kind: str) -> tuple[ArtifactRef, ArtifactRevision]:
+        candidates = [
+            artifact
+            for artifact in self.ledger.list_artifacts(round_id)
+            if artifact.id == artifact_id
+            and artifact.kind == kind
+            and self.ledger.is_latest_artifact(_artifact_ref(artifact))
+        ]
+        if len(candidates) != 1:
+            raise ClosureAssessmentError(f"{kind} identity is unresolved or ambiguous")
+        artifact = candidates[0]
+        return _artifact_ref(artifact), artifact
+
+    def _require_bound_content(
+        self,
+        reference: ArtifactRef,
+        *,
+        digest: str,
+        media_type: str,
+        size_bytes: int,
+        label: str,
+    ) -> None:
+        try:
+            content = self.ledger.get_bound_content(reference)
+        except RuntimeStoreError as error:
+            raise ClosureAssessmentError(f"{label} has no durable content binding") from error
+        if (
+            content.availability != "available"
+            or content.digest != digest
+            or content.media_type != media_type
+            or content.byte_size != size_bytes
+        ):
+            raise ClosureAssessmentError(f"{label} content binding does not match its canonical payload")
+        try:
+            data = self.ledger.resolve_content(reference, ContentAddressedStore(self.ledger.workspace))
+        except (RuntimeStoreError, ContentStoreError, OSError) as error:
+            raise ClosureAssessmentError(f"{label} content bytes are unavailable or corrupt") from error
+        if len(data) != size_bytes or hashlib.sha256(data).hexdigest() != digest:
+            raise ClosureAssessmentError(f"{label} content bytes do not match its canonical payload")
+
+    def _validated_oracle_runs(
+        self,
+        oracle_runs: Sequence[ArtifactRevision],
+    ) -> tuple[OracleRun, ...] | None:
+        validated: list[OracleRun] = []
+        try:
+            for revision in oracle_runs:
+                reference = _artifact_ref(revision)
+                run = OracleRun.from_revision(reference, revision)
+                spec = self.ledger.get_artifact(run.oracle_spec_ref)
+                attempt = self.ledger.get_artifact(run.attempt_ref)
+                inputs = tuple(self.ledger.get_artifact(item) for item in run.input_refs)
+                results = tuple(self.ledger.get_artifact(item) for item in run.result_artifact_refs)
+                events = tuple(self.ledger.get_artifact(item) for item in run.tool_event_refs)
+                validated.append(
+                    validate_oracle_run_lineage(
+                        revision,
+                        spec,
+                        attempt,
+                        input_revisions=inputs,
+                        result_revisions=results,
+                        tool_event_revisions=events,
+                    )
+                )
+        except (RuntimeStoreError, InvalidOracleError, TypeError, ValueError):
+            return None
+        return tuple(validated)
+
+    def _parent_of_kind(
+        self,
+        artifact: ArtifactRevision,
+        kind: str,
+        label: str,
+        round_id: str,
+    ) -> tuple[ArtifactRef, ArtifactRevision]:
+        parents: list[tuple[ArtifactRef, ArtifactRevision]] = []
+        for reference in artifact.parent_refs:
+            try:
+                parent = self.ledger.get_artifact(reference)
+            except RuntimeStoreError as error:
+                raise ClosureAssessmentError(f"{label} has an unresolved parent") from error
+            if parent.kind == kind:
+                if reference.round_id != round_id:
+                    raise ClosureAssessmentError(f"{label} parent belongs to another run")
+                parents.append((reference, self._current_artifact(reference, kind)))
+        if len(parents) != 1:
+            raise ClosureAssessmentError(f"{label} must bind exactly one {kind}")
+        return parents[0]
+
+    def _capture_origin_is_bound(
+        self,
+        capture_ref: ArtifactRef,
+        capture: SourceCapture,
+        round_id: str,
+    ) -> None:
+        if capture_ref.round_id != round_id or capture.run_id != round_id:
+            raise ClosureAssessmentError("source capture belongs to another run")
+        self._require_bound_content(
+            capture_ref,
+            digest=capture.content_digest,
+            media_type=capture.media_type,
+            size_bytes=capture.size_bytes,
+            label="source capture",
+        )
+        visited = {capture.capture_id}
+        origin = capture
+        while origin.origin_capture_id is not None:
+            origin_id = origin.origin_capture_id
+            if origin_id in visited:
+                raise ClosureAssessmentError("source capture origin lineage contains a cycle")
+            visited.add(origin_id)
+            origin_ref, origin_artifact = self._current_by_id(capture_ref.round_id, origin_id, SOURCE_CAPTURE_KIND)
+            try:
+                origin = SourceCapture.from_dict(origin_artifact.payload)
+            except (TypeError, ValueError) as error:
+                raise ClosureAssessmentError("source capture origin is not canonical") from error
+            if origin.capture_id != origin_id or origin.run_id != capture_ref.round_id or origin.status != "committed":
+                raise ClosureAssessmentError("source capture origin identity is not committed")
+            self._require_bound_content(
+                origin_ref,
+                digest=origin.content_digest,
+                media_type=origin.media_type,
+                size_bytes=origin.size_bytes,
+                label="source capture origin",
+            )
+
+    def _finding_evidence_is_bound(self, finding: ArtifactRevision, round_id: str) -> bool:
+        try:
+            if finding.round_id != round_id:
+                raise ClosureAssessmentError("finding pack belongs to another run")
+            if finding.payload.get("evidence_mode") != "strict":
+                raise ClosureAssessmentError("finding pack is not backed by strict evidence")
+            observations = finding.payload.get("observations")
+            if isinstance(observations, (str, bytes)) or not isinstance(observations, Sequence):
+                raise ClosureAssessmentError("finding pack observations are not a sequence")
+            resolver = EvidenceResolver.from_ledger(
+                self.ledger,
+                ContentAddressedStore(self.ledger.workspace),
+                workspace=self.ledger.workspace,
+            )
+            references: set[ArtifactRef] = set()
+            for observation in observations:
+                if not isinstance(observation, Mapping):
+                    raise ClosureAssessmentError("finding observation is not a mapping")
+                anchor = EvidenceAnchor.from_dict(observation.get("anchor"))
+                if anchor.artifact_ref is None or anchor.artifact_ref not in finding.parent_refs:
+                    raise ClosureAssessmentError("finding observation has no direct evidence parent")
+                if anchor.artifact_ref.round_id != round_id:
+                    raise ClosureAssessmentError("finding evidence belongs to another run")
+                evidence_revision = self._current_artifact(anchor.artifact_ref, EVIDENCE_ARTIFACT_KIND)
+                evidence = EvidenceArtifact.from_revision(anchor.artifact_ref, evidence_revision)
+                if evidence.run_id != round_id:
+                    raise ClosureAssessmentError("evidence artifact belongs to another run")
+                if evidence.evidence_class == "legacy_unspecified":
+                    raise ClosureAssessmentError("finding anchor does not identify authoritative evidence")
+                if (
+                    anchor.artifact_digest != evidence.content_digest
+                    or anchor.artifact_revision != evidence.revision
+                    or anchor.extractor_version != evidence.extractor_version
+                    or evidence.status != "active"
+                ):
+                    raise ClosureAssessmentError("finding anchor does not match active canonical evidence")
+                resolver.resolve(anchor)
+                self._require_bound_content(
+                    anchor.artifact_ref,
+                    digest=evidence.content_digest,
+                    media_type=evidence.media_type,
+                    size_bytes=evidence.size_bytes,
+                    label="evidence artifact",
+                )
+                receipt_ref, receipt_revision = self._parent_of_kind(
+                    evidence_revision,
+                    ACQUISITION_RECEIPT_KIND,
+                    "evidence artifact",
+                    round_id,
+                )
+                receipt = AcquisitionReceipt.from_dict(receipt_revision.payload)
+                capture_ref, capture_revision = self._parent_of_kind(
+                    receipt_revision,
+                    SOURCE_CAPTURE_KIND,
+                    "acquisition receipt",
+                    round_id,
+                )
+                capture = SourceCapture.from_dict(capture_revision.payload)
+                if (
+                    receipt.receipt_id != receipt_ref.artifact_id
+                    or receipt.status != "succeeded"
+                    or capture.capture_id != capture_ref.artifact_id
+                    or capture.run_id != capture_ref.round_id
+                    or capture.status != "committed"
+                    or capture.capture_id != receipt.capture_id
+                    or capture.attempt_id != receipt.attempt_id
+                    or capture.method_id != receipt.method_id
+                    or capture.provider_id != receipt.provider_id
+                    or evidence.acquisition_method != capture.method_id
+                ):
+                    raise ClosureAssessmentError("evidence receipt and source capture are not exact")
+                self._capture_origin_is_bound(capture_ref, capture, round_id)
+                references.add(anchor.artifact_ref)
+            return bool(references)
+        except (RuntimeStoreError, TypeError, ValueError, ClosureAssessmentError):
+            return False
+
+    def _decision_findings(
+        self,
+        decision: ArtifactRevision,
+        target_ref: ArtifactRef,
+        slot_id: str,
+    ) -> tuple[ArtifactRevision, ...]:
+        findings: list[ArtifactRevision] = []
+        for reference in decision.parent_refs:
+            try:
+                parent = self.ledger.get_artifact(reference)
+            except RuntimeStoreError as error:
+                raise ClosureAssessmentError("decision has an unresolved Finding parent") from error
+            if parent.kind != FINDING_PACK_KIND:
+                continue
+            current = self._current_artifact(reference, FINDING_PACK_KIND)
+            if (
+                target_ref not in current.parent_refs
+                or current.payload.get("blueprint_target_id") != target_ref.artifact_id
+                or current.payload.get("decision_slot_id") != slot_id
+            ):
+                raise ClosureAssessmentError("decision Finding parent is not bound to the exact target and slot")
+            findings.append(current)
+        return tuple(sorted(findings, key=lambda item: (item.id, item.revision)))
+
+    @staticmethod
+    def _require_complete_findings(
+        supplied: Sequence[ArtifactRevision],
+        decision_findings: Sequence[ArtifactRevision],
+    ) -> None:
+        supplied_refs = tuple(_artifact_ref(item) for item in supplied)
+        decision_refs = {_artifact_ref(item) for item in decision_findings}
+        if len(set(supplied_refs)) != len(supplied_refs) or set(supplied_refs) != decision_refs:
+            raise ClosureAssessmentError("findings must equal the complete decision Finding set")
+
+    def assess(
+        self,
+        *,
+        round_id: str,
+        assessment_id: str,
+        slot_id: str,
+        blueprint_target: ArtifactRevision,
+        decision: ArtifactRevision,
+        findings: Sequence[ArtifactRevision],
+        oracle_runs: Sequence[ArtifactRevision],
+        evaluator_id: str,
+        provenance_groups: Sequence[str],
+        counterevidence_disposition: str,
+        active_contradiction: bool,
+        expected_revision: int,
+    ) -> ArtifactRevision:
         if evaluator_id != self.core_evaluator_id:
             raise ClosureAssessmentError("only the core evaluator may issue closure")
         validate_identifier(assessment_id, "assessment_id")
@@ -207,27 +481,35 @@ class SlotClosureAssessor:
         decision_ref = self._resolve(decision, "decision-ledger-entry", round_id)
         if target_ref not in decision.parent_refs or decision.payload.get("decision_slot_id") != slot_id:
             raise ClosureAssessmentError("decision is not bound to the exact target and slot")
-        finding_refs = tuple(self._resolve(item, "finding-pack", round_id) for item in findings)
-        if any(ref not in decision.parent_refs for ref in finding_refs):
-            raise ClosureAssessmentError("finding is not bound to the exact decision")
-        run_refs = tuple(self._resolve(item, ORACLE_RUN_KIND, round_id) for item in oracle_runs)
-        if not isinstance(provenance_groups, Sequence) or any(not isinstance(group, str) or not group.strip() for group in provenance_groups):
+        finding_values = tuple(findings)
+        finding_refs = tuple(self._resolve(item, FINDING_PACK_KIND, round_id) for item in finding_values)
+        self._require_complete_findings(finding_values, self._decision_findings(decision, target_ref, slot_id))
+        oracle_values = tuple(oracle_runs)
+        run_refs = tuple(self._resolve(item, ORACLE_RUN_KIND, round_id) for item in oracle_values)
+        validated_oracle_runs = self._validated_oracle_runs(oracle_values)
+        if not isinstance(provenance_groups, Sequence) or any(
+            not isinstance(group, str) or not group.strip() for group in provenance_groups
+        ):
             raise ClosureAssessmentError("provenance_groups must contain non-empty strings")
         disposition = _text(counterevidence_disposition, "counterevidence_disposition")
         checks = {
             "slot_lineage": True,
-            "evidence": bool(finding_refs),
+            "evidence": bool(finding_refs)
+            and all(self._finding_evidence_is_bound(item, round_id) for item in finding_values),
             "provenance_independence": len(set(provenance_groups)) >= 2,
             "counterevidence": bool(disposition),
             "no_active_contradiction": not active_contradiction,
-            "oracle": any(item.payload.get("verdict") == "passed" for item in oracle_runs),
+            "oracle": validated_oracle_runs is not None
+            and any(item.verdict == "passed" for item in validated_oracle_runs),
             "fallback": bool(str(decision.payload.get("fallback", "")).strip()),
             "reversal_condition": bool(str(decision.payload.get("reversal_condition", "")).strip()),
         }
         successors: list[str] = []
         if not checks["oracle"]:
             successors.append("validation")
-        if any(item.payload.get("verdict") in {"failed", "blocked"} for item in oracle_runs):
+        if validated_oracle_runs is not None and any(
+            item.verdict in {"failed", "blocked"} for item in validated_oracle_runs
+        ):
             successors.append("method_switch")
         if not checks["no_active_contradiction"]:
             successors.append("adversarial")
@@ -261,11 +543,30 @@ class SlotClosureAssessor:
         parents = (target_ref, decision_ref, *finding_refs, *run_refs)
         return self._append_assessment(round_id, assessment_id, payload, parents, expected_revision)
 
-    def _append_assessment(self, round_id: str, assessment_id: str, payload: Mapping[str, Any], parents: tuple[ArtifactRef, ...], expected_revision: int) -> ArtifactRevision:
+    def _append_assessment(
+        self,
+        round_id: str,
+        assessment_id: str,
+        payload: Mapping[str, Any],
+        parents: tuple[ArtifactRef, ...],
+        expected_revision: int,
+    ) -> ArtifactRevision:
         for existing in self.ledger.load_run(round_id).artifacts:
-            if existing.id == assessment_id and existing.kind == ASSESSMENT_KIND and existing.parent_refs == parents and _same_payload(existing, payload):
+            if (
+                existing.id == assessment_id
+                and existing.kind == ASSESSMENT_KIND
+                and existing.parent_refs == parents
+                and _same_payload(existing, payload)
+            ):
                 return existing
-        return self.ledger.append_artifact(round_id, assessment_id, ASSESSMENT_KIND, dict(payload), parent_refs=parents, expected_revision=expected_revision)
+        return self.ledger.append_artifact(
+            round_id,
+            assessment_id,
+            ASSESSMENT_KIND,
+            dict(payload),
+            parent_refs=parents,
+            expected_revision=expected_revision,
+        )
 
 
 __all__ = ["ASSESSMENT_KIND", "ClosureAssessmentError", "OracleService", "SlotClosureAssessor", "SlotClosureAssessment"]

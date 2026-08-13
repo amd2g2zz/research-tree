@@ -88,9 +88,14 @@ def test_group_35_owns_integrated_receipt_and_future_gaps_remain_unverified() ->
         34,
         35,
         42,
+        46,
     )
-    assert report.unverified_groups == tuple(
-        group for group in range(6, 33) if group not in {6, 7, 8, 9, 10, 11, 12, 14, 16, 20, 23, 25, 26, 28, 29, 31, 32}
+    assert report.unverified_groups == (
+        *(
+            group
+            for group in range(6, 33)
+            if group not in {6, 7, 8, 9, 10, 11, 12, 14, 16, 20, 23, 25, 26, 28, 29, 31, 32}
+        ),
     )
 
     issue_map = json.loads((REGISTRY_ROOT / "issue-execution-map-v1.json").read_text(encoding="utf-8"))
