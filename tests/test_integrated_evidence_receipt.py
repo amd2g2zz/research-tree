@@ -89,6 +89,7 @@ def test_group_35_owns_integrated_receipt_and_future_gaps_remain_unverified() ->
         35,
         42,
         46,
+        54,
     )
     assert report.unverified_groups == (
         *(

@@ -15,7 +15,6 @@ research-tree = "research_tree.cli:main"
 research-tree-setup = "research_tree.skill_setup:main"
 research-tree-hook = "research_tree.lifecycle_hook:main"
 research-tree-debug = "research_tree.debug_trace:main"
-research-tree-migrate = "research_tree.migration_cli:main"
 
 [dependency-groups]
 test = [

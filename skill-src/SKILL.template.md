@@ -565,7 +565,7 @@ advance to Decision Ledger review, and final delivery remains blocked while an
 active P0 slot lacks completed depth, counterevidence, or validation evidence.
 Even after all slots close, keep the persisted tree in `delivery_pending` until
 both the Technical Research Package and Human Research Report are present and
-verified through `tree-deliver`; a closed tree without the two reports is not a
+verified through the canonical delivery authority; a closed tree without the two reports is not a
 completed research round.
 
 ## Produce the deliveries

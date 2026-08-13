@@ -165,7 +165,7 @@ attempted.
 
 Decision-slot closure is not final completion. Persist `delivery_pending` and
 continue to the delivery phase until both deep reports exist; register them
-with `tree-deliver` so their UTF-8, depth, and digest checks are recorded.
+with the canonical delivery authority so their UTF-8, depth, and digest checks are recorded.
 
 Load `references/hermes-research-execution.md` for task states, Finding Packs,
 insight generation, contradiction handling, recovery, and convergence gates.

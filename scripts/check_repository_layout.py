@@ -555,7 +555,6 @@ def workflow_probe(repository: Path) -> dict[str, Any]:
                 "pytest",
                 "-q",
                 "tests/test_skill_packages.py",
-                "tests/test_migration.py",
             ],
             cwd=repository,
             capture_output=True,
@@ -563,7 +562,7 @@ def workflow_probe(repository: Path) -> dict[str, Any]:
             check=False,
         )
         if tests.returncode:
-            errors.append(_error("workflow-tests-failed", "tests/", "supported package and migration tests failed"))
+            errors.append(_error("workflow-tests-failed", "tests/", "supported package tests failed"))
         install = subprocess.run(
             [
                 sys.executable,
@@ -591,15 +590,6 @@ def workflow_probe(repository: Path) -> dict[str, Any]:
         installed_skill = project / ".agents" / "skills" / "research-tree" / "SKILL.md"
         if install.returncode or not installed_skill.is_file():
             errors.append(_error("install-probe-failed", ".agents/", "project-scoped Codex install failed"))
-        sample = subprocess.run(
-            [sys.executable, "-m", "research_tree.migration_cli", "--workspace", str(project), "inventory"],
-            cwd=repository,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if sample.returncode:
-            errors.append(_error("sample-run-failed", ".research-tree/", "migration inventory failed"))
     after = _git_status(repository)
     layout_report = validate_repository(repository, repository / DEFAULT_REGISTRY)
     for layout_error in layout_report["errors"]:
@@ -611,7 +601,6 @@ def workflow_probe(repository: Path) -> dict[str, Any]:
         "status": "invalid" if errors else "valid",
         "errors": errors,
         "installed_project_roots": [".agents"],
-        "sample_run": "migration_inventory",
         "repository_status_unchanged": after == before,
     }
 

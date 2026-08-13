@@ -344,3 +344,12 @@ substitute for local evidence.
   before closure assessment, rejecting caller omission or substitution.
 - [x] 46.3 Run the focused closure acceptance command and record a
   source-bound group-46 receipt before treating this child as verified.
+
+## 54. Legacy CLI Surface Removal (#164)
+
+- [x] 54.1 Remove every published legacy round, tree, and profile command
+  before it can parse, discover a store, or call a runtime service.
+- [x] 54.2 Retire the standalone migration console surface, its implementation,
+  exports, tests, and maintained public guidance without a replacement route.
+- [x] 54.3 Run the focused breaking-removal acceptance command and record a
+  source-bound group-54 receipt before treating this child as verified.

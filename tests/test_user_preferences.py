@@ -9,7 +9,6 @@ from research_tree.preferences import (
     PreferenceService,
     PreferenceValidationError,
 )
-from research_tree.cli import main
 
 
 def observation(
@@ -156,38 +155,6 @@ def test_correct_reset_and_delete_are_project_scoped(tmp_path: Path) -> None:
     assert service.list_observations("project-one") == ()
     assert service.inspect("project-one").revision == 0
     assert len(service.list_observations("project-two")) == 1
-
-
-def test_profile_cli_exposes_correct_inspect_reset_and_delete(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    common = ["--store", str(tmp_path), "--project-id", "project-cli"]
-    assert (
-        main(
-            [
-                "profile-correct",
-                *common,
-                "--key",
-                "delivery.style",
-                "--value",
-                "concise",
-                "--turn",
-                "1",
-                "--source-ref",
-                "input-1",
-                "--reversal-condition",
-                "requester asks for detail",
-            ]
-        )
-        == 0
-    )
-    capsys.readouterr()
-    assert main(["profile-inspect", *common]) == 0
-    assert '"value": "concise"' in capsys.readouterr().out
-    assert main(["profile-reset", *common]) == 0
-    assert '"entries": []' in capsys.readouterr().out
-    assert main(["profile-delete", *common]) == 0
-    assert '"deleted": true' in capsys.readouterr().out
 
 
 def test_strategy_influences_record_profile_or_current_explicit_precedence(tmp_path: Path) -> None:

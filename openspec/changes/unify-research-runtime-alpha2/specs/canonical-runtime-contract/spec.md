@@ -83,7 +83,7 @@ Every external attempt SHALL have a unique `attempt_id`, an immutable dispatch p
 
 The implementation SHALL expose a Python coordinator API and JSON CLI commands using the canonical form research-tree run <verb> for init, status, next, ingest, recover, explain, why-action, why-not-complete, replay, reconcile-host, deliver, accept, supersede, and export-audit. Flat run-<verb> names and existing observability names may remain aliases but SHALL route to the same coordinator operation. Every command MUST document required inputs, output schema, exit codes, and whether it mutates state.
 
-Existing `create-round`, `show-round`, and `tree-*` commands SHALL either become thin compatibility aliases to the coordinator or fail with an explicit migration message; they SHALL not maintain an alternate completion authority.
+Legacy round, tree, and profile commands SHALL be removed from the published CLI without an alias, refusal response, migration message, or alternate completion authority.
 
 The canonical JSON result envelope SHALL use these exit codes: `0` for a committed or idempotent success, `2` for invalid input, `3` for stale revision or optimistic-concurrency conflict, `4` for a persisted blocked or unresolved obligation, `5` for retryable provider or tool failure, `6` for permission or safety denial, `7` for integrity or digest failure, `8` for unsupported schema or protocol version, `9` for canonical-store unavailability, and `10` for a terminal rejection, supersession, or authority block. The JSON body SHALL always include `code`, `category`, `retryability`, `run_id`, `safe_message`, `unmet_obligations`, `evidence_refs`, and `next_action` when applicable.
 
