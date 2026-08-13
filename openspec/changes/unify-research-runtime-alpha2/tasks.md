@@ -353,3 +353,12 @@ substitute for local evidence.
   exports, tests, and maintained public guidance without a replacement route.
 - [x] 54.3 Run the focused breaking-removal acceptance command and record a
   source-bound group-54 receipt before treating this child as verified.
+
+## 57. Current-Only Skill Setup (#169)
+
+- [ ] 57.1 Remove setup migration and refresh paths while retaining missing and
+  current Codex, Claude Code, and Hermes installation behavior.
+- [ ] 57.2 Reject every existing non-current target without reading, moving,
+  unlinking, replacing, or otherwise mutating its user-owned contents.
+- [ ] 57.3 Run the focused setup acceptance command and record a source-bound
+  group-57 receipt before treating this child as verified.

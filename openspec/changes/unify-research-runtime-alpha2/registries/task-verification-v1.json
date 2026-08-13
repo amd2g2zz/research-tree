@@ -353,6 +353,7 @@
         "recorded_at": "2026-08-13T10:34:16.708170+00:00"
       },
       "rollback": "revert the removal through Git before release; do not restore a compatibility route"
-    }
+    },
+    { "group": 57, "state": "planned" }
   ]
 }
