@@ -522,6 +522,7 @@ def _portfolio_dispatch_setup(tmp_path):
         success_oracles=("oracle-1",),
         delivery_contract={"technical": "package", "human": "report"},
         stop_rule="oracle passes",
+        preference_influences=(),
         revision=1,
         status="displayed",
     )
@@ -607,6 +608,7 @@ def test_acquisition_dispatch_requires_current_search_portfolio_lineage(tmp_path
         success_oracles=("oracle-1",),
         delivery_contract={"technical": "package", "human": "report"},
         stop_rule="oracle passes",
+        preference_influences=(),
         revision=1,
         status="displayed",
     )
