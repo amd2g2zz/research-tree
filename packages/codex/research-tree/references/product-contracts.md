@@ -101,7 +101,7 @@ Human statements remain intent evidence and are never silently converted into
 technical facts.
 
 Closing every Decision Slot produces `delivery_pending`, not `complete`. The
-runtime's `tree-deliver` command verifies both report files, records their
+runtime's canonical delivery authority verifies both report files, records their
 absolute path, UTF-8/no-BOM status, minimum depth, and digest, and only then
 permits the terminal state.
 
@@ -381,7 +381,7 @@ residual and grows an independent-method retry; passed validation removes that
 closure deficit. Recovery loads the latest revision and replays
 persisted Finding Packs absent from `consumed_finding_ids`. It also stores the
 exact execution context and a two-entry `deliverables` manifest. Once all
-Decision Slots close, the state becomes `delivery_pending` until `tree-deliver`
+Decision Slots close, the state becomes `delivery_pending` until the canonical delivery authority
 verifies both report artifacts; only then may it become `complete`.
 
 ## Decision Ledger Entry
