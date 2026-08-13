@@ -1,5 +1,5 @@
 ..........................................................                                                                                                                                                                          [100%]
-58 passed in 2.55s
+58 passed in 3.05s
 All checks passed!
 2 files already formatted
 {
