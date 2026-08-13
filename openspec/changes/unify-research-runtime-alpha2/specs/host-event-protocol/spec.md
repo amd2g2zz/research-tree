@@ -15,15 +15,16 @@ content hash; adapters never persist the wire object as an independent state sto
 - **WHEN** a host event references a superseded attempt or stale expected revision
 - **THEN** the event is rejected or recorded as stale without mutating current canonical state
 
-### Requirement: Compatibility identifiers map without creating a second authority
+### Requirement: Host events use canonical identifiers
 
-HostEvent may carry round_id for alpha1 compatibility, but the coordinator SHALL resolve it to the canonical run_id and active lineage revision before validation. A mismatched round_id/run_id pair is rejected; round_id alone can never select or mutate canonical state.
+HostEvent SHALL carry the canonical run id and active lineage revision before
+validation. A mismatched identifier pair is rejected; no legacy adapter,
+identifier mapping, or import translation can select or mutate canonical state.
 
-#### Scenario: Legacy adapter sends only round_id
+#### Scenario: Event omits a canonical run id
 
-- **WHEN** an alpha1-compatible event lacks run_id but names a registered round_id
-- **THEN** the compatibility translator resolves the pair through the migration map and emits a canonical event with both identifiers
-- **AND** the original event remains attached as imported evidence
+- **WHEN** a host event lacks the canonical run id
+- **THEN** validation rejects it before any canonical state changes
 
 ### Requirement: Host adapters are execution translators only
 The system SHALL allow Codex, Claude Code, and Hermes adapters to dispatch native work and translate lifecycle events, but SHALL prohibit them from issuing closure tokens, readiness verdicts, delivery verification, or run completion.

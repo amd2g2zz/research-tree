@@ -36,9 +36,8 @@ def test_new_ledger_omits_legacy_import_receipts_and_preserves_canonical_tables(
 
 
 def test_active_governance_registers_only_the_removal_slice() -> None:
-    registry_root = (
-        Path(__file__).resolve().parents[1] / "openspec" / "changes" / "unify-research-runtime-alpha2" / "registries"
-    )
+    umbrella_root = Path(__file__).resolve().parents[1] / "openspec" / "changes" / "unify-research-runtime-alpha2"
+    registry_root = umbrella_root / "registries"
     execution = json.loads((registry_root / "task-execution-v1.json").read_text(encoding="utf-8"))
     verification = json.loads((registry_root / "task-verification-v1.json").read_text(encoding="utf-8"))
     issue_map = json.loads((registry_root / "issue-execution-map-v1.json").read_text(encoding="utf-8"))
@@ -46,7 +45,47 @@ def test_active_governance_registers_only_the_removal_slice() -> None:
 
     assert 34 not in {item["group"] for item in execution["groups"]}
     assert 34 not in {item["group"] for item in verification["groups"]}
+    assert 13 not in {item["group"] for item in execution["groups"]}
+    assert 13 not in {item["group"] for item in verification["groups"]}
     assert {item["group"] for item in execution["groups"]} >= {55}
     assert next(item for item in verification["groups"] if item["group"] == 55)["state"] == "verified"
     assert all("legacy-runstore-import" not in item["capabilities"] for item in issue_map["issues"])
+    assert all(item["issue"] != 65 for item in issue_map["issues"])
+    assert all(13 not in [item["primary_group"], *item["supporting_groups"]] for item in issue_map["issues"])
     assert all(item["capability"] != "legacy-runstore-import" for item in matrix["capability_rows"])
+
+    retired_artifacts = (
+        umbrella_root / "schemas" / "compatibility-matrix.md",
+        registry_root / "legacy-field-map-v1.json",
+    )
+    assert all(not path.exists() for path in retired_artifacts)
+
+    active_sources = (
+        umbrella_root / "proposal.md",
+        umbrella_root / "design.md",
+        umbrella_root / "tasks.md",
+        umbrella_root / "schemas" / "README.md",
+        umbrella_root / "specs" / "durable-research-runtime" / "spec.md",
+        umbrella_root / "specs" / "host-event-protocol" / "spec.md",
+        umbrella_root / "specs" / "implementation-release-contract" / "spec.md",
+        registry_root / "task-execution-v1.json",
+        registry_root / "task-verification-v1.json",
+        registry_root / "issue-execution-map-v1.json",
+        registry_root / "delivery-matrix-v1.json",
+    )
+    retired_claims = (
+        "compatibility-matrix.md",
+        "legacy-field-map-v1.json",
+        "tests/test_migration.py",
+        "alpha2-migration-packaging",
+        '"group": 13',
+        '"issue": 65',
+        "filesystem RunStore import",
+        "idempotent legacy importer",
+        "read-only compatibility projections",
+        "route reads to legacy projection",
+        "restore alpha1 reader",
+    )
+    active_text = "\n".join(path.read_text(encoding="utf-8") for path in active_sources)
+
+    assert all(claim not in active_text for claim in retired_claims)

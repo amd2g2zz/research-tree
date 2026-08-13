@@ -28,10 +28,16 @@ current canonical run, artifact, event, and content tables.
 
 ### Requirement: Active Alpha2 governance no longer advertises import
 
-Active execution, verification, issue-map, delivery-matrix, and umbrella task registries SHALL remove the legacy import capability and group 34. They SHALL register group 55 / issue #167 as a planned breaking-removal slice before verification evidence is recorded.
+Active Alpha2 governance SHALL remove the legacy import capability and group
+34 from execution, verification, issue-map, delivery-matrix, and umbrella task
+registries. It SHALL also retire obsolete group 13 / issue #65 migration
+ownership and active compatibility mapping documents. It SHALL register group
+55 / issue #167 as a planned breaking-removal slice before verification
+evidence is recorded.
 
 #### Scenario: Governance resolves the removal slice
 
 - **WHEN** the Alpha2 governance registry is validated before implementation
-- **THEN** group 55 is planned with the exact removal acceptance command and
-  no active capability row names legacy RunStore import
+- **THEN** group 55 is planned with the exact removal acceptance command, group
+  13 and issue #65 are absent, and no active document or capability row names
+  legacy RunStore import, mapping, projection, or migration

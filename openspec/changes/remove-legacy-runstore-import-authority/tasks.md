@@ -17,7 +17,8 @@
 - [x] 3.2 Remove legacy receipt DDL, type-only imports, helper functions, and
   `RunLedger` APIs while preserving current ledger tables.
 - [x] 3.3 Remove maintained active documentation and registry references to
-  legacy RunStore import; retain historical source only through Git history.
+  legacy RunStore import; retire group 13 / issue #65 and retain historical
+  source only through Git history.
 
 ## 4. Verification And Handoff
 

@@ -38,14 +38,16 @@ remaining programmatic authority.
    table nor provides a cleanup command; user data remains untouched.
 
 3. **Retire active ownership, preserve Git history.** Remove group 34 and its
-   delivery/issue-map rows because they describe an active runtime capability.
-   The completed `import-alpha1-runstore` OpenSpec artifact remains historical
-   source evidence in Git rather than a maintained current contract.
+   delivery/issue-map rows, group 13 / issue #65, and active compatibility
+   mappings because they describe retired runtime capabilities. The completed
+   `import-alpha1-runstore` OpenSpec artifact remains historical source
+   evidence in Git rather than a maintained current contract.
 
 4. **Use absence assertions as the regression contract.** Tests prove the
    root module has no old exports, the retired module is not importable, the
-   ledger has no receipt methods, and a newly initialized database has no
-   `legacy_imports` table while canonical tables remain.
+   ledger has no receipt methods, a newly initialized database has no
+   `legacy_imports` table while canonical tables remain, and active umbrella
+   documents and registries do not revive old import or migration promises.
 
 ## Risks / Trade-offs
 

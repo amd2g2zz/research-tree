@@ -23,14 +23,14 @@ Alpha1 established the product vocabulary and three-host packaging, but it also 
 - Establish one governed evaluation asset model that separates cases, harnesses, hidden-oracle interfaces, baselines, scored results, expert reviews, raw transcripts, and disposable run output.
 - Enforce repository layout boundaries among authoring sources, generated packages, installed host copies, runtime state, evaluation assets, build products, and caches.
 - **BREAKING** Retire adapter-owned completion, Markdown byte/heading gates, manual slot closure, and writable `.research-tree-native` / `.research-tree-hermes` completion state.
-- **BREAKING** Rename the `Human Brief` delivery contract to `Human Research Report`; legacy artifacts remain importable but cannot satisfy alpha2 completion without revalidation.
+- **BREAKING** Rename the `Human Brief` delivery contract to `Human Research Report`; retired artifacts are not current runtime inputs.
 
 ## Capabilities
 
 ### New Capabilities
 
 - `mutual-alignment`: Persistent human-agent belief revision, bounded reconnaissance, constructive disagreement, one-prompt turns, and explicit autonomous handoff.
-- `durable-research-runtime`: SQLite-backed immutable run lineage, attempts, recovery, migration, and a single lifecycle authority.
+- `durable-research-runtime`: SQLite-backed immutable run lineage, attempts, recovery, and a single lifecycle authority.
 - `evidence-verification`: Resolvable multimodal evidence, provenance independence, executable oracles, and auditable Decision Slot closure.
 - `adaptive-research-execution`: Decision-centric action selection, evidence-triggered growth, conservative pruning, contradiction handling, and autonomous long-horizon replanning.
 - `host-event-protocol`: Host-neutral lifecycle events with platform-specific Codex, Claude Code, and Hermes execution adapters.
@@ -43,8 +43,8 @@ Alpha1 established the product vocabulary and three-host packaging, but it also 
 - `repository-layout-governance`: Enforced source, generated, installation, runtime, evaluation, build, cache, and historical path boundaries.
 - `canonical-runtime-contract`: Exact versioned entity envelopes, lifecycle transitions, Decision Slot and Work Item schemas, leases, idempotency, coordinator APIs, and projection boundaries.
 - `autonomous-tool-and-interaction`: Typed heterogeneous intake, capability/permission profiles, self-directed uncertainty handling, bounded alignment turns, autonomy envelopes, and inspectable growth/stop/prune decisions.
-- `implementation-release-contract`: Requirement-to-code/test/evidence traceability, installable public contracts, reversible migration, immutable release manifests, pre-registered quality gates, and observable Definition of Done.
-- `canonical-schemas`: Checked-in versioned schemas, examples, validators, reference cardinality, and compatibility matrices for every canonical entity.
+- `implementation-release-contract`: Requirement-to-code/test/evidence traceability, installable public contracts, current-only cutover, immutable release manifests, pre-registered quality gates, and observable Definition of Done.
+- `canonical-schemas`: Checked-in versioned schemas, examples, validators, and reference cardinality for every canonical entity.
 - `lifecycle-state-machine`: Closed run-state transition matrix with explicit pause, resume, authority-block, supersession, acceptance, and replay semantics.
 - `worker-orchestration`: Bounded worker assignments, leases, heartbeats, fan-out/fan-in independence, durable source/checkpoint references, partial outputs, retry, cancellation, and no-progress scheduling.
 - `research-acquisition`: Intent-derived Search Portfolios, method/tool registry, source captures, derivative provenance, multimodal selectors, and typed acquisition fallback.

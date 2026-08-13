@@ -27,7 +27,7 @@ substitute for local evidence.
 - [ ] 2.3 Configure foreign keys, WAL, full synchronization, busy timeout, short transactions, and expected-revision conflict handling on every connection.
 - [ ] 2.4 Implement immutable artifact append, exact revision resolution, round reconstruction, event append, and lineage integrity checks in the SQLite backend.
 - [ ] 2.5 Add concurrency, stale-write, dangling-parent, restart, and deterministic-replay tests for the SQLite ledger.
-- [ ] 2.6 Keep content-addressed storage and filesystem RunStore import in their dedicated groups 33 and 34.
+- [ ] 2.6 Keep content-addressed storage in its dedicated group 33.
 
 ## 3. Resolvable Evidence Artifacts (#54)
 
@@ -144,17 +144,6 @@ substitute for local evidence.
 - [ ] 12.9 Add black-box cases proving AnySearch multi-query remains one provider boundary, intent-derived implicit subquestions are researched, shallow first waves deepen, invalidated directions create successor strategies, and captured sources/checkpoints survive a crash.
 - [ ] 12.10 Add native-workflow fixtures for Claude Code dynamic phases/replan, Codex delegation fallback, and Hermes capability absence with canonical artifact parity.
 
-## 13. Migration, Packaging, and Cutover (#65)
-
-- [ ] 13.1 Inventory alpha1 filesystem RunStore, alignment SQLite, native checkpoint, Hermes checkpoint, Finding Pack, report, and package schema variants.
-- [ ] 13.2 Implement idempotent import dispositions for legacy evidence, validation, closure, completion, Technical Research Package, and Human Brief artifacts.
-- [ ] 13.3 Add read-only compatibility projections for shadow comparison without dual-writing canonical completion state.
-- [ ] 13.4 Update canonical build sources and generate separate Codex, Claude Code, and Hermes packages with host-specific manifests, references, scripts, and setup instructions.
-- [ ] 13.5 Add package hash/parity, stale-package, strict UTF-8 without BOM, runtime discoverability, and source/install launch tests.
-- [ ] 13.6 Run upgrade and rollback drills and verify alpha2 artifacts are never back-projected as trusted alpha1 closure.
-- [ ] 13.7 Stop writing `.research-tree-native` and `.research-tree-hermes` completion state only after all black-box release gates pass.
-- [ ] 13.8 Document unsupported schema behavior, recovery, migration, rollback, and final legacy-path removal.
-
 ## 14. Ratified Architecture and Lifecycle Contract (#66)
 
 - [x] 14.1 Publish ADR-002 through ADR-005 for completion authority, graph boundaries, SQLite/CAS storage, and host event translation.
@@ -195,14 +184,13 @@ substitute for local evidence.
 
 ## 18. Implementation Vertical Slices and Release Evidence (all Alpha2 P0 issues)
 
-- [x] 18.1 Create a machine-readable requirement-to-delivery matrix mapping every requirement to source owner, public surface, migration impact, focused tests, black-box case, evidence artifact, and GitHub issue.
+- [x] 18.1 Create a machine-readable requirement-to-delivery matrix mapping every requirement to source owner, public surface, current-only cutover impact, focused tests, black-box case, evidence artifact, and GitHub issue.
 - [ ] 18.2 Define public Python API, CLI JSON schemas, configuration precedence, supported Python/OS matrix, package manifests, and first-success smoke commands for all three hosts.
 - [ ] 18.10 Define the source-checkout launcher contract so documented test and subprocess commands resolve research_tree without an accidental PYTHONPATH dependency; test both direct interpreter and uv-managed invocation.
-- [ ] 18.3 Implement migration inventory, dry-run, apply, verify, rollback, and status commands with source digests, collision reports, operator confirmations, and non-destructive untracked-data handling.
 - [ ] 18.4 Define and emit an immutable release manifest containing source revision, host package hashes, schema versions, test/evaluation commands, baselines, environments, verifier identity, limitations, and gate results.
 - [ ] 18.5 Freeze evaluation cases, baselines, metric aggregation, missing-data handling, expert rubric, and thresholds before candidate runs and reject post-hoc changes.
-- [ ] 18.6 Add a Definition-of-Done checker that rejects tasks lacking code, focused tests, regression results, documentation, migration notes, and linked evidence where required.
-- [ ] 18.7 Add feature flags, compatibility aliases, observation-window metrics, rollback triggers, and final legacy-authority removal checks.
+- [ ] 18.6 Add a Definition-of-Done checker that rejects tasks lacking code, focused tests, regression results, documentation, current-only cutover notes, and linked evidence where required.
+- [ ] 18.7 Add removal checks, observation-window metrics, and rollback triggers without compatibility aliases.
 - [ ] 18.8 Run the complete vertical slice on clean Windows and POSIX checkouts and retain command output and manifest as release evidence.
 - [ ] 18.9 Export an offline-verifiable evidence bundle that resolves every release claim to case, command, environment, artifact, oracle, trace, comparison, and limitation.
 
@@ -239,11 +227,11 @@ substitute for local evidence.
 
 ## 22. Alpha2 Release Completion (#67)
 
-- [ ] 22.1 Run the full unit, integration, adversarial, migration, package, documentation, layout, evaluation-asset, and cross-host black-box suites from a clean checkout.
+- [ ] 22.1 Run the full unit, integration, adversarial, package, documentation, layout, evaluation-asset, and cross-host black-box suites from a clean checkout.
 - [ ] 22.2 Audit every OpenSpec requirement against exact test, runtime artifact, or evaluation evidence and record missing or indirect evidence as incomplete.
 - [ ] 22.3 Confirm every P0 GitHub issue in the alpha2 milestone, including #80, #82, and #83, is closed with linked implementation and verification evidence.
 - [ ] 22.4 Confirm the alpha2 milestone has zero false completion, fully resolvable P0 references, passing recovery/parity, governed evaluation evidence, a clean repository layout, current documentation, improved independent implementation, and accepted expert depth.
-- [ ] 22.5 Update release notes, installation and upgrade guidance, known limitations, documentation authority index, repository layout, evaluation entry points, and compatibility matrix for Codex, Claude Code, and Hermes.
+- [ ] 22.5 Update release notes, installation guidance, known limitations, documentation authority index, repository layout, and evaluation entry points for Codex, Claude Code, and Hermes.
 - [ ] 22.6 Tag and publish the alpha2 prerelease only after the milestone release definition is proven.
 
 ## 23. Transactional Correction Invalidation (#73)
@@ -254,7 +242,7 @@ substitute for local evidence.
 - [x] 23.4 Implement correction ingestion and stale-state quarantine through the single ResearchRunCoordinator without adding a second writable authority.
 - [x] 23.5 Reject confirmation, dispatch, delivery, and completion commands that reference a digest invalidated by correction, with stable error and next-action fields. Evidence: `StaleStateError`, `_assert_current_authority`, and `test_stale_authority_is_quarantined_and_fresh_successor_can_dispatch`.
 - [x] 23.6 Add the diagnostic-subject/task-target contamination fixture and prove that old domain strategy cannot survive an explicit requester correction.
-- [x] 23.7 Link the implementation, tests, replay trace, and migration disposition to issue #73 and the requirement-to-delivery matrix. Evidence: `invalidate-stale-alignment-state`, `evaluation/cases/correction-invalidation-v1.json`, and the group 23 source-bound receipt.
+- [x] 23.7 Link the implementation, tests, replay trace, and retirement disposition to issue #73 and the requirement-to-delivery matrix. Evidence: `invalidate-stale-alignment-state`, `evaluation/cases/correction-invalidation-v1.json`, and the group 23 source-bound receipt.
 
 ## 24. Claude Code and GLM5.2 Black-Box Regression (#72)
 
@@ -360,11 +348,12 @@ substitute for local evidence.
 
 ## 55. Legacy RunStore Import Authority Removal (#167)
 
-- [ ] 55.1 Remove the importer module, root exports, importer tests, and
+- [x] 55.1 Remove the importer module, root exports, importer tests, and
   legacy receipt DDL/API without touching user-owned historical data.
-- [ ] 55.2 Remove active import capability/issue ownership and preserve only
+- [x] 55.2 Remove active import capability/issue ownership, compatibility
+  mappings, and the stale group-13 migration task while preserving only
   historical implementation evidence through Git history.
-- [ ] 55.3 Run the focused breaking-removal acceptance command and record a
+- [x] 55.3 Run the focused breaking-removal acceptance command and record a
   source-bound group-55 receipt before treating this child as verified.
 
 ## 57. Current-Only Skill Setup (#169)

@@ -11,8 +11,11 @@ or a migration path.
   and `src/research_tree/legacy_import.py`.
 - **BREAKING**: Remove the `legacy_imports` SQLite DDL and the
   `RunLedger.record_import_receipt` and `RunLedger.get_import_receipt` APIs.
-- Remove importer tests, root-package exports, and active Alpha2 registry rows
-  that advertise legacy RunStore import as a capability.
+- Remove importer tests, root-package exports, active Alpha2 registry rows, and
+  active umbrella documents that advertise legacy RunStore import, read,
+  projection, or migration as a capability.
+- Retire the obsolete group 13 / issue #65 migration slice, whose acceptance
+  command names the deleted `tests/test_migration.py`.
 - Register Alpha2 group 55 / issue #167 as a planned retirement slice with a
   source-bound acceptance command.
 
@@ -31,7 +34,8 @@ or a migration path.
 ## Impact
 
 This affects `legacy_import.py`, `run_ledger.py`, the root package surface, the
-dedicated importer tests, and active Alpha2 execution registries. It does not
+dedicated importer tests, and active Alpha2 execution, verification, issue-map,
+delivery, schema, task, design, and capability-spec artifacts. It does not
 inspect, migrate, drop, or otherwise mutate user-owned filesystem or SQLite
 data. Current canonical SQLite run, artifact, event, and content behavior stays
 unchanged.
