@@ -25,3 +25,5 @@
   validation, governance validation, and relevant regression checks.
 - [x] 4.2 Commit source changes before a later source-bound group-60 receipt;
   do not edit #171 or #168 shared evidence surfaces.
+- [x] 4.3 Record the source-bound group-60 receipt, mark the active registry
+  verified, and run final full validation and diff checks.

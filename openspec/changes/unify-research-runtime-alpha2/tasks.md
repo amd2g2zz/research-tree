@@ -376,9 +376,9 @@ substitute for local evidence.
 
 ## 60. Current Insight Payload Reader (#174)
 
-- [ ] 60.1 Remove prior minimal Insight Digest parsing so every runtime
+- [x] 60.1 Remove prior minimal Insight Digest parsing so every runtime
   boundary requires the complete current versioned payload.
-- [ ] 60.2 Retire active schema/example language that publishes an unversioned
+- [x] 60.2 Retire active schema/example language that publishes an unversioned
   or minimal digest reader without reading or mutating user-owned data.
-- [ ] 60.3 Run the focused strict-reader acceptance command and record a
+- [x] 60.3 Run the focused strict-reader acceptance command and record a
   source-bound group-60 receipt before treating this child as verified.
