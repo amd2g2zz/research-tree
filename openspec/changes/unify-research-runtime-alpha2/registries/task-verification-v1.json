@@ -328,10 +328,10 @@
         "command": "uv run pytest -q tests/test_cli.py tests/test_recursive_search.py tests/test_runtime_discoverability.py tests/test_repository_layout.py tests/test_skill_packages.py && uv run ruff check src/research_tree/cli.py scripts/check_repository_layout.py tests/test_cli.py tests/test_runtime_discoverability.py tests/test_repository_layout.py && uv run ruff format --check src/research_tree/cli.py scripts/check_repository_layout.py tests/test_cli.py tests/test_runtime_discoverability.py tests/test_repository_layout.py && uv run python scripts/build_skill_packages.py --check",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
-        "output_digest": "4723efbfbf22bb2ca16d868a063beef4bb5ff0f882af33e0e35b728c0fccb60d",
-        "source_revision": "082cc960513cf05805ebd00f1cbd67be41d067fd",
+        "output_digest": "55ca1d0c3829155a5d79557e58677e7abedd2ebfc96341fc475ab72c1be6cda5",
+        "source_revision": "13df457e4a7dc632f8d44f544a3aafbc360132d6",
         "raw_output_ref": "openspec/changes/remove-legacy-cli-surface/evidence/group-54-output.txt",
-        "recorded_at": "2026-08-13T11:01:07.556405+00:00"
+        "recorded_at": "2026-08-13T12:06:42.754130+00:00"
       },
       "rollback": "revert the removal through Git before release; do not restore a compatibility route"
     },
@@ -346,10 +346,10 @@
         "command": "uv run pytest -q tests/test_legacy_import_removal.py tests/test_sqlite_ledger.py && uv run ruff check src/research_tree/run_ledger.py src/research_tree/__init__.py tests/test_legacy_import_removal.py tests/test_sqlite_ledger.py && uv run ruff format --check src/research_tree/run_ledger.py src/research_tree/__init__.py tests/test_legacy_import_removal.py tests/test_sqlite_ledger.py",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
-        "output_digest": "4ebee3a9723ddc7badec3570719665b5785a4dbc514df449af115aa49227100d",
-        "source_revision": "082cc960513cf05805ebd00f1cbd67be41d067fd",
+        "output_digest": "70ad223dd95ccee020e4bfec9ee9585915cccb1246100f70db0e5cfb4cc8975e",
+        "source_revision": "13df457e4a7dc632f8d44f544a3aafbc360132d6",
         "raw_output_ref": "openspec/changes/remove-legacy-runstore-import-authority/evidence/group-55-output.txt",
-        "recorded_at": "2026-08-13T11:01:21.536030+00:00"
+        "recorded_at": "2026-08-13T12:06:44.202204+00:00"
       },
       "rollback": "revert the removal through Git before release; do not restore an importer or compatibility route"
     },
