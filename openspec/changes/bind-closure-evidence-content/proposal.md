@@ -10,7 +10,8 @@ decision.
 
 - Require closure evidence to resolve through exact, current SourceCapture,
   AcquisitionReceipt, EvidenceArtifact, and origin relationships with matching
-  durable content bindings.
+  durable content bindings, readable CAS bytes, and valid strict selectors and
+  repository locators.
 - Derive the current decision-bound Finding set and reject an assessment whose
   supplied Findings do not match it exactly.
 - Register Alpha2 group 46 / GitHub issue #160 as a planned, independently

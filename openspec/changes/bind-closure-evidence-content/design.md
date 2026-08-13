@@ -18,7 +18,9 @@ child is merged and reachable.
 
 - Accept closure evidence only when its strict Finding observations resolve to
   exact canonical evidence, a succeeded receipt, a committed capture, and
-  content bindings whose digest, media type, and size match the typed payloads.
+  content bindings whose readable CAS bytes, digest, media type, and size match
+  the typed payloads. Strict anchors must also pass existing selector and
+  repository-locator validation. Legacy-unspecified evidence is not authoritative.
 - Follow declared capture origins to their canonical, content-bound roots.
 - Derive the full current Finding set directly bound to the selected decision,
   target, and slot; reject caller-pruned or caller-expanded input.
@@ -37,7 +39,9 @@ child is merged and reachable.
 
 1. **Resolve evidence from immutable ledger relationships.** The assessor will
    parse a strict Finding's anchors, require each exact EvidenceArtifact to be
-   a direct Finding parent, and verify its CAS binding. It will then require
+   a direct Finding parent, reject `legacy_unspecified` evidence, and resolve
+   its binding through the existing strict evidence resolver and CAS reader. It
+   will then require
    one succeeded AcquisitionReceipt direct parent, one matching SourceCapture
    direct parent, and canonical origin captures. This reuses existing durable
    record validators instead of introducing a second persistence format.
@@ -46,6 +50,11 @@ child is merged and reachable.
    malformed or unbound graph sets the evidence check false and cannot issue a
    closure token. This preserves the existing durable assessment history while
    making an unverifiable graph non-authoritative.
+
+   Strict repository-path evidence is also unprovable unless its declared
+   source revision can be verified through the existing resolver. This child
+   fails it closed rather than inventing repository-currentness behavior,
+   which is outside this issue.
 
 3. **Treat caller-selected Finding coverage as an input error.** The assessor
    independently enumerates current `finding-pack` parents of the Decision
