@@ -299,6 +299,10 @@
         "recorded_at": "2026-08-11T00:00:00+00:00"
       },
       "rollback": "retain merged strict-slice evidence as historical and keep future groups planned"
+    },
+    {
+      "group": 42,
+      "state": "planned"
     }
   ]
 }

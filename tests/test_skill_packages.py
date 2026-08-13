@@ -13,6 +13,7 @@ from research_tree.skill_activation import HOST_MARKERS, package_digests
 ROOT = Path(__file__).resolve().parents[1]
 BUILDER = ROOT / "scripts" / "build_skill_packages.py"
 validate_package = run_path(str(BUILDER))["validate_package"]
+BUILDER_GLOBALS = run_path(str(BUILDER))
 
 
 def _skill_dir(package: Path) -> Path:
@@ -151,14 +152,9 @@ def test_only_codex_package_contains_codex_compatibility_material() -> None:
 
 
 def test_codex_and_claude_expose_distinct_native_orchestration() -> None:
-    codex = (
-        ROOT
-        / "packages"
-        / "codex"
-        / "research-tree"
-        / "references"
-        / "codex-native-orchestration.md"
-    ).read_text(encoding="utf-8")
+    codex = (ROOT / "packages" / "codex" / "research-tree" / "references" / "codex-native-orchestration.md").read_text(
+        encoding="utf-8"
+    )
     claude = (
         _skill_dir(ROOT / "packages" / "claude-code" / "research-tree")
         / "references"
@@ -174,9 +170,7 @@ def test_codex_and_claude_expose_distinct_native_orchestration() -> None:
 
     for package_name in ("codex", "claude-code"):
         adapter = (
-            _skill_dir(ROOT / "packages" / package_name / "research-tree")
-            / "scripts"
-            / "native_execution_adapter.py"
+            _skill_dir(ROOT / "packages" / package_name / "research-tree") / "scripts" / "native_execution_adapter.py"
         ).read_text(encoding="utf-8")
         assert '"observations"' in adapter
         assert '"option_effects"' in adapter
@@ -189,24 +183,18 @@ def test_host_question_references_name_only_their_native_capability() -> None:
     claude = ROOT / "packages" / "claude-code" / "research-tree"
     hermes = ROOT / "packages" / "hermes" / "research-tree"
 
-    assert "AskUserQuestion" in (
-        _skill_dir(claude) / "references" / "claude-code-compatibility.md"
-    ).read_text(encoding="utf-8")
-    assert "clarify" in (
-        hermes / "references" / "hermes-agent-compatibility.md"
-    ).read_text(encoding="utf-8")
+    assert "AskUserQuestion" in (_skill_dir(claude) / "references" / "claude-code-compatibility.md").read_text(
+        encoding="utf-8"
+    )
+    assert "clarify" in (hermes / "references" / "hermes-agent-compatibility.md").read_text(encoding="utf-8")
     assert "Do not assume Claude's `AskUserQuestion`" in (
         codex / "references" / "codex-cli-compatibility.md"
     ).read_text(encoding="utf-8")
 
 
 def test_feedback_reopens_research_and_requires_evidence_progress() -> None:
-    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
-        encoding="utf-8"
-    )
-    claude = (
-        _skill_dir(ROOT / "packages" / "claude-code" / "research-tree") / "SKILL.md"
-    ).read_text(encoding="utf-8")
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(encoding="utf-8")
+    claude = (_skill_dir(ROOT / "packages" / "claude-code" / "research-tree") / "SKILL.md").read_text(encoding="utf-8")
 
     for body in (template, claude):
         assert '"I don\'t know"' in body
@@ -234,15 +222,9 @@ def test_all_host_packages_expose_opt_in_debug_tracing() -> None:
 
 
 def test_host_adapters_direct_the_native_question_capability() -> None:
-    codex = (ROOT / "packages" / "codex" / "research-tree" / "SKILL.md").read_text(
-        encoding="utf-8"
-    )
-    claude = (
-        _skill_dir(ROOT / "packages" / "claude-code" / "research-tree") / "SKILL.md"
-    ).read_text(encoding="utf-8")
-    hermes = (ROOT / "packages" / "hermes" / "research-tree" / "SKILL.md").read_text(
-        encoding="utf-8"
-    )
+    codex = (ROOT / "packages" / "codex" / "research-tree" / "SKILL.md").read_text(encoding="utf-8")
+    claude = (_skill_dir(ROOT / "packages" / "claude-code" / "research-tree") / "SKILL.md").read_text(encoding="utf-8")
+    hermes = (ROOT / "packages" / "hermes" / "research-tree" / "SKILL.md").read_text(encoding="utf-8")
 
     assert "request_user_input" in codex
     assert "AskUserQuestion" in claude
@@ -250,12 +232,8 @@ def test_host_adapters_direct_the_native_question_capability() -> None:
 
 
 def test_long_horizon_policy_is_cost_tolerant_and_resumable() -> None:
-    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
-        encoding="utf-8"
-    )
-    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
-        encoding="utf-8"
-    )
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(encoding="utf-8")
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(encoding="utf-8")
     assert "cost-tolerant" in template
     assert "monetary cost is non-gating" in playbook
     for body in (template, playbook):
@@ -264,11 +242,7 @@ def test_long_horizon_policy_is_cost_tolerant_and_resumable() -> None:
 
     for host in ("codex", "claude", "hermes"):
         skill = (
-            _skill_dir(
-                ROOT / "packages" / ("claude-code" if host == "claude" else host)
-                / "research-tree"
-            )
-            / "SKILL.md"
+            _skill_dir(ROOT / "packages" / ("claude-code" if host == "claude" else host) / "research-tree") / "SKILL.md"
         ).read_text(encoding="utf-8")
         assert "cost-tolerant" in skill
         assert "Autonomy envelope after strategy handoff" in skill
@@ -276,32 +250,22 @@ def test_long_horizon_policy_is_cost_tolerant_and_resumable() -> None:
 
 def test_intent_understanding_remains_live_during_research() -> None:
     product = (ROOT / "PRODUCT.md").read_text(encoding="utf-8")
-    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
-        encoding="utf-8"
-    )
-    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
-        encoding="utf-8"
-    )
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(encoding="utf-8")
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(encoding="utf-8")
 
     assert "Intent understanding is a continuous product loop" in product
     assert "Intent understanding remains active throughout the round" in template
     assert "Intent understanding is never a one-time pre-research gate" in playbook
     for host in ("codex", "claude", "hermes"):
         package = "claude-code" if host == "claude" else host
-        skill = (
-            _skill_dir(ROOT / "packages" / package / "research-tree") / "SKILL.md"
-        ).read_text(encoding="utf-8")
+        skill = (_skill_dir(ROOT / "packages" / package / "research-tree") / "SKILL.md").read_text(encoding="utf-8")
         assert "Intent understanding remains active throughout the round" in skill
 
 
 def test_strategy_handoff_requires_coevolutionary_debate() -> None:
     product = (ROOT / "PRODUCT.md").read_text(encoding="utf-8")
-    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
-        encoding="utf-8"
-    )
-    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
-        encoding="utf-8"
-    )
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(encoding="utf-8")
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(encoding="utf-8")
 
     assert "decision equilibrium" in product
     assert "Co-evolve cognition before strategy handoff" in template
@@ -311,12 +275,8 @@ def test_strategy_handoff_requires_coevolutionary_debate() -> None:
 
 def test_early_communication_is_human_centered_and_confusion_driven() -> None:
     product = (ROOT / "PRODUCT.md").read_text(encoding="utf-8")
-    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
-        encoding="utf-8"
-    )
-    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
-        encoding="utf-8"
-    )
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(encoding="utf-8")
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(encoding="utf-8")
 
     assert "Human-centered communication" in product
     assert "question-only" in template
@@ -327,12 +287,8 @@ def test_early_communication_is_human_centered_and_confusion_driven() -> None:
 
 def test_vague_briefs_trigger_short_guided_communication() -> None:
     product = (ROOT / "PRODUCT.md").read_text(encoding="utf-8")
-    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
-        encoding="utf-8"
-    )
-    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
-        encoding="utf-8"
-    )
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(encoding="utf-8")
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(encoding="utf-8")
 
     for body in (product, template, playbook):
         assert "1000" in body
@@ -343,12 +299,8 @@ def test_vague_briefs_trigger_short_guided_communication() -> None:
 
 def test_intent_elicitation_is_open_ended_and_context_first() -> None:
     product = (ROOT / "PRODUCT.md").read_text(encoding="utf-8")
-    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
-        encoding="utf-8"
-    )
-    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
-        encoding="utf-8"
-    )
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(encoding="utf-8")
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(encoding="utf-8")
 
     for body in (product, template, playbook):
         assert "open-ended" in body
@@ -361,12 +313,8 @@ def test_intent_elicitation_is_open_ended_and_context_first() -> None:
 
 def test_alignment_turns_are_traceable_without_transcripts() -> None:
     brief = (ROOT / "assets" / "brief-template.md").read_text(encoding="utf-8")
-    human_brief = (ROOT / "assets" / "human-brief-template.md").read_text(
-        encoding="utf-8"
-    )
-    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
-        encoding="utf-8"
-    )
+    human_brief = (ROOT / "assets" / "human-brief-template.md").read_text(encoding="utf-8")
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(encoding="utf-8")
 
     assert "Alignment Turn Ledger" in brief
     assert "Human/agent belief delta" in brief
@@ -384,9 +332,7 @@ def test_each_package_uses_only_its_hosts_metadata_format() -> None:
     hermes_skill = (hermes / "SKILL.md").read_text(encoding="utf-8")
 
     assert (codex / "agents" / "openai.yaml").is_file()
-    assert "$research-tree" in (
-        codex / "agents" / "openai.yaml"
-    ).read_text(encoding="utf-8")
+    assert "$research-tree" in (codex / "agents" / "openai.yaml").read_text(encoding="utf-8")
     assert "argument-hint:" not in codex_skill
     assert "argument-hint:" in claude_skill
     assert "disable-model-invocation: false" in claude_skill
@@ -403,9 +349,9 @@ def test_each_package_uses_only_its_hosts_metadata_format() -> None:
 
 def test_packages_expose_runtime_depth_and_insight_contract() -> None:
     for package_name in ("codex", "claude-code", "hermes"):
-        skill = (
-            _skill_dir(ROOT / "packages" / package_name / "research-tree") / "SKILL.md"
-        ).read_text(encoding="utf-8")
+        skill = (_skill_dir(ROOT / "packages" / package_name / "research-tree") / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
         assert "plan-to-execute" in skill
         assert "Insight Digest" in skill
         assert "Do not hand a broad track to" in skill
@@ -442,6 +388,91 @@ def test_package_validator_rejects_wrong_host_activation_marker(tmp_path: Path) 
 
     assert result["valid"] is False
     assert "wrong activation marker for codex" in result["errors"]
+
+
+def _hermes_validation_source(tmp_path: Path) -> Path:
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    source_files = [
+        *BUILDER_GLOBALS["COMMON_FILES"],
+        *BUILDER_GLOBALS["HERMES_FILES"],
+        *(source for source, _ in BUILDER_GLOBALS["COMMON_FILE_MAP"]),
+    ]
+    for relative in source_files:
+        target = source_root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, target)
+    template = source_root / "skill-src" / "hermes-SKILL.template.md"
+    template.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / "skill-src" / "hermes-SKILL.template.md", template)
+    return source_root
+
+
+def test_package_validator_rejects_omitted_hermes_executable_dependency(tmp_path: Path) -> None:
+    package = tmp_path / "package"
+    shutil.copytree(ROOT / "packages" / "hermes" / "research-tree", package)
+    source_root = _hermes_validation_source(tmp_path)
+    manifest = source_root / "scripts" / "hermes_executable_closure.json"
+    closure = json.loads(manifest.read_text(encoding="utf-8"))
+    closure["files"].remove("scripts/hermes_event_adapter.py")
+    manifest.write_text(json.dumps(closure), encoding="utf-8")
+
+    result = validate_package(package, "hermes", source_root)
+
+    assert result["valid"] is False
+    assert (
+        "Hermes executable closure is missing packaged dependency: scripts/hermes_event_adapter.py" in result["errors"]
+    )
+
+
+def test_package_validator_rejects_omitted_hermes_executable_entrypoint(tmp_path: Path) -> None:
+    package = tmp_path / "package"
+    shutil.copytree(ROOT / "packages" / "hermes" / "research-tree", package)
+    source_root = _hermes_validation_source(tmp_path)
+    for manifest in (
+        package / "scripts" / "hermes_executable_closure.json",
+        source_root / "scripts" / "hermes_executable_closure.json",
+    ):
+        closure = json.loads(manifest.read_text(encoding="utf-8"))
+        closure["entrypoints"] = [
+            entrypoint
+            for entrypoint in closure["entrypoints"]
+            if entrypoint["path"] != "scripts/hermes_execution_adapter.py"
+        ]
+        manifest.write_text(json.dumps(closure), encoding="utf-8")
+
+    result = validate_package(package, "hermes", source_root)
+
+    assert result["valid"] is False
+    assert (
+        "Hermes executable package validation failed: Hermes executable closure is missing entrypoint: scripts/hermes_execution_adapter.py"
+        in result["errors"]
+    )
+
+
+def test_package_validator_rejects_unstartable_hermes_entrypoint(tmp_path: Path) -> None:
+    package = tmp_path / "package"
+    shutil.copytree(ROOT / "packages" / "hermes" / "research-tree", package)
+    source_root = _hermes_validation_source(tmp_path)
+
+    execution_adapter = package / "scripts" / "hermes_execution_adapter.py"
+    broken = execution_adapter.read_text(encoding="utf-8").replace(
+        "from hermes_event_adapter import (",
+        "from missing_hermes_event_adapter import (",
+    )
+    execution_adapter.write_text(broken, encoding="utf-8")
+    (source_root / "scripts" / "hermes_execution_adapter.py").write_text(
+        broken,
+        encoding="utf-8",
+    )
+
+    result = validate_package(package, "hermes", source_root)
+
+    assert result["valid"] is False
+    assert (
+        "Hermes executable package validation failed: Hermes executable cold start failed: scripts/hermes_execution_adapter.py (exit 1)"
+        in result["errors"]
+    )
 
 
 def test_package_and_skill_body_digests_detect_generated_drift(tmp_path: Path) -> None:
