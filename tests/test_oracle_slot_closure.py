@@ -410,9 +410,10 @@ def test_oracle_run_rejects_stale_or_cross_attempt_reference(tmp_path) -> None:
 def test_forged_worker_pass_cannot_issue_closure_token(tmp_path) -> None:
     ledger, service = _service(tmp_path)
     target, decision, findings = _assessment_inputs(ledger)
+    forged_run = _append(ledger, "oracle-run-forged", ORACLE_RUN_KIND, {"verdict": "passed"})
     assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
 
-    assessment = _assess(assessor, ledger, target, decision, findings)
+    assessment = _assess(assessor, ledger, target, decision, findings, oracle_runs=(forged_run,))
 
     assert assessment.kind == ASSESSMENT_KIND
     assert assessment.payload["status"] == "inconclusive"
@@ -805,48 +806,6 @@ def test_decision_cannot_silently_ignore_a_current_wrong_slot_finding(tmp_path) 
         _assess(assessor, ledger, target, malformed_decision, findings, oracle_runs=(run,))
 
 
-def test_foreign_evidence_graph_cannot_issue_a_token(tmp_path) -> None:
-    ledger, service = _service(tmp_path)
-    _, _, run = _oracle_run(service, ledger)
-    ledger.create_run("run-foreign")
-    _, foreign_anchor = _source_graph(
-        ledger,
-        capture_id="capture-foreign",
-        evidence_id="evidence-foreign",
-        attempt_id="attempt-foreign",
-        round_id="run-foreign",
-    )
-    target, decision, _ = _assessment_inputs(ledger)
-    foreign_finding = _finding(
-        ledger,
-        finding_id="finding-foreign-evidence",
-        target=target,
-        anchor=foreign_anchor,
-        effect="supports",
-    )
-    foreign_decision = _append(
-        ledger,
-        "decision-foreign-evidence",
-        "decision-ledger-entry",
-        thaw_json(decision.payload),
-        (_ref(target), _ref(foreign_finding)),
-    )
-    assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
-
-    assessment = _assess(
-        assessor,
-        ledger,
-        target,
-        foreign_decision,
-        (foreign_finding,),
-        oracle_runs=(run,),
-    )
-
-    assert assessment.payload["status"] == "inconclusive"
-    assert assessment.payload["closure_token"] is None
-    assert assessment.payload["checks"]["evidence"] is False
-
-
 def test_stale_direct_decision_finding_parent_is_rejected(tmp_path) -> None:
     ledger, service = _service(tmp_path)
     _, _, run = _oracle_run(service, ledger)
@@ -864,68 +823,66 @@ def test_stale_direct_decision_finding_parent_is_rejected(tmp_path) -> None:
         _assess(assessor, ledger, target, decision, (current_finding,), oracle_runs=(run,))
 
 
-def test_mixed_receipt_and_capture_lineage_cannot_issue_a_token(tmp_path) -> None:
+@pytest.mark.parametrize("foreign_parent", ["evidence", "receipt", "capture"])
+def test_foreign_evidence_lineage_cannot_issue_a_token(tmp_path, foreign_parent: str) -> None:
     ledger, service = _service(tmp_path)
     _, _, run = _oracle_run(service, ledger)
     target, _, _ = _assessment_inputs(ledger)
     ledger.create_run("run-foreign")
     evidence, anchor = _source_graph(
         ledger,
-        capture_id="capture-mixed",
-        evidence_id="evidence-mixed",
-        attempt_id="attempt-mixed",
+        capture_id="capture-foreign",
+        evidence_id="evidence-foreign",
+        attempt_id="attempt-foreign",
         round_id="run-foreign",
     )
-    receipt = ledger.get_artifact(evidence.parent_refs[0])
-    capture = ledger.get_artifact(receipt.parent_refs[0])
-    mixed_receipt = _append(
+    if foreign_parent != "evidence":
+        content = ledger.get_bound_content(_ref(evidence))
+        payload = thaw_json(evidence.payload)
+        payload.update(evidence_id="evidence-foreign-receipt", run_id=RUN_ID)
+        receipt_ref = evidence.parent_refs[0]
+        if foreign_parent == "capture":
+            receipt = ledger.get_artifact(receipt_ref)
+            payload = thaw_json(receipt.payload)
+            payload["receipt_id"] = "receipt-foreign-capture"
+            receipt_ref = _ref(
+                _append(
+                    ledger,
+                    "receipt-foreign-capture",
+                    ACQUISITION_RECEIPT_KIND,
+                    payload,
+                    (receipt.parent_refs[0],),
+                )
+            )
+        evidence = ledger.append_artifact_with_content(
+            RUN_ID,
+            "evidence-foreign-receipt",
+            EVIDENCE_ARTIFACT_KIND,
+            payload,
+            content,
+            ContentAddressedStore(ledger.workspace),
+            parent_refs=(receipt_ref,),
+            expected_revision=ledger.get_revision(RUN_ID),
+        )
+        anchor = EvidenceAnchor(
+            artifact_ref=_ref(evidence),
+            artifact_digest=content.digest,
+            artifact_revision=evidence.revision,
+            selector_type=anchor.selector_type,
+            selector_value=anchor.selector_value,
+            extractor_version=anchor.extractor_version,
+            applicability=anchor.applicability,
+            confidence=anchor.confidence,
+            limitations=anchor.limitations,
+        )
+    finding = _finding(
         ledger,
-        "receipt-mixed-lineage",
-        ACQUISITION_RECEIPT_KIND,
-        AcquisitionReceipt(
-            receipt_id="receipt-mixed-lineage",
-            capture_id=capture.id,
-            attempt_id="attempt-mixed",
-            method_id="web-fetch",
-            provider_id="fixture-provider",
-            requested_at=CAPTURED_AT,
-            completed_at=CAPTURED_AT,
-            status="succeeded",
-        ).to_dict(),
-        (_ref(capture),),
-    )
-    content = ledger.get_bound_content(_ref(evidence))
-    mixed_evidence_payload = thaw_json(evidence.payload)
-    mixed_evidence_payload["evidence_id"] = "evidence-mixed-lineage"
-    mixed_evidence = ledger.append_artifact_with_content(
-        RUN_ID,
-        "evidence-mixed-lineage",
-        EVIDENCE_ARTIFACT_KIND,
-        mixed_evidence_payload,
-        content,
-        ContentAddressedStore(ledger.workspace),
-        parent_refs=(_ref(mixed_receipt),),
-        expected_revision=ledger.get_revision(RUN_ID),
-    )
-    mixed_anchor = EvidenceAnchor(
-        artifact_ref=_ref(mixed_evidence),
-        artifact_digest=content.digest,
-        artifact_revision=mixed_evidence.revision,
-        selector_type=anchor.selector_type,
-        selector_value=anchor.selector_value,
-        extractor_version=anchor.extractor_version,
-        applicability=anchor.applicability,
-        confidence=anchor.confidence,
-        limitations=anchor.limitations,
-    )
-    mixed_finding = _finding(
-        ledger,
-        finding_id="finding-mixed-lineage",
+        finding_id="finding-foreign-lineage",
         target=target,
-        anchor=mixed_anchor,
+        anchor=anchor,
         effect="supports",
     )
-    mixed_decision = _append(
+    decision = _append(
         ledger,
         "decision-1",
         "decision-ledger-entry",
@@ -936,18 +893,11 @@ def test_mixed_receipt_and_capture_lineage_cannot_issue_a_token(tmp_path) -> Non
             "fallback": "use option b",
             "reversal_condition": "new counterevidence",
         },
-        (_ref(target), _ref(mixed_finding)),
+        (_ref(target), _ref(finding)),
     )
     assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
 
-    assessment = _assess(
-        assessor,
-        ledger,
-        target,
-        mixed_decision,
-        (mixed_finding,),
-        oracle_runs=(run,),
-    )
+    assessment = _assess(assessor, ledger, target, decision, (finding,), oracle_runs=(run,))
 
     assert assessment.payload["status"] == "inconclusive"
     assert assessment.payload["closure_token"] is None

@@ -260,6 +260,34 @@ class SlotClosureAssessor:
         if len(data) != size_bytes or hashlib.sha256(data).hexdigest() != digest:
             raise ClosureAssessmentError(f"{label} content bytes do not match its canonical payload")
 
+    def _validated_oracle_runs(
+        self,
+        oracle_runs: Sequence[ArtifactRevision],
+    ) -> tuple[OracleRun, ...] | None:
+        validated: list[OracleRun] = []
+        try:
+            for revision in oracle_runs:
+                reference = _artifact_ref(revision)
+                run = OracleRun.from_revision(reference, revision)
+                spec = self.ledger.get_artifact(run.oracle_spec_ref)
+                attempt = self.ledger.get_artifact(run.attempt_ref)
+                inputs = tuple(self.ledger.get_artifact(item) for item in run.input_refs)
+                results = tuple(self.ledger.get_artifact(item) for item in run.result_artifact_refs)
+                events = tuple(self.ledger.get_artifact(item) for item in run.tool_event_refs)
+                validated.append(
+                    validate_oracle_run_lineage(
+                        revision,
+                        spec,
+                        attempt,
+                        input_revisions=inputs,
+                        result_revisions=results,
+                        tool_event_revisions=events,
+                    )
+                )
+        except (RuntimeStoreError, InvalidOracleError, TypeError, ValueError):
+            return None
+        return tuple(validated)
+
     def _parent_of_kind(
         self,
         artifact: ArtifactRevision,
@@ -456,7 +484,9 @@ class SlotClosureAssessor:
         finding_values = tuple(findings)
         finding_refs = tuple(self._resolve(item, FINDING_PACK_KIND, round_id) for item in finding_values)
         self._require_complete_findings(finding_values, self._decision_findings(decision, target_ref, slot_id))
-        run_refs = tuple(self._resolve(item, ORACLE_RUN_KIND, round_id) for item in oracle_runs)
+        oracle_values = tuple(oracle_runs)
+        run_refs = tuple(self._resolve(item, ORACLE_RUN_KIND, round_id) for item in oracle_values)
+        validated_oracle_runs = self._validated_oracle_runs(oracle_values)
         if not isinstance(provenance_groups, Sequence) or any(
             not isinstance(group, str) or not group.strip() for group in provenance_groups
         ):
@@ -469,14 +499,17 @@ class SlotClosureAssessor:
             "provenance_independence": len(set(provenance_groups)) >= 2,
             "counterevidence": bool(disposition),
             "no_active_contradiction": not active_contradiction,
-            "oracle": any(item.payload.get("verdict") == "passed" for item in oracle_runs),
+            "oracle": validated_oracle_runs is not None
+            and any(item.verdict == "passed" for item in validated_oracle_runs),
             "fallback": bool(str(decision.payload.get("fallback", "")).strip()),
             "reversal_condition": bool(str(decision.payload.get("reversal_condition", "")).strip()),
         }
         successors: list[str] = []
         if not checks["oracle"]:
             successors.append("validation")
-        if any(item.payload.get("verdict") in {"failed", "blocked"} for item in oracle_runs):
+        if validated_oracle_runs is not None and any(
+            item.verdict in {"failed", "blocked"} for item in validated_oracle_runs
+        ):
             successors.append("method_switch")
         if not checks["no_active_contradiction"]:
             successors.append("adversarial")

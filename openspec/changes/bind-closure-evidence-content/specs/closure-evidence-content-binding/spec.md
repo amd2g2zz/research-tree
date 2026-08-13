@@ -76,6 +76,19 @@ to exactly that reference set; it SHALL not omit, substitute, or add a Finding.
 - **THEN** the assessor rejects the malformed decision before assessing a
   partial Finding set
 
+### Requirement: Closure oracle results have canonical lineage
+
+The closure assessor SHALL treat an `oracle-run` as a passing closure input
+only after its canonical OracleRun payload and exact spec, attempt, input,
+result, and tool-event parent lineage validate. A malformed or unresolved
+OracleRun SHALL make the oracle check inconclusive and cannot issue a closure
+token.
+
+#### Scenario: Raw passed OracleRun is untrusted
+- **WHEN** a raw ledger `oracle-run` has a `passed` verdict but no canonical
+  OracleRun payload or required lineage parents
+- **THEN** the assessment is inconclusive and cannot issue a closure token
+
 #### Scenario: Assessment lineage is foreign, stale, or mixed
 - **WHEN** an assessment input belongs to another run, a decision directly
   references a superseded Finding revision, an evidence graph resolves through
