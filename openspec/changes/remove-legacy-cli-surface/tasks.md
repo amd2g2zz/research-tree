@@ -26,5 +26,5 @@
   formatting checks.
 - [x] 4.2 Run the full suite, strict issue and umbrella OpenSpec validation,
   governance check, package check, and `git diff --check`.
-- [ ] 4.3 Record source-bound group-54 verification only after its acceptance
+- [x] 4.3 Record source-bound group-54 verification only after its acceptance
   evidence is available.

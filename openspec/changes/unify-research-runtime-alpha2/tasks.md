@@ -351,5 +351,5 @@ substitute for local evidence.
   before it can parse, discover a store, or call a runtime service.
 - [x] 54.2 Retire the standalone migration console surface, its implementation,
   exports, tests, and maintained public guidance without a replacement route.
-- [ ] 54.3 Run the focused breaking-removal acceptance command and record a
+- [x] 54.3 Run the focused breaking-removal acceptance command and record a
   source-bound group-54 receipt before treating this child as verified.
