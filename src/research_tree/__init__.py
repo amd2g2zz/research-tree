@@ -288,7 +288,6 @@ from .oracles import (
     OracleSpec,
 )
 from .closure import ASSESSMENT_KIND, ClosureAssessmentError, OracleService, SlotClosureAssessor, SlotClosureAssessment
-from .legacy_import import LegacyImportError, LegacyImportReceipt, LegacyImportResult, LegacyRunStoreImporter
 from .content_store import (
     ContentAddressedStore,
     ContentIntegrityError,
@@ -565,10 +564,6 @@ __all__ = [
     "EvidenceResolver",
     "EvidenceValidationError",
     "provenance_group_for",
-    "LegacyImportError",
-    "LegacyImportReceipt",
-    "LegacyImportResult",
-    "LegacyRunStoreImporter",
     "LedgerError",
     "LedgerConflictError",
     "LedgerIntegrityError",

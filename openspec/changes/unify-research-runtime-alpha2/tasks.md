@@ -358,6 +358,15 @@ substitute for local evidence.
 - [x] 54.3 Run the focused breaking-removal acceptance command and record a
   source-bound group-54 receipt before treating this child as verified.
 
+## 55. Legacy RunStore Import Authority Removal (#167)
+
+- [ ] 55.1 Remove the importer module, root exports, importer tests, and
+  legacy receipt DDL/API without touching user-owned historical data.
+- [ ] 55.2 Remove active import capability/issue ownership and preserve only
+  historical implementation evidence through Git history.
+- [ ] 55.3 Run the focused breaking-removal acceptance command and record a
+  source-bound group-55 receipt before treating this child as verified.
+
 ## 57. Current-Only Skill Setup (#169)
 
 - [x] 57.1 Remove setup migration and refresh paths while retaining missing and
