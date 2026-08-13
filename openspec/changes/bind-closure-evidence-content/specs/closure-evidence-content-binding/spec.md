@@ -12,8 +12,9 @@ bounds and repository locator validation. Each evidence artifact
 SHALL have exactly one succeeded direct `acquisition-receipt` parent and that
 receipt SHALL have exactly one direct, committed `source-capture` parent with
 matching capture, attempt, method, and provider identities. Every declared
-origin capture SHALL resolve to a current canonical capture with an available,
-matching content binding.
+origin capture SHALL resolve to a current canonical capture in the assessment
+run with an available, matching content binding. Evidence, receipt, capture,
+and origin references from another run SHALL not be authoritative.
 
 #### Scenario: Bound CAS bytes are unavailable or tampered
 - **WHEN** an otherwise canonical evidence artifact, source capture, or origin
@@ -77,8 +78,9 @@ to exactly that reference set; it SHALL not omit, substitute, or add a Finding.
 
 #### Scenario: Assessment lineage is foreign, stale, or mixed
 - **WHEN** an assessment input belongs to another run, a decision directly
-  references a superseded Finding revision, or a receipt declares a capture
-  other than its direct capture parent
+  references a superseded Finding revision, an evidence graph resolves through
+  another run, or a receipt declares a capture other than its direct capture
+  parent
 - **THEN** the assessor fails closed with a deterministic rejection or
   inconclusive evidence result and cannot issue a closure token
 

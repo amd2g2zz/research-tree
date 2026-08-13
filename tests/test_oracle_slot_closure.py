@@ -38,14 +38,14 @@ def _ref(item) -> ArtifactRef:
     return ArtifactRef(item.round_id, item.id, item.revision)
 
 
-def _append(ledger: RunLedger, artifact_id: str, kind: str, payload: dict, parents=()):
+def _append(ledger: RunLedger, artifact_id: str, kind: str, payload: dict, parents=(), *, round_id: str = RUN_ID):
     return ledger.append_artifact(
-        RUN_ID,
+        round_id,
         artifact_id,
         kind,
         payload,
         parent_refs=parents,
-        expected_revision=ledger.get_revision(RUN_ID),
+        expected_revision=ledger.get_revision(round_id),
     )
 
 
@@ -125,6 +125,7 @@ def _source_graph(
     origin_capture_id: str | None = None,
     forged_capture: bool = False,
     forged_evidence: bool = False,
+    round_id: str = RUN_ID,
 ):
     store = ContentAddressedStore(ledger.workspace)
     capture_data = f"capture:{capture_id}".encode()
@@ -136,7 +137,7 @@ def _source_graph(
             SOURCE_CAPTURE_KIND,
             SourceCapture(
                 capture_id=capture_id,
-                run_id=RUN_ID,
+                run_id=round_id,
                 attempt_id=attempt_id,
                 locator={"url": f"https://{capture_id}.test/report"},
                 content_digest=capture_content.digest,
@@ -148,6 +149,7 @@ def _source_graph(
                 provenance_group="fixture-source",
                 origin_capture_id=origin_capture_id,
             ).to_dict(),
+            round_id=round_id,
         )
         receipt = _append(
             ledger,
@@ -164,11 +166,12 @@ def _source_graph(
                 status="succeeded",
             ).to_dict(),
             (_ref(capture),),
+            round_id=round_id,
         )
     else:
         capture_service = DurableSourceCaptureService(ledger, store)
         capture_value = capture_service.capture(
-            run_id=RUN_ID,
+            run_id=round_id,
             capture_id=capture_id,
             attempt_id=attempt_id,
             data=capture_data,
@@ -178,18 +181,18 @@ def _source_graph(
             provenance_group="fixture-source",
             locator={"url": f"https://{capture_id}.test/report"},
             origin_capture_id=origin_capture_id,
-            expected_revision=ledger.get_revision(RUN_ID),
+            expected_revision=ledger.get_revision(round_id),
         )
         assert capture_value.artifact_ref is not None
         capture = ledger.get_artifact(capture_value.artifact_ref)
         receipt_value = capture_service.receipt(
-            run_id=RUN_ID,
+            run_id=round_id,
             receipt_id=f"receipt-{capture_id}",
             capture=capture_value,
             attempt_id=attempt_id,
             method_id="web-fetch",
             provider_id="fixture-provider",
-            expected_revision=ledger.get_revision(RUN_ID),
+            expected_revision=ledger.get_revision(round_id),
         )
         assert receipt_value.artifact_ref is not None
         receipt = ledger.get_artifact(receipt_value.artifact_ref)
@@ -197,7 +200,7 @@ def _source_graph(
     evidence_content = store.ingest(f"evidence:{evidence_id}".encode(), "text/plain")
     evidence_value = EvidenceArtifact(
         evidence_id=evidence_id,
-        run_id=RUN_ID,
+        run_id=round_id,
         revision=1,
         media_type=evidence_content.media_type,
         locator={"url": f"https://{capture_id}.test/report"},
@@ -220,12 +223,13 @@ def _source_graph(
             EVIDENCE_ARTIFACT_KIND,
             evidence_value.to_dict(),
             (_ref(receipt),),
+            round_id=round_id,
         )
     else:
         evidence_ref = EvidenceRepository(ledger, store).record(
             evidence_value,
             evidence_content,
-            expected_run_revision=ledger.get_revision(RUN_ID),
+            expected_run_revision=ledger.get_revision(round_id),
             parent_refs=(_ref(receipt),),
         )
         evidence = ledger.get_artifact(evidence_ref)
@@ -801,22 +805,46 @@ def test_decision_cannot_silently_ignore_a_current_wrong_slot_finding(tmp_path) 
         _assess(assessor, ledger, target, malformed_decision, findings, oracle_runs=(run,))
 
 
-def test_foreign_run_assessment_input_is_rejected(tmp_path) -> None:
+def test_foreign_evidence_graph_cannot_issue_a_token(tmp_path) -> None:
     ledger, service = _service(tmp_path)
     _, _, run = _oracle_run(service, ledger)
-    _, decision, findings = _assessment_inputs(ledger)
     ledger.create_run("run-foreign")
-    foreign_target = ledger.append_artifact(
-        "run-foreign",
-        "target-foreign",
-        "blueprint-target",
-        {"decision_slots": [{"id": "slot-1", "priority": "P0", "alternatives": ["a", "b"]}]},
-        expected_revision=ledger.get_revision("run-foreign"),
+    _, foreign_anchor = _source_graph(
+        ledger,
+        capture_id="capture-foreign",
+        evidence_id="evidence-foreign",
+        attempt_id="attempt-foreign",
+        round_id="run-foreign",
+    )
+    target, decision, _ = _assessment_inputs(ledger)
+    foreign_finding = _finding(
+        ledger,
+        finding_id="finding-foreign-evidence",
+        target=target,
+        anchor=foreign_anchor,
+        effect="supports",
+    )
+    foreign_decision = _append(
+        ledger,
+        "decision-foreign-evidence",
+        "decision-ledger-entry",
+        thaw_json(decision.payload),
+        (_ref(target), _ref(foreign_finding)),
     )
     assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
 
-    with pytest.raises(ClosureAssessmentError, match="blueprint-target from its round"):
-        _assess(assessor, ledger, foreign_target, decision, findings, oracle_runs=(run,))
+    assessment = _assess(
+        assessor,
+        ledger,
+        target,
+        foreign_decision,
+        (foreign_finding,),
+        oracle_runs=(run,),
+    )
+
+    assert assessment.payload["status"] == "inconclusive"
+    assert assessment.payload["closure_token"] is None
+    assert assessment.payload["checks"]["evidence"] is False
 
 
 def test_stale_direct_decision_finding_parent_is_rejected(tmp_path) -> None:
@@ -840,11 +868,13 @@ def test_mixed_receipt_and_capture_lineage_cannot_issue_a_token(tmp_path) -> Non
     ledger, service = _service(tmp_path)
     _, _, run = _oracle_run(service, ledger)
     target, _, _ = _assessment_inputs(ledger)
+    ledger.create_run("run-foreign")
     evidence, anchor = _source_graph(
         ledger,
         capture_id="capture-mixed",
         evidence_id="evidence-mixed",
         attempt_id="attempt-mixed",
+        round_id="run-foreign",
     )
     receipt = ledger.get_artifact(evidence.parent_refs[0])
     capture = ledger.get_artifact(receipt.parent_refs[0])
@@ -854,7 +884,7 @@ def test_mixed_receipt_and_capture_lineage_cannot_issue_a_token(tmp_path) -> Non
         ACQUISITION_RECEIPT_KIND,
         AcquisitionReceipt(
             receipt_id="receipt-mixed-lineage",
-            capture_id="capture-other",
+            capture_id=capture.id,
             attempt_id="attempt-mixed",
             method_id="web-fetch",
             provider_id="fixture-provider",

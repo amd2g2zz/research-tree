@@ -265,6 +265,7 @@ class SlotClosureAssessor:
         artifact: ArtifactRevision,
         kind: str,
         label: str,
+        round_id: str,
     ) -> tuple[ArtifactRef, ArtifactRevision]:
         parents: list[tuple[ArtifactRef, ArtifactRevision]] = []
         for reference in artifact.parent_refs:
@@ -273,12 +274,21 @@ class SlotClosureAssessor:
             except RuntimeStoreError as error:
                 raise ClosureAssessmentError(f"{label} has an unresolved parent") from error
             if parent.kind == kind:
+                if reference.round_id != round_id:
+                    raise ClosureAssessmentError(f"{label} parent belongs to another run")
                 parents.append((reference, self._current_artifact(reference, kind)))
         if len(parents) != 1:
             raise ClosureAssessmentError(f"{label} must bind exactly one {kind}")
         return parents[0]
 
-    def _capture_origin_is_bound(self, capture_ref: ArtifactRef, capture: SourceCapture) -> None:
+    def _capture_origin_is_bound(
+        self,
+        capture_ref: ArtifactRef,
+        capture: SourceCapture,
+        round_id: str,
+    ) -> None:
+        if capture_ref.round_id != round_id or capture.run_id != round_id:
+            raise ClosureAssessmentError("source capture belongs to another run")
         self._require_bound_content(
             capture_ref,
             digest=capture.content_digest,
@@ -308,8 +318,10 @@ class SlotClosureAssessor:
                 label="source capture origin",
             )
 
-    def _finding_evidence_is_bound(self, finding: ArtifactRevision) -> bool:
+    def _finding_evidence_is_bound(self, finding: ArtifactRevision, round_id: str) -> bool:
         try:
+            if finding.round_id != round_id:
+                raise ClosureAssessmentError("finding pack belongs to another run")
             if finding.payload.get("evidence_mode") != "strict":
                 raise ClosureAssessmentError("finding pack is not backed by strict evidence")
             observations = finding.payload.get("observations")
@@ -327,8 +339,12 @@ class SlotClosureAssessor:
                 anchor = EvidenceAnchor.from_dict(observation.get("anchor"))
                 if anchor.artifact_ref is None or anchor.artifact_ref not in finding.parent_refs:
                     raise ClosureAssessmentError("finding observation has no direct evidence parent")
+                if anchor.artifact_ref.round_id != round_id:
+                    raise ClosureAssessmentError("finding evidence belongs to another run")
                 evidence_revision = self._current_artifact(anchor.artifact_ref, EVIDENCE_ARTIFACT_KIND)
                 evidence = EvidenceArtifact.from_revision(anchor.artifact_ref, evidence_revision)
+                if evidence.run_id != round_id:
+                    raise ClosureAssessmentError("evidence artifact belongs to another run")
                 if evidence.evidence_class == "legacy_unspecified":
                     raise ClosureAssessmentError("finding anchor does not identify authoritative evidence")
                 if (
@@ -350,12 +366,14 @@ class SlotClosureAssessor:
                     evidence_revision,
                     ACQUISITION_RECEIPT_KIND,
                     "evidence artifact",
+                    round_id,
                 )
                 receipt = AcquisitionReceipt.from_dict(receipt_revision.payload)
                 capture_ref, capture_revision = self._parent_of_kind(
                     receipt_revision,
                     SOURCE_CAPTURE_KIND,
                     "acquisition receipt",
+                    round_id,
                 )
                 capture = SourceCapture.from_dict(capture_revision.payload)
                 if (
@@ -371,7 +389,7 @@ class SlotClosureAssessor:
                     or evidence.acquisition_method != capture.method_id
                 ):
                     raise ClosureAssessmentError("evidence receipt and source capture are not exact")
-                self._capture_origin_is_bound(capture_ref, capture)
+                self._capture_origin_is_bound(capture_ref, capture, round_id)
                 references.add(anchor.artifact_ref)
             return bool(references)
         except (RuntimeStoreError, TypeError, ValueError, ClosureAssessmentError):
@@ -446,7 +464,8 @@ class SlotClosureAssessor:
         disposition = _text(counterevidence_disposition, "counterevidence_disposition")
         checks = {
             "slot_lineage": True,
-            "evidence": bool(finding_refs) and all(self._finding_evidence_is_bound(item) for item in finding_values),
+            "evidence": bool(finding_refs)
+            and all(self._finding_evidence_is_bound(item, round_id) for item in finding_values),
             "provenance_independence": len(set(provenance_groups)) >= 2,
             "counterevidence": bool(disposition),
             "no_active_contradiction": not active_contradiction,
