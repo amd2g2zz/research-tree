@@ -1,0 +1,86 @@
+..........................................................                                                                                                                                                                          [100%]
+58 passed in 2.55s
+All checks passed!
+2 files already formatted
+{
+  "marketplace": {
+    "marketplace": "D:\\codebase\\research-tree-worktrees\\issue-169-remove-legacy-setup\\.claude-plugin\\marketplace.json",
+    "valid": true,
+    "errors": []
+  },
+  "packages": [
+    {
+      "host": "codex",
+      "package": "D:\\codebase\\research-tree-worktrees\\issue-169-remove-legacy-setup\\packages\\codex\\research-tree",
+      "valid": true,
+      "resources": [
+        "assets/brief-template.md",
+        "assets/human-brief-template.md",
+        "assets/research-strategy-template.md",
+        "assets/technical-research-package-template.md",
+        "references/alignment-controller.md",
+        "references/blueprint-generation-research.md",
+        "references/codex-cli-compatibility.md",
+        "references/codex-native-orchestration.md",
+        "references/debug-tracing.md",
+        "references/product-contracts.md",
+        "references/research-quality-playbook.md",
+        "references/research-tree-architecture.md",
+        "references/skill-activation.md",
+        "scripts/alignment_controller.py",
+        "scripts/native_execution_adapter.py"
+      ],
+      "errors": []
+    },
+    {
+      "host": "claude",
+      "package": "D:\\codebase\\research-tree-worktrees\\issue-169-remove-legacy-setup\\packages\\claude-code\\research-tree",
+      "valid": true,
+      "resources": [
+        "assets/brief-template.md",
+        "assets/human-brief-template.md",
+        "assets/research-strategy-template.md",
+        "assets/technical-research-package-template.md",
+        "references/alignment-controller.md",
+        "references/blueprint-generation-research.md",
+        "references/claude-code-compatibility.md",
+        "references/claude-native-orchestration.md",
+        "references/debug-tracing.md",
+        "references/product-contracts.md",
+        "references/research-quality-playbook.md",
+        "references/research-tree-architecture.md",
+        "references/skill-activation.md",
+        "scripts/alignment_controller.py",
+        "scripts/native_execution_adapter.py"
+      ],
+      "errors": []
+    },
+    {
+      "host": "hermes",
+      "package": "D:\\codebase\\research-tree-worktrees\\issue-169-remove-legacy-setup\\packages\\hermes\\research-tree",
+      "valid": true,
+      "resources": [
+        "assets/brief-template.md",
+        "assets/human-brief-template.md",
+        "assets/research-strategy-template.md",
+        "assets/technical-research-package-template.md",
+        "references/alignment-controller.md",
+        "references/blueprint-generation-research.md",
+        "references/debug-tracing.md",
+        "references/hermes-agent-compatibility.md",
+        "references/hermes-alignment.md",
+        "references/hermes-delivery.md",
+        "references/hermes-native-orchestration.md",
+        "references/hermes-research-execution.md",
+        "references/product-contracts.md",
+        "references/research-quality-playbook.md",
+        "references/research-tree-architecture.md",
+        "references/skill-activation.md",
+        "scripts/alignment_controller.py",
+        "scripts/hermes_execution_adapter.py",
+        "scripts/hermes_skill_adapter.py"
+      ],
+      "errors": []
+    }
+  ]
+}

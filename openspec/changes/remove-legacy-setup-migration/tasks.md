@@ -22,8 +22,8 @@
 
 ## 4. Verification And Handoff
 
-- [ ] 4.1 Run the group-57 focused acceptance command, strict OpenSpec, and
+- [x] 4.1 Run the group-57 focused acceptance command, strict OpenSpec, and
   package validation.
-- [ ] 4.2 Run the full suite, governance checks, and `git diff --check`.
-- [ ] 4.3 Record the source-bound group-57 receipt only after its acceptance
+- [x] 4.2 Run the full suite, governance checks, and `git diff --check`.
+- [x] 4.3 Record the source-bound group-57 receipt only after its acceptance
   command succeeds.

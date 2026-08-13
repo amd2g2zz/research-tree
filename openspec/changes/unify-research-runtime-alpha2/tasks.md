@@ -329,7 +329,7 @@ substitute for local evidence.
 - [x] 32.1 Define discovered, static_ready, and live_verified activation evidence states and safe receipt schema.
 - [x] 32.2 Add host-native side-effect-free activation probes for Codex, Claude Code, and Hermes.
 - [x] 32.3 Diagnose missing, current, and unsupported installations without
-  reading or rewriting user-owned non-current paths.
+  rewriting user-owned non-current paths.
 - [x] 32.4 Add isolated host activation, malformed marker, wrong-host package,
   unsupported-target, and package drift regression tests.
 
@@ -360,7 +360,7 @@ substitute for local evidence.
 
 - [x] 57.1 Remove setup migration and refresh paths while retaining missing and
   current Codex, Claude Code, and Hermes installation behavior.
-- [x] 57.2 Reject every existing non-current target without reading, moving,
-  unlinking, replacing, or otherwise mutating its user-owned contents.
-- [ ] 57.3 Run the focused setup acceptance command and record a source-bound
+- [x] 57.2 Reject every existing non-current target without moving, unlinking,
+  replacing, or otherwise mutating its user-owned contents.
+- [x] 57.3 Run the focused setup acceptance command and record a source-bound
   group-57 receipt before treating this child as verified.

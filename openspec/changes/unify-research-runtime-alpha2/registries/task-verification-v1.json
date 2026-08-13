@@ -354,6 +354,23 @@
       },
       "rollback": "revert the removal through Git before release; do not restore a compatibility route"
     },
-    { "group": 57, "state": "planned" }
+    {
+      "group": 57,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/remove-legacy-setup-migration/evidence/group-57-output.txt",
+        "openspec/changes/remove-legacy-setup-migration/evidence/group-57-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_skill_setup.py tests/test_skill_activation.py tests/test_skill_packages.py && uv run ruff check src/research_tree/skill_setup.py tests/test_skill_setup.py && uv run ruff format --check src/research_tree/skill_setup.py tests/test_skill_setup.py && uv run python scripts/build_skill_packages.py --check",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "30ae9e997181bd957996e600ac2aa6f5d9abf0c30be432561e511690b0b325e0",
+        "source_revision": "f1e66069f8be03368be86da221fdede986b79841",
+        "raw_output_ref": "openspec/changes/remove-legacy-setup-migration/evidence/group-57-output.txt",
+        "recorded_at": "2026-08-13T11:08:06.550495+00:00"
+      },
+      "rollback": "revert the removal through Git before release; do not restore setup migration or mutate user-owned targets"
+    }
   ]
 }
