@@ -25,7 +25,7 @@
 
 - [x] 4.1 Run the group-59 focused acceptance command, strict OpenSpec
   validation, governance validation, and relevant regression checks.
-- [ ] 4.2 Commit source changes, rebase on current `origin/dev`, and resolve
+- [x] 4.2 Commit source changes, rebase on current `origin/dev`, and resolve
   shared registry conflicts before recording evidence.
-- [ ] 4.3 Record the source-bound group-59 receipt, mark its registry entry
+- [x] 4.3 Record the source-bound group-59 receipt, mark its registry entry
   verified, and run final full validation and diff checks.
