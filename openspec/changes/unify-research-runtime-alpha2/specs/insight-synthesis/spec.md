@@ -2,12 +2,17 @@
 
 ### Requirement: InsightDigest is a first-class versioned artifact
 
-The runtime SHALL persist an InsightDigest with source revisions, covered Decision Slots, confirmed facts, hypotheses, contradictions, unresolved gaps, confidence/calibration, changed beliefs, recommended actions, and limitations. It SHALL have a producer version and exact parent references.
+The runtime SHALL persist and validate only a complete versioned InsightDigest with schema and producer versions, digest identity, source revisions, covered Decision Slots, classified statements, evidence classes, confirmed facts, hypotheses, contradictions, unresolved gaps, recommendations, limitations, confidence/calibration, changed beliefs, previous digest and parent references, realized delta, evidence baseline, transition index, policy signals, next actions, closure disposition, and Finding Pack count. It SHALL reject an unversioned, minimal, or otherwise incomplete payload before policy, scheduler, replay, or delivery consumption and SHALL NOT provide a compatibility reader, adapter, default, read projection, migration, or user-data operation.
 
 #### Scenario: Findings are synthesized
 
 - **WHEN** a new verified Finding Pack batch is ingested
-- **THEN** the digest is recomputed from canonical inputs and the prior digest remains immutable
+- **THEN** the digest is recomputed from canonical inputs with every current required field and the prior digest remains immutable
+
+#### Scenario: Prior minimal digest is supplied
+
+- **WHEN** a caller supplies the former four-field digest or any payload missing a current required field
+- **THEN** validation rejects it before it can affect current policy, scheduler, replay, or delivery state
 
 ### Requirement: Insight synthesis distinguishes fact, inference, recommendation, and unknown
 

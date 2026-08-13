@@ -29,7 +29,7 @@ evidence.
 | native-workflow-run-v1.json | Non-authoritative host workflow projection | host adapter/coordinator |
 | preference-observation-v1.json | Privacy-bounded project preference evidence | alignment/coordinator |
 | user-preference-profile-v1.json | Hysteretic project preference read model | alignment/coordinator |
-| insight-digest-v1.json | Synthesized facts, gaps, and contradictions | insight service |
+| insight-digest-v1.json | Complete versioned insight lineage, deltas, signals, and actions | insight service |
 | research-run-v1.json | Canonical run state | coordinator |
 | delivery-manifest-v1.json | Claim-to-lineage delivery index | delivery compiler |
 | delivery-acceptance-v1.json | Exact-revision human acceptance | delivery service |

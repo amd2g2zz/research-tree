@@ -373,3 +373,12 @@ substitute for local evidence.
   completed evidence only in the OpenSpec archive.
 - [ ] 59.3 Run the focused strict-reader acceptance command and record a
   source-bound group-59 receipt before treating this child as verified.
+
+## 60. Current Insight Payload Reader (#174)
+
+- [x] 60.1 Remove prior minimal Insight Digest parsing so every runtime
+  boundary requires the complete current versioned payload.
+- [x] 60.2 Retire active schema/example language that publishes an unversioned
+  or minimal digest reader without reading or mutating user-owned data.
+- [x] 60.3 Run the focused strict-reader acceptance command and record a
+  source-bound group-60 receipt before treating this child as verified.

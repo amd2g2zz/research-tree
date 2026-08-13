@@ -1,0 +1,9 @@
+{
+  "command": "uv run pytest -q tests/test_insight_digest.py tests/test_insights.py && uv run ruff check src/research_tree/insights.py tests/test_insight_digest.py tests/test_insights.py && uv run ruff format --check src/research_tree/insights.py tests/test_insight_digest.py tests/test_insights.py",
+  "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+  "exit_code": 0,
+  "output_digest": "6ee0c44ec6c641839b437cd36919d60923b80652347c3b09bd83d77e5090eb03",
+  "raw_output_ref": "openspec/changes/remove-legacy-insight-payload-reader/evidence/group-60-output.txt",
+  "recorded_at": "2026-08-13T13:48:29.451422+00:00",
+  "source_revision": "fdb74043df4fa0f0bd31c8023d83f991550bb775"
+}
