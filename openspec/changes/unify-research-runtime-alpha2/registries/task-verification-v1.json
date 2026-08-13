@@ -388,6 +388,7 @@
         "recorded_at": "2026-08-13T12:58:30.783983+00:00"
       },
       "rollback": "revert the removal through Git before release; do not restore a projection reader, alias, or default inference"
-    }
+    },
+    { "group": 60, "state": "planned" }
   ]
 }

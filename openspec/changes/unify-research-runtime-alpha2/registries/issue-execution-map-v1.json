@@ -44,6 +44,7 @@
     { "issue": 164, "primary_group": 54, "supporting_groups": [], "capabilities": ["legacy-cli-surface-removal"], "openspec_change": "remove-legacy-cli-surface" },
     { "issue": 167, "primary_group": 55, "supporting_groups": [], "capabilities": ["legacy-runstore-import-removal"], "openspec_change": "remove-legacy-runstore-import-authority" },
     { "issue": 169, "primary_group": 57, "supporting_groups": [], "capabilities": ["current-only-skill-setup"], "openspec_change": "remove-legacy-setup-migration" },
-    { "issue": 173, "primary_group": 59, "supporting_groups": [], "capabilities": ["current-strategy-projection-reader"], "openspec_change": "remove-legacy-strategy-projection-reader" }
+    { "issue": 173, "primary_group": 59, "supporting_groups": [], "capabilities": ["current-strategy-projection-reader"], "openspec_change": "remove-legacy-strategy-projection-reader" },
+    { "issue": 174, "primary_group": 60, "supporting_groups": [], "capabilities": ["current-insight-payload-reader"], "openspec_change": "remove-legacy-insight-payload-reader" }
   ]
 }

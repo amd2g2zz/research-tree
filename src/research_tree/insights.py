@@ -15,8 +15,7 @@ from .evidence_delta import EvidenceBaseline, measure_realized_delta
 
 INSIGHT_SCHEMA_VERSION = 1
 INSIGHT_PRODUCER_VERSION = "insight-v1"
-_LEGACY_REQUIRED = {"insights", "next_actions", "closure", "finding_pack_count"}
-_RICH_REQUIRED = {
+_REQUIRED_FIELDS = {
     "schema_version",
     "producer_version",
     "digest_id",
@@ -35,8 +34,16 @@ _RICH_REQUIRED = {
     "realized_delta",
     "recommended_actions",
     "evidence_baseline",
+    "transition_index",
+    "confidence",
+    "calibration",
+    "changed_beliefs",
+    "insights",
+    "next_actions",
+    "closure",
+    "finding_pack_count",
 }
-_ALLOWED_KEYS = _LEGACY_REQUIRED | _RICH_REQUIRED | {"confidence", "calibration", "changed_beliefs"}
+_ALLOWED_KEYS = _REQUIRED_FIELDS
 
 
 def synthesize_insights(
@@ -244,10 +251,10 @@ def synthesize_insights(
 def validate_insight_digest(value: Mapping[str, Any]) -> None:
     if not isinstance(value, Mapping):
         raise ValueError("insight digest must be a mapping")
-    missing_legacy = _LEGACY_REQUIRED - set(value)
-    if missing_legacy:
-        raise ValueError(f"insight digest missing keys: {sorted(missing_legacy)}")
-    extra = set(value) - _ALLOWED_KEYS - {"transition_index"}
+    missing = _REQUIRED_FIELDS - set(value)
+    if missing:
+        raise ValueError(f"insight digest missing keys: {sorted(missing)}")
+    extra = set(value) - _ALLOWED_KEYS
     if extra:
         raise ValueError(f"insight digest has unexpected keys: {sorted(extra)}")
     if value.get("closure") not in {
@@ -257,13 +264,8 @@ def validate_insight_digest(value: Mapping[str, Any]) -> None:
         raise ValueError("insight digest closure is unsupported")
     if isinstance(value.get("finding_pack_count"), bool) or not isinstance(value.get("finding_pack_count"), int):
         raise ValueError("insight digest finding_pack_count must be an integer")
-    if "schema_version" not in value:
-        return
     if value.get("schema_version") != INSIGHT_SCHEMA_VERSION:
         raise ValueError("unsupported insight digest schema_version")
-    missing_rich = _RICH_REQUIRED - set(value)
-    if missing_rich:
-        raise ValueError(f"insight digest missing rich keys: {sorted(missing_rich)}")
     if not isinstance(value.get("producer_version"), str) or not value["producer_version"].strip():
         raise ValueError("insight digest producer_version must be non-empty")
     slots = set(value.get("slot_refs", ()))
