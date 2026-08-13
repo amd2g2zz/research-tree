@@ -338,9 +338,9 @@ substitute for local evidence.
 
 ## 46. Closure Evidence Content Binding (#160)
 
-- [ ] 46.1 Require SourceCapture, AcquisitionReceipt, EvidenceArtifact, and
+- [x] 46.1 Require SourceCapture, AcquisitionReceipt, EvidenceArtifact, and
   declared origin relationships to resolve through exact available CAS bindings.
-- [ ] 46.2 Derive and require the complete current decision-bound Finding set
+- [x] 46.2 Derive and require the complete current decision-bound Finding set
   before closure assessment, rejecting caller omission or substitution.
-- [ ] 46.3 Run the focused closure acceptance command and record a
+- [x] 46.3 Run the focused closure acceptance command and record a
   source-bound group-46 receipt before treating this child as verified.

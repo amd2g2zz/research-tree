@@ -34,5 +34,5 @@
 - [x] 4.1 Run focused tests and Ruff checks for closure code and tests.
 - [x] 4.2 Run full tests, strict issue and umbrella OpenSpec validation,
   package check, governance check, and `git diff --check`.
-- [ ] 4.3 Count non-generated changed lines; record group-46 verification only
+- [x] 4.3 Count non-generated changed lines; record group-46 verification only
   after its source-bound acceptance evidence is available.

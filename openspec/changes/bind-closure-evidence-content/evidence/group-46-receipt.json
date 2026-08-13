@@ -1,0 +1,9 @@
+{
+  "command": "uv run pytest -q tests/test_oracle_slot_closure.py && uv run ruff check src/research_tree/closure.py tests/test_oracle_slot_closure.py && uv run ruff format --check src/research_tree/closure.py tests/test_oracle_slot_closure.py",
+  "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+  "exit_code": 0,
+  "output_digest": "98f095df4d7979ba3aa99804078762d74e9f06b5e6b14a4483b73b83ebae05b1",
+  "raw_output_ref": "openspec/changes/bind-closure-evidence-content/evidence/group-46-output.txt",
+  "recorded_at": "2026-08-13T06:26:46.334902+00:00",
+  "source_revision": "c7fcc15f56cc4076708b5d9f5db8020fc2089ea7"
+}
