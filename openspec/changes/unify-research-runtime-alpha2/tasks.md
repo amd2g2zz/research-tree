@@ -491,5 +491,5 @@ substitute for local evidence.
   direct canonical ledger fixtures.
 - [x] 79.2 Preserve assurance and pre-#181 readiness behavior on the isolated
   test-only legacy fixture without a runtime bridge.
-- [ ] 79.3 Run the exact group-79 acceptance command and record a source-bound
+- [x] 79.3 Run the exact group-79 acceptance command and record a source-bound
   receipt before closing #180.
