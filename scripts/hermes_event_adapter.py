@@ -65,6 +65,8 @@ def build_hermes_event(*, kind: str, payload: Mapping[str, Any], **envelope: Any
     for field, label in (("action_id", "action id"), ("decision_slot_id", "decision slot id")):
         if envelope.get(field) is not None:
             _identifier(envelope[field], label)
+    if envelope.get("causation_id") is not None:
+        _identifier(envelope["causation_id"], "causation id")
     revision = envelope.get("expected_revision")
     if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
         raise HermesEventError("expected revision must be a nonnegative integer")
@@ -139,6 +141,7 @@ def recovery_events(
         event_id=retry_event_id,
         kind="retry",
         sequence=next_sequence + 1,
+        causation_id=unknown_event_id,
         payload={
             "retry_of": attempt_id,
             "category": retry_category,

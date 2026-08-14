@@ -7,6 +7,7 @@
     { "issue": 110, "role": "merged_strict_slice", "status": "merged", "pull_request": 122, "merge_revision": "540014f" },
     { "issue": 111, "role": "merged_strict_slice", "status": "merged", "pull_request": 115, "merge_revision": "6bb8cfa" },
     { "issue": 112, "role": "integrated_verification", "status": "in_progress", "pull_request": null },
+    { "issue": 151, "role": "canonical_host_event_boundary", "status": "in_progress", "pull_request": null },
     { "issue": 117, "role": "follow_up", "status": "planned", "pull_request": null }
   ],
   "issues": [
@@ -39,6 +40,7 @@
     { "issue": 87, "primary_group": 31, "supporting_groups": [], "capabilities": ["decision-frame"], "openspec_change": "clarify-intent-before-strategy" },
     { "issue": 98, "primary_group": 33, "supporting_groups": [], "capabilities": ["content-addressed-artifacts"], "openspec_change": "add-content-addressed-artifacts" },
     { "issue": 112, "primary_group": 35, "supporting_groups": [], "capabilities": ["integrated-evidence-reconciliation"], "openspec_change": "reconcile-foundation-verification-receipts" },
+    { "issue": 151, "primary_group": 61, "supporting_groups": [8, 9, 25], "capabilities": ["canonical-host-event-boundary", "host-event-protocol", "durable-source-capture", "worker-orchestration"], "openspec_change": "close-canonical-host-event-boundary" },
     { "issue": 155, "primary_group": 42, "supporting_groups": [], "capabilities": ["isolated-hermes-executable-bundle"], "openspec_change": "make-isolated-hermes-bundle-executable" },
     { "issue": 152, "primary_group": 39, "supporting_groups": [46, 47], "capabilities": ["evidence-graph-closure-quality-acceptance"], "openspec_change": "accept-evidence-graph-closure-quality" },
     { "issue": 153, "primary_group": 40, "supporting_groups": [39], "capabilities": ["transitive-correction-invalidation"], "openspec_change": "compute-transitive-correction-invalidation" },

@@ -81,6 +81,7 @@ class HostEvent:
     payload_digest: str
     decision_slot_id: str | None = None
     action_id: str | None = None
+    causation_id: str | None = None
     schema_version: int = HOST_EVENT_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -133,6 +134,7 @@ class HostEvent:
         for value, label in (
             (self.decision_slot_id, "decision_slot_id"),
             (self.action_id, "action_id"),
+            (self.causation_id, "causation_id"),
         ):
             if value is not None:
                 try:
@@ -151,22 +153,28 @@ class HostEvent:
             raise HostEventError("host event payload must be a mapping")
         normalized = normalize_host_payload(payload)
         declared_digest = value.get("payload_digest", payload_digest(normalized))
-        return cls(
-            schema_version=int(value.get("schema_version", HOST_EVENT_SCHEMA_VERSION)),
-            event_id=str(value.get("event_id", "")),
-            kind=str(value.get("kind", "")),
-            run_id=str(value.get("run_id", "")),
-            round_id=str(value.get("round_id", value.get("run_id", ""))),
-            decision_slot_id=_optional_text(value.get("decision_slot_id")),
-            action_id=_optional_text(value.get("action_id")),
-            attempt_id=str(value.get("attempt_id", "")),
-            expected_revision=int(value.get("expected_revision", -1)),
-            sequence=int(value.get("sequence", 0)),
-            actor=str(value.get("actor", "")),
-            created_at=str(value.get("created_at", "")),
-            payload=normalized,
-            payload_digest=str(declared_digest),
-        )
+        try:
+            return cls(
+                schema_version=int(value.get("schema_version", HOST_EVENT_SCHEMA_VERSION)),
+                event_id=str(value.get("event_id", "")),
+                kind=str(value.get("kind", "")),
+                run_id=str(value.get("run_id", "")),
+                round_id=str(value.get("round_id", value.get("run_id", ""))),
+                decision_slot_id=_optional_text(value.get("decision_slot_id")),
+                action_id=_optional_text(value.get("action_id")),
+                causation_id=_optional_text(value.get("causation_id")),
+                attempt_id=str(value.get("attempt_id", "")),
+                expected_revision=int(value.get("expected_revision", -1)),
+                sequence=int(value.get("sequence", 0)),
+                actor=str(value.get("actor", "")),
+                created_at=str(value.get("created_at", "")),
+                payload=normalized,
+                payload_digest=str(declared_digest),
+            )
+        except HostEventError:
+            raise
+        except (TypeError, ValueError) as error:
+            raise HostEventError("host event envelope contains invalid scalar fields") from error
 
     def to_dict(self) -> dict[str, Any]:
         result = {
@@ -177,6 +185,7 @@ class HostEvent:
             "round_id": self.round_id,
             "decision_slot_id": self.decision_slot_id,
             "action_id": self.action_id,
+            "causation_id": self.causation_id,
             "attempt_id": self.attempt_id,
             "expected_revision": self.expected_revision,
             "sequence": self.sequence,
@@ -189,7 +198,9 @@ class HostEvent:
 
     @property
     def semantic_digest(self) -> str:
-        return hashlib.sha256(canonical_json_bytes(self.to_dict())).hexdigest()
+        semantic = self.to_dict()
+        semantic.pop("actor", None)
+        return hashlib.sha256(canonical_json_bytes(semantic)).hexdigest()
 
 
 def payload_digest(payload: Mapping[str, Any]) -> str:

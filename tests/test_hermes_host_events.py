@@ -4,6 +4,8 @@ import pytest
 from pathlib import Path
 import sys
 
+from research_tree.host_events import HostEvent
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
@@ -152,6 +154,7 @@ def test_equivalent_native_and_hermes_observations_share_payload_digest() -> Non
         "attempt_id": "attempt-1",
         "expected_revision": 12,
         "sequence": 3,
+        "causation_id": "attempt-1",
         "created_at": "2026-08-11T00:00:00+00:00",
         "payload": {"result": "accepted", "artifact_path": r"findings\one.json"},
     }
@@ -159,3 +162,4 @@ def test_equivalent_native_and_hermes_observations_share_payload_digest() -> Non
     native = build_host_event(actor="codex", **envelope)
     assert hermes["payload_digest"] == native["payload_digest"]
     assert hermes["payload"] == native["payload"]
+    assert HostEvent.from_value(hermes).semantic_digest == HostEvent.from_value(native).semantic_digest

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import importlib.util
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from research_tree.host_events import (
 )
 from research_tree.run_ledger import RunLedger
 from research_tree.domain import ArtifactRef
+from research_tree.domain import canonical_json_bytes
 from strategy_support import confirm_strategy
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -188,6 +190,7 @@ def test_recovery_event_pair_is_atomic_and_replayable(tmp_path, monkeypatch) -> 
                 "expected_revision": revision,
                 "sequence": sequence,
                 "actor": "hermes",
+                "causation_id": "unknown-1" if sequence > 1 else None,
                 "created_at": "2026-08-11T00:00:00+00:00",
                 "payload": payload,
             }
@@ -208,7 +211,12 @@ def test_recovery_event_pair_is_atomic_and_replayable(tmp_path, monkeypatch) -> 
     crash_revision = crash_ledger.get_revision("run-host")
     crash_events = tuple(
         HostEvent.from_value(
-            {**item.to_dict(), "event_id": f"crash-{item.event_id}", "expected_revision": crash_revision}
+            {
+                **item.to_dict(),
+                "event_id": f"crash-{item.event_id}",
+                "causation_id": (f"crash-{item.causation_id}" if item.causation_id is not None else None),
+                "expected_revision": crash_revision,
+            }
         )
         for item in events
     )
@@ -220,3 +228,168 @@ def test_recovery_event_pair_is_atomic_and_replayable(tmp_path, monkeypatch) -> 
     with pytest.raises(RuntimeError, match="injected Hermes recovery crash"):
         crash_coordinator.ingest_host_events(crash_events)
     assert not any(item.kind == HOST_EVENT_KIND for item in crash_ledger.load_run("run-host").artifacts)
+
+
+def _append_attempt_artifact(ledger: RunLedger, artifact_id: str, kind: str, payload: dict, parents=()):
+    return ledger.append_artifact(
+        "run-host",
+        artifact_id,
+        kind,
+        payload,
+        parent_refs=parents,
+        expected_revision=ledger.get_revision("run-host"),
+    )
+
+
+def test_generic_ingestion_cannot_append_or_bypass_projection(tmp_path) -> None:
+    ledger, coordinator, _ = _coordinator(tmp_path)
+    before = (ledger.get_revision("run-host"), len(ledger.load_run("run-host").artifacts))
+    with pytest.raises(CoordinatorConflictError, match="host_event_envelope_required"):
+        coordinator.ingest_event(
+            run_id="run-host",
+            event_id="forged-event",
+            attempt_id="attempt-host",
+            payload={"outcome": "success"},
+            expected_revision=before[0],
+        )
+    assert (ledger.get_revision("run-host"), len(ledger.load_run("run-host").artifacts)) == before
+
+
+@pytest.mark.parametrize(
+    "lease_patch, error",
+    [
+        ({"status": "expired"}, "lease_inactive"),
+        ({"expires_at": "2020-01-01T00:00:00+00:00"}, "lease_expired"),
+    ],
+)
+def test_inactive_or_expired_lease_is_rejected_without_mutation(tmp_path, lease_patch, error) -> None:
+    ledger, coordinator, lease = _coordinator(tmp_path)
+    payload = {**lease.payload, **lease_patch}
+    replacement = ledger.append_artifact(
+        "run-host",
+        lease.id,
+        lease.kind,
+        payload,
+        parent_refs=(ArtifactRef("run-host", lease.id, lease.revision),),
+        expected_revision=ledger.get_revision("run-host"),
+    )
+    event = _event(ledger, expected_revision=ledger.get_revision("run-host"))
+    before = len(ledger.load_run("run-host").artifacts)
+    with pytest.raises(CoordinatorConflictError, match=error):
+        coordinator.ingest_host_event(event)
+    assert len(ledger.load_run("run-host").artifacts) == before
+    assert ledger.is_latest_artifact(ArtifactRef("run-host", replacement.id, replacement.revision))
+
+
+def test_worker_finished_requires_committed_capture_receipt_checkpoint_and_finding(tmp_path) -> None:
+    ledger, coordinator, _ = _coordinator(tmp_path)
+    incomplete = HostEvent.from_value(
+        {
+            **_event(ledger).to_dict(),
+            "event_id": "worker-incomplete",
+            "kind": "worker_finished",
+            "payload": {"outcome": "success"},
+            "payload_digest": payload_digest({"outcome": "success"}),
+        }
+    )
+    before = ledger.get_revision("run-host")
+    with pytest.raises(CoordinatorConflictError, match="capture_incomplete"):
+        coordinator.ingest_host_event(incomplete)
+    assert ledger.get_revision("run-host") == before
+
+    capture = _append_attempt_artifact(
+        ledger,
+        "capture-1",
+        "source-capture",
+        {"attempt_id": "attempt-host", "status": "committed", "content_digest": "a" * 64},
+    )
+    receipt = _append_attempt_artifact(
+        ledger,
+        "receipt-1",
+        "acquisition-receipt",
+        {"attempt_id": "attempt-host", "capture_id": capture.id, "status": "succeeded"},
+        (ArtifactRef("run-host", capture.id, capture.revision),),
+    )
+    checkpoint = _append_attempt_artifact(
+        ledger,
+        "checkpoint-1",
+        "analysis-checkpoint",
+        {"attempt_id": "attempt-host", "status": "committed"},
+        (ArtifactRef("run-host", capture.id, capture.revision),),
+    )
+    finding = _append_attempt_artifact(
+        ledger,
+        "finding-1",
+        "finding-pack",
+        {"attempt_id": "attempt-host", "status": "committed"},
+    )
+    produced = _append_attempt_artifact(
+        ledger,
+        "output-1",
+        "analysis-output",
+        {"attempt_id": "attempt-host", "status": "committed"},
+    )
+    payload = {
+        "outcome": "success",
+        "capture_refs": [ArtifactRef("run-host", capture.id, capture.revision).to_dict()],
+        "receipt_refs": [ArtifactRef("run-host", receipt.id, receipt.revision).to_dict()],
+        "checkpoint_ref": ArtifactRef("run-host", checkpoint.id, checkpoint.revision).to_dict(),
+        "finding_refs": [ArtifactRef("run-host", finding.id, finding.revision).to_dict()],
+        "produced_artifact_refs": [ArtifactRef("run-host", produced.id, produced.revision).to_dict()],
+    }
+    accepted = HostEvent.from_value(
+        {
+            **_event(ledger).to_dict(),
+            "event_id": "worker-finished",
+            "kind": "worker_finished",
+            "expected_revision": ledger.get_revision("run-host"),
+            "payload": payload,
+            "payload_digest": payload_digest(payload),
+        }
+    )
+    event = coordinator.ingest_host_event(accepted)
+    restarted = ResearchRunCoordinator(RunLedger(tmp_path))
+    replay = restarted.ingest_host_event({**accepted.to_dict(), "expected_revision": 0})
+    assert replay == event
+    assert any(item.id == "checkpoint-1" for item in RunLedger(tmp_path).list_artifacts("run-host"))
+
+
+def test_checkpoint_persisted_requires_exact_checkpoint_digest(tmp_path) -> None:
+    ledger, coordinator, _ = _coordinator(tmp_path)
+    checkpoint = _append_attempt_artifact(
+        ledger,
+        "checkpoint-1",
+        "analysis-checkpoint",
+        {"attempt_id": "attempt-host", "status": "committed"},
+    )
+    payload = {
+        "checkpoint_ref": ArtifactRef("run-host", checkpoint.id, checkpoint.revision).to_dict(),
+        "checkpoint_digest": hashlib.sha256(canonical_json_bytes(dict(checkpoint.payload))).hexdigest(),
+    }
+    event = HostEvent.from_value(
+        {
+            **_event(ledger).to_dict(),
+            "event_id": "checkpoint-event",
+            "kind": "checkpoint_persisted",
+            "expected_revision": ledger.get_revision("run-host"),
+            "payload": payload,
+            "payload_digest": payload_digest(payload),
+        }
+    )
+    assert coordinator.ingest_host_event(event).payload["kind"] == "checkpoint_persisted"
+    forged_payload = {**payload, "checkpoint_digest": "0" * 64}
+    forged = HostEvent.from_value(
+        {
+            **event.to_dict(),
+            "event_id": "checkpoint-forged",
+            "expected_revision": ledger.get_revision("run-host"),
+            "sequence": 2,
+            "causation_id": event.event_id,
+            "payload": forged_payload,
+            "payload_digest": payload_digest(forged_payload),
+        }
+    )
+    before = ledger.get_revision("run-host")
+    with pytest.raises(CoordinatorConflictError, match="checkpoint_digest_mismatch"):
+        coordinator.ingest_host_event(forged)
+    assert ledger.get_revision("run-host") == before
