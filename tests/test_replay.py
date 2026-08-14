@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import hashlib
+from unittest.mock import patch
 
 import pytest
 
@@ -9,6 +11,7 @@ from research_tree.debug_trace import CausalTraceError, CausalTraceService
 from research_tree.domain import ArtifactRef, canonical_json_bytes
 from research_tree.run_ledger import RunLedger
 from strategy_support import confirm_strategy
+from test_feedback_rounds import correction_context
 
 
 def _append(ledger: RunLedger, artifact_id: str, kind: str, payload: dict, parents=()):
@@ -63,6 +66,141 @@ def test_replay_verifies_exact_cause_chain_and_terminal_digest(tmp_path) -> None
     assert first["transitions"][0]["prior_digest"]
     assert first["transitions"][0]["next_digest"]
     assert first["transitions"][0]["causation_id"].startswith("event-")
+    assert first["replay_mode"] == "semantic"
+    assert first["chain_intact"] is True
+    assert first["recomputed_digest"] == first["stored_digest"]
+    assert first["earliest_divergence"] is None
+
+
+def test_replay_reports_illegal_transition_with_a_self_consistent_state_digest(tmp_path) -> None:
+    ledger, coordinator = _setup(tmp_path)
+    current = coordinator.state("run-63")
+    event_ref = ArtifactRef("run-63", "forged-event", 1)
+    event_payload = {
+        "event_id": "forged-event",
+        "idempotency_key": "forged-event-key",
+        "event": "handoff_confirmed",
+        "from": current.payload["state"],
+        "to": "completed",
+        "actor": "human",
+        "payload": {},
+    }
+    state_payload = {
+        "state": "completed",
+        "lifecycle_revision": int(current.payload["lifecycle_revision"]) + 1,
+        "unmet_obligations": [],
+        "legal_next_actions": ["export_audit"],
+        "transition_payload": {},
+        "previous_state_ref": ArtifactRef("run-63", current.id, current.revision).to_dict(),
+    }
+    state_payload["state_digest"] = _digest(state_payload)
+    ledger.append_artifact_batch(
+        "run-63",
+        (
+            ("forged-event", "lifecycle-event", event_payload, (ArtifactRef("run-63", current.id, current.revision),)),
+            (
+                "run-state",
+                RESEARCH_RUN_STATE_KIND,
+                state_payload,
+                (ArtifactRef("run-63", current.id, current.revision), event_ref),
+            ),
+        ),
+        expected_revision=ledger.get_revision("run-63"),
+    )
+
+    replay = CausalTraceService(ledger).replay("run-63")
+
+    assert replay["chain_intact"] is True
+    assert replay["verified"] is False
+    assert replay["earliest_divergence"]["reason"] == "illegal_transition"
+
+
+def test_replay_recomputes_a_valid_completion_record(tmp_path) -> None:
+    ledger, coordinator = _setup(tmp_path)
+    target = next(item for item in ledger.load_run("run-63").artifacts if item.kind == "blueprint-target")
+    _append(
+        ledger,
+        "closure-1",
+        "slot-closure-assessment",
+        {"slot_id": "slot-1", "status": "passed", "closure_token": "closure-token"},
+        (ArtifactRef("run-63", target.id, target.revision),),
+    )
+    _append(ledger, "insight-1", "insight-digest", {"status": "non_blocking"})
+    _append(ledger, "readiness-1", "readiness-record", {"status": "ready"})
+    _append(ledger, "evaluation-1", "blueprint-evaluation", {"status": "passed"})
+    technical = _append(ledger, "technical-1", "technical-research-package", {"status": "compiled"})
+    human = _append(ledger, "human-1", "human-research-report", {"status": "compiled"})
+    _append(
+        ledger,
+        "acceptance-1",
+        "delivery-acceptance",
+        {"decision": "accepted"},
+        (ArtifactRef("run-63", technical.id, technical.revision), ArtifactRef("run-63", human.id, human.revision)),
+    )
+    coordinator.transition("run-63", "batch_checkpoint", "coordinator", expected_revision=ledger.get_revision("run-63"))
+    coordinator.transition("run-63", "all_slots_closed", "coordinator", expected_revision=ledger.get_revision("run-63"))
+    coordinator.transition("run-63", "readiness_passed", "coordinator", expected_revision=ledger.get_revision("run-63"))
+    coordinator.transition(
+        "run-63", "deliveries_compiled", "coordinator", expected_revision=ledger.get_revision("run-63")
+    )
+    coordinator.transition("run-63", "delivery_accepted", "human", expected_revision=ledger.get_revision("run-63"))
+
+    replay = CausalTraceService(ledger).replay("run-63")
+
+    assert replay["verified"] is True
+    assert replay["terminal_state"] == "completed"
+    assert replay["recomputed_digest"] == replay["stored_digest"]
+    assert replay["earliest_divergence"] is None
+    snapshot = ledger.load_run("run-63")
+    stripped = replace(
+        snapshot,
+        artifacts=tuple(item for item in snapshot.artifacts if item.kind != RESEARCH_RUN_STATE_KIND),
+    )
+    with patch.object(ledger, "load_run", return_value=stripped):
+        rebuilt = CausalTraceService(ledger).replay("run-63")
+    assert rebuilt["verified"] is True
+    assert rebuilt["semantic_digest"] == replay["semantic_digest"]
+    ledger.append_artifact(
+        "run-63",
+        "technical-1",
+        "technical-research-package",
+        {"status": "compiled", "replacement": True},
+        expected_revision=ledger.get_revision("run-63"),
+    )
+    stale = CausalTraceService(ledger).replay("run-63")
+    assert stale["verified"] is False
+    assert stale["earliest_divergence"]["reason"] == "completion_inputs_divergence"
+
+
+def test_replay_rebuilds_from_immutable_inputs_without_materialized_states(tmp_path) -> None:
+    ledger, _ = _setup(tmp_path)
+    service = CausalTraceService(ledger)
+    stored = service.replay("run-63")
+    snapshot = ledger.load_run("run-63")
+    stripped = replace(
+        snapshot,
+        artifacts=tuple(item for item in snapshot.artifacts if item.kind != RESEARCH_RUN_STATE_KIND),
+    )
+
+    with patch.object(ledger, "load_run", return_value=stripped):
+        rebuilt = service.replay("run-63")
+
+    assert rebuilt["projection_rebuilt"] is True
+    assert rebuilt["verified"] is True
+    assert rebuilt["semantic_digest"] == stored["semantic_digest"]
+    assert rebuilt["terminal_state"] == stored["terminal_state"]
+
+
+def test_replay_recomputes_correction_quarantine_state(tmp_path) -> None:
+    ledger, coordinator, _, _, correction = correction_context(tmp_path)
+    coordinator.apply_correction(correction, expected_revision=ledger.get_revision(correction.run_id))
+
+    replay = CausalTraceService(ledger).replay(correction.run_id)
+
+    assert replay["verified"] is True
+    assert replay["terminal_state"] == "alignment"
+    assert replay["transitions"][0]["action"] == "correction"
+    assert replay["earliest_divergence"] is None
 
 
 @pytest.mark.parametrize("failure", ["missing_cause", "digest_mismatch", "fork"])
