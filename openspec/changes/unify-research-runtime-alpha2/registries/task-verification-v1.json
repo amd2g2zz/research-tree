@@ -697,6 +697,11 @@
         "recorded_at": "2026-08-14T12:42:46+08:00"
       },
       "rollback": "revert the semantic replay change; retain immutable events and report only chain_intact until replay is restored"
+    },
+    {
+      "group": 74,
+      "state": "planned",
+      "rollback": "revert the pure planner in Git; do not restore legacy portfolio planning, batch assessment, persistence, or dispatch"
     }
   ]
 }

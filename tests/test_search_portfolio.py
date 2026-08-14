@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from research_tree import (
+    IntentDerivedSearchPortfolioPlanner,
     InvalidSearchPortfolioError,
     MethodRegistration,
     MethodRegistry,
@@ -286,3 +287,73 @@ def test_strict_decoding_rejects_non_string_object_keys() -> None:
 
     with pytest.raises(InvalidSearchPortfolioError, match="keys must be strings"):
         SearchPortfolio.from_dict(payload)
+
+
+def test_intent_derived_planner_adds_bounded_non_keyword_decision_coverage() -> None:
+    result = IntentDerivedSearchPortfolioPlanner(
+        registry(
+            registration("web-search", "provider-a"),
+            registration("repository-inspection", "provider-b"),
+        )
+    ).plan(
+        portfolio_id="portfolio-planned",
+        run_id="run-1",
+        intent_revision="intent-2",
+        brief_revision="brief-3",
+        strategy_revision="strategy-4",
+        decision_slot_id="slot-1",
+        slot_question="Should this interface preserve compatibility?",
+        evidence_deficit_revision="deficit-5",
+        evidence_deficit="The available evidence is incomplete.",
+        closure_oracle="A primary source and repository check agree on the selected option.",
+        assumptions=("The documented interface represents the supported boundary.",),
+        material_change_dimensions=("evidence",),
+    )
+
+    assert {item.coverage for item in result.planned_subquestions} == {
+        "mechanism",
+        "counterevidence",
+        "implementation",
+        "edge-case",
+        "validation",
+        "consequence",
+    }
+    assert len(result.planned_subquestions) == 6
+    assert result.human_decision_reopen is False
+    assert result.portfolio.validate_against(result.registry) is result.portfolio
+    assert {rewrite.intent_revision for rewrite in result.query_rewrites} == {"intent-2"}
+    assert {rewrite.brief_revision for rewrite in result.query_rewrites} == {"brief-3"}
+    assert {rewrite.strategy_revision for rewrite in result.query_rewrites} == {"strategy-4"}
+    assert {rewrite.evidence_deficit_revision for rewrite in result.query_rewrites} == {"deficit-5"}
+    assert {rewrite.decision_slot_id for rewrite in result.query_rewrites} == {"slot-1"}
+
+
+@pytest.mark.parametrize(
+    ("change_dimensions", "expected_reopen"),
+    [
+        (("evidence", "implementation"), False),
+        (("authority",), True),
+        (("safety",), True),
+        (("requester-outcome",), True),
+    ],
+)
+def test_intent_derived_planner_reopens_humans_only_for_material_changes(
+    change_dimensions: tuple[str, ...],
+    expected_reopen: bool,
+) -> None:
+    result = IntentDerivedSearchPortfolioPlanner(registry(registration("web-search", "provider-a"))).plan(
+        portfolio_id="portfolio-reopen",
+        run_id="run-1",
+        intent_revision="intent-1",
+        brief_revision="brief-1",
+        strategy_revision="strategy-1",
+        decision_slot_id="slot-1",
+        slot_question="Should the interface preserve compatibility?",
+        evidence_deficit_revision="deficit-1",
+        evidence_deficit="The current evidence is incomplete.",
+        closure_oracle="The validation fixture and repository observation agree.",
+        assumptions=("The current API remains the decision boundary.",),
+        material_change_dimensions=change_dimensions,
+    )
+
+    assert result.human_decision_reopen is expected_reopen

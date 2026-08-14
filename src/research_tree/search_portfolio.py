@@ -33,6 +33,15 @@ DEGRADATION_REASONS = frozenset(
         "unsupported-media",
     }
 )
+PLANNING_COVERAGE = (
+    "mechanism",
+    "counterevidence",
+    "implementation",
+    "edge-case",
+    "validation",
+    "consequence",
+)
+MATERIAL_HUMAN_DECISION_DIMENSIONS = frozenset({"authority", "safety", "requester-outcome"})
 
 
 class SearchPortfolioError(RuntimeStoreError):
@@ -499,6 +508,287 @@ class MethodRegistry:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class PlannedSubquestion:
+    """A decision-relevant coverage obligation derived from one open slot."""
+
+    subquestion: Subquestion
+    coverage: str
+    evidence_class: str
+    decision_effect: str
+    closure_oracle: str
+    stop_or_replan_trigger: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.subquestion, Subquestion):
+            raise InvalidSearchPortfolioError("planned subquestion must contain a Subquestion")
+        if self.coverage not in PLANNING_COVERAGE:
+            raise InvalidSearchPortfolioError(f"planned subquestion coverage is unsupported: {self.coverage!r}")
+        object.__setattr__(self, "evidence_class", _identifier(self.evidence_class, "evidence_class"))
+        for field_name in ("decision_effect", "closure_oracle", "stop_or_replan_trigger"):
+            object.__setattr__(self, field_name, _text(getattr(self, field_name), field_name))
+
+
+@dataclass(frozen=True, slots=True)
+class QueryRewrite:
+    """Stable planning metadata for one method/subquestion query reference."""
+
+    query_ref: str
+    subquestion_id: str
+    method_id: str
+    provider_id: str
+    intent_revision: str
+    brief_revision: str
+    strategy_revision: str
+    decision_slot_id: str
+    evidence_deficit_revision: str
+    evidence_class: str
+    decision_effect: str
+    closure_oracle: str
+    stop_or_replan_trigger: str
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "query_ref",
+            "subquestion_id",
+            "method_id",
+            "provider_id",
+            "intent_revision",
+            "brief_revision",
+            "strategy_revision",
+            "decision_slot_id",
+            "evidence_deficit_revision",
+            "evidence_class",
+        ):
+            object.__setattr__(self, field_name, _identifier(getattr(self, field_name), field_name))
+        for field_name in ("decision_effect", "closure_oracle", "stop_or_replan_trigger"):
+            object.__setattr__(self, field_name, _text(getattr(self, field_name), field_name))
+
+
+@dataclass(frozen=True, slots=True)
+class IntentDerivedSearchPortfolioPlan:
+    """A pure planning view layered over the strict SearchPortfolio contract."""
+
+    portfolio: SearchPortfolio
+    registry: MethodRegistry
+    planned_subquestions: tuple[PlannedSubquestion, ...]
+    query_rewrites: tuple[QueryRewrite, ...]
+    assumptions: tuple[str, ...]
+    human_decision_reopen: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.portfolio, SearchPortfolio):
+            raise InvalidSearchPortfolioError("plan portfolio must be a SearchPortfolio")
+        if not isinstance(self.registry, MethodRegistry):
+            raise InvalidSearchPortfolioError("plan registry must be a MethodRegistry")
+        self.portfolio.validate_against(self.registry)
+        subquestions = _sequence(self.planned_subquestions, "planned_subquestions")
+        if len(subquestions) != len(PLANNING_COVERAGE) or any(
+            not isinstance(item, PlannedSubquestion) for item in subquestions
+        ):
+            raise InvalidSearchPortfolioError("plan must contain each bounded planning coverage subquestion")
+        if {item.coverage for item in subquestions} != set(PLANNING_COVERAGE):
+            raise InvalidSearchPortfolioError("planned subquestion coverage must be unique and complete")
+        portfolio_subquestion_ids = {item.subquestion_id for item in self.portfolio.subquestions}
+        if {item.subquestion.subquestion_id for item in subquestions} != portfolio_subquestion_ids:
+            raise InvalidSearchPortfolioError("planned subquestions must match the strict portfolio")
+        rewrites = _sequence(self.query_rewrites, "query_rewrites")
+        if not rewrites or any(not isinstance(item, QueryRewrite) for item in rewrites):
+            raise InvalidSearchPortfolioError("query_rewrites must contain QueryRewrite values")
+        if len({item.query_ref for item in rewrites}) != len(rewrites):
+            raise InvalidSearchPortfolioError("query rewrite references must be unique")
+        expected_refs = {
+            reference for selection in self.portfolio.selected_methods for reference in selection.query_refs
+        }
+        if {item.query_ref for item in rewrites} != expected_refs:
+            raise InvalidSearchPortfolioError("query rewrites must match selected method query references")
+        assumptions = tuple(_text(item, "assumption") for item in _sequence(self.assumptions, "assumptions"))
+        if not assumptions:
+            raise InvalidSearchPortfolioError("assumptions must not be empty")
+        if not isinstance(self.human_decision_reopen, bool):
+            raise InvalidSearchPortfolioError("human_decision_reopen must be bool")
+        object.__setattr__(self, "planned_subquestions", tuple(subquestions))
+        object.__setattr__(self, "query_rewrites", tuple(sorted(rewrites, key=lambda item: item.query_ref)))
+        object.__setattr__(self, "assumptions", assumptions)
+
+
+class IntentDerivedSearchPortfolioPlanner:
+    """Derive bounded decision coverage without retrieval, persistence, or dispatch."""
+
+    def __init__(self, registry: MethodRegistry) -> None:
+        if not isinstance(registry, MethodRegistry):
+            raise InvalidSearchPortfolioError("registry must be a MethodRegistry")
+        self._registry = registry
+
+    def plan(
+        self,
+        *,
+        portfolio_id: str,
+        run_id: str,
+        intent_revision: str,
+        brief_revision: str,
+        strategy_revision: str,
+        decision_slot_id: str,
+        slot_question: str,
+        evidence_deficit_revision: str,
+        evidence_deficit: str,
+        closure_oracle: str,
+        assumptions: Sequence[str],
+        material_change_dimensions: Sequence[str] = (),
+    ) -> IntentDerivedSearchPortfolioPlan:
+        """Create a bounded plan for the exact current intent and decision revisions."""
+        for field_name in (
+            "portfolio_id",
+            "run_id",
+            "intent_revision",
+            "brief_revision",
+            "strategy_revision",
+            "decision_slot_id",
+            "evidence_deficit_revision",
+        ):
+            _identifier(locals()[field_name], field_name)
+        slot_question = _text(slot_question, "slot_question")
+        evidence_deficit = _text(evidence_deficit, "evidence_deficit")
+        closure_oracle = _text(closure_oracle, "closure_oracle")
+        normalized_assumptions = tuple(_text(item, "assumption") for item in _sequence(assumptions, "assumptions"))
+        if not normalized_assumptions:
+            raise InvalidSearchPortfolioError("assumptions must not be empty")
+        change_dimensions = tuple(
+            _identifier(item, "material_change_dimension")
+            for item in _sequence(material_change_dimensions, "material_change_dimensions")
+        )
+        selections = self._selected_methods(portfolio_id)
+        planned_subquestions = tuple(
+            self._planned_subquestion(
+                portfolio_id=portfolio_id,
+                slot_question=slot_question,
+                evidence_deficit=evidence_deficit,
+                closure_oracle=closure_oracle,
+                decision_slot_id=decision_slot_id,
+                coverage=coverage,
+            )
+            for coverage in PLANNING_COVERAGE
+        )
+        rewrites = tuple(
+            QueryRewrite(
+                query_ref=query_ref,
+                subquestion_id=planned.subquestion.subquestion_id,
+                method_id=registration.method_id,
+                provider_id=registration.provider_id,
+                intent_revision=intent_revision,
+                brief_revision=brief_revision,
+                strategy_revision=strategy_revision,
+                decision_slot_id=decision_slot_id,
+                evidence_deficit_revision=evidence_deficit_revision,
+                evidence_class=planned.evidence_class,
+                decision_effect=planned.decision_effect,
+                closure_oracle=planned.closure_oracle,
+                stop_or_replan_trigger=planned.stop_or_replan_trigger,
+            )
+            for planned in planned_subquestions
+            for registration, query_ref in self._query_refs(portfolio_id, planned)
+        )
+        portfolio = SearchPortfolio(
+            portfolio_id=portfolio_id,
+            run_id=run_id,
+            slot_id=decision_slot_id,
+            intent_revision=intent_revision,
+            brief_revision=brief_revision,
+            subquestions=tuple(item.subquestion for item in planned_subquestions),
+            selected_methods=selections,
+            rejected_methods=(),
+            reassessment_policy=ReassessmentPolicy(
+                after_batch=True,
+                allowed_dispositions=("deepen", "broaden", "pivot", "validate", "sufficient_for_slot"),
+            ),
+            status="draft",
+        ).validate_against(self._registry)
+        return IntentDerivedSearchPortfolioPlan(
+            portfolio=portfolio,
+            registry=self._registry,
+            planned_subquestions=planned_subquestions,
+            query_rewrites=rewrites,
+            assumptions=normalized_assumptions,
+            human_decision_reopen=bool(set(change_dimensions) & MATERIAL_HUMAN_DECISION_DIMENSIONS),
+        )
+
+    def _selected_methods(self, portfolio_id: str) -> tuple[MethodSelection, ...]:
+        available = self._available_registrations()
+        if not available:
+            raise InvalidSearchPortfolioError("at least one registered method/provider boundary must be available")
+        return tuple(
+            MethodSelection(
+                method_id=registration.method_id,
+                provider_id=registration.provider_id,
+                failure_boundary=registration.failure_boundary,
+                query_refs=tuple(
+                    self._query_ref(portfolio_id, coverage_index, index + 1)
+                    for coverage_index, _ in enumerate(PLANNING_COVERAGE, 1)
+                ),
+                selection_reason="primary-coverage" if index == 0 else "independence",
+            )
+            for index, registration in enumerate(available)
+        )
+
+    def _query_refs(
+        self,
+        portfolio_id: str,
+        planned: PlannedSubquestion,
+    ) -> tuple[tuple[MethodRegistration, str], ...]:
+        return tuple(
+            (
+                registration,
+                self._query_ref(portfolio_id, PLANNING_COVERAGE.index(planned.coverage) + 1, method_index),
+            )
+            for method_index, registration in enumerate(self._available_registrations(), 1)
+        )
+
+    def _available_registrations(self) -> tuple[MethodRegistration, ...]:
+        return tuple(item for item in self._registry.registrations if item.availability != "unavailable")
+
+    @staticmethod
+    def _query_ref(portfolio_id: str, coverage_index: int, method_index: int) -> str:
+        return f"{portfolio_id[:48].rstrip('-')}-q{coverage_index}-m{method_index}"
+
+    @staticmethod
+    def _planned_subquestion(
+        *,
+        portfolio_id: str,
+        slot_question: str,
+        evidence_deficit: str,
+        closure_oracle: str,
+        decision_slot_id: str,
+        coverage: str,
+    ) -> PlannedSubquestion:
+        kind, impact, evidence_class = {
+            "mechanism": ("implicit", "p0", "primary-source"),
+            "counterevidence": ("counterevidence", "p0", "independent-source"),
+            "implementation": ("implementation", "p1", "repository-observation"),
+            "edge-case": ("implicit", "p1", "edge-case-fixture"),
+            "validation": ("validation", "p1", "validation-result"),
+            "consequence": ("implicit", "p1", "decision-consequence"),
+        }[coverage]
+        decision_effect = f"Reduce {coverage} uncertainty for Decision Slot {decision_slot_id}."
+        return PlannedSubquestion(
+            subquestion=Subquestion(
+                subquestion_id=f"{portfolio_id}-{coverage}",
+                text=f"What {coverage} evidence can change this decision: {slot_question}",
+                kind=kind,
+                decision_impact=impact,
+            ),
+            coverage=coverage,
+            evidence_class=evidence_class,
+            decision_effect=decision_effect,
+            closure_oracle=closure_oracle,
+            stop_or_replan_trigger=(f"Stop when {closure_oracle}; replan when {evidence_deficit} changes materially."),
+        )
+
+
+def derive_search_portfolio(*, registry: MethodRegistry, **values: Any) -> IntentDerivedSearchPortfolioPlan:
+    """Convenience entry point for pure intent-derived portfolio planning."""
+    return IntentDerivedSearchPortfolioPlanner(registry).plan(**values)
+
+
 __all__ = [
     "DECISION_IMPACTS",
     "DEGRADATION_REASONS",
@@ -506,14 +796,20 @@ __all__ = [
     "METHOD_AVAILABILITY",
     "METHOD_REGISTRY_KIND",
     "METHOD_REGISTRY_SCHEMA_VERSION",
+    "MATERIAL_HUMAN_DECISION_DIMENSIONS",
     "MethodRegistration",
     "MethodRegistry",
     "MethodSelection",
     "PORTFOLIO_STATUSES",
+    "PLANNING_COVERAGE",
     "REASSESSMENT_DISPOSITIONS",
     "REJECTION_REASONS",
     "RejectedMethod",
     "ReassessmentPolicy",
+    "IntentDerivedSearchPortfolioPlan",
+    "IntentDerivedSearchPortfolioPlanner",
+    "PlannedSubquestion",
+    "QueryRewrite",
     "SEARCH_PORTFOLIO_KIND",
     "SEARCH_PORTFOLIO_SCHEMA_VERSION",
     "SELECTION_REASONS",
@@ -521,4 +817,5 @@ __all__ = [
     "SearchPortfolio",
     "SearchPortfolioError",
     "Subquestion",
+    "derive_search_portfolio",
 ]

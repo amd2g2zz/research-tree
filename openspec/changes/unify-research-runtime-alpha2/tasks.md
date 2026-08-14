@@ -424,3 +424,14 @@ substitute for local evidence.
   non-independent method selections; serialize stable query references only.
 - [x] 48.3 Run the focused group-48 acceptance command and record a
   source-bound receipt before treating this child as verified.
+
+## 74. Intent-Derived SearchPortfolio Planning (#185)
+
+- [x] 74.1 Derive bounded decision-relevant portfolio coverage from exact
+  intent, brief, strategy, Decision Slot, and evidence-deficit revisions.
+- [x] 74.2 Bind stable rewrite references to assumptions, evidence class,
+  decision effect, closure oracle, and stop/replan triggers without retrieval.
+- [x] 74.3 Reopen human decisions only for material authority, safety, or
+  requester-outcome changes; keep execution and durable lineage out of scope.
+- [ ] 74.4 Run group-74 acceptance and record a source-bound receipt after the
+  source commit.
