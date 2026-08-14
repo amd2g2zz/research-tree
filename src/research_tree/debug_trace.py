@@ -15,14 +15,22 @@ import time
 from typing import Any, Iterable, Mapping, Sequence
 
 from .coordinator import (
+    COMPLETION_RECORD_KIND,
+    CORRECTION_EVENT_KIND,
     HOST_EVENT_KIND,
+    HOST_EVENT_PROJECTION_KIND,
+    LEASE_KIND,
     LIFECYCLE_EVENT_KIND,
     RESEARCH_RUN_STATE_KIND,
+    STALE_STATE_QUARANTINE_KIND,
+    _TRANSITIONS,
     ResearchRunCoordinator,
 )
 from .domain import ArtifactRef, ArtifactRevision, canonical_json_bytes, thaw_json, validate_identifier
-from .host_events import normalize_host_path
+from .feedback import CorrectionEvent
+from .host_events import HostEvent, HostEventError, normalize_host_path
 from .run_ledger import RunLedger
+from .strategy_projection import macro_stage
 
 
 TRACE_DIRECTORY = Path(".research-tree-debug") / "events"
@@ -73,6 +81,17 @@ _OBLIGATION_KINDS = {
 }
 
 
+def _digest_payload(value: Any) -> str:
+    def normalize(item: Any) -> Any:
+        if isinstance(item, Mapping):
+            return {str(key): normalize(child) for key, child in item.items()}
+        if isinstance(item, (list, tuple)):
+            return [normalize(child) for child in item]
+        return item
+
+    return hashlib.sha256(canonical_json_bytes(normalize(value))).hexdigest()
+
+
 class DebugTraceError(ValueError):
     """Raised when a debug trace would be ambiguous or unsafe to persist."""
 
@@ -94,7 +113,7 @@ class CausalTraceService:
         snapshot = self.ledger.load_run(run_id)
         states = [item for item in snapshot.artifacts if item.kind == RESEARCH_RUN_STATE_KIND]
         if not states:
-            raise CausalTraceError("run is not initialized")
+            return self._replay_from_immutable_inputs(run_id, snapshot)
         by_sequence: dict[int, list[ArtifactRevision]] = {}
         for state in states:
             sequence = state.payload.get("lifecycle_revision")
@@ -107,35 +126,856 @@ class CausalTraceService:
         if ordered_sequences != list(range(len(ordered_sequences))):
             raise CausalTraceError("missing lifecycle revision")
         ordered = [by_sequence[index][0] for index in ordered_sequences]
-        artifacts = {ArtifactRef(item.round_id, item.id, item.revision): item for item in snapshot.artifacts}
+        artifacts = {self._artifact_ref(item): item for item in snapshot.artifacts}
+        artifact_order = {
+            event.artifact_ref: index
+            for index, event in enumerate(snapshot.lineage_events)
+            if event.artifact_ref is not None
+        }
         transitions: list[dict[str, Any]] = []
-        for sequence, state in enumerate(ordered):
+        semantic_divergences: list[dict[str, Any]] = []
+        for state in ordered:
             self._verify_state_digest(state)
+        recomputed: list[dict[str, Any]] = []
+        for sequence, state in enumerate(ordered):
+            if sequence > 0:
+                cause_refs = [
+                    reference
+                    for reference in state.parent_refs
+                    if reference in artifacts
+                    and artifacts[reference].kind
+                    in {
+                        LIFECYCLE_EVENT_KIND,
+                        CORRECTION_EVENT_KIND,
+                    }
+                ]
+                for reference in cause_refs:
+                    revision_error = self._event_revision_error(artifacts[reference], artifact_order)
+                    if revision_error is not None:
+                        semantic_divergences.append(revision_error)
             if sequence == 0:
-                continue
-            previous = ordered[sequence - 1]
-            previous_ref = ArtifactRef(previous.round_id, previous.id, previous.revision)
-            declared_previous = state.payload.get("previous_state_ref")
-            if declared_previous != previous_ref.to_dict() or previous_ref not in state.parent_refs:
-                raise CausalTraceError("missing_cause: previous state lineage")
-            causes = [
-                artifacts[reference]
-                for reference in state.parent_refs
-                if reference in artifacts and artifacts[reference].kind == LIFECYCLE_EVENT_KIND
-            ]
-            if len(causes) != 1:
-                raise CausalTraceError("missing_cause: lifecycle event")
-            transitions.append(self._trace_record(run_id, sequence, previous, state, causes[0]))
+                expected = self._recompute_initial_state(run_id, state, artifacts)
+            else:
+                previous = ordered[sequence - 1]
+                previous_ref = self._artifact_ref(previous)
+                declared_previous = state.payload.get("previous_state_ref")
+                if declared_previous != previous_ref.to_dict() or previous_ref not in state.parent_refs:
+                    raise CausalTraceError("missing_cause: previous state lineage")
+                causes = [
+                    artifacts[reference]
+                    for reference in state.parent_refs
+                    if reference in artifacts and artifacts[reference].kind == LIFECYCLE_EVENT_KIND
+                ]
+                corrections = [
+                    artifacts[reference]
+                    for reference in state.parent_refs
+                    if reference in artifacts and artifacts[reference].kind == CORRECTION_EVENT_KIND
+                ]
+                if len(causes) + len(corrections) != 1:
+                    raise CausalTraceError("missing_cause: lifecycle event")
+                cause = causes[0] if causes else corrections[0]
+                if cause.kind == LIFECYCLE_EVENT_KIND:
+                    expected, transition_error = self._recompute_lifecycle_state(
+                        run_id, previous, state, cause, artifacts, artifact_order=artifact_order
+                    )
+                    if transition_error is None:
+                        transitions.append(self._trace_record(run_id, sequence, previous, state, cause))
+                    else:
+                        semantic_divergences.append(transition_error)
+                        transitions.append(
+                            self._trace_record(
+                                run_id,
+                                sequence,
+                                previous,
+                                state,
+                                cause,
+                                divergence=transition_error,
+                            )
+                        )
+                else:
+                    expected, transition_error = self._recompute_correction_state(
+                        run_id, previous, state, cause, artifacts
+                    )
+                    transitions.append(
+                        self._trace_record(
+                            run_id,
+                            sequence,
+                            previous,
+                            state,
+                            cause,
+                            divergence=transition_error,
+                        )
+                    )
+                    if transition_error is not None:
+                        semantic_divergences.append(transition_error)
+            recomputed.append(expected)
+        state_divergences = [
+            result
+            for state, expected in zip(ordered, recomputed)
+            if (result := self._state_divergence(state, expected)) is not None
+        ]
+        divergence = (semantic_divergences + state_divergences or [None])[0]
+        host_divergences, host_digests = self._validate_host_events(run_id, snapshot, artifacts)
+        if divergence is None and host_divergences:
+            divergence = host_divergences[0]
         terminal = ordered[-1]
+        terminal_expected = recomputed[-1]
+        obligations = tuple(ResearchRunCoordinator(self.ledger)._completion_obligations(run_id))
+        legal_actions = tuple(terminal_expected.get("legal_next_actions", ()))
+        semantic_digest = self._semantic_digest(run_id, recomputed, host_digests, obligations, legal_actions)
         return {
             "schema_version": CAUSAL_TRACE_SCHEMA_VERSION,
             "run_id": run_id,
-            "verified": True,
-            "terminal_state": terminal.payload["state"],
+            "verified": divergence is None,
+            "replay_mode": "semantic",
+            "chain_intact": True,
+            "terminal_state": terminal_expected["state"],
             "state_digest": terminal.payload["state_digest"],
+            "stored_digest": terminal.payload["state_digest"],
+            "recomputed_digest": terminal_expected["state_digest"],
+            "semantic_digest": semantic_digest,
             "state_count": len(ordered),
             "transitions": transitions,
-            "unresolved_references": [],
+            "unresolved_references": host_divergences,
+            "unresolved_obligations": list(obligations),
+            "legal_next_actions": list(legal_actions),
+            "earliest_divergence": divergence,
+        }
+
+    @staticmethod
+    def _semantic_digest(
+        run_id: str,
+        states: Sequence[Mapping[str, Any]],
+        host_digests: Sequence[str],
+        obligations: Sequence[str],
+        legal_actions: Sequence[str],
+    ) -> str:
+        def project(value: Any) -> Any:
+            if isinstance(value, Mapping):
+                return {
+                    str(key): project(child)
+                    for key, child in value.items()
+                    if key not in {"state_digest", "previous_state_ref", "idempotency_key"}
+                }
+            if isinstance(value, (list, tuple)):
+                return [project(child) for child in value]
+            return value
+
+        return _digest_payload(
+            {
+                "run_id": run_id,
+                "states": [project(state) for state in states],
+                "host_events": sorted(host_digests),
+                "unresolved_obligations": sorted(obligations),
+                "legal_next_actions": list(legal_actions),
+            }
+        )
+
+    def _replay_from_immutable_inputs(self, run_id: str, snapshot: Any) -> dict[str, Any]:
+        artifacts = {self._artifact_ref(item): item for item in snapshot.artifacts}
+        lineage_order = {
+            event.artifact_ref: index
+            for index, event in enumerate(snapshot.lineage_events)
+            if event.artifact_ref is not None
+        }
+        causes = sorted(
+            (item for item in snapshot.artifacts if item.kind in {LIFECYCLE_EVENT_KIND, CORRECTION_EVENT_KIND}),
+            key=lambda item: (
+                lineage_order.get(self._artifact_ref(item), len(lineage_order)),
+                item.created_at,
+                item.id,
+                item.revision,
+            ),
+        )
+        if not causes:
+            raise CausalTraceError("run is not initialized")
+        handoff_candidates = sorted(
+            (item for item in snapshot.artifacts if item.kind == "alignment-handoff"),
+            key=lambda item: (
+                lineage_order.get(self._artifact_ref(item), len(lineage_order)),
+                item.created_at,
+                item.id,
+                item.revision,
+            ),
+        )
+        target_candidates = sorted(
+            (item for item in snapshot.artifacts if item.kind == "blueprint-target"),
+            key=lambda item: (
+                lineage_order.get(self._artifact_ref(item), len(lineage_order)),
+                item.created_at,
+                item.id,
+                item.revision,
+            ),
+        )
+        initial_inputs = next(
+            (
+                (handoff, target)
+                for handoff in handoff_candidates
+                for target in target_candidates
+                if self._artifact_ref(handoff) in target.parent_refs
+            ),
+            None,
+        )
+        if initial_inputs is None:
+            raise CausalTraceError("missing_cause: immutable initialization inputs")
+        initial_payload = ResearchRunCoordinator(self.ledger)._state_payload(
+            state="alignment",
+            lifecycle_revision=0,
+            obligations=(),
+            legal_actions=("alignment_projection_ready", "authority_impossible", "supersede"),
+        )
+        initial_state = self._synthetic_state(
+            run_id,
+            revision=1,
+            payload=initial_payload,
+            parent_refs=(self._artifact_ref(initial_inputs[0]), self._artifact_ref(initial_inputs[1])),
+        )
+        initial_expected = self._recompute_initial_state(
+            run_id,
+            initial_state,
+            {
+                **artifacts,
+                self._artifact_ref(initial_inputs[0]): initial_inputs[0],
+                self._artifact_ref(initial_inputs[1]): initial_inputs[1],
+            },
+        )
+        initial_state = self._synthetic_state(
+            run_id,
+            revision=1,
+            payload=initial_expected,
+            parent_refs=initial_state.parent_refs,
+        )
+        synthetic_states = [initial_state]
+        recomputed = [initial_expected]
+        completion_target = initial_inputs[1]
+        completion_obligations = self._completion_obligations_from_artifacts(artifacts, completion_target, run_id)
+        transitions: list[dict[str, Any]] = []
+        semantic_divergences: list[dict[str, Any]] = []
+        for sequence, cause in enumerate(causes, start=1):
+            previous = synthetic_states[-1]
+            event_ref = self._artifact_ref(cause)
+            parent_refs: list[ArtifactRef] = [self._artifact_ref(previous), event_ref]
+            revision_error = self._event_revision_error(cause, lineage_order)
+            if revision_error is not None:
+                semantic_divergences.append(revision_error)
+            if cause.kind == LIFECYCLE_EVENT_KIND and thaw_json(cause.payload).get("event") == "delivery_accepted":
+                completion = next(
+                    (
+                        item
+                        for item in snapshot.artifacts
+                        if item.kind == COMPLETION_RECORD_KIND and event_ref in item.parent_refs
+                    ),
+                    None,
+                )
+                if completion is not None:
+                    parent_refs.append(self._artifact_ref(completion))
+            if cause.kind == CORRECTION_EVENT_KIND:
+                correction_id = thaw_json(cause.payload).get("event_id")
+                quarantine = next(
+                    (
+                        item
+                        for item in snapshot.artifacts
+                        if item.kind == STALE_STATE_QUARANTINE_KIND
+                        and item.payload.get("correction_event_id") == correction_id
+                    ),
+                    None,
+                )
+                if quarantine is not None:
+                    parent_refs.append(self._artifact_ref(quarantine))
+            projected = self._synthetic_state(
+                run_id,
+                revision=sequence + 1,
+                payload={
+                    "quarantine_ref": parent_refs[-1].to_dict()
+                    if cause.kind == CORRECTION_EVENT_KIND and len(parent_refs) > 2
+                    else {}
+                },
+                parent_refs=tuple(parent_refs),
+            )
+            if cause.kind == LIFECYCLE_EVENT_KIND:
+                expected, transition_error = self._recompute_lifecycle_state(
+                    run_id,
+                    previous,
+                    projected,
+                    cause,
+                    artifacts,
+                    artifact_order=lineage_order,
+                    completion_obligations=completion_obligations,
+                )
+            else:
+                expected, transition_error = self._recompute_correction_state(
+                    run_id, previous, projected, cause, artifacts
+                )
+            if transition_error is not None:
+                semantic_divergences.append(transition_error)
+            projected = self._synthetic_state(
+                run_id,
+                revision=sequence + 1,
+                payload=expected,
+                parent_refs=tuple(parent_refs),
+            )
+            transitions.append(
+                self._trace_record(
+                    run_id,
+                    sequence,
+                    previous,
+                    projected,
+                    cause,
+                    divergence=transition_error,
+                )
+            )
+            synthetic_states.append(projected)
+            recomputed.append(expected)
+            artifacts[self._artifact_ref(projected)] = projected
+        host_divergences, host_digests = self._validate_host_events(run_id, snapshot, artifacts)
+        divergence = (semantic_divergences + host_divergences or [None])[0]
+        terminal = recomputed[-1]
+        obligations = tuple(self._completion_obligations_from_artifacts(artifacts, completion_target, run_id))
+        legal_actions = tuple(terminal.get("legal_next_actions", ()))
+        semantic_digest = self._semantic_digest(run_id, recomputed, host_digests, obligations, legal_actions)
+        return {
+            "schema_version": CAUSAL_TRACE_SCHEMA_VERSION,
+            "run_id": run_id,
+            "verified": divergence is None,
+            "replay_mode": "semantic",
+            "chain_intact": True,
+            "projection_rebuilt": True,
+            "terminal_state": terminal["state"],
+            "state_digest": terminal["state_digest"],
+            "stored_digest": None,
+            "recomputed_digest": terminal["state_digest"],
+            "semantic_digest": semantic_digest,
+            "state_count": len(recomputed),
+            "transitions": transitions,
+            "unresolved_references": host_divergences,
+            "unresolved_obligations": list(obligations),
+            "legal_next_actions": list(legal_actions),
+            "earliest_divergence": divergence,
+        }
+
+    @staticmethod
+    def _artifact_ref(item: ArtifactRevision) -> ArtifactRef:
+        return ArtifactRef(item.round_id, item.id, item.revision)
+
+    @staticmethod
+    def _synthetic_state(
+        run_id: str,
+        *,
+        revision: int,
+        payload: Mapping[str, Any],
+        parent_refs: Sequence[ArtifactRef],
+    ) -> ArtifactRevision:
+        candidate = ArtifactRevision.create(
+            artifact_id="run-state",
+            round_id=run_id,
+            revision=revision,
+            kind=RESEARCH_RUN_STATE_KIND,
+            payload=payload,
+            parent_refs=tuple(parent_refs),
+        )
+        body = candidate.content_dict()
+        body["created_at"] = "1970-01-01T00:00:00+00:00"
+        body["content_hash"] = hashlib.sha256(canonical_json_bytes(body)).hexdigest()
+        return ArtifactRevision.from_dict(body | {"content_hash": body["content_hash"]})
+
+    def _recompute_initial_state(
+        self,
+        run_id: str,
+        state: ArtifactRevision,
+        artifacts: Mapping[ArtifactRef, ArtifactRevision],
+    ) -> dict[str, Any]:
+        coordinator = ResearchRunCoordinator(self.ledger)
+        handoffs = [
+            artifacts[reference]
+            for reference in state.parent_refs
+            if reference in artifacts and artifacts[reference].kind == "alignment-handoff"
+        ]
+        targets = [
+            artifacts[reference]
+            for reference in state.parent_refs
+            if reference in artifacts and artifacts[reference].kind == "blueprint-target"
+        ]
+        if len(handoffs) != 1 or len(targets) != 1:
+            raise CausalTraceError("missing_cause: immutable initialization inputs")
+        expected = coordinator._state_payload(
+            state="alignment",
+            lifecycle_revision=0,
+            obligations=(),
+            legal_actions=coordinator._next_actions("alignment"),
+            idempotency_key=state.payload.get("idempotency_key"),
+        )
+        expected["macro_stage"] = 1
+        authority = coordinator._lineage_authority(targets[0], handoffs[0])
+        if authority is not None:
+            bindings, task_id, domain_id = authority
+            expected.update(
+                authority_streams={role: binding.artifact_ref.artifact_id for role, binding in bindings.items()},
+                task_id=task_id,
+                domain_id=domain_id,
+            )
+        expected["state_digest"] = _digest_payload(
+            {key: value for key, value in expected.items() if key != "state_digest"}
+        )
+        return expected
+
+    @staticmethod
+    def _event_revision_error(
+        event: ArtifactRevision,
+        artifact_order: Mapping[ArtifactRef, int],
+    ) -> dict[str, Any] | None:
+        body = thaw_json(event.payload)
+        declared = body.get("expected_revision")
+        payload = body.get("payload")
+        if declared is None and isinstance(payload, Mapping):
+            declared = payload.get("expected_revision")
+        if declared is None:
+            return None
+        expected = artifact_order.get(ArtifactRef(event.round_id, event.id, event.revision))
+        if isinstance(declared, bool) or not isinstance(declared, int) or declared != expected:
+            return {
+                "reason": "stale_expected_revision",
+                "event_id": event.id,
+                "declared": declared,
+                "recomputed": expected,
+            }
+        return None
+
+    @staticmethod
+    def _artifacts_before_event(
+        artifacts: Mapping[ArtifactRef, ArtifactRevision],
+        event: ArtifactRevision,
+        artifact_order: Mapping[ArtifactRef, int] | None,
+    ) -> Mapping[ArtifactRef, ArtifactRevision]:
+        if artifact_order is None:
+            return artifacts
+        event_index = artifact_order.get(ArtifactRef(event.round_id, event.id, event.revision), len(artifact_order))
+        return {
+            reference: item for reference, item in artifacts.items() if artifact_order.get(reference, -1) < event_index
+        }
+
+    def _validate_lifecycle_guard(
+        self,
+        run_id: str,
+        transition: str,
+        inputs: Mapping[str, Any],
+        previous: ArtifactRevision,
+        event: ArtifactRevision,
+        artifacts: Mapping[ArtifactRef, ArtifactRevision],
+        artifact_order: Mapping[ArtifactRef, int] | None,
+    ) -> dict[str, Any] | None:
+        available = self._artifacts_before_event(artifacts, event, artifact_order)
+        if transition in {"alignment_projection_ready", "handoff_confirmed"}:
+            try:
+                projection_ref = ArtifactRef.from_dict(inputs.get("projection_ref"))
+            except (TypeError, ValueError):
+                return {"reason": "projection_reference_invalid", "event_id": event.id}
+            projection = available.get(projection_ref)
+            if projection is None or projection.kind != "strategy-projection":
+                return {"reason": "projection_reference_missing", "event_id": event.id}
+            display_digest = inputs.get("display_digest")
+            if projection.payload.get("display_digest") != display_digest:
+                return {"reason": "projection_digest_mismatch", "event_id": event.id}
+            if transition == "handoff_confirmed":
+                if projection.payload.get("status") not in {"displayed", "confirmed"}:
+                    return {"reason": "projection_not_displayed", "event_id": event.id}
+                confirmation = inputs.get("confirmation")
+                if not isinstance(confirmation, str) or display_digest not in confirmation:
+                    return {"reason": "confirmation_digest_mismatch", "event_id": event.id}
+                if previous.payload.get("correction_event_id") is not None:
+                    authority = inputs.get("authority_binding")
+                    if not isinstance(authority, Mapping) or authority.get(
+                        "correction_event_id"
+                    ) != previous.payload.get("correction_event_id"):
+                        return {"reason": "correction_authority_mismatch", "event_id": event.id}
+                elif not any(
+                    item.payload.get("confirmed") is True
+                    for item in available.values()
+                    if item.kind == "alignment-handoff"
+                ):
+                    return {"reason": "handoff_confirmation_missing", "event_id": event.id}
+            return None
+        if transition in {"all_slots_closed", "readiness_passed", "deliveries_compiled"}:
+            latest = {}
+            for item in available.values():
+                latest[item.kind] = max(
+                    (candidate for candidate in available.values() if candidate.kind == item.kind),
+                    key=lambda candidate: (
+                        artifact_order.get(self._artifact_ref(candidate), -1) if artifact_order else -1,
+                        candidate.revision,
+                        candidate.id,
+                    ),
+                )
+            if transition == "all_slots_closed":
+                target = latest.get("blueprint-target")
+                p0_slots = {
+                    str(slot.get("id"))
+                    for slot in (target.payload.get("decision_slots", ()) if target is not None else ())
+                    if isinstance(slot, Mapping) and slot.get("priority") == "P0" and slot.get("id")
+                }
+                closed_slots = {
+                    str(item.payload.get("slot_id"))
+                    for item in available.values()
+                    if item.kind == "slot-closure-assessment"
+                    and item.payload.get("status") == "passed"
+                    and item.payload.get("closure_token")
+                    and (target is None or self._artifact_ref(target) in item.parent_refs)
+                }
+                if not p0_slots or not p0_slots <= closed_slots:
+                    return {"reason": "closure_obligations_unresolved", "event_id": event.id}
+            elif transition == "readiness_passed":
+                readiness = latest.get("readiness-record")
+                evaluation = latest.get("blueprint-evaluation")
+                if readiness is None or readiness.payload.get("status") not in {"ready", "passed"}:
+                    return {"reason": "readiness_missing", "event_id": event.id}
+                if evaluation is None or evaluation.payload.get("status") not in {"passed", "pass"}:
+                    return {"reason": "evaluation_missing", "event_id": event.id}
+            elif transition == "deliveries_compiled":
+                if latest.get("technical-research-package") is None or latest.get("human-research-report") is None:
+                    return {"reason": "delivery_inputs_missing", "event_id": event.id}
+            return None
+        return None
+
+    def _completion_obligations_from_artifacts(
+        self,
+        artifacts: Mapping[ArtifactRef, ArtifactRevision],
+        target: ArtifactRevision,
+        run_id: str,
+    ) -> tuple[str, ...]:
+        coordinator = ResearchRunCoordinator(self.ledger)
+        quarantined = coordinator._quarantined_refs(run_id)
+        target_ref = self._artifact_ref(target)
+        p0_slots = {
+            str(slot.get("id"))
+            for slot in target.payload.get("decision_slots", ())
+            if isinstance(slot, Mapping) and slot.get("priority") == "P0" and slot.get("id")
+        }
+        assessments = [
+            item
+            for item in artifacts.values()
+            if item.kind == "slot-closure-assessment"
+            and self._artifact_ref(item) not in quarantined
+            and self.ledger.is_latest_artifact(self._artifact_ref(item))
+            and item.payload.get("status") == "passed"
+            and item.payload.get("closure_token")
+            and target_ref in item.parent_refs
+        ]
+        missing: list[str] = []
+        if not p0_slots or not p0_slots <= {str(item.payload.get("slot_id")) for item in assessments}:
+            missing.append("p0_closure_tokens")
+        inputs = coordinator._completion_inputs(run_id)
+        insight = inputs.get("insight_ref")
+        if insight is None or insight.payload.get("status") != "non_blocking":
+            missing.append("insights_non_blocking")
+        readiness = inputs.get("readiness_ref")
+        if readiness is None or readiness.payload.get("status") not in {"ready", "passed"}:
+            missing.append("readiness_ref")
+        evaluation = inputs.get("evaluation_ref")
+        if evaluation is None or evaluation.payload.get("status") not in {"passed", "pass"}:
+            missing.append("evaluation_ref")
+        technical = inputs.get("technical_delivery_ref")
+        if technical is None:
+            missing.append("technical_delivery_ref")
+        human = inputs.get("human_delivery_ref")
+        if human is None:
+            missing.append("human_delivery_ref")
+        acceptance = inputs.get("acceptance_ref")
+        if not coordinator._acceptance_matches(acceptance, technical, human):
+            missing.append("acceptance_ref")
+        return tuple(dict.fromkeys(missing))
+
+    def _recompute_lifecycle_state(
+        self,
+        run_id: str,
+        previous: ArtifactRevision,
+        state: ArtifactRevision,
+        event: ArtifactRevision,
+        artifacts: Mapping[ArtifactRef, ArtifactRevision],
+        *,
+        artifact_order: Mapping[ArtifactRef, int] | None = None,
+        completion_obligations: Sequence[str] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        body = thaw_json(event.payload)
+        transition = body.get("event")
+        source = body.get("from")
+        target = body.get("to")
+        actor = body.get("actor")
+        edge = _TRANSITIONS.get((str(previous.payload.get("state")), str(transition)))
+        if source != previous.payload.get("state"):
+            return dict(state.payload), self._divergence("event.from", source, previous.payload.get("state"))
+        if edge is None:
+            return dict(state.payload), {"reason": "illegal_transition", "event": transition}
+        if (
+            target != edge[0]
+            or actor != edge[1]
+            and not (edge[1] == "human_or_operator" and actor in {"human", "operator"})
+        ):
+            return dict(state.payload), {
+                "reason": "transition_authority_violation",
+                "event": transition,
+                "expected_target": edge[0],
+                "expected_actor": edge[1],
+            }
+        coordinator = ResearchRunCoordinator(self.ledger)
+        inputs = body.get("payload", {})
+        if transition == "delivery_accepted":
+            expected = coordinator._state_payload(
+                state=str(target),
+                lifecycle_revision=int(previous.payload.get("lifecycle_revision", 0)) + 1,
+                obligations=(),
+                legal_actions=("export_audit",),
+                idempotency_key=body.get("idempotency_key"),
+            )
+        else:
+            if not isinstance(inputs, Mapping):
+                return dict(state.payload), {"reason": "event_payload_invalid", "event": transition}
+            guard_error = self._validate_lifecycle_guard(
+                run_id,
+                str(transition),
+                inputs,
+                previous,
+                event,
+                artifacts,
+                artifact_order,
+            )
+            if guard_error is not None:
+                return dict(state.payload), guard_error
+            expected = coordinator._state_payload(
+                state=str(target),
+                lifecycle_revision=int(previous.payload.get("lifecycle_revision", 0)) + 1,
+                obligations=inputs.get("unmet_obligations", previous.payload.get("unmet_obligations", ())),
+                legal_actions=coordinator._next_actions(str(target)),
+                idempotency_key=body.get("idempotency_key"),
+                macro_stage_value=macro_stage(str(target), prior_stage=previous.payload.get("macro_stage")),
+            )
+            expected["transition_payload"] = dict(inputs)
+        expected["previous_state_ref"] = self._artifact_ref(previous).to_dict()
+        coordinator._carry_correction_context(previous, expected)
+        if isinstance(inputs, Mapping) and "authority_binding" in inputs:
+            expected["active_authority"] = thaw_json(inputs["authority_binding"])
+        if isinstance(inputs, Mapping) and "projection_ref" in inputs:
+            expected["strategy_projection_ref"] = thaw_json(inputs["projection_ref"])
+            expected["strategy_display_digest"] = inputs.get("display_digest")
+        if transition == "delivery_accepted":
+            completion = next(
+                (
+                    artifacts[reference]
+                    for reference in state.parent_refs
+                    if reference in artifacts and artifacts[reference].kind == COMPLETION_RECORD_KIND
+                ),
+                None,
+            )
+            if completion is None:
+                return expected, {"reason": "completion_record_missing", "event": transition}
+            requirements = thaw_json(completion.payload.get("requirements", {}))
+            expected["completion_requirements"] = requirements
+            reference_error = self._completion_reference_error(expected["completion_requirements"], artifacts)
+            if reference_error is not None:
+                return expected, reference_error
+            canonical_inputs = coordinator._completion_inputs(run_id)
+            canonical_requirements = {
+                key: self._artifact_ref(item).to_dict() for key, item in sorted(canonical_inputs.items())
+            }
+            if requirements != canonical_requirements:
+                return expected, {
+                    "reason": "completion_inputs_divergence",
+                    "stored_digest": _digest_payload(requirements),
+                    "recomputed_digest": _digest_payload(canonical_requirements),
+                }
+            missing = (
+                tuple(completion_obligations)
+                if completion_obligations is not None
+                else coordinator._completion_obligations(run_id)
+            )
+            if missing:
+                return expected, {
+                    "reason": "completion_obligations_unresolved",
+                    "obligations": list(missing),
+                }
+            completion_parent_refs = set(completion.parent_refs)
+            if any(
+                ArtifactRef.from_dict(reference) not in completion_parent_refs for reference in requirements.values()
+            ):
+                return expected, {"reason": "completion_record_lineage_incomplete"}
+            if completion.payload.get("source_state_ref") != self._artifact_ref(previous).to_dict():
+                return expected, {"reason": "completion_source_state_mismatch"}
+        expected["state_digest"] = _digest_payload(
+            {key: value for key, value in expected.items() if key != "state_digest"}
+        )
+        return expected, None
+
+    def _recompute_correction_state(
+        self,
+        run_id: str,
+        previous: ArtifactRevision,
+        state: ArtifactRevision,
+        event: ArtifactRevision,
+        artifacts: Mapping[ArtifactRef, ArtifactRevision],
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        try:
+            correction = CorrectionEvent.from_value(thaw_json(event.payload))
+        except (TypeError, ValueError) as error:
+            return dict(state.payload), {"reason": "correction_event_invalid", "detail": str(error)}
+        coordinator = ResearchRunCoordinator(self.ledger)
+        expected = coordinator._state_payload(
+            state="alignment",
+            lifecycle_revision=int(previous.payload.get("lifecycle_revision", 0)) + 1,
+            obligations=(
+                "alignment_reconfirmation",
+                "strategy_reprojection",
+                "handoff_reconfirmation",
+                "closure_revalidation",
+                "delivery_recompilation",
+                "acceptance_reconfirmation",
+            ),
+            legal_actions=coordinator._next_actions("alignment"),
+            idempotency_key=correction.event_id,
+            reason=correction.reason,
+        )
+        quarantine_ref = state.payload.get("quarantine_ref")
+        expected.update(
+            {
+                "task_id": correction.successor_task_id,
+                "domain_id": correction.successor_domain_id,
+                "correction_event_id": correction.event_id,
+                "correction_relation": correction.relation,
+                "previous_state_ref": self._artifact_ref(previous).to_dict(),
+                "quarantine_ref": thaw_json(quarantine_ref),
+                "authority_streams": thaw_json(previous.payload.get("authority_streams", {})),
+            }
+        )
+        if not isinstance(quarantine_ref, Mapping):
+            return expected, {"reason": "quarantine_reference_missing"}
+        try:
+            quarantine = artifacts[ArtifactRef.from_dict(quarantine_ref)]
+        except (KeyError, TypeError, ValueError):
+            return expected, {"reason": "quarantine_reference_invalid"}
+        if quarantine.kind != STALE_STATE_QUARANTINE_KIND:
+            return expected, {"reason": "quarantine_kind_invalid"}
+        if quarantine.payload.get("correction_event_id") != correction.event_id:
+            return expected, {"reason": "quarantine_correction_mismatch"}
+        expected["state_digest"] = _digest_payload(
+            {key: value for key, value in expected.items() if key != "state_digest"}
+        )
+        return expected, None
+
+    def _validate_host_events(
+        self,
+        run_id: str,
+        snapshot: Any,
+        artifacts: Mapping[ArtifactRef, ArtifactRevision],
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        coordinator = ResearchRunCoordinator(self.ledger)
+        host_events = sorted(
+            (item for item in snapshot.artifacts if item.kind == HOST_EVENT_KIND),
+            key=lambda item: (item.created_at, item.id, item.revision),
+        )
+        artifact_lineage = [event.artifact_ref for event in snapshot.lineage_events if event.artifact_ref is not None]
+        artifact_order = {reference: index for index, reference in enumerate(artifact_lineage)}
+        by_attempt: dict[str, list[HostEvent]] = {}
+        divergences: list[dict[str, Any]] = []
+        digests: list[str] = []
+        for item in host_events:
+            body = thaw_json(item.payload)
+            if "run_id" not in body or "expected_revision" not in body:
+                continue
+            try:
+                envelope = HostEvent.from_value(body)
+            except (HostEventError, TypeError, ValueError) as error:
+                divergences.append({"reason": "host_event_invalid", "event_id": item.id, "detail": str(error)})
+                continue
+            digests.append(envelope.semantic_digest)
+            if body.get("authoritative") is not False or body.get("semantic_digest") != envelope.semantic_digest:
+                divergences.append({"reason": "host_event_digest_or_authority_invalid", "event_id": item.id})
+            if envelope.expected_revision != artifact_order.get(self._artifact_ref(item), -1):
+                divergences.append({"reason": "stale_expected_revision", "event_id": item.id})
+            projection = next(
+                (
+                    candidate
+                    for candidate in snapshot.artifacts
+                    if candidate.kind == HOST_EVENT_PROJECTION_KIND
+                    and candidate.payload.get("event_ref") == self._artifact_ref(item).to_dict()
+                ),
+                None,
+            )
+            lease = next(
+                (
+                    artifacts[reference]
+                    for reference in (projection.parent_refs if projection is not None else ())
+                    if reference in artifacts and artifacts[reference].kind == LEASE_KIND
+                ),
+                None,
+            )
+            if lease is None or lease.payload.get("attempt_id") != envelope.attempt_id:
+                divergences.append({"reason": "lease_missing_or_mismatched", "event_id": item.id})
+            else:
+                expires_at = lease.payload.get("expires_at")
+                try:
+                    expiry = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00")) if expires_at else None
+                    created = datetime.fromisoformat(envelope.created_at.replace("Z", "+00:00"))
+                    if lease.payload.get("status") != "active" or expiry is not None and created >= expiry:
+                        divergences.append({"reason": "lease_invalid_at_event", "event_id": item.id})
+                except (TypeError, ValueError):
+                    divergences.append({"reason": "lease_expiry_invalid", "event_id": item.id})
+            by_attempt.setdefault(envelope.attempt_id, []).append(envelope)
+            try:
+                coordinator._validate_host_event_payload(envelope, run_id=run_id, attempt_id=envelope.attempt_id)
+            except Exception as error:
+                divergences.append({"reason": "host_event_payload_invalid", "event_id": item.id, "detail": str(error)})
+        for attempt_id, events in by_attempt.items():
+            ordered = sorted(events, key=lambda item: item.sequence)
+            previous_id = None
+            for expected_sequence, event in enumerate(ordered, start=1):
+                if event.sequence != expected_sequence:
+                    divergences.append({"reason": "host_event_sequence_gap", "event_id": event.event_id})
+                if event.sequence == 1:
+                    if event.causation_id not in (None, attempt_id):
+                        divergences.append({"reason": "host_event_causation_invalid", "event_id": event.event_id})
+                elif event.causation_id != previous_id:
+                    divergences.append({"reason": "host_event_causation_invalid", "event_id": event.event_id})
+                previous_id = event.event_id
+        return divergences, sorted(digests)
+
+    @staticmethod
+    def _completion_reference_error(
+        requirements: Any,
+        artifacts: Mapping[ArtifactRef, ArtifactRevision],
+    ) -> dict[str, Any] | None:
+        if not isinstance(requirements, Mapping):
+            return {"reason": "completion_requirements_invalid"}
+        for name, value in requirements.items():
+            try:
+                reference = ArtifactRef.from_dict(value)
+            except (TypeError, ValueError):
+                return {"reason": "completion_reference_invalid", "field": str(name)}
+            if reference not in artifacts:
+                return {"reason": "completion_reference_missing", "field": str(name)}
+        return None
+
+    @staticmethod
+    def _state_divergence(state: ArtifactRevision, expected: Mapping[str, Any]) -> dict[str, Any] | None:
+        actual = thaw_json(state.payload)
+        expected_value = thaw_json(expected)
+        if actual == expected_value:
+            return None
+        keys = sorted(set(actual) | set(expected_value))
+        for key in keys:
+            if actual.get(key) != expected_value.get(key):
+                return {
+                    "reason": "state_divergence",
+                    "sequence": state.payload.get("lifecycle_revision"),
+                    "field": key,
+                    "stored_digest": _digest_payload(actual.get(key)),
+                    "recomputed_digest": _digest_payload(expected_value.get(key)),
+                }
+        return {"reason": "state_divergence", "sequence": state.payload.get("lifecycle_revision")}
+
+    @staticmethod
+    def _divergence(field: str, actual: Any, expected: Any) -> dict[str, Any]:
+        return {
+            "reason": "semantic_divergence",
+            "field": field,
+            "stored_digest": _digest_payload(actual),
+            "recomputed_digest": _digest_payload(expected),
         }
 
     def explain_run(self, run_id: str) -> dict[str, Any]:
@@ -245,10 +1085,13 @@ class CausalTraceService:
     def _verify_state_digest(state: ArtifactRevision) -> None:
         payload = thaw_json(state.payload)
         recorded = payload.pop("state_digest", None)
+        calculated = hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
+        if recorded == calculated:
+            return
         if payload.get("lifecycle_revision") == 0:
             payload.pop("idempotency_key", None)
             payload.pop("reason", None)
-        calculated = hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
+            calculated = hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
         if recorded != calculated:
             raise CausalTraceError("digest_mismatch: research-run-state")
 
@@ -259,21 +1102,35 @@ class CausalTraceService:
         previous: ArtifactRevision,
         state: ArtifactRevision,
         event: ArtifactRevision,
+        divergence: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         body = thaw_json(event.payload)
         if body.get("event_id") != event.id:
             raise CausalTraceError("missing_cause: event identity")
-        if body.get("from") != previous.payload.get("state") or body.get("to") != state.payload.get("state"):
+        is_correction = event.kind == CORRECTION_EVENT_KIND
+        if not is_correction and (
+            body.get("from") != previous.payload.get("state") or body.get("to") != state.payload.get("state")
+        ):
             raise CausalTraceError("missing_cause: state edge")
-        raw_inputs = body.get("payload", {})
-        if isinstance(raw_inputs, Mapping) and "confirmation" in raw_inputs:
-            raw_inputs = {key: value for key, value in raw_inputs.items() if key != "confirmation"}
-            raw_inputs["confirmation_digest"] = hashlib.sha256(
-                str(body.get("payload", {}).get("confirmation", "")).encode("utf-8")
-            ).hexdigest()
+        if is_correction:
+            raw_inputs = {
+                "correction_event_id": body.get("event_id"),
+                "relation": body.get("relation"),
+                "reason_digest": hashlib.sha256(str(body.get("reason", "")).encode("utf-8")).hexdigest(),
+                "successor_task_id": body.get("successor_task_id"),
+                "successor_domain_id": body.get("successor_domain_id"),
+                "affected_roles": sorted(body.get("affected", {})),
+            }
+        else:
+            raw_inputs = body.get("payload", {})
+            if isinstance(raw_inputs, Mapping) and "confirmation" in raw_inputs:
+                raw_inputs = {key: value for key, value in raw_inputs.items() if key != "confirmation"}
+                raw_inputs["confirmation_digest"] = hashlib.sha256(
+                    str(body.get("payload", {}).get("confirmation", "")).encode("utf-8")
+                ).hexdigest()
         inputs = _safe_value(raw_inputs, "transition inputs")
         actor = _safe_code(body.get("actor", "coordinator"), "actor")
-        action = _safe_code(body.get("event", "unknown"), "action")
+        action = "correction" if is_correction else _safe_code(body.get("event", "unknown"), "action")
         host = _safe_code(inputs.get("host", "coordinator"), "host") if isinstance(inputs, Mapping) else "coordinator"
         trace_id = (
             "trace-"
@@ -281,7 +1138,7 @@ class CausalTraceService:
                 canonical_json_bytes({"event_hash": event.content_hash, "state_hash": state.content_hash})
             ).hexdigest()[:24]
         )
-        return {
+        record = {
             "schema_version": CAUSAL_TRACE_SCHEMA_VERSION,
             "trace_id": trace_id,
             "run_id": run_id,
@@ -302,8 +1159,10 @@ class CausalTraceService:
             "score_components": _score_components(
                 inputs.get("score_components", {}) if isinstance(inputs, Mapping) else {}
             ),
-            "outcome": body.get("to"),
-            "reason": inputs.get("reason", "transition_accepted")
+            "outcome": state.payload.get("state") if is_correction else body.get("to"),
+            "reason": "correction"
+            if is_correction
+            else inputs.get("reason", "transition_accepted")
             if isinstance(inputs, Mapping)
             else "transition_accepted",
             "redaction_class": "allowlisted",
@@ -314,6 +1173,9 @@ class CausalTraceService:
                 ArtifactRef(state.round_id, state.id, state.revision).to_dict(),
             ],
         }
+        if divergence is not None:
+            record["divergence"] = dict(divergence)
+        return record
 
     def _host_traces(self, run_id: str) -> list[dict[str, Any]]:
         records = []

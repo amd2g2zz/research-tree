@@ -51,7 +51,8 @@
     { "capability": "current-only-skill-setup", "source_modules": ["src/research_tree/skill_setup.py"], "public_surface": ["research-tree-setup install", "research-tree-setup status"], "task_groups": [57], "github_issue": "#169", "owner": "host-adapter" },
     { "capability": "current-strategy-projection-reader", "source_modules": ["src/research_tree/strategy_projection.py"], "public_surface": ["StrategyProjection.create", "StrategyProjection.from_dict"], "task_groups": [59], "github_issue": "#173", "owner": "alignment" },
     { "capability": "current-insight-payload-reader", "source_modules": ["src/research_tree/insights.py"], "public_surface": ["validate_insight_digest"], "task_groups": [60], "github_issue": "#174", "owner": "research" },
-    { "capability": "public-runstore-scheduler-surface-removal", "source_modules": ["src/research_tree/__init__.py"], "public_surface": [], "task_groups": [62], "github_issue": "#178", "owner": "runtime" }
+    { "capability": "public-runstore-scheduler-surface-removal", "source_modules": ["src/research_tree/__init__.py"], "public_surface": [], "task_groups": [62], "github_issue": "#178", "owner": "runtime" },
+    { "capability": "semantic-replay-reconstruction", "source_modules": ["src/research_tree/debug_trace.py", "src/research_tree/coordinator.py", "src/research_tree/run_ledger.py"], "public_surface": ["CausalTraceService.replay"], "task_groups": [63], "github_issue": "#154", "owner": "observability" }
   ],
   "release_rule": "A capability row is not evidence of implementation. The generated requirement rows, tests, and immutable release manifest must all resolve before status becomes verified."
 }
