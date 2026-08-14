@@ -900,6 +900,10 @@
         "recorded_at": "2026-08-14T18:04:24.021080+00:00"
       },
       "rollback": "revert the canonical readiness test-fixture migration in Git; do not restore a RunStore bridge, runtime adapter, dual store, compatibility migration, or weakened canonical test"
+    },
+    {
+      "group": 81,
+      "state": "planned"
     }
   ]
 }
