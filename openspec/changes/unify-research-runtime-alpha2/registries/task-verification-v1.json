@@ -782,6 +782,13 @@
         "recorded_at": "2026-08-14T16:30:00+08:00"
       },
       "rollback": "revert the pure execution projection in Git; mark the batch unavailable or degraded and retain captures without restoring a second persistence plane"
+    },
+    {
+      "group": 76,
+      "state": "planned",
+      "evidence_refs": [],
+      "command_receipt": null,
+      "rollback": "quarantine incomplete portfolio attempts and revert the integration; do not restore a legacy acquisition fallback or second persistence plane"
     }
   ]
 }

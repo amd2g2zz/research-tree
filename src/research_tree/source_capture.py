@@ -7,7 +7,7 @@ import re
 from typing import Any, Mapping, Sequence
 
 from .content_store import ContentAddressedStore
-from .domain import ArtifactRef, utc_now, validate_identifier, validate_timestamp
+from .domain import ArtifactRef, RuntimeStoreError, utc_now, validate_identifier, validate_timestamp
 from .run_ledger import RunLedger
 
 SOURCE_CAPTURE_KIND = "source-capture"
@@ -460,15 +460,38 @@ class DurableSourceCaptureService:
     def validate_worker_finished(
         self, *, run_id: str, attempt_id: str, capture_refs: Sequence[ArtifactRef], checkpoint_ref: ArtifactRef | None
     ) -> dict[str, Any]:
+        if not isinstance(capture_refs, Sequence) or isinstance(capture_refs, (str, bytes)) or not capture_refs:
+            raise CaptureIncompleteError("capture_incomplete: at least one committed capture is required")
         if checkpoint_ref is None:
             raise CaptureIncompleteError("capture_incomplete: checkpoint is required before worker_finished")
         if checkpoint_ref.round_id != run_id:
             raise CaptureIncompleteError("capture_incomplete: checkpoint belongs to another run")
-        checkpoint = AnalysisCheckpoint.from_dict(self.ledger.get_artifact(checkpoint_ref).payload)
+        try:
+            checkpoint_artifact = self.ledger.get_artifact(checkpoint_ref)
+        except RuntimeStoreError as error:
+            raise CaptureIncompleteError("capture_incomplete: checkpoint is unresolved") from error
+        if (
+            checkpoint_artifact.kind != ANALYSIS_CHECKPOINT_KIND
+            or not self.ledger.is_latest_artifact(checkpoint_ref)
+            or checkpoint_artifact.payload.get("attempt_id") != attempt_id
+        ):
+            raise CaptureIncompleteError("capture_incomplete: checkpoint is not current for this attempt")
+        checkpoint = AnalysisCheckpoint.from_dict(checkpoint_artifact.payload)
         if checkpoint.attempt_id != attempt_id:
             raise CaptureIncompleteError("capture_incomplete: checkpoint belongs to another attempt")
         for reference in capture_refs:
-            if reference.round_id != run_id or self.ledger.get_artifact(reference).kind != SOURCE_CAPTURE_KIND:
+            if reference.round_id != run_id:
+                raise CaptureIncompleteError("capture_incomplete: capture reference belongs to another run")
+            try:
+                capture_artifact = self.ledger.get_artifact(reference)
+            except RuntimeStoreError as error:
+                raise CaptureIncompleteError("capture_incomplete: capture reference is unresolved") from error
+            if (
+                capture_artifact.kind != SOURCE_CAPTURE_KIND
+                or capture_artifact.payload.get("status") != "committed"
+                or not self.ledger.is_latest_artifact(reference)
+                or capture_artifact.payload.get("attempt_id") != attempt_id
+            ):
                 raise CaptureIncompleteError("capture_incomplete: capture reference is not committed in this run")
         return {
             "status": "accepted",

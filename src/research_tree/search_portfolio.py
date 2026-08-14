@@ -5,7 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from .domain import RuntimeStoreError, canonical_json_bytes, validate_identifier
+from .domain import (
+    ArtifactRef,
+    ArtifactRevision,
+    RuntimeStoreError,
+    canonical_json_bytes,
+    thaw_json,
+    validate_identifier,
+)
+from .run_ledger import LedgerConflictError, RunLedger
 
 
 SEARCH_PORTFOLIO_SCHEMA_VERSION = 2
@@ -82,6 +90,8 @@ PORTFOLIO_BATCH_KIND = "portfolio-batch"
 PORTFOLIO_BATCH_SCHEMA_VERSION = 1
 PORTFOLIO_EXECUTION_KIND = "portfolio-execution"
 PORTFOLIO_EXECUTION_SCHEMA_VERSION = 1
+PORTFOLIO_DECISION_KIND = "portfolio-decision"
+PORTFOLIO_DECISION_SCHEMA_VERSION = 1
 
 _OUTCOME_ALIASES = {
     "succeeded": "captured",
@@ -1626,6 +1636,700 @@ class PortfolioExecution:
         )
 
 
+def _runtime_ref(value: ArtifactRef | ArtifactRevision | Mapping[str, Any] | str, label: str) -> ArtifactRef:
+    if isinstance(value, ArtifactRevision):
+        return ArtifactRef(value.round_id, value.id, value.revision)
+    if isinstance(value, ArtifactRef):
+        return value
+    if isinstance(value, Mapping):
+        try:
+            return ArtifactRef.from_dict(value)
+        except (RuntimeStoreError, TypeError, ValueError) as error:
+            raise SearchPortfolioError(f"{label} must be an exact artifact reference") from error
+    if isinstance(value, str):
+        normalized = value.strip()
+        if "@" in normalized:
+            raise SearchPortfolioError(f"{label} requires a run-bound artifact reference")
+        parts = normalized.split(":")
+        if len(parts) == 3:
+            try:
+                return ArtifactRef(parts[0], parts[1], int(parts[2]))
+            except (RuntimeStoreError, TypeError, ValueError) as error:
+                raise SearchPortfolioError(f"{label} must be an exact artifact reference") from error
+    raise SearchPortfolioError(f"{label} must be an exact artifact reference")
+
+
+def _runtime_ref_in_run(
+    value: ArtifactRef | ArtifactRevision | Mapping[str, Any] | str, run_id: str, label: str
+) -> ArtifactRef:
+    if isinstance(value, str) and "@" in value:
+        artifact_id, revision = value.strip().rsplit("@", 1)
+        try:
+            return ArtifactRef(run_id, artifact_id, int(revision))
+        except (RuntimeStoreError, TypeError, ValueError) as error:
+            raise SearchPortfolioError(f"{label} must be an exact artifact reference") from error
+    reference = _runtime_ref(value, label)
+    if not reference.round_id:
+        reference = ArtifactRef(run_id, reference.artifact_id, reference.revision)
+    if reference.round_id != run_id:
+        raise SearchPortfolioError(f"{label} belongs to another run")
+    return reference
+
+
+def _runtime_artifact_ref(artifact: ArtifactRevision) -> ArtifactRef:
+    return ArtifactRef(artifact.round_id, artifact.id, artifact.revision)
+
+
+class SearchPortfolioService:
+    """Persist typed portfolio execution through the canonical run ledger."""
+
+    def __init__(self, ledger: RunLedger) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise SearchPortfolioError("SearchPortfolioService requires a RunLedger")
+        self.ledger = ledger
+
+    def register_methods(
+        self,
+        *,
+        run_id: str,
+        registry: MethodRegistry,
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        run_id = _identifier(run_id, "run_id")
+        if not isinstance(registry, MethodRegistry):
+            raise InvalidSearchPortfolioError("registry must be a MethodRegistry")
+        payload = {"run_id": run_id, **registry.to_dict()}
+        existing = self._existing(run_id, registry.registry_id, METHOD_REGISTRY_KIND)
+        if existing is not None:
+            if thaw_json(existing.payload) == payload:
+                return existing
+            raise SearchPortfolioError("method registry id conflicts with an existing payload")
+        return self._append(
+            run_id,
+            registry.registry_id,
+            METHOD_REGISTRY_KIND,
+            payload,
+            (),
+            expected_revision,
+        )
+
+    def plan(
+        self,
+        *,
+        run_id: str,
+        plan: IntentDerivedSearchPortfolioPlan | None = None,
+        portfolio: SearchPortfolio | None = None,
+        intent_model: ArtifactRevision,
+        working_brief: ArtifactRevision,
+        strategy: ArtifactRevision,
+        decision_map: ArtifactRevision,
+        method_registry: ArtifactRevision | None = None,
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        run_id = _identifier(run_id, "run_id")
+        if plan is not None and not isinstance(plan, IntentDerivedSearchPortfolioPlan):
+            raise SearchPortfolioError("plan must be an IntentDerivedSearchPortfolioPlan")
+        if plan is not None:
+            portfolio_value = plan.portfolio
+            registry = plan.registry
+        elif isinstance(portfolio, SearchPortfolio):
+            portfolio_value = portfolio
+            registry = None
+        else:
+            raise SearchPortfolioError("plan or portfolio is required")
+        if portfolio_value.run_id != run_id:
+            raise SearchPortfolioError("portfolio belongs to another run")
+        intent = self._current(intent_model, run_id, "intent-model", "intent_model")
+        brief = self._current(working_brief, run_id, "working-brief", "working_brief")
+        strategy_artifact = self._current(strategy, run_id, strategy.kind, "strategy")
+        decision = self._current(decision_map, run_id, "blueprint-target", "decision_map")
+        intent_ref = _runtime_artifact_ref(intent)
+        brief_ref = _runtime_artifact_ref(brief)
+        strategy_ref = _runtime_artifact_ref(strategy_artifact)
+        decision_ref = _runtime_artifact_ref(decision)
+        if intent_ref not in brief.parent_refs:
+            raise SearchPortfolioError("working_brief lacks exact intent lineage")
+        if decision_ref not in strategy_artifact.parent_refs:
+            raise SearchPortfolioError("strategy lacks exact decision map lineage")
+        if registry is None:
+            if method_registry is None:
+                raise SearchPortfolioError("method registry is required when plan is not supplied")
+            registry_artifact = self._current(method_registry, run_id, METHOD_REGISTRY_KIND, "method_registry")
+            registry = self._registry_from_artifact(registry_artifact, run_id)
+            registry_ref = _runtime_artifact_ref(registry_artifact)
+        elif method_registry is None:
+            registry_artifact = self.register_methods(
+                run_id=run_id,
+                registry=registry,
+                expected_revision=expected_revision,
+            )
+            registry_ref = _runtime_artifact_ref(registry_artifact)
+            expected_revision = self.ledger.get_revision(run_id)
+        else:
+            registry_artifact = self._current(method_registry, run_id, METHOD_REGISTRY_KIND, "method_registry")
+            persisted_registry = self._registry_from_artifact(registry_artifact, run_id)
+            if persisted_registry.to_dict() != registry.to_dict():
+                raise SearchPortfolioError("method registry does not match the plan")
+            registry_ref = _runtime_artifact_ref(registry_artifact)
+        portfolio_value.validate_against(registry)
+        expected_lineage = {
+            "intent_model_ref": intent_ref,
+            "working_brief_ref": brief_ref,
+            "strategy_ref": strategy_ref,
+            "decision_map_ref": decision_ref,
+            "method_registry_ref": registry_ref,
+            "decision_slot_id": portfolio_value.slot_id,
+        }
+        query_variants = (
+            [
+                {
+                    "query_ref": rewrite.query_ref,
+                    "query_id": rewrite.query_ref,
+                    "subquestion_id": rewrite.subquestion_id,
+                    "method_id": rewrite.method_id,
+                    "provider_id": rewrite.provider_id,
+                    "intent_revision": rewrite.intent_revision,
+                    "brief_revision": rewrite.brief_revision,
+                    "strategy_revision": rewrite.strategy_revision,
+                    "decision_slot_id": rewrite.decision_slot_id,
+                    "evidence_deficit_revision": rewrite.evidence_deficit_revision,
+                    "evidence_class": rewrite.evidence_class,
+                    "decision_effect": rewrite.decision_effect,
+                    "closure_oracle": rewrite.closure_oracle,
+                    "stop_or_replan_trigger": rewrite.stop_or_replan_trigger,
+                }
+                for rewrite in plan.query_rewrites
+            ]
+            if plan is not None
+            else [
+                {
+                    "query_ref": query_ref,
+                    "query_id": query_ref,
+                    "method_id": selection.method_id,
+                    "provider_id": selection.provider_id,
+                }
+                for selection in portfolio_value.selected_methods
+                for query_ref in selection.query_refs
+            ]
+        )
+        planned_subquestions = (
+            [item.subquestion.to_dict() for item in plan.planned_subquestions]
+            if plan
+            else [item.to_dict() for item in portfolio_value.subquestions]
+        )
+        method_selection = [
+            {**selection.to_dict(), "status": "accepted"} for selection in portfolio_value.selected_methods
+        ]
+        payload = {
+            **portfolio_value.to_dict(),
+            "run_id": run_id,
+            "status": "active",
+            "lineage": {
+                key: value.to_dict() if isinstance(value, ArtifactRef) else value
+                for key, value in expected_lineage.items()
+            },
+            "subquestions": planned_subquestions,
+            "query_variants": query_variants,
+            "method_selection": method_selection,
+            "method_registry_ref": registry_ref.to_dict(),
+            "human_decision_reopen": bool(plan.human_decision_reopen) if plan else False,
+        }
+        parents = tuple(
+            expected_lineage[key]
+            for key in (
+                "intent_model_ref",
+                "working_brief_ref",
+                "strategy_ref",
+                "decision_map_ref",
+                "method_registry_ref",
+            )
+        )
+        existing = self._existing(run_id, portfolio_value.portfolio_id, SEARCH_PORTFOLIO_KIND)
+        if existing is not None:
+            if thaw_json(existing.payload) == payload:
+                return existing
+            raise SearchPortfolioError("portfolio id conflicts with an existing payload")
+        return self._append(
+            run_id,
+            portfolio_value.portfolio_id,
+            SEARCH_PORTFOLIO_KIND,
+            payload,
+            parents,
+            expected_revision,
+        )
+
+    def record_batch(
+        self,
+        *,
+        run_id: str,
+        batch: PortfolioBatch,
+        portfolio_ref: ArtifactRef,
+        finding_artifacts: Sequence[ArtifactRevision] = (),
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        run_id = _identifier(run_id, "run_id")
+        if not isinstance(batch, PortfolioBatch):
+            raise SearchPortfolioError("batch must be a PortfolioBatch")
+        portfolio = self.validate_persisted_portfolio(run_id=run_id, portfolio_ref=portfolio_ref)
+        if portfolio.payload.get("status") != "active" or portfolio.id != batch.portfolio_id:
+            raise SearchPortfolioError("batch portfolio is not active")
+        finding_refs = self._validate_findings(finding_artifacts, run_id)
+        portfolio_exact = _runtime_ref_in_run(portfolio_ref, run_id, "portfolio_ref")
+        selection_by_boundary = {
+            item.boundary: item
+            for item in SearchPortfolio.from_dict(self._portfolio_fields(portfolio.payload)).selected_methods
+        }
+        outcome_specs: list[tuple[str, str, Any, Sequence[ArtifactRef]]] = []
+        all_refs: list[ArtifactRef] = [portfolio_exact, *finding_refs]
+        for outcome in batch.outcomes:
+            selection = selection_by_boundary.get(outcome.boundary)
+            if selection is None or not set(outcome.query_refs).issubset(set(selection.query_refs)):
+                raise SearchPortfolioError("batch outcome is not bound to a selected query and method")
+            capture_refs = self._outcome_refs(outcome.capture_refs, run_id, "capture_refs")
+            receipt_refs = self._outcome_refs(outcome.receipt_refs, run_id, "receipt_refs")
+            checkpoint_refs = self._outcome_refs(outcome.checkpoint_refs, run_id, "checkpoint_refs")
+            for reference, kind in (
+                *[(item, "source-capture") for item in capture_refs],
+                *[(item, "acquisition-receipt") for item in receipt_refs],
+                *[(item, "analysis-checkpoint") for item in checkpoint_refs],
+            ):
+                self._stored(reference, run_id, kind, "batch lineage")
+            refs = tuple(
+                dict.fromkeys((portfolio_exact, *capture_refs, *receipt_refs, *checkpoint_refs, *finding_refs))
+            )
+            all_refs.extend(refs)
+            outcome_specs.append(
+                (outcome.outcome_id, METHOD_EXECUTION_OUTCOME_KIND, {"run_id": run_id, **outcome.to_dict()}, refs)
+            )
+        batch_payload = {
+            "run_id": run_id,
+            **batch.to_dict(),
+            "portfolio_ref": portfolio_exact.to_dict(),
+            "finding_refs": [reference.to_dict() for reference in finding_refs],
+            "status": "recorded",
+        }
+        batch_parents = tuple(
+            dict.fromkeys(
+                all_refs
+                + [
+                    ArtifactRef(run_id, outcome.outcome_id, self._next_artifact_revision(run_id, outcome.outcome_id))
+                    for outcome in batch.outcomes
+                ]
+            )
+        )
+        existing = self._existing(run_id, batch.batch_id, PORTFOLIO_BATCH_KIND)
+        if existing is not None:
+            if thaw_json(existing.payload) == batch_payload:
+                return existing
+            raise SearchPortfolioError("batch id conflicts with an existing payload")
+        try:
+            created = self.ledger.append_artifact_batch(
+                run_id,
+                (*outcome_specs, (batch.batch_id, PORTFOLIO_BATCH_KIND, batch_payload, batch_parents)),
+                expected_revision=expected_revision,
+            )
+        except LedgerConflictError as error:
+            raise SearchPortfolioError("stale ledger revision") from error
+        return created[-1]
+
+    def record_assessment(
+        self,
+        *,
+        run_id: str,
+        assessment: BatchCoverageAssessment,
+        portfolio_ref: ArtifactRef,
+        capture_artifacts: Sequence[ArtifactRevision],
+        receipt_artifacts: Sequence[ArtifactRevision],
+        checkpoint_artifacts: Sequence[ArtifactRevision],
+        expected_revision: int,
+        finding_artifacts: Sequence[ArtifactRevision] = (),
+        batch_ref: ArtifactRef | None = None,
+        successor_strategy: ArtifactRevision | None = None,
+    ) -> ArtifactRevision:
+        run_id = _identifier(run_id, "run_id")
+        if not isinstance(assessment, BatchCoverageAssessment):
+            raise SearchPortfolioError("assessment must be a BatchCoverageAssessment")
+        portfolio = self.validate_persisted_portfolio(run_id=run_id, portfolio_ref=portfolio_ref)
+        portfolio_exact = _runtime_ref_in_run(portfolio_ref, run_id, "portfolio_ref")
+        if portfolio.id != assessment.portfolio_id or portfolio.payload.get("status") != "active":
+            raise SearchPortfolioError("assessment portfolio is not active")
+        captures = self._bound_artifacts(
+            capture_artifacts, run_id, "source-capture", "capture_artifacts", statuses=("committed",)
+        )
+        receipts = self._bound_artifacts(
+            receipt_artifacts, run_id, "acquisition-receipt", "receipt_artifacts", statuses=("succeeded",)
+        )
+        checkpoints = self._bound_artifacts(checkpoint_artifacts, run_id, "analysis-checkpoint", "checkpoint_artifacts")
+        findings = self._validate_findings(finding_artifacts, run_id)
+        if assessment.evidence_disposition == "captured" and not captures:
+            raise SearchPortfolioError("captured assessment requires source captures")
+        if assessment.evidence_disposition == "captured" and not findings:
+            raise SearchPortfolioError("captured assessment requires finding lineage")
+        capture_refs = tuple(_runtime_artifact_ref(item) for item in captures)
+        receipt_refs = tuple(_runtime_artifact_ref(item) for item in receipts)
+        checkpoint_refs = tuple(_runtime_artifact_ref(item) for item in checkpoints)
+        capture_ids = {reference.artifact_id for reference in capture_refs}
+        for receipt in receipts:
+            capture_id = receipt.payload.get("capture_id")
+            if capture_id is not None and str(capture_id) not in capture_ids:
+                raise SearchPortfolioError("receipt capture lineage does not match assessment")
+        for checkpoint in checkpoints:
+            checkpoint_captures = checkpoint.payload.get("source_capture_refs", ())
+            if capture_refs and not any(
+                _runtime_ref_in_run(value, run_id, "checkpoint source_capture_ref") in capture_refs
+                for value in checkpoint_captures
+            ):
+                raise SearchPortfolioError("checkpoint capture lineage does not match assessment")
+        if set(assessment.capture_refs) != {f"{item.artifact_id}@{item.revision}" for item in capture_refs}:
+            raise SearchPortfolioError("assessment capture_refs do not match committed artifacts")
+        if set(assessment.receipt_refs) != {f"{item.artifact_id}@{item.revision}" for item in receipt_refs}:
+            raise SearchPortfolioError("assessment receipt_refs do not match committed artifacts")
+        if set(assessment.checkpoint_refs) != {f"{item.artifact_id}@{item.revision}" for item in checkpoint_refs}:
+            raise SearchPortfolioError("assessment checkpoint_refs do not match committed artifacts")
+        for artifact in (*captures, *receipts, *checkpoints):
+            if assessment.attempt_id is not None and str(artifact.payload.get("attempt_id")) != assessment.attempt_id:
+                raise SearchPortfolioError("assessment artifact belongs to another attempt")
+        strategy_ref = self._validate_successor_strategy(portfolio, successor_strategy, run_id, assessment)
+        batch_exact = None
+        if batch_ref is not None:
+            batch_exact = _runtime_ref_in_run(batch_ref, run_id, "batch_ref")
+            self._stored(batch_exact, run_id, PORTFOLIO_BATCH_KIND, "batch_ref")
+        parent_values: list[ArtifactRef] = [portfolio_exact]
+        if batch_exact is not None:
+            parent_values.append(batch_exact)
+        parent_values.extend((*capture_refs, *receipt_refs, *checkpoint_refs, *findings))
+        if strategy_ref is not None:
+            parent_values.append(strategy_ref)
+        parents = tuple(dict.fromkeys(parent_values))
+        payload = {
+            "schema_version": BATCH_COVERAGE_ASSESSMENT_SCHEMA_VERSION,
+            "kind": BATCH_COVERAGE_ASSESSMENT_KIND,
+            "run_id": run_id,
+            "portfolio_ref": portfolio_exact.to_dict(),
+            "batch_ref": batch_exact.to_dict() if batch_exact else None,
+            "finding_refs": [reference.to_dict() for reference in findings],
+            "assessment": assessment.to_dict(),
+            "status": "recorded",
+        }
+        assessment_ref = ArtifactRef(
+            run_id, assessment.assessment_id, self._next_artifact_revision(run_id, assessment.assessment_id)
+        )
+        decision_id = f"decision-{assessment.assessment_id}"
+        decision_payload = {
+            "schema_version": PORTFOLIO_DECISION_SCHEMA_VERSION,
+            "kind": PORTFOLIO_DECISION_KIND,
+            "run_id": run_id,
+            "portfolio_ref": portfolio_exact.to_dict(),
+            "assessment_ref": assessment_ref.to_dict(),
+            "decision": assessment.disposition,
+            "next_actions": list(assessment.next_actions),
+            "authority_disposition": assessment.authority_disposition,
+            "status": "awaiting-human-reopen"
+            if assessment.authority_disposition == "requires_requester_reopen"
+            else "recorded",
+            "successor_strategy_ref": strategy_ref.to_dict() if strategy_ref else None,
+        }
+        existing = self._existing(run_id, assessment.assessment_id, BATCH_COVERAGE_ASSESSMENT_KIND)
+        if existing is not None:
+            return existing
+        try:
+            created = self.ledger.append_artifact_batch(
+                run_id,
+                (
+                    (assessment.assessment_id, BATCH_COVERAGE_ASSESSMENT_KIND, payload, parents),
+                    (
+                        decision_id,
+                        PORTFOLIO_DECISION_KIND,
+                        decision_payload,
+                        tuple([assessment_ref, *([strategy_ref] if strategy_ref is not None else [])]),
+                    ),
+                ),
+                expected_revision=expected_revision,
+            )
+        except LedgerConflictError as error:
+            raise SearchPortfolioError("stale ledger revision") from error
+        return created[0]
+
+    def record_execution(
+        self,
+        *,
+        run_id: str,
+        portfolio_ref: ArtifactRef,
+        execution: PortfolioExecution,
+        finding_artifacts_by_batch: Mapping[str, Sequence[ArtifactRevision]] | None = None,
+        capture_artifacts_by_batch: Mapping[str, Sequence[ArtifactRevision]] | None = None,
+        receipt_artifacts_by_batch: Mapping[str, Sequence[ArtifactRevision]] | None = None,
+        checkpoint_artifacts_by_batch: Mapping[str, Sequence[ArtifactRevision]] | None = None,
+        expected_revision: int,
+    ) -> tuple[ArtifactRevision, ...]:
+        if not isinstance(execution, PortfolioExecution):
+            raise SearchPortfolioError("execution must be a PortfolioExecution")
+        finding_map = finding_artifacts_by_batch or {}
+        capture_map = capture_artifacts_by_batch or {}
+        receipt_map = receipt_artifacts_by_batch or {}
+        checkpoint_map = checkpoint_artifacts_by_batch or {}
+        results: list[ArtifactRevision] = []
+        for batch, assessment in zip(execution.batches, execution.assessments):
+            batch_artifact = self.record_batch(
+                run_id=run_id,
+                batch=batch,
+                portfolio_ref=portfolio_ref,
+                finding_artifacts=finding_map.get(batch.batch_id, ()),
+                expected_revision=expected_revision,
+            )
+            expected_revision = self.ledger.get_revision(run_id)
+            assessment_artifact = self.record_assessment(
+                run_id=run_id,
+                assessment=assessment,
+                portfolio_ref=portfolio_ref,
+                batch_ref=_runtime_artifact_ref(batch_artifact),
+                capture_artifacts=capture_map.get(batch.batch_id, ()),
+                receipt_artifacts=receipt_map.get(batch.batch_id, ()),
+                checkpoint_artifacts=checkpoint_map.get(batch.batch_id, ()),
+                finding_artifacts=finding_map.get(batch.batch_id, ()),
+                expected_revision=expected_revision,
+            )
+            expected_revision = self.ledger.get_revision(run_id)
+            results.extend((batch_artifact, assessment_artifact))
+        return tuple(results)
+
+    def validate_persisted_portfolio(self, *, run_id: str, portfolio_ref: ArtifactRef) -> ArtifactRevision:
+        run_id = _identifier(run_id, "run_id")
+        portfolio = self._stored(
+            _runtime_ref_in_run(portfolio_ref, run_id, "portfolio_ref"), run_id, SEARCH_PORTFOLIO_KIND, "portfolio_ref"
+        )
+        if not self.ledger.is_latest_artifact(_runtime_artifact_ref(portfolio)):
+            raise SearchPortfolioError("portfolio_ref must identify a current portfolio")
+        payload = self._portfolio_fields(portfolio.payload)
+        parsed = SearchPortfolio.from_dict(payload)
+        registry_ref_value = portfolio.payload.get("method_registry_ref") or portfolio.payload.get("lineage", {}).get(
+            "method_registry_ref"
+        )
+        registry_ref = _runtime_ref_in_run(registry_ref_value, run_id, "method_registry_ref")
+        registry_artifact = self._stored(registry_ref, run_id, METHOD_REGISTRY_KIND, "method_registry_ref")
+        parsed.validate_against(self._registry_from_artifact(registry_artifact, run_id))
+        if registry_ref not in portfolio.parent_refs:
+            raise SearchPortfolioError("portfolio lacks method registry lineage")
+        return portfolio
+
+    def validate_recorded_assessment(
+        self,
+        *,
+        run_id: str,
+        assessment_ref: ArtifactRef,
+        portfolio_ref: ArtifactRef,
+        attempt_id: str,
+        expected_method_id: str | None = None,
+        expected_provider_id: str | None = None,
+    ) -> ArtifactRevision:
+        portfolio = self.validate_persisted_portfolio(run_id=run_id, portfolio_ref=portfolio_ref)
+        assessment = self._stored(
+            _runtime_ref_in_run(assessment_ref, run_id, "assessment_ref"),
+            run_id,
+            BATCH_COVERAGE_ASSESSMENT_KIND,
+            "assessment_ref",
+        )
+        if not self.ledger.is_latest_artifact(_runtime_artifact_ref(assessment)):
+            raise SearchPortfolioError("assessment_ref must identify a current assessment")
+        payload = thaw_json(assessment.payload)
+        if payload.get("portfolio_ref") != _runtime_ref_in_run(portfolio_ref, run_id, "portfolio_ref").to_dict():
+            raise SearchPortfolioError("assessment lacks exact portfolio lineage")
+        value = BatchCoverageAssessment.from_dict(payload["assessment"])
+        if value.attempt_id != attempt_id or value.portfolio_id != portfolio.id:
+            raise SearchPortfolioError("assessment does not match worker attempt")
+        for name, kind in (
+            ("capture_refs", "source-capture"),
+            ("receipt_refs", "acquisition-receipt"),
+            ("checkpoint_refs", "analysis-checkpoint"),
+        ):
+            for raw_ref in getattr(value, name):
+                reference = _runtime_ref_in_run(raw_ref, run_id, name)
+                if reference not in assessment.parent_refs:
+                    raise SearchPortfolioError(f"assessment {name} are not parents")
+                self._stored(reference, run_id, kind, name)
+        for raw_ref in payload.get("finding_refs", ()):
+            reference = _runtime_ref_in_run(raw_ref, run_id, "finding_ref")
+            if reference not in assessment.parent_refs:
+                raise SearchPortfolioError("assessment finding lineage is incomplete")
+            self._stored(reference, run_id, "finding-pack", "finding_ref")
+        if expected_method_id or expected_provider_id:
+            outcome_refs: list[ArtifactRef] = [
+                reference
+                for reference in assessment.parent_refs
+                if self._kind_at(reference) == METHOD_EXECUTION_OUTCOME_KIND
+            ]
+            batch_value = payload.get("batch_ref")
+            if isinstance(batch_value, Mapping):
+                batch_artifact = self._stored(
+                    ArtifactRef.from_dict(batch_value),
+                    run_id,
+                    PORTFOLIO_BATCH_KIND,
+                    "batch_ref",
+                )
+                outcome_refs.extend(
+                    reference
+                    for reference in batch_artifact.parent_refs
+                    if self._kind_at(reference) == METHOD_EXECUTION_OUTCOME_KIND
+                )
+            outcomes = [
+                self._stored(reference, run_id, METHOD_EXECUTION_OUTCOME_KIND, "method outcome")
+                for reference in dict.fromkeys(outcome_refs)
+            ]
+            if not outcomes or any(
+                expected_method_id is not None
+                and item.payload.get("method_id") != expected_method_id
+                or expected_provider_id is not None
+                and item.payload.get("provider_id") != expected_provider_id
+                for item in outcomes
+            ):
+                raise SearchPortfolioError("assessment method boundary does not match worker")
+        return assessment
+
+    def _append(
+        self,
+        run_id: str,
+        artifact_id: str,
+        kind: str,
+        payload: Mapping[str, Any],
+        parent_refs: Sequence[ArtifactRef],
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        try:
+            return self.ledger.append_artifact(
+                run_id,
+                artifact_id,
+                kind,
+                payload,
+                parent_refs=parent_refs,
+                expected_revision=expected_revision,
+            )
+        except LedgerConflictError as error:
+            raise SearchPortfolioError("stale ledger revision") from error
+
+    def _existing(self, run_id: str, artifact_id: str, kind: str) -> ArtifactRevision | None:
+        candidates = [
+            item for item in self.ledger.list_artifacts(run_id) if item.id == artifact_id and item.kind == kind
+        ]
+        return max(candidates, key=lambda item: item.revision) if candidates else None
+
+    def _next_artifact_revision(self, run_id: str, artifact_id: str) -> int:
+        return (
+            max((item.revision for item in self.ledger.list_artifacts(run_id) if item.id == artifact_id), default=0) + 1
+        )
+
+    def _stored(self, reference: ArtifactRef, run_id: str, kind: str, label: str) -> ArtifactRevision:
+        if reference.round_id != run_id:
+            raise SearchPortfolioError(f"{label} belongs to another run")
+        try:
+            artifact = self.ledger.get_artifact(reference)
+        except (RuntimeStoreError, TypeError, ValueError) as error:
+            raise SearchPortfolioError(f"{label} is unresolved") from error
+        if artifact.kind != kind:
+            raise SearchPortfolioError(f"{label} must identify {kind}")
+        if not self.ledger.is_latest_artifact(reference):
+            raise SearchPortfolioError(f"{label} is stale")
+        return artifact
+
+    def _current(self, value: ArtifactRevision, run_id: str, kind: str, label: str) -> ArtifactRevision:
+        if not isinstance(value, ArtifactRevision):
+            raise SearchPortfolioError(f"{label} must be an ArtifactRevision")
+        return self._stored(_runtime_artifact_ref(value), run_id, kind, label)
+
+    def _registry_from_artifact(self, artifact: ArtifactRevision, run_id: str) -> MethodRegistry:
+        payload = thaw_json(artifact.payload)
+        if payload.get("run_id") != run_id:
+            raise SearchPortfolioError("method registry belongs to another run")
+        try:
+            return MethodRegistry.from_dict(
+                {
+                    "schema_version": payload["schema_version"],
+                    "kind": payload["kind"],
+                    "registry_id": payload["registry_id"],
+                    "registrations": payload["registrations"],
+                }
+            )
+        except (KeyError, TypeError, ValueError, RuntimeStoreError) as error:
+            raise SearchPortfolioError("method registry payload is invalid") from error
+
+    @staticmethod
+    def _portfolio_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
+        fields = {
+            "schema_version",
+            "kind",
+            "portfolio_id",
+            "run_id",
+            "slot_id",
+            "intent_revision",
+            "brief_revision",
+            "subquestions",
+            "selected_methods",
+            "rejected_methods",
+            "reassessment_policy",
+            "status",
+        }
+        return {key: payload[key] for key in fields if key in payload}
+
+    def _bound_artifacts(
+        self,
+        values: Sequence[ArtifactRevision],
+        run_id: str,
+        kind: str,
+        label: str,
+        statuses: Sequence[str] = (),
+    ) -> tuple[ArtifactRevision, ...]:
+        result: list[ArtifactRevision] = []
+        for value in values:
+            if not isinstance(value, ArtifactRevision):
+                raise SearchPortfolioError(f"{label} must contain ArtifactRevision values")
+            artifact = self._stored(_runtime_artifact_ref(value), run_id, kind, label)
+            if statuses and artifact.payload.get("status") not in statuses:
+                raise SearchPortfolioError(f"{label} contains an unavailable artifact")
+            result.append(artifact)
+        return tuple(result)
+
+    def _validate_findings(self, values: Sequence[ArtifactRevision], run_id: str) -> tuple[ArtifactRef, ...]:
+        result: list[ArtifactRef] = []
+        for value in values:
+            if not isinstance(value, ArtifactRevision):
+                raise SearchPortfolioError("finding_artifacts must contain ArtifactRevision values")
+            result.append(
+                _runtime_artifact_ref(self._stored(_runtime_artifact_ref(value), run_id, "finding-pack", "finding"))
+            )
+        return tuple(result)
+
+    def _outcome_refs(self, values: Sequence[str], run_id: str, label: str) -> tuple[ArtifactRef, ...]:
+        return tuple(_runtime_ref_in_run(value, run_id, label) for value in values)
+
+    def _kind_at(self, reference: ArtifactRef) -> str:
+        try:
+            return self.ledger.get_artifact(reference).kind
+        except RuntimeStoreError:
+            return ""
+
+    def _validate_successor_strategy(
+        self,
+        portfolio: ArtifactRevision,
+        successor: ArtifactRevision | None,
+        run_id: str,
+        assessment: BatchCoverageAssessment,
+    ) -> ArtifactRef | None:
+        if assessment.disposition != "pivot":
+            if successor is not None:
+                raise SearchPortfolioError("successor strategy is only valid for a pivot")
+            return None
+        if successor is None:
+            raise SearchPortfolioError("pivot requires a persisted successor strategy")
+        reference = _runtime_artifact_ref(
+            self._stored(_runtime_artifact_ref(successor), run_id, successor.kind, "successor_strategy")
+        )
+        lineage = portfolio.payload.get("lineage")
+        previous = lineage.get("strategy_ref") if isinstance(lineage, Mapping) else None
+        previous_ref = _runtime_ref_in_run(previous, run_id, "strategy_ref")
+        if previous_ref not in successor.parent_refs:
+            raise SearchPortfolioError("successor strategy must preserve the superseded strategy lineage")
+        return reference
+
+
 class SearchPortfolioExecutor:
     """Validate selected boundaries and assess dependency-ready execution waves."""
 
@@ -1783,8 +2487,11 @@ __all__ = [
     "PORTFOLIO_BATCH_SCHEMA_VERSION",
     "PORTFOLIO_EXECUTION_KIND",
     "PORTFOLIO_EXECUTION_SCHEMA_VERSION",
+    "PORTFOLIO_DECISION_KIND",
+    "PORTFOLIO_DECISION_SCHEMA_VERSION",
     "PortfolioBatch",
     "PortfolioExecution",
+    "SearchPortfolioService",
     "PLANNING_COVERAGE",
     "REASSESSMENT_DISPOSITIONS",
     "REJECTION_REASONS",

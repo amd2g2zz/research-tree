@@ -377,6 +377,27 @@ def test_dispatch_requires_executable_oracle_and_recovery_quarantines_lease(tmp_
     assert coordinator.recover("run-57")["reconciled_attempts"] == []
 
 
+def test_acquisition_dispatch_requires_current_portfolio_reference(tmp_path) -> None:
+    ledger, coordinator, _, _, _ = _initialize(tmp_path)
+    _confirm_strategy(ledger, coordinator)
+
+    with pytest.raises(CoordinatorConflictError, match="search_portfolio_required"):
+        coordinator.dispatch(
+            run_id="run-57",
+            work_item={
+                "work_item_id": "acquisition-without-portfolio",
+                "objective": "Acquire a source-bound implementation finding.",
+                "success_oracle": "oracle-1",
+                "acquisition": True,
+                "decision_slot_id": "slot-1",
+                "query_id": "query-1",
+                "method_id": "web-search",
+            },
+            worker_id="worker-1",
+            expected_revision=ledger.get_revision("run-57"),
+        )
+
+
 def test_decision_frame_gate_rejects_unready_without_mutation(tmp_path) -> None:
     ledger, coordinator, _, _, _ = _initialize(tmp_path)
     frame = _ready_frame()

@@ -7,8 +7,11 @@ import pytest
 
 from research_tree import (
     ACQUISITION_DISPOSITIONS,
+    ArtifactRef,
     BATCH_DECISIONS,
     BatchCoverageAssessment,
+    ContentAddressedStore,
+    DurableSourceCaptureService,
     IntentDerivedSearchPortfolioPlanner,
     InvalidSearchPortfolioError,
     MethodExecutionOutcome,
@@ -17,6 +20,8 @@ from research_tree import (
     MethodSelection,
     PortfolioBatch,
     SearchPortfolioExecutor,
+    SearchPortfolioService,
+    RunLedger,
     ReassessmentPolicy,
     RejectedMethod,
     SearchPortfolio,
@@ -502,3 +507,198 @@ def test_batch_assessment_records_all_decision_metrics_and_pivots_on_contradicti
     assert assessment.requires_deeper_work is True
     assert assessment.to_dict() == BatchCoverageAssessment.from_dict(assessment.to_dict()).to_dict()
     assert b"private_prompt" not in assessment.canonical_json_bytes()
+
+
+def test_runtime_service_persists_complete_portfolio_lineage_and_decision(tmp_path) -> None:
+    ledger = RunLedger(tmp_path)
+    ledger.create_run("run-lineage")
+    intent = ledger.append_artifact(
+        "run-lineage",
+        "intent-1",
+        "intent-model",
+        {"task_id": "task-1", "revision": "intent-1"},
+        expected_revision=ledger.get_revision("run-lineage"),
+    )
+    brief = ledger.append_artifact(
+        "run-lineage",
+        "brief-1",
+        "working-brief",
+        {"task_id": "task-1", "domain_id": "domain-1", "revision": "brief-1"},
+        parent_refs=(ArtifactRef("run-lineage", intent.id, intent.revision),),
+        expected_revision=ledger.get_revision("run-lineage"),
+    )
+    target = ledger.append_artifact(
+        "run-lineage",
+        "target-1",
+        "blueprint-target",
+        {"decision_slots": [{"id": "slot-1"}]},
+        parent_refs=(ArtifactRef("run-lineage", brief.id, brief.revision),),
+        expected_revision=ledger.get_revision("run-lineage"),
+    )
+    strategy = ledger.append_artifact(
+        "run-lineage",
+        "strategy-1",
+        "strategy-projection",
+        {"revision": "strategy-1"},
+        parent_refs=(ArtifactRef("run-lineage", target.id, target.revision),),
+        expected_revision=ledger.get_revision("run-lineage"),
+    )
+    method_registry = registry(
+        registration("web-search", "provider-a"),
+        registration("repository-inspection", "provider-b"),
+    )
+    plan = IntentDerivedSearchPortfolioPlanner(method_registry).plan(
+        portfolio_id="portfolio-lineage",
+        run_id="run-lineage",
+        intent_revision="intent-1",
+        brief_revision="brief-1",
+        strategy_revision="strategy-1",
+        decision_slot_id="slot-1",
+        slot_question="Which implementation boundary is decisive?",
+        evidence_deficit_revision="deficit-1",
+        evidence_deficit="The implementation boundary is not closed.",
+        closure_oracle="Independent source and repository evidence agree.",
+        assumptions=("The selected decision slot remains current.",),
+    )
+    service = SearchPortfolioService(ledger)
+    registry_artifact = service.register_methods(
+        run_id="run-lineage",
+        registry=method_registry,
+        expected_revision=ledger.get_revision("run-lineage"),
+    )
+    portfolio_artifact = service.plan(
+        run_id="run-lineage",
+        plan=plan,
+        intent_model=intent,
+        working_brief=brief,
+        strategy=strategy,
+        decision_map=target,
+        method_registry=registry_artifact,
+        expected_revision=ledger.get_revision("run-lineage"),
+    )
+    query_ref = plan.query_rewrites[0].query_ref
+    capture_service = DurableSourceCaptureService(ledger, ContentAddressedStore(tmp_path))
+    capture = capture_service.capture(
+        run_id="run-lineage",
+        capture_id="capture-1",
+        attempt_id="attempt-1",
+        data=b"implementation evidence",
+        media_type="text/plain",
+        method_id=plan.query_rewrites[0].method_id,
+        provider_id=plan.query_rewrites[0].provider_id,
+        expected_revision=ledger.get_revision("run-lineage"),
+    )
+    receipt = capture_service.receipt(
+        run_id="run-lineage",
+        receipt_id="receipt-1",
+        capture=capture,
+        attempt_id="attempt-1",
+        method_id=plan.query_rewrites[0].method_id,
+        provider_id=plan.query_rewrites[0].provider_id,
+        expected_revision=ledger.get_revision("run-lineage"),
+    )
+    checkpoint = capture_service.checkpoint(
+        run_id="run-lineage",
+        checkpoint_id="checkpoint-1",
+        attempt_id="attempt-1",
+        action_id="action-1",
+        source_capture_refs=(capture.artifact_ref,),
+        facts=({"claim": "implementation evidence is captured"},),
+        expected_revision=ledger.get_revision("run-lineage"),
+    )
+    finding = ledger.append_artifact(
+        "run-lineage",
+        "finding-1",
+        "finding-pack",
+        {"attempt_id": "attempt-1", "status": "committed"},
+        parent_refs=(checkpoint.artifact_ref,),
+        expected_revision=ledger.get_revision("run-lineage"),
+    )
+    outcome = MethodExecutionOutcome(
+        outcome_id="outcome-1",
+        portfolio_id=plan.portfolio.portfolio_id,
+        batch_id="batch-1",
+        method_id=plan.query_rewrites[0].method_id,
+        provider_id=plan.query_rewrites[0].provider_id,
+        failure_boundary=plan.portfolio.selected_methods[0].failure_boundary,
+        selection_reason=plan.portfolio.selected_methods[0].selection_reason,
+        disposition="captured",
+        query_refs=(query_ref,),
+        capture_refs=(f"{capture.artifact_ref.artifact_id}@{capture.artifact_ref.revision}",),
+        receipt_refs=(f"{receipt.artifact_ref.artifact_id}@{receipt.artifact_ref.revision}",),
+        checkpoint_refs=(f"{checkpoint.artifact_ref.artifact_id}@{checkpoint.artifact_ref.revision}",),
+        coverage="complete",
+        novelty="new",
+        source_quality="high",
+        source_depth="full-source",
+        unresolved_decision_risk="low",
+    )
+    batch = PortfolioBatch("batch-1", plan.portfolio.portfolio_id, (outcome,))
+    assessment = assess_acquisition_batch(
+        assessment_id="assessment-1",
+        portfolio_id=plan.portfolio.portfolio_id,
+        batch_id="batch-1",
+        outcomes=(outcome,),
+        decision_slot_id="slot-1",
+        attempt_id="attempt-1",
+        next_actions=("submit-for-closure-assessment",),
+        disposition="stop",
+    )
+    batch_artifact = service.record_batch(
+        run_id="run-lineage",
+        batch=batch,
+        portfolio_ref=ArtifactRef("run-lineage", portfolio_artifact.id, portfolio_artifact.revision),
+        finding_artifacts=(finding,),
+        expected_revision=ledger.get_revision("run-lineage"),
+    )
+    assessment_artifact = service.record_assessment(
+        run_id="run-lineage",
+        assessment=assessment,
+        portfolio_ref=ArtifactRef("run-lineage", portfolio_artifact.id, portfolio_artifact.revision),
+        batch_ref=ArtifactRef("run-lineage", batch_artifact.id, batch_artifact.revision),
+        capture_artifacts=(ledger.get_artifact(capture.artifact_ref),),
+        receipt_artifacts=(ledger.get_artifact(receipt.artifact_ref),),
+        checkpoint_artifacts=(ledger.get_artifact(checkpoint.artifact_ref),),
+        finding_artifacts=(finding,),
+        expected_revision=ledger.get_revision("run-lineage"),
+    )
+
+    artifacts = ledger.list_artifacts("run-lineage")
+    decision = next(item for item in artifacts if item.kind == "portfolio-decision")
+    assert registry_artifact.kind == "method-registry"
+    assert {item for item in (intent.id, brief.id, strategy.id, target.id, registry_artifact.id)} <= {
+        reference.artifact_id for reference in portfolio_artifact.parent_refs
+    }
+    assert ArtifactRef("run-lineage", portfolio_artifact.id, portfolio_artifact.revision) in batch_artifact.parent_refs
+    assert ArtifactRef("run-lineage", batch_artifact.id, batch_artifact.revision) in assessment_artifact.parent_refs
+    assert ArtifactRef("run-lineage", finding.id, finding.revision) in assessment_artifact.parent_refs
+    assert decision.payload["decision"] == "stop"
+
+
+def test_policy_consumes_persisted_assessment_without_becoming_persistence_authority() -> None:
+    from research_tree import AdaptiveResearchPolicy
+
+    evaluation = AdaptiveResearchPolicy().evaluate(
+        slots=(
+            {
+                "slot_id": "slot-1",
+                "question": "Which mechanism is decisive?",
+                "closure_oracle": "two independent sources agree",
+                "missing_dimensions": ("evidence_class_coverage",),
+            },
+        ),
+        portfolio_assessments=(
+            {
+                "portfolio_id": "portfolio-1",
+                "batch_id": "batch-1",
+                "decision_slot_id": "slot-1",
+                "attempt_id": "attempt-1",
+                "disposition": "pivot",
+                "evidence_disposition": "captured",
+                "causal_refs": ("assessment-1",),
+            },
+        ),
+    )
+
+    assert evaluation.trace.normalized_inputs["portfolio_assessments"][0]["disposition"] == "pivot"
+    assert evaluation.proposals

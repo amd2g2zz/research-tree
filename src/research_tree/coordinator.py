@@ -37,6 +37,7 @@ from .feedback import (
 )
 from .run_ledger import LedgerConflictError, RunLedger
 from .source_capture import ACQUISITION_RECEIPT_KIND, ANALYSIS_CHECKPOINT_KIND, SOURCE_CAPTURE_KIND
+from .search_portfolio import SearchPortfolioError, SearchPortfolioService
 
 FINDING_PACK_KIND = "finding-pack"
 
@@ -1360,6 +1361,8 @@ class ResearchRunCoordinator:
             if expiry.tzinfo is None or expiry <= datetime.now(timezone.utc):
                 raise CoordinatorConflictError("lease_expired")
         work_item = lease_payload.get("work_item")
+        if any(envelope.kind == "worker_finished" for envelope in envelopes):
+            self._require_acquisition_assessment(run_id, lease, envelopes)
         if isinstance(work_item, Mapping):
             for event_value, keys, label in (
                 (envelopes[0].decision_slot_id, ("decision_slot_id", "slot_id"), "decision_slot"),
@@ -1436,6 +1439,64 @@ class ResearchRunCoordinator:
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
         return tuple(created[::2])
+
+    def _require_acquisition_assessment(
+        self,
+        run_id: str,
+        lease: ArtifactRevision,
+        envelopes: Sequence[HostEvent],
+    ) -> None:
+        work_item = lease.payload.get("work_item")
+        if not isinstance(work_item, Mapping) or work_item.get("acquisition") is not True:
+            return
+        portfolio_value = work_item.get("search_portfolio_ref")
+        method_id = work_item.get("method_id")
+        provider_id = work_item.get("provider_id")
+        if not isinstance(portfolio_value, Mapping) or not isinstance(method_id, str) or not method_id.strip():
+            raise CoordinatorConflictError("search_portfolio_assessment_required")
+        try:
+            portfolio_ref = ArtifactRef.from_dict(portfolio_value)
+            service = SearchPortfolioService(self.ledger)
+            service.validate_persisted_portfolio(run_id=run_id, portfolio_ref=portfolio_ref)
+            portfolio = self.ledger.get_artifact(portfolio_ref)
+            query_id = work_item.get("query_id", work_item.get("query_ref"))
+            queries = portfolio.payload.get("query_variants", ())
+            query = next(
+                (
+                    item
+                    for item in queries
+                    if isinstance(item, Mapping)
+                    and item.get("query_ref", item.get("query_id")) == query_id
+                    and item.get("method_id") == method_id
+                ),
+                None,
+            )
+            if query is None:
+                raise SearchPortfolioError("query is not selected")
+            resolved_provider = str(query.get("provider_id", ""))
+            if provider_id is not None and str(provider_id) != resolved_provider:
+                raise SearchPortfolioError("provider binding mismatch")
+        except (RuntimeStoreError, SearchPortfolioError, TypeError, ValueError, StopIteration) as error:
+            raise CoordinatorConflictError("search_portfolio_assessment_required") from error
+        for envelope in envelopes:
+            if envelope.kind != "worker_finished":
+                continue
+            outcome = envelope.payload.get("outcome")
+            assessment_value = outcome.get("assessment_ref") if isinstance(outcome, Mapping) else None
+            if not isinstance(assessment_value, Mapping):
+                raise CoordinatorConflictError("search_portfolio_assessment_required")
+            try:
+                assessment_ref = ArtifactRef.from_dict(assessment_value)
+                service.validate_recorded_assessment(
+                    run_id=run_id,
+                    assessment_ref=assessment_ref,
+                    portfolio_ref=portfolio_ref,
+                    attempt_id=lease.id,
+                    expected_method_id=str(method_id),
+                    expected_provider_id=resolved_provider,
+                )
+            except (RuntimeStoreError, SearchPortfolioError, TypeError, ValueError) as error:
+                raise CoordinatorConflictError("search_portfolio_assessment_required") from error
 
     def _validate_host_event_payload(self, event: HostEvent, *, run_id: str, attempt_id: str) -> None:
         payload = event.payload
@@ -1613,6 +1674,51 @@ class ResearchRunCoordinator:
         )
         if current.payload.get("strategy_display_digest") != projection.display_digest:
             raise CoordinatorConflictError("strategy_projection_stale")
+        portfolio_artifact: ArtifactRevision | None = None
+        if work_item.get("acquisition") is True:
+            portfolio_value = work_item.get("search_portfolio_ref")
+            method_id = work_item.get("method_id")
+            query_id = work_item.get("query_id", work_item.get("query_ref"))
+            if not isinstance(portfolio_value, Mapping):
+                raise CoordinatorConflictError("search_portfolio_required")
+            try:
+                portfolio_ref = ArtifactRef.from_dict(portfolio_value)
+                portfolio_artifact = SearchPortfolioService(self.ledger).validate_persisted_portfolio(
+                    run_id=run_id,
+                    portfolio_ref=portfolio_ref,
+                )
+                if portfolio_artifact.payload.get("status") != "active":
+                    raise SearchPortfolioError("portfolio is not active")
+                lineage = portfolio_artifact.payload.get("lineage")
+                if not isinstance(lineage, Mapping):
+                    raise SearchPortfolioError("portfolio lineage is missing")
+                portfolio_strategy = _ref(lineage.get("strategy_ref"), "portfolio strategy_ref")
+                portfolio_target = _ref(lineage.get("decision_map_ref"), "portfolio decision_map_ref")
+                current_strategy = ArtifactRef(run_id, projection_artifact.id, projection_artifact.revision)
+                if portfolio_strategy != current_strategy or portfolio_target != projection.target_ref:
+                    raise SearchPortfolioError("portfolio is bound to stale strategy or decision map")
+                if not isinstance(method_id, str) or not method_id.strip() or not isinstance(query_id, str):
+                    raise SearchPortfolioError("portfolio method and query are required")
+                queries = portfolio_artifact.payload.get("query_variants", ())
+                query = next(
+                    (
+                        item
+                        for item in queries
+                        if isinstance(item, Mapping)
+                        and item.get("query_ref", item.get("query_id")) == query_id
+                        and item.get("method_id") == method_id
+                    ),
+                    None,
+                )
+                selections = portfolio_artifact.payload.get("method_selection", ())
+                selected = next(
+                    (item for item in selections if isinstance(item, Mapping) and item.get("method_id") == method_id),
+                    None,
+                )
+                if query is None or selected is None or selected.get("status") != "accepted":
+                    raise SearchPortfolioError("portfolio method or query is not dispatchable")
+            except (RuntimeStoreError, SearchPortfolioError, TypeError, ValueError, StopIteration) as error:
+                raise CoordinatorConflictError("search_portfolio_invalid") from error
         selected_attempt = attempt_id or "attempt-" + hashlib.sha256(canonical_json_bytes(work_item)).hexdigest()[:24]
         validate_identifier(selected_attempt, "attempt_id")
         for item in self.ledger.load_run(run_id).artifacts:
@@ -1635,6 +1741,8 @@ class ResearchRunCoordinator:
         ]
         if frame_artifact is not None:
             parent_refs.append(ArtifactRef(run_id, frame_artifact.id, frame_artifact.revision))
+        if portfolio_artifact is not None:
+            parent_refs.append(ArtifactRef(run_id, portfolio_artifact.id, portfolio_artifact.revision))
         try:
             return self.ledger.append_artifact(
                 run_id,

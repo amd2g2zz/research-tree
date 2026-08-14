@@ -58,6 +58,7 @@
     { "issue": 178, "primary_group": 62, "supporting_groups": [], "capabilities": ["public-runstore-scheduler-surface-removal"], "openspec_change": "retire-public-runstore-scheduler-surface" },
     { "issue": 163, "primary_group": 48, "supporting_groups": [], "capabilities": ["typed-search-portfolio-contract"], "openspec_change": "define-typed-search-portfolio-contract" },
     { "issue": 185, "primary_group": 74, "supporting_groups": [48], "capabilities": ["intent-derived-search-portfolio-planning"], "openspec_change": "plan-intent-derived-search-portfolios" },
-    { "issue": 186, "primary_group": 75, "supporting_groups": [48, 74], "capabilities": ["multi-method-portfolio-execution"], "openspec_change": "execute-search-portfolio-batches" }
+    { "issue": 186, "primary_group": 75, "supporting_groups": [48, 74], "capabilities": ["multi-method-portfolio-execution"], "openspec_change": "execute-search-portfolio-batches" },
+    { "issue": 187, "primary_group": 76, "supporting_groups": [61, 62, 75], "capabilities": ["durable-search-portfolio-lineage"], "openspec_change": "integrate-search-portfolio-lineage" }
   ]
 }

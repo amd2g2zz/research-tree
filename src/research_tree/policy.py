@@ -266,6 +266,7 @@ class AdaptiveResearchPolicy:
         evidence: Sequence[VerifiedEvidence | Mapping[str, Any]] = (),
         signals: Sequence[InsightSignal | Mapping[str, Any]] = (),
         prior_outcomes: Sequence[Mapping[str, Any]] = (),
+        portfolio_assessments: Sequence[Mapping[str, Any]] = (),
         worker_suggestions: Sequence[Mapping[str, Any]] = (),
     ) -> PolicyEvaluation:
         normalized_slots = tuple(
@@ -285,11 +286,45 @@ class AdaptiveResearchPolicy:
             )
         )
         normalized_outcomes = tuple(sorted(_canonical(item) for item in prior_outcomes))
+        normalized_assessments = tuple(
+            sorted((_portfolio_assessment(item) for item in portfolio_assessments), key=lambda item: repr(item))
+        )
+        assessment_signals: list[InsightSignal] = []
+        for assessment in normalized_assessments:
+            slot_id = assessment.get("decision_slot_id")
+            if not slot_id:
+                continue
+            disposition = assessment["disposition"]
+            signal_name, flags = {
+                "pivot": ("contested", {"contradiction": True, "invalid_premise": True}),
+                "switch": ("method_switch", {"method_limitation": True}),
+                "deepen": ("thin", {"method_limitation": True}),
+                "rewrite": ("uncovered", {}),
+                "broaden": ("uncovered", {}),
+                "experiment": ("qualified", {"failed_oracle": True}),
+                "validate": ("qualified", {"failed_oracle": True}),
+            }.get(disposition, ("portfolio_observation", {}))
+            assessment_signals.append(
+                InsightSignal(
+                    slot_id=str(slot_id),
+                    signal=signal_name,
+                    source_refs=tuple(assessment["causal_refs"]),
+                    mandatory=True,
+                    **flags,
+                )
+            )
+        normalized_signals = tuple(
+            sorted(
+                (*normalized_signals, *assessment_signals),
+                key=lambda item: (item.slot_id, item.signal, item.source_refs),
+            )
+        )
         normalized_inputs = {
             "slots": [item.to_dict() for item in normalized_slots],
             "evidence": [item.to_dict() for item in normalized_evidence],
             "signals": [item.to_dict() for item in normalized_signals],
             "prior_outcomes": list(normalized_outcomes),
+            "portfolio_assessments": list(normalized_assessments),
         }
         input_digest = _digest(normalized_inputs)
         verified_refs = {item.evidence_id for item in normalized_evidence if item.verified} | {
@@ -301,6 +336,11 @@ class AdaptiveResearchPolicy:
         proposals: list[PolicyProposal] = []
         dispositions: list[PolicyDisposition] = []
         blocked_slots: set[str] = set()
+        blocked_slots.update(
+            str(item["decision_slot_id"])
+            for item in normalized_assessments
+            if item.get("decision_slot_id") and item["disposition"] == "blocked"
+        )
         for suggestion in worker_suggestions:
             slot_id = str(suggestion.get("slot_id", ""))
             trigger_refs = _strings(suggestion.get("trigger_refs", suggestion.get("evidence_refs", ())))
@@ -530,6 +570,47 @@ def _strings(value: Sequence[Any]) -> tuple[str, ...]:
     if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
         raise ValueError("value must be a sequence of strings")
     return tuple(sorted({str(item).strip() for item in value if str(item).strip()}))
+
+
+def _portfolio_assessment(value: Mapping[str, Any]) -> dict[str, Any]:
+    if hasattr(value, "policy_input") and callable(value.policy_input):
+        value = value.policy_input()
+    if not isinstance(value, Mapping):
+        raise ValueError("portfolio_assessments must contain mappings")
+    portfolio_id = str(value.get("portfolio_id", "")).strip()
+    batch_id = str(value.get("batch_id", "")).strip()
+    disposition = str(value.get("disposition", "")).strip()
+    evidence_disposition = str(value.get("evidence_disposition", "")).strip()
+    causal_refs = _strings(value.get("causal_refs", ()))
+    decision_slot_id = str(value.get("decision_slot_id", "")).strip() or None
+    attempt_id = str(value.get("attempt_id", "")).strip() or None
+    allowed_dispositions = {
+        "stop",
+        "rewrite",
+        "switch",
+        "deepen",
+        "experiment",
+        "pivot",
+        "blocked",
+        "broaden",
+        "validate",
+        "sufficient_for_slot",
+    }
+    if not portfolio_id or not batch_id or disposition not in allowed_dispositions:
+        raise ValueError("portfolio assessment is incomplete")
+    if not evidence_disposition:
+        raise ValueError("portfolio assessment requires evidence_disposition")
+    if not causal_refs:
+        raise ValueError("portfolio assessment requires causal_refs")
+    return {
+        "portfolio_id": portfolio_id,
+        "batch_id": batch_id,
+        "decision_slot_id": decision_slot_id,
+        "attempt_id": attempt_id,
+        "disposition": disposition,
+        "evidence_disposition": evidence_disposition,
+        "causal_refs": causal_refs,
+    }
 
 
 def _canonical(value: Any) -> Any:
