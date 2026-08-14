@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from research_tree.acceptance import DeliveryAcceptance, delivery_pair_digest
@@ -14,9 +16,13 @@ from research_tree.coordinator import (
     ResearchRunCoordinator,
 )
 from research_tree.domain import ArtifactRef
+from research_tree.feedback import CorrectionBinding
 from research_tree.decision_frame import DecisionFrame, IntentHypothesis
 from research_tree.run_ledger import RunLedger
 from research_tree.strategy_projection import StrategyProjection
+from test_search_portfolio_lineage import _coordinator as _portfolio_coordinator
+from test_search_portfolio_lineage import _parents as _portfolio_parents
+from test_search_portfolio_lineage import _pivot_correction, _values as _portfolio_values, durable_evidence
 
 
 def _append(ledger: RunLedger, run_id: str, artifact_id: str, kind: str, payload: dict, parents=()):
@@ -506,6 +512,100 @@ def test_corrections_preserve_round_or_create_explicit_successor(tmp_path) -> No
     )
     assert successor.payload["state"] == "superseded"
     assert ledger.load_run("run-57-next").record.parent_round_id == "run-57"
+
+
+def test_portfolio_pivot_uses_correction_quarantine_and_human_reopen_stays_pending(tmp_path) -> None:
+    pivot_ledger, pivot_coordinator, pivot_artifacts = _portfolio_coordinator(tmp_path / "pivot")
+    pivot_refs = durable_evidence(tmp_path / "pivot", pivot_ledger)
+    portfolio, execution = _portfolio_values(disposition="pivot")
+    pivot_lineage = pivot_coordinator.persist_search_portfolio_lineage(
+        run_id="run-portfolio",
+        attempt_id="attempt-1",
+        portfolio=portfolio,
+        execution=execution,
+        capture_refs=(pivot_refs[0],),
+        receipt_refs=(pivot_refs[1],),
+        checkpoint_refs=(pivot_refs[2],),
+        finding_refs=(pivot_refs[3],),
+        **_portfolio_parents(pivot_artifacts),
+        pivot_correction=_pivot_correction(pivot_artifacts),
+        expected_revision=pivot_ledger.get_revision("run-portfolio"),
+    )
+    pivot_ref = ArtifactRef("run-portfolio", pivot_lineage.id, pivot_lineage.revision)
+    assert pivot_ref in pivot_coordinator._quarantined_refs("run-portfolio")
+    assert "stale-state-quarantine" in [item.kind for item in pivot_ledger.load_run("run-portfolio").artifacts]
+    revision_after_pivot = pivot_ledger.get_revision("run-portfolio")
+    with pytest.raises(CoordinatorConflictError, match="portfolio_.*_reference_invalid"):
+        pivot_coordinator.persist_search_portfolio_lineage(
+            run_id="run-portfolio",
+            attempt_id="attempt-1",
+            portfolio=portfolio,
+            execution=execution,
+            capture_refs=(pivot_refs[0],),
+            receipt_refs=(pivot_refs[1],),
+            checkpoint_refs=(pivot_refs[2],),
+            finding_refs=(pivot_refs[3],),
+            **_portfolio_parents(pivot_artifacts),
+            pivot_correction=_pivot_correction(pivot_artifacts),
+            expected_revision=revision_after_pivot,
+        )
+    assert pivot_ledger.get_revision("run-portfolio") == revision_after_pivot
+
+    reopen_ledger, reopen_coordinator, reopen_artifacts = _portfolio_coordinator(tmp_path / "reopen")
+    reopen_refs = durable_evidence(tmp_path / "reopen", reopen_ledger)
+    portfolio, execution = _portfolio_values(disposition="blocked", authority="requires_requester_reopen")
+    reopen_coordinator.persist_search_portfolio_lineage(
+        run_id="run-portfolio",
+        attempt_id="attempt-1",
+        portfolio=portfolio,
+        execution=execution,
+        capture_refs=(reopen_refs[0],),
+        receipt_refs=(reopen_refs[1],),
+        checkpoint_refs=(reopen_refs[2],),
+        finding_refs=(reopen_refs[3],),
+        **_portfolio_parents(reopen_artifacts),
+        expected_revision=reopen_ledger.get_revision("run-portfolio"),
+    )
+    kinds = [item.kind for item in reopen_ledger.load_run("run-portfolio").artifacts]
+    assert "human-decision-reopen" in kinds
+    assert "same-round-replan" not in kinds
+    assert "stale-state-quarantine" not in kinds
+
+
+def test_invalid_portfolio_pivot_correction_leaves_no_current_lineage(tmp_path) -> None:
+    ledger, coordinator, artifacts = _portfolio_coordinator(tmp_path)
+    capture, receipt, checkpoint, finding = durable_evidence(tmp_path, ledger)
+    portfolio, execution = _portfolio_values(disposition="pivot")
+    correction = _pivot_correction(artifacts)
+    invalid = replace(
+        correction,
+        event_id="invalid-portfolio-pivot-correction",
+        affected={
+            **correction.affected,
+            "intent_model": CorrectionBinding(
+                "intent_model", correction.affected["intent_model"].artifact_ref, "0" * 64
+            ),
+        },
+    )
+    before = ledger.get_revision("run-portfolio")
+
+    with pytest.raises(CoordinatorConflictError, match="correction binding digest mismatch: intent_model"):
+        coordinator.persist_search_portfolio_lineage(
+            run_id="run-portfolio",
+            attempt_id="attempt-1",
+            portfolio=portfolio,
+            execution=execution,
+            capture_refs=(capture,),
+            receipt_refs=(receipt,),
+            checkpoint_refs=(checkpoint,),
+            finding_refs=(finding,),
+            **_portfolio_parents(artifacts),
+            pivot_correction=invalid,
+            expected_revision=before,
+        )
+
+    assert ledger.get_revision("run-portfolio") == before
+    assert not [item for item in ledger.load_run("run-portfolio").artifacts if item.kind == "search-portfolio-lineage"]
 
 
 def test_transition_batch_fault_rolls_back_event_and_state(tmp_path, monkeypatch) -> None:

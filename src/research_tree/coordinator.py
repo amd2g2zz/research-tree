@@ -37,8 +37,11 @@ from .feedback import (
 )
 from .run_ledger import LedgerConflictError, RunLedger
 from .source_capture import ACQUISITION_RECEIPT_KIND, ANALYSIS_CHECKPOINT_KIND, SOURCE_CAPTURE_KIND
+from .search_portfolio import PortfolioExecution, SearchPortfolio
 
 FINDING_PACK_KIND = "finding-pack"
+SEARCH_PORTFOLIO_LINEAGE_KIND = "search-portfolio-lineage"
+HUMAN_DECISION_REOPEN_KIND = "human-decision-reopen"
 
 
 LIFECYCLE_STATES = (
@@ -750,6 +753,153 @@ class ResearchRunCoordinator:
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
 
+    def persist_search_portfolio_lineage(
+        self,
+        *,
+        run_id: str,
+        attempt_id: str,
+        portfolio: SearchPortfolio,
+        execution: PortfolioExecution,
+        capture_refs: Sequence[ArtifactRef],
+        receipt_refs: Sequence[ArtifactRef],
+        checkpoint_refs: Sequence[ArtifactRef],
+        finding_refs: Sequence[ArtifactRef],
+        intent_ref: ArtifactRef,
+        brief_ref: ArtifactRef,
+        strategy_ref: ArtifactRef,
+        decision_map_ref: ArtifactRef,
+        pivot_correction: CorrectionEvent | None = None,
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        """Persist one evidence-bound SearchPortfolio execution for an attempt."""
+
+        if not isinstance(portfolio, SearchPortfolio) or not isinstance(execution, PortfolioExecution):
+            raise CoordinatorConflictError("search_portfolio_lineage_values_invalid")
+        validate_identifier(run_id, "run_id")
+        validate_identifier(attempt_id, "attempt_id")
+        if portfolio.run_id != run_id or execution.portfolio_id != portfolio.portfolio_id:
+            raise CoordinatorConflictError("search_portfolio_lineage_identity_mismatch")
+        intent = self._resolve_lineage_parent(run_id, intent_ref, "portfolio_intent", ("intent-model",))
+        brief = self._resolve_lineage_parent(run_id, brief_ref, "portfolio_brief", ("working-brief",))
+        strategy = self._resolve_lineage_parent(
+            run_id, strategy_ref, "portfolio_strategy", ("research-strategy", STRATEGY_PROJECTION_KIND)
+        )
+        decision_map = self._resolve_lineage_parent(
+            run_id, decision_map_ref, "portfolio_decision_map", ("blueprint-target",)
+        )
+        if intent.id != portfolio.intent_revision or brief.id != portfolio.brief_revision:
+            raise CoordinatorConflictError("search_portfolio_lineage_revision_mismatch")
+        slots = decision_map.payload.get("decision_slots", ())
+        if not any(isinstance(item, Mapping) and item.get("id") == portfolio.slot_id for item in slots):
+            raise CoordinatorConflictError("search_portfolio_lineage_slot_mismatch")
+        assessments = execution.assessments
+        if any(item.attempt_id != attempt_id or item.decision_slot_id != portfolio.slot_id for item in assessments):
+            raise CoordinatorConflictError("search_portfolio_lineage_assessment_mismatch")
+
+        resolved_captures = self._resolve_lineage_refs(
+            run_id, attempt_id, capture_refs, "portfolio_capture", (SOURCE_CAPTURE_KIND,), ("committed",)
+        )
+        resolved_receipts = self._resolve_lineage_refs(
+            run_id, attempt_id, receipt_refs, "portfolio_receipt", (ACQUISITION_RECEIPT_KIND,), ("succeeded",)
+        )
+        resolved_checkpoints = self._resolve_lineage_refs(
+            run_id, attempt_id, checkpoint_refs, "portfolio_checkpoint", (ANALYSIS_CHECKPOINT_KIND,), ()
+        )
+        resolved_findings = self._resolve_lineage_refs(
+            run_id, attempt_id, finding_refs, "portfolio_finding", (FINDING_PACK_KIND,), ()
+        )
+        declared = {
+            "capture": {value for batch in execution.batches for item in batch.outcomes for value in item.capture_refs}
+            | {value for item in assessments for value in item.capture_refs},
+            "receipt": {value for batch in execution.batches for item in batch.outcomes for value in item.receipt_refs}
+            | {value for item in assessments for value in item.receipt_refs},
+            "checkpoint": {
+                value for batch in execution.batches for item in batch.outcomes for value in item.checkpoint_refs
+            }
+            | {value for item in assessments for value in item.checkpoint_refs},
+        }
+        supplied = {
+            "capture": {item.id for item in resolved_captures},
+            "receipt": {item.id for item in resolved_receipts},
+            "checkpoint": {item.id for item in resolved_checkpoints},
+        }
+        if declared != supplied:
+            raise CoordinatorConflictError("search_portfolio_lineage_evidence_mismatch")
+
+        current = self._latest_state(run_id)
+        lineage_id = f"portfolio-lineage-{portfolio.portfolio_id}-{attempt_id}"
+        if any(
+            item.kind == SEARCH_PORTFOLIO_LINEAGE_KIND and item.id == lineage_id
+            for item in self.ledger.load_run(run_id).artifacts
+        ):
+            raise CoordinatorConflictError("search_portfolio_lineage_already_exists")
+        lineage_ref = ArtifactRef(run_id, lineage_id, 1)
+        evidence_refs = tuple(
+            ArtifactRef(run_id, item.id, item.revision)
+            for item in (*resolved_captures, *resolved_receipts, *resolved_checkpoints, *resolved_findings)
+        )
+        lineage_payload = {
+            "portfolio": portfolio.to_dict(),
+            "execution": execution.to_dict(),
+            "attempt_id": attempt_id,
+            "capture_refs": [item.to_dict() for item in evidence_refs if item.artifact_id in supplied["capture"]],
+            "receipt_refs": [item.to_dict() for item in evidence_refs if item.artifact_id in supplied["receipt"]],
+            "checkpoint_refs": [item.to_dict() for item in evidence_refs if item.artifact_id in supplied["checkpoint"]],
+            "finding_refs": [
+                item.to_dict() for item in evidence_refs if item.artifact_id in {item.id for item in resolved_findings}
+            ],
+            "status": "pending_human_reopen"
+            if any(item.authority_disposition == "requires_requester_reopen" for item in assessments)
+            else "recorded",
+        }
+        parents = (
+            ArtifactRef(run_id, current.id, current.revision),
+            ArtifactRef(run_id, intent.id, intent.revision),
+            ArtifactRef(run_id, brief.id, brief.revision),
+            ArtifactRef(run_id, strategy.id, strategy.revision),
+            ArtifactRef(run_id, decision_map.id, decision_map.revision),
+            *evidence_refs,
+        )
+        entries: list[tuple[str, str, Any, Sequence[ArtifactRef]]] = [
+            (lineage_id, SEARCH_PORTFOLIO_LINEAGE_KIND, lineage_payload, parents)
+        ]
+        pivot = next((item for item in assessments if item.disposition == "pivot"), None)
+        reopen = next((item for item in assessments if item.authority_disposition == "requires_requester_reopen"), None)
+        if pivot is not None and reopen is None:
+            if not isinstance(pivot_correction, CorrectionEvent):
+                raise CoordinatorConflictError("portfolio_pivot_correction_required")
+            strategy_binding = pivot_correction.affected.get("strategy")
+            if (
+                pivot_correction.run_id != run_id
+                or strategy_binding is None
+                or strategy_binding.artifact_ref != strategy_ref
+            ):
+                raise CoordinatorConflictError("portfolio_pivot_correction_mismatch")
+            self._validate_correction_for_apply(pivot_correction)
+        elif reopen is not None:
+            entries.append(
+                (
+                    f"human-decision-reopen-{reopen.assessment_id}",
+                    HUMAN_DECISION_REOPEN_KIND,
+                    {
+                        "status": "pending",
+                        "attempt_id": attempt_id,
+                        "portfolio_id": portfolio.portfolio_id,
+                        "decision_slot_id": portfolio.slot_id,
+                        "assessment_id": reopen.assessment_id,
+                        "reason": "; ".join(reopen.next_actions),
+                    },
+                    (ArtifactRef(run_id, current.id, current.revision), lineage_ref),
+                )
+            )
+        try:
+            lineage = self.ledger.append_artifact_batch(run_id, tuple(entries), expected_revision=expected_revision)[0]
+        except LedgerConflictError as error:
+            raise CoordinatorConflictError("stale_revision") from error
+        if pivot is not None and reopen is None:
+            self.apply_correction(pivot_correction, expected_revision=self.ledger.get_revision(run_id))
+        return lineage
+
     def create_successor(
         self,
         run_id: str,
@@ -830,31 +980,7 @@ class ResearchRunCoordinator:
                 raise CoordinatorConflictError("correction successor state is missing")
             return successor
 
-        current = self._latest_state(correction.run_id)
-        if correction.task_id != current.payload.get("task_id") or correction.domain_id != current.payload.get(
-            "domain_id"
-        ):
-            raise CoordinatorConflictError("correction identity does not match current state")
-        active = self._current_authority(current)
-        quarantined_refs = self._quarantined_refs(correction.run_id)
-        affected_refs: list[ArtifactRef] = []
-        for role in CORRECTION_AFFECTED_ROLES:
-            binding = correction.affected[role]
-            try:
-                artifact = self.ledger.get_artifact(binding.artifact_ref)
-            except RuntimeStoreError as error:
-                raise CoordinatorConflictError(f"unknown correction binding: {role}") from error
-            if artifact.kind != CORRECTION_ROLE_KINDS[role]:
-                raise CoordinatorConflictError(f"correction binding kind mismatch: {role}")
-            if artifact.content_hash != binding.digest:
-                raise CoordinatorConflictError(f"correction binding digest mismatch: {role}")
-            if not self.ledger.is_latest_artifact(binding.artifact_ref):
-                raise StaleStateError("apply_correction")
-            if binding.artifact_ref in quarantined_refs:
-                raise StaleStateError("apply_correction")
-            if binding != active[role]:
-                raise StaleStateError("apply_correction")
-            affected_refs.append(binding.artifact_ref)
+        current, affected_refs = self._validate_correction_for_apply(correction)
 
         current_ref = ArtifactRef(correction.run_id, current.id, current.revision)
         affected_ref_set = set(affected_refs)
@@ -963,6 +1089,34 @@ class ResearchRunCoordinator:
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
         return created[-1]
+
+    def _validate_correction_for_apply(
+        self, correction: CorrectionEvent
+    ) -> tuple[ArtifactRevision, tuple[ArtifactRef, ...]]:
+        current = self._latest_state(correction.run_id)
+        if correction.task_id != current.payload.get("task_id") or correction.domain_id != current.payload.get(
+            "domain_id"
+        ):
+            raise CoordinatorConflictError("correction identity does not match current state")
+        active = self._current_authority(current)
+        quarantined_refs = self._quarantined_refs(correction.run_id)
+        affected_refs: list[ArtifactRef] = []
+        for role in CORRECTION_AFFECTED_ROLES:
+            binding = correction.affected[role]
+            try:
+                artifact = self.ledger.get_artifact(binding.artifact_ref)
+            except RuntimeStoreError as error:
+                raise CoordinatorConflictError(f"unknown correction binding: {role}") from error
+            if artifact.kind != CORRECTION_ROLE_KINDS[role]:
+                raise CoordinatorConflictError(f"correction binding kind mismatch: {role}")
+            if artifact.content_hash != binding.digest:
+                raise CoordinatorConflictError(f"correction binding digest mismatch: {role}")
+            if not self.ledger.is_latest_artifact(binding.artifact_ref):
+                raise StaleStateError("apply_correction")
+            if binding.artifact_ref in quarantined_refs or binding != active[role]:
+                raise StaleStateError("apply_correction")
+            affected_refs.append(binding.artifact_ref)
+        return current, tuple(affected_refs)
 
     def _record_rejection(
         self, *, run_id: str, current: ArtifactRevision, event: str, actor: str, reason: str, expected_revision: int
@@ -1396,7 +1550,7 @@ class ResearchRunCoordinator:
                     raise CoordinatorConflictError("causation_mismatch")
             elif envelope.causation_id not in (None, attempt_id):
                 raise CoordinatorConflictError("causation_mismatch")
-            self._validate_host_event_payload(envelope, run_id=run_id, attempt_id=attempt_id)
+            self._validate_host_event_payload(envelope, run_id=run_id, attempt_id=attempt_id, work_item=work_item)
             previous_events[envelope.sequence] = envelope.event_id
             event_ref = ArtifactRef(run_id, envelope.event_id, 1)
             specs.extend(
@@ -1437,7 +1591,9 @@ class ResearchRunCoordinator:
             raise CoordinatorConflictError("stale_revision") from error
         return tuple(created[::2])
 
-    def _validate_host_event_payload(self, event: HostEvent, *, run_id: str, attempt_id: str) -> None:
+    def _validate_host_event_payload(
+        self, event: HostEvent, *, run_id: str, attempt_id: str, work_item: Mapping[str, Any] | None
+    ) -> None:
         payload = event.payload
         if event.kind == "checkpoint_persisted":
             checkpoint = self._resolve_host_artifact_ref(
@@ -1530,6 +1686,74 @@ class ResearchRunCoordinator:
             finding_attempt = finding.payload.get("attempt_id")
             if finding_attempt is not None and str(finding_attempt) != attempt_id:
                 raise CoordinatorConflictError("finding_pack_attempt_mismatch")
+        portfolio_id = work_item.get("portfolio_id") if isinstance(work_item, Mapping) else None
+        lineage_value = payload.get("portfolio_lineage_ref")
+        if portfolio_id is not None and lineage_value is None:
+            raise CoordinatorConflictError("portfolio_lineage_required")
+        if lineage_value is not None:
+            lineage = self._resolve_host_artifact_ref(
+                run_id,
+                attempt_id,
+                lineage_value,
+                label="portfolio_lineage",
+                kinds=(SEARCH_PORTFOLIO_LINEAGE_KIND,),
+                statuses=(),
+            )
+            if any(reference in self._quarantined_refs(run_id) for reference in lineage.parent_refs):
+                raise CoordinatorConflictError("portfolio_lineage_reference_invalid")
+            lineage_portfolio = lineage.payload.get("portfolio")
+            if not isinstance(lineage_portfolio, Mapping) or lineage_portfolio.get("portfolio_id") != portfolio_id:
+                raise CoordinatorConflictError("portfolio_lineage_identity_mismatch")
+            expected_refs = {
+                "capture_refs": {ArtifactRef.from_dict(item) for item in lineage.payload.get("capture_refs", ())},
+                "receipt_refs": {ArtifactRef.from_dict(item) for item in lineage.payload.get("receipt_refs", ())},
+                "checkpoint_refs": {ArtifactRef.from_dict(item) for item in lineage.payload.get("checkpoint_refs", ())},
+                "finding_refs": {ArtifactRef.from_dict(item) for item in lineage.payload.get("finding_refs", ())},
+            }
+            actual_refs = {
+                "capture_refs": {ArtifactRef(run_id, item.id, item.revision) for item in capture_artifacts},
+                "receipt_refs": {ArtifactRef(run_id, item.id, item.revision) for item in receipt_artifacts},
+                "checkpoint_refs": {ArtifactRef(run_id, checkpoint.id, checkpoint.revision)},
+                "finding_refs": {ArtifactRef(run_id, item.id, item.revision) for item in finding_artifacts},
+            }
+            if expected_refs != actual_refs:
+                raise CoordinatorConflictError("portfolio_lineage_evidence_mismatch")
+
+    def _resolve_lineage_refs(
+        self,
+        run_id: str,
+        attempt_id: str,
+        values: Sequence[ArtifactRef],
+        label: str,
+        kinds: tuple[str, ...],
+        statuses: tuple[str, ...],
+    ) -> tuple[ArtifactRevision, ...]:
+        if isinstance(values, (str, bytes)) or not values:
+            raise CoordinatorConflictError(f"{label}_references_invalid")
+        resolved = tuple(
+            self._resolve_host_artifact_ref(run_id, attempt_id, value, label=label, kinds=kinds, statuses=statuses)
+            for value in values
+        )
+        if len({(item.id, item.revision) for item in resolved}) != len(resolved):
+            raise CoordinatorConflictError(f"{label}_references_invalid")
+        return resolved
+
+    def _resolve_lineage_parent(
+        self, run_id: str, reference: ArtifactRef, label: str, kinds: tuple[str, ...]
+    ) -> ArtifactRevision:
+        try:
+            if not isinstance(reference, ArtifactRef) or reference.round_id != run_id:
+                raise ValueError("reference belongs to another run")
+            artifact = self.ledger.get_artifact(reference)
+            if (
+                not self.ledger.is_latest_artifact(reference)
+                or reference in self._quarantined_refs(run_id)
+                or artifact.kind not in kinds
+            ):
+                raise ValueError("reference is stale or has an invalid kind")
+            return artifact
+        except (RuntimeStoreError, TypeError, ValueError) as error:
+            raise CoordinatorConflictError(f"{label}_reference_invalid") from error
 
     def _resolve_host_artifact_ref(
         self,
@@ -1558,6 +1782,8 @@ class ResearchRunCoordinator:
             artifact = self.ledger.get_artifact(reference)
             if not self.ledger.is_latest_artifact(reference):
                 raise ValueError("reference is stale")
+            if reference in self._quarantined_refs(run_id):
+                raise ValueError("reference is quarantined")
             if kinds is not None and artifact.kind not in kinds:
                 raise ValueError("reference kind is not allowed")
             if statuses and artifact.payload.get("status") not in statuses:
