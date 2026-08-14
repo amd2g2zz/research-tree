@@ -10,7 +10,8 @@ from __future__ import annotations
 import hashlib
 from typing import Any, Mapping, Sequence
 
-from .domain import ArtifactRef, ArtifactRevision, canonical_json_bytes
+from .acceptance import DeliveryAcceptance, delivery_pair_digest
+from .domain import ArtifactRef, ArtifactRevision, canonical_json_bytes, thaw_json, validate_identifier
 from .run_ledger import LedgerIntegrityError, RunLedger
 
 
@@ -28,6 +29,141 @@ class CompletionInputRegistrar:
 
     def registered_inputs(self, round_id: str) -> tuple[ArtifactRevision, ...]:
         return self.ledger.list_completion_inputs(round_id)
+
+    def write_delivery_pair(
+        self,
+        *,
+        round_id: str,
+        technical_package_id: str,
+        human_report_id: str,
+        technical_payload: Mapping[str, Any],
+        human_payload: Mapping[str, Any],
+        technical_parent_refs: Sequence[ArtifactRef],
+        human_parent_refs: Sequence[ArtifactRef],
+        expected_revision: int,
+    ) -> tuple[ArtifactRevision, ArtifactRevision]:
+        """Atomically register one canonical technical/human delivery pair."""
+
+        from .delivery import HUMAN_RESEARCH_REPORT_KIND, TECHNICAL_RESEARCH_PACKAGE_KIND
+
+        round_id = validate_identifier(round_id, "round_id")
+        technical_package_id = validate_identifier(technical_package_id, "technical_package_id")
+        human_report_id = validate_identifier(human_report_id, "human_report_id")
+        if technical_package_id == human_report_id:
+            raise CompletionInputError("delivery pair artifact ids must be distinct")
+        _delivery_payload(technical_payload, TECHNICAL_RESEARCH_PACKAGE_KIND)
+        _delivery_payload(human_payload, HUMAN_RESEARCH_REPORT_KIND)
+        technical_parents = _refs(technical_parent_refs)
+        human_parents = _refs(human_parent_refs)
+        snapshot = self.ledger.load_run(round_id)
+        technical_ref = ArtifactRef(round_id, technical_package_id, _next_revision(snapshot, technical_package_id))
+        expected_human_ref = ArtifactRef(round_id, human_report_id, _next_revision(snapshot, human_report_id))
+        human_package_ref = human_payload.get("technical_package_ref")
+        if not isinstance(human_package_ref, Mapping) or ArtifactRef.from_dict(human_package_ref) != technical_ref:
+            raise CompletionInputError("human delivery must bind the exact technical package revision")
+        if technical_ref not in human_parents:
+            raise CompletionInputError("human delivery parent lineage must include the exact technical package")
+        pair_digest = delivery_pair_digest(
+            round_id, _revision_token(technical_ref), _revision_token(expected_human_ref)
+        )
+        appended = self.ledger.append_completion_input_batch(
+            round_id,
+            (
+                (
+                    technical_package_id,
+                    "technical_delivery",
+                    TECHNICAL_RESEARCH_PACKAGE_KIND,
+                    dict(technical_payload),
+                    technical_parents,
+                    "canonical-delivery-compiler-v1",
+                    {"pair_digest": pair_digest, "surface": "technical"},
+                ),
+                (
+                    human_report_id,
+                    "human_delivery",
+                    HUMAN_RESEARCH_REPORT_KIND,
+                    dict(human_payload),
+                    human_parents,
+                    "canonical-delivery-compiler-v1",
+                    {"pair_digest": pair_digest, "surface": "human"},
+                ),
+            ),
+            expected_revision=expected_revision,
+        )
+        if len(appended) != 2:
+            raise CompletionInputError("canonical delivery registration must append exactly two surfaces")
+        return appended[0], appended[1]
+
+    def write_delivery_acceptance(
+        self,
+        *,
+        round_id: str,
+        technical_package: ArtifactRevision,
+        human_research_report: ArtifactRevision,
+        acceptance: DeliveryAcceptance | Mapping[str, Any],
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        """Register a human acceptance bound to one current delivery pair."""
+
+        from .acceptance import CANONICAL_HUMAN_KIND, CANONICAL_TECHNICAL_KIND
+
+        round_id = validate_identifier(round_id, "round_id")
+        if not isinstance(technical_package, ArtifactRevision) or not isinstance(
+            human_research_report, ArtifactRevision
+        ):
+            raise CompletionInputError("acceptance requires ArtifactRevision delivery surfaces")
+        if isinstance(acceptance, Mapping):
+            acceptance = _acceptance_from_mapping(acceptance)
+        if not isinstance(acceptance, DeliveryAcceptance):
+            raise CompletionInputError("acceptance must be a DeliveryAcceptance")
+        technical_ref = ArtifactRef(technical_package.round_id, technical_package.id, technical_package.revision)
+        human_ref = ArtifactRef(
+            human_research_report.round_id, human_research_report.id, human_research_report.revision
+        )
+        if (
+            acceptance.run_id != round_id
+            or technical_package.round_id != round_id
+            or human_research_report.round_id != round_id
+        ):
+            raise CompletionInputError("acceptance delivery lineage belongs to another run")
+        if technical_package.kind != CANONICAL_TECHNICAL_KIND or human_research_report.kind != CANONICAL_HUMAN_KIND:
+            raise CompletionInputError("acceptance requires canonical delivery kinds")
+        if technical_ref == human_ref or technical_ref not in human_research_report.parent_refs:
+            raise CompletionInputError("acceptance delivery pair lineage is not exact")
+        expected_technical_revision = _delivery_revision_value(technical_package, "technical_revision", technical_ref)
+        expected_human_revision = _delivery_revision_value(human_research_report, "human_revision", human_ref)
+        if (
+            acceptance.technical_revision != expected_technical_revision
+            or acceptance.human_revision != expected_human_revision
+        ):
+            raise CompletionInputError("acceptance does not bind the exact delivery revisions")
+        if not (acceptance.actor == "human" or acceptance.actor.startswith("human-")):
+            raise CompletionInputError("delivery acceptance actor must be human")
+        expected_display_digest = delivery_pair_digest(
+            round_id, acceptance.technical_revision, acceptance.human_revision
+        )
+        if acceptance.displayed_digest != expected_display_digest:
+            raise CompletionInputError("acceptance displayed digest is stale")
+        expected_manifest_digest = delivery_manifest_digest(technical_package, human_research_report)
+        if acceptance.manifest_digest != expected_manifest_digest:
+            raise CompletionInputError("acceptance manifest digest does not match the exact pair")
+        return self._write(
+            round_id=round_id,
+            artifact_id=acceptance.acceptance_id,
+            role="acceptance",
+            kind="delivery-acceptance",
+            payload=acceptance.to_dict(),
+            parent_refs=(technical_ref, human_ref),
+            issuer="human-delivery-acceptance-v1",
+            issuer_evidence={
+                "actor": acceptance.actor,
+                "pair_digest": acceptance.displayed_digest,
+                "manifest_digest": acceptance.manifest_digest,
+            },
+            expected_revision=expected_revision,
+        )
+
+    write_acceptance = write_delivery_acceptance
 
     def write_closure(
         self,
@@ -192,4 +328,93 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
 
 
-__all__ = ["CompletionInputError", "CompletionInputRegistrar"]
+def delivery_manifest_digest(technical: ArtifactRevision, human: ArtifactRevision) -> str:
+    """Return the immutable manifest digest used by the registration boundary."""
+
+    technical_manifest = (
+        thaw_json(technical.payload.get("manifest"))
+        if isinstance(technical.payload, Mapping) and technical.payload.get("manifest") is not None
+        else None
+    )
+    human_manifest = (
+        thaw_json(human.payload.get("manifest"))
+        if isinstance(human.payload, Mapping) and human.payload.get("manifest") is not None
+        else None
+    )
+    if technical_manifest is not None or human_manifest is not None:
+        if (
+            technical_manifest is None
+            or human_manifest is None
+            or canonical_json_bytes(technical_manifest) != canonical_json_bytes(human_manifest)
+        ):
+            raise CompletionInputError("delivery manifests must be identical")
+        return _digest(technical_manifest)
+    return _digest(
+        {
+            "technical": {
+                "ref": ArtifactRef(technical.round_id, technical.id, technical.revision).to_dict(),
+                "hash": technical.content_hash,
+            },
+            "human": {
+                "ref": ArtifactRef(human.round_id, human.id, human.revision).to_dict(),
+                "hash": human.content_hash,
+            },
+        }
+    )
+
+
+def _delivery_payload(payload: Mapping[str, Any], kind: str) -> None:
+    if not isinstance(payload, Mapping) or not isinstance(payload.get("document"), Mapping):
+        raise CompletionInputError(f"{kind} payload document is malformed")
+    if not isinstance(payload.get("markdown"), str) or not payload["markdown"].strip():
+        raise CompletionInputError(f"{kind} payload markdown is malformed")
+    if kind == "human-research-report":
+        reference = payload.get("technical_package_ref")
+        if not isinstance(reference, Mapping):
+            raise CompletionInputError("human-research-report payload lacks technical_package_ref")
+
+
+def _next_revision(snapshot, artifact_id: str) -> int:
+    revisions = [item.revision for item in snapshot.artifacts if item.id == artifact_id]
+    return max(revisions, default=0) + 1
+
+
+def _revision_token(reference: ArtifactRef) -> str:
+    return f"{reference.artifact_id}@{reference.revision}"
+
+
+def _delivery_revision_value(artifact: ArtifactRevision, field: str, reference: ArtifactRef) -> str:
+    payload = artifact.payload
+    manifest = payload.get("manifest") if isinstance(payload, Mapping) else None
+    value = manifest.get(field) if isinstance(manifest, Mapping) else None
+    if isinstance(value, str) and value.strip():
+        return value
+    return _revision_token(reference)
+
+
+def _acceptance_from_mapping(value: Mapping[str, Any]) -> DeliveryAcceptance:
+    required = {
+        "acceptance_id",
+        "run_id",
+        "technical_revision",
+        "human_revision",
+        "displayed_digest",
+        "manifest_digest",
+        "feedback",
+    }
+    if not required <= set(value):
+        raise CompletionInputError("acceptance payload is incomplete")
+    return DeliveryAcceptance.create(
+        str(value["acceptance_id"]),
+        str(value["run_id"]),
+        str(value["technical_revision"]),
+        str(value["human_revision"]),
+        str(value["displayed_digest"]),
+        str(value["manifest_digest"]),
+        value["feedback"],
+        decision=str(value.get("decision", "accepted")),
+        actor=str(value.get("actor", "human")),
+    )
+
+
+__all__ = ["CompletionInputError", "CompletionInputRegistrar", "delivery_manifest_digest"]

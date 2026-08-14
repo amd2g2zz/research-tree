@@ -528,6 +528,10 @@
       "rollback": "revert the typed registration slice in Git; retain ordinary generic artifacts as non-authoritative lineage"
     },
     {
+      "group": 44,
+      "state": "planned"
+    },
+    {
       "group": 46,
       "state": "verified",
       "evidence_refs": [
