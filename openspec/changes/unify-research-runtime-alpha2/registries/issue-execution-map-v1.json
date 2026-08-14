@@ -42,6 +42,7 @@
     { "issue": 112, "primary_group": 35, "supporting_groups": [], "capabilities": ["integrated-evidence-reconciliation"], "openspec_change": "reconcile-foundation-verification-receipts" },
     { "issue": 151, "primary_group": 61, "supporting_groups": [8, 9, 25], "capabilities": ["canonical-host-event-boundary", "host-event-protocol", "durable-source-capture", "worker-orchestration"], "openspec_change": "close-canonical-host-event-boundary" },
     { "issue": 155, "primary_group": 42, "supporting_groups": [], "capabilities": ["isolated-hermes-executable-bundle"], "openspec_change": "make-isolated-hermes-bundle-executable" },
+    { "issue": 156, "primary_group": 43, "supporting_groups": [39, 40, 61], "capabilities": ["typed-canonical-completion-inputs"], "openspec_change": "register-typed-canonical-completion-inputs" },
     { "issue": 152, "primary_group": 39, "supporting_groups": [46, 47], "capabilities": ["evidence-graph-closure-quality-acceptance"], "openspec_change": "accept-evidence-graph-closure-quality" },
     { "issue": 153, "primary_group": 40, "supporting_groups": [39], "capabilities": ["transitive-correction-invalidation"], "openspec_change": "compute-transitive-correction-invalidation" },
     { "issue": 154, "primary_group": 63, "supporting_groups": [5, 8, 11, 61, 62], "capabilities": ["semantic-replay-reconstruction", "runtime-observability"], "openspec_change": "reconstruct-semantic-replay" },

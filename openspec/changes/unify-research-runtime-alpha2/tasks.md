@@ -328,6 +328,15 @@ substitute for local evidence.
 - [x] 42.1 Define and stage the executable closure for every documented Hermes entrypoint, including fallback dependencies.
 - [x] 42.2 Run the group-42 focused acceptance command and bind its source-bound receipt before treating package compatibility as verified.
 
+## 43. Typed Canonical Completion Inputs (#156)
+
+- [ ] 43.1 Add issuer-bound, typed, transactional registration for current
+  closure, insight, readiness, and evaluation completion inputs.
+- [ ] 43.2 Reject generic, stale, foreign, quarantined, malformed, mixed-lineage,
+  and replacement-issuer artifacts without a partial registration.
+- [ ] 43.3 Run the exact focused acceptance command and record a source-bound
+  group-43 receipt before treating this child as verified.
+
 ## 46. Closure Evidence Content Binding (#160)
 
 - [x] 46.1 Require SourceCapture, AcquisitionReceipt, EvidenceArtifact, and
