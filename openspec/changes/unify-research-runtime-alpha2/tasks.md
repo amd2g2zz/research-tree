@@ -500,5 +500,5 @@ substitute for local evidence.
   canonical ledger fixtures.
 - [x] 80.2 Preserve assurance and exporter coverage on the isolated test-only
   legacy fixture without a runtime bridge.
-- [ ] 80.3 Run the exact group-80 acceptance command and record a source-bound
+- [x] 80.3 Run the exact group-80 acceptance command and record a source-bound
   receipt before closing #181.
