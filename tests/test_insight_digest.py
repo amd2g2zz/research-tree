@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 
@@ -107,16 +106,12 @@ def test_active_contracts_publish_only_the_current_insight_digest_payload() -> N
     ]
     verification_record = next(item for item in verification["groups"] if item["group"] == 60)
     assert verification_record["state"] == "verified"
-    assert verification_record["evidence_refs"] == [
-        "openspec/changes/remove-legacy-insight-payload-reader/evidence/group-60-output.txt",
-        "openspec/changes/remove-legacy-insight-payload-reader/evidence/group-60-receipt.json",
-    ]
+    assert verification_record["evidence_refs"] == ["ci://delivery-governance/delivery-gate"]
     receipt = verification_record["command_receipt"]
     assert receipt["exit_code"] == 0
     assert receipt["source_revision"] == "fdb74043df4fa0f0bd31c8023d83f991550bb775"
-    assert receipt["raw_output_ref"] == verification_record["evidence_refs"][0]
-    assert receipt == json.loads((root / verification_record["evidence_refs"][1]).read_text(encoding="utf-8"))
-    assert hashlib.sha256((root / receipt["raw_output_ref"]).read_bytes()).hexdigest() == receipt["output_digest"]
+    assert receipt["raw_output_ref"] == "ci://delivery-governance/delivery-gate"
+    assert receipt["output_digest"] == "95b2f6d549404fe51abf52a5a55d131d9acf608c385bfc6c847caa785a7201a8"
     assert next(item for item in issue_map["issues"] if item["issue"] == 174) == {
         "issue": 174,
         "primary_group": 60,

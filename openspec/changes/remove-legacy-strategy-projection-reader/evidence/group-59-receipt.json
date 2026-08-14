@@ -1,9 +1,0 @@
-{
-  "command": "uv run pytest -q tests/test_strategy_projection.py tests/test_strategy_handoff.py tests/test_research_run_coordinator.py && uv run ruff check src/research_tree/strategy_projection.py tests/test_strategy_projection.py tests/test_strategy_handoff.py tests/test_research_run_coordinator.py tests/strategy_support.py && uv run ruff format --check src/research_tree/strategy_projection.py tests/test_strategy_projection.py tests/test_strategy_handoff.py tests/test_research_run_coordinator.py tests/strategy_support.py",
-  "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
-  "exit_code": 0,
-  "output_digest": "0c11cd4006779915757617189391a76b8323b0a7b531f7cfe164d79d298b935a",
-  "raw_output_ref": "openspec/changes/remove-legacy-strategy-projection-reader/evidence/group-59-output.txt",
-  "recorded_at": "2026-08-13T12:58:30.783983+00:00",
-  "source_revision": "54ab4cf1bbd6f66078d5d90c35549b6f31d79bf7"
-}
