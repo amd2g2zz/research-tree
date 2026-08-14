@@ -3,7 +3,7 @@
   "issue": 156,
   "group": 43,
   "status": "verified",
-  "source_revision": "0fa1c4213382658d7191dc2b6f6dcb5ef6b7d288",
+  "source_revision": "b8677166bf07fc4c82bc377a6912734605310085",
   "checks": [
     {
       "name": "completion-input-registration-acceptance",

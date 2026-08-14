@@ -521,7 +521,7 @@
         "exit_code": 0,
         "environment_digest": "5f3da9df13291c990765237d1c3b9f82e229eaea3aa480ef4350282dc3d5b1b8",
         "output_digest": "a47dbf2e704c21f85c8912dce1f904a8e32708e605ae636d16df5b1cf162f0f4",
-        "source_revision": "0fa1c4213382658d7191dc2b6f6dcb5ef6b7d288",
+        "source_revision": "b8677166bf07fc4c82bc377a6912734605310085",
         "raw_output_ref": "ci://issue-156/completion-input-registration",
         "recorded_at": "2026-08-14T13:12:50+08:00"
       },
