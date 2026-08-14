@@ -1,5 +1,0 @@
-{
-  "errors": [],
-  "legacy_candidates": [],
-  "status": "valid"
-}
