@@ -179,13 +179,6 @@ from .ports import (
     ProvenanceIntegrityPort,
     SourceAcquisitionPort,
 )
-from .scheduler import (
-    AdaptivePortfolioScheduler,
-    InvalidPortfolioError,
-    PortfolioError,
-    WORK_PORTFOLIO_KIND,
-    validate_portfolio_payload,
-)
 from .orchestration import (
     EXECUTION_STATES,
     RESEARCH_PHASES,
@@ -357,7 +350,6 @@ __all__ = [
     "ASSURANCE_EVIDENCE_KIND",
     "ASSURANCE_FOLLOW_UP_KIND",
     "ASSURANCE_RESOLUTION_KIND",
-    "AdaptivePortfolioScheduler",
     "EXECUTION_STATES",
     "RESEARCH_PHASES",
     "advance_execution",
@@ -470,7 +462,6 @@ __all__ = [
     "InvalidPayloadError",
     "InvalidReadinessError",
     "InvalidVerificationError",
-    "InvalidPortfolioError",
     "InvalidWorkingBriefError",
     "InvalidWorkItemError",
     "IndependentEvaluationRequest",
@@ -594,7 +585,6 @@ __all__ = [
     "OpenSpecExport",
     "OpenSpecExporter",
     "OpenSpecExportError",
-    "PortfolioError",
     "PrimarySourceValidationPort",
     "ProvenanceIntegrityPort",
     "WorkingBriefCompiler",
@@ -622,8 +612,6 @@ __all__ = [
     "WorkItemError",
     "WorkItemPlanner",
     "WorkItemStatusService",
-    "WORK_PORTFOLIO_KIND",
-    "validate_portfolio_payload",
     "validate_assurance_evidence_payload",
     "validate_assurance_follow_up_payload",
     "validate_assurance_resolution_payload",

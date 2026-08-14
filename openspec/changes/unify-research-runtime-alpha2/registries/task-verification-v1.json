@@ -577,6 +577,11 @@
         "recorded_at": "2026-08-13T13:48:29.451422+00:00"
       },
       "rollback": "revert the removal through Git before release; do not restore a digest reader, adapter, alias, default, migration, or user-data action"
+    },
+    {
+      "group": 62,
+      "state": "planned",
+      "blocker": "Source verification receipt is recorded only after the public-surface removal source commit."
     }
   ]
 }

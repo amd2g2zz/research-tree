@@ -46,7 +46,7 @@ Alpha1 established the product vocabulary and three-host packaging, but it also 
 - `implementation-release-contract`: Requirement-to-code/test/evidence traceability, installable public contracts, current-only cutover, immutable release manifests, pre-registered quality gates, and observable Definition of Done.
 - `canonical-schemas`: Checked-in versioned schemas, examples, validators, and reference cardinality for every canonical entity.
 - `lifecycle-state-machine`: Closed run-state transition matrix with explicit pause, resume, authority-block, supersession, acceptance, and replay semantics.
-- `worker-orchestration`: Bounded worker assignments, leases, heartbeats, fan-out/fan-in independence, durable source/checkpoint references, partial outputs, retry, cancellation, and no-progress scheduling.
+- `worker-orchestration`: Bounded worker assignments, leases, heartbeats, fan-out/fan-in independence, durable source/checkpoint references, partial outputs, retry, cancellation, and no-progress coordinator recovery.
 - `research-acquisition`: Intent-derived Search Portfolios, method/tool registry, source captures, derivative provenance, multimodal selectors, and typed acquisition fallback.
 - `insight-synthesis`: Versioned InsightDigest artifacts that classify facts, inferences, recommendations, contradictions, gaps, and action triggers.
 - `security-execution-boundary`: Sandboxed tool/oracle execution, path and network allowlists, secret redaction, licensing, and safe evidence handling.
@@ -59,7 +59,7 @@ None. The repository has no existing OpenSpec capability specifications; alpha2 
 
 ## Impact
 
-- Core modules affected: storage, alignment graph and handoff, Finding Pack and Decision Ledger compilation, scheduler/orchestration, recursive search, readiness, delivery, evaluation, feedback, CLI, lifecycle tracing, canonical coordinator, event ingestion, CAS, migration, and contract validators.
+- Core modules affected: storage, alignment graph and handoff, Finding Pack and Decision Ledger compilation, worker orchestration, recursive search, readiness, delivery, evaluation, feedback, CLI, lifecycle tracing, canonical coordinator, event ingestion, CAS, migration, and contract validators.
 - Runtime entry points affected: source-checkout CLI, package build scripts, native execution adapter, Hermes execution adapter, and lifecycle hooks.
 - Distribution affected: separate Codex, Claude Code, and Hermes skill packages and their host-specific references, setup, and compatibility tests.
 - Repository governance affected: README, PRODUCT, OpenSpec, ADRs, legacy RT specifications, generated package documentation, evaluation assets, `.gitignore`, build output, and top-level path policy.

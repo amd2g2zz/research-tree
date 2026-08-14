@@ -15,8 +15,8 @@ evidence.
 | decision-slot-v1.json | Decision Slot and closure obligations | coordinator |
 | research-action-v1.json | Policy-selected action proposal and score inputs | policy/coordinator |
 | search-portfolio-v1.json | Intent-derived subquestions, query rewrites, method boundaries, and reassessment policy | acquisition/coordinator |
-| attempt-lease-v1.json | Work attempt and lease state | scheduler/coordinator |
-| work-item-v1.json | Executable research assignment | scheduler/coordinator |
+| attempt-lease-v1.json | Work attempt and lease state | coordinator |
+| work-item-v1.json | Executable research assignment | coordinator |
 | source-capture-v1.json | Immutable raw acquisition capture | acquisition/CAS |
 | acquisition-receipt-v1.json | Durable acquisition outcome and provider lineage | acquisition/CAS |
 | analysis-checkpoint-v1.json | Bounded resumable analysis state without private reasoning | worker/coordinator |
