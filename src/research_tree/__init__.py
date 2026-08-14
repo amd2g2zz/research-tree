@@ -287,7 +287,14 @@ from .oracles import (
     OracleRun,
     OracleSpec,
 )
-from .closure import ASSESSMENT_KIND, ClosureAssessmentError, OracleService, SlotClosureAssessor, SlotClosureAssessment
+from .closure import (
+    ADJUDICATION_KIND,
+    ASSESSMENT_KIND,
+    ClosureAssessmentError,
+    OracleService,
+    SlotClosureAssessor,
+    SlotClosureAssessment,
+)
 from .content_store import (
     ContentAddressedStore,
     ContentIntegrityError,
@@ -574,6 +581,7 @@ __all__ = [
     "OracleAttempt",
     "OracleRun",
     "OracleSpec",
+    "ADJUDICATION_KIND",
     "ASSESSMENT_KIND",
     "ClosureAssessmentError",
     "OracleService",

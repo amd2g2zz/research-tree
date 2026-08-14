@@ -41,6 +41,7 @@
     { "issue": 112, "primary_group": 35, "supporting_groups": [], "capabilities": ["integrated-evidence-reconciliation"], "openspec_change": "reconcile-foundation-verification-receipts" },
     { "issue": 155, "primary_group": 42, "supporting_groups": [], "capabilities": ["isolated-hermes-executable-bundle"], "openspec_change": "make-isolated-hermes-bundle-executable" },
     { "issue": 160, "primary_group": 46, "supporting_groups": [], "capabilities": ["closure-evidence-content-binding"], "openspec_change": "bind-closure-evidence-content" },
+    { "issue": 161, "primary_group": 47, "supporting_groups": [], "capabilities": ["derived-closure-quality", "revision-bound-closure-currentness"], "openspec_change": "derive-closure-quality-currentness" },
     { "issue": 164, "primary_group": 54, "supporting_groups": [], "capabilities": ["legacy-cli-surface-removal"], "openspec_change": "remove-legacy-cli-surface" },
     { "issue": 167, "primary_group": 55, "supporting_groups": [], "capabilities": ["legacy-runstore-import-removal"], "openspec_change": "remove-legacy-runstore-import-authority" },
     { "issue": 169, "primary_group": 57, "supporting_groups": [], "capabilities": ["current-only-skill-setup"], "openspec_change": "remove-legacy-setup-migration" },

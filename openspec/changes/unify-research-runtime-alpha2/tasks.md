@@ -337,6 +337,15 @@ substitute for local evidence.
 - [x] 46.3 Run the focused closure acceptance command and record a
   source-bound group-46 receipt before treating this child as verified.
 
+## 47. Derived Closure Quality And Currentness (#161)
+
+- [x] 47.1 Derive provenance, counterevidence, reviewer/method, and
+  contradiction checks from the current bound evidence graph and adjudication.
+- [x] 47.2 Bind deterministic closure token material to the complete graph and
+  expose revision-bound `SlotClosureAssessor.is_current()` validation.
+- [x] 47.3 Run the focused closure acceptance command and record a
+  source-bound group-47 receipt before treating this child as verified.
+
 ## 54. Legacy CLI Surface Removal (#164)
 
 - [x] 54.1 Remove every published legacy round, tree, and profile command

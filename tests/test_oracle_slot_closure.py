@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import hashlib
 
 import pytest
 
-from research_tree.closure import ASSESSMENT_KIND, ClosureAssessmentError, SlotClosureAssessment, SlotClosureAssessor
+from research_tree.closure import (
+    ADJUDICATION_KIND,
+    ASSESSMENT_KIND,
+    ClosureAssessmentError,
+    SlotClosureAssessment,
+    SlotClosureAssessor,
+)
 from research_tree.content_store import ContentAddressedStore
 from research_tree.domain import ArtifactRef, thaw_json
 from research_tree.evidence import EVIDENCE_ARTIFACT_KIND, EvidenceAnchor, EvidenceArtifact, EvidenceRepository
@@ -125,6 +132,9 @@ def _source_graph(
     origin_capture_id: str | None = None,
     forged_capture: bool = False,
     forged_evidence: bool = False,
+    method_id: str = "web-fetch",
+    provider_id: str = "fixture-provider",
+    provenance_group: str = "fixture-source",
     round_id: str = RUN_ID,
 ):
     store = ContentAddressedStore(ledger.workspace)
@@ -144,9 +154,9 @@ def _source_graph(
                 media_type=capture_content.media_type,
                 size_bytes=capture_content.byte_size,
                 captured_at=CAPTURED_AT,
-                method_id="web-fetch",
-                provider_id="fixture-provider",
-                provenance_group="fixture-source",
+                method_id=method_id,
+                provider_id=provider_id,
+                provenance_group=provenance_group,
                 origin_capture_id=origin_capture_id,
             ).to_dict(),
             round_id=round_id,
@@ -159,8 +169,8 @@ def _source_graph(
                 receipt_id=f"receipt-{capture_id}",
                 capture_id=capture_id,
                 attempt_id=attempt_id,
-                method_id="web-fetch",
-                provider_id="fixture-provider",
+                method_id=method_id,
+                provider_id=provider_id,
                 requested_at=CAPTURED_AT,
                 completed_at=CAPTURED_AT,
                 status="succeeded",
@@ -176,9 +186,9 @@ def _source_graph(
             attempt_id=attempt_id,
             data=capture_data,
             media_type="text/plain",
-            method_id="web-fetch",
-            provider_id="fixture-provider",
-            provenance_group="fixture-source",
+            method_id=method_id,
+            provider_id=provider_id,
+            provenance_group=provenance_group,
             locator={"url": f"https://{capture_id}.test/report"},
             origin_capture_id=origin_capture_id,
             expected_revision=ledger.get_revision(round_id),
@@ -190,8 +200,8 @@ def _source_graph(
             receipt_id=f"receipt-{capture_id}",
             capture=capture_value,
             attempt_id=attempt_id,
-            method_id="web-fetch",
-            provider_id="fixture-provider",
+            method_id=method_id,
+            provider_id=provider_id,
             expected_revision=ledger.get_revision(round_id),
         )
         assert receipt_value.artifact_ref is not None
@@ -207,8 +217,8 @@ def _source_graph(
         content_digest=evidence_content.digest,
         size_bytes=evidence_content.byte_size,
         acquired_at=CAPTURED_AT,
-        acquisition_method="web-fetch",
-        provenance_group="fixture-source",
+        acquisition_method=method_id,
+        provenance_group=provenance_group,
         applicability="direct support",
         confidence="high",
         limitations=(),
@@ -269,6 +279,11 @@ def _assessment_inputs(
     forgery: str | None = None,
     hidden_contradiction: bool = False,
     include_origin: bool = False,
+    independent_method: str = "repository-read",
+    independent_provider: str = "fixture-repository",
+    independent_group: str = "fixture-independent",
+    adjudication_reviewer: str = "reviewer-adversarial",
+    resolve_contradiction: bool = False,
 ):
     target = _append(
         ledger,
@@ -313,7 +328,23 @@ def _assessment_inputs(
         forged_evidence=forgery == "evidence",
     )
     finding = _finding(ledger, finding_id="finding-support", target=target, anchor=anchor, effect="supports")
-    findings = [finding]
+    _, independent_anchor = _source_graph(
+        ledger,
+        capture_id="capture-independent",
+        evidence_id="evidence-independent",
+        attempt_id="attempt-independent",
+        method_id=independent_method,
+        provider_id=independent_provider,
+        provenance_group=independent_group,
+    )
+    independent_finding = _finding(
+        ledger,
+        finding_id="finding-independent",
+        target=target,
+        anchor=independent_anchor,
+        effect="supports",
+    )
+    findings = [finding, independent_finding]
     if hidden_contradiction:
         _, contradiction_anchor = _source_graph(
             ledger,
@@ -330,6 +361,22 @@ def _assessment_inputs(
                 effect="contradicts",
             )
         )
+    contradiction_refs = [_ref(findings[-1])] if hidden_contradiction and resolve_contradiction else []
+    adjudication = _append(
+        ledger,
+        "adjudication-1",
+        ADJUDICATION_KIND,
+        {
+            "decision_id": "decision-1",
+            "finding_refs": [_ref(item).to_dict() for item in findings],
+            "status": "searched_without_result",
+            "disposition": "none_found",
+            "reviewer_id": adjudication_reviewer,
+            "method_id": "counterevidence-search",
+            "contradiction_refs": [ref.to_dict() for ref in contradiction_refs],
+        },
+        (_ref(target), *(_ref(item) for item in findings)),
+    )
     decision = _append(
         ledger,
         "decision-1",
@@ -344,6 +391,7 @@ def _assessment_inputs(
         (
             _ref(target),
             *(_ref(item) for item in findings),
+            _ref(adjudication),
         ),
     )
     return target, decision, tuple(findings)
@@ -359,10 +407,11 @@ def _assess(assessor: SlotClosureAssessor, ledger: RunLedger, target, decision, 
         findings=findings,
         oracle_runs=oracle_runs,
         evaluator_id=kwargs.pop("evaluator_id", "core-evaluator"),
-        provenance_groups=("independent-source", "independent-test"),
+        provenance_groups=kwargs.pop("provenance_groups", ("independent-source", "independent-test")),
         counterevidence_disposition=kwargs.pop("counterevidence_disposition", "searched and found none"),
         active_contradiction=kwargs.pop("active_contradiction", False),
         expected_revision=ledger.get_revision(RUN_ID),
+        adjudications=kwargs.pop("adjudications", ()),
         **kwargs,
     )
 
@@ -902,3 +951,144 @@ def test_foreign_evidence_lineage_cannot_issue_a_token(tmp_path, foreign_parent:
     assert assessment.payload["status"] == "inconclusive"
     assert assessment.payload["closure_token"] is None
     assert assessment.payload["checks"]["evidence"] is False
+
+
+def test_caller_quality_strings_cannot_claim_same_method_evidence_is_independent(tmp_path) -> None:
+    ledger, service = _service(tmp_path)
+    _, _, run = _oracle_run(service, ledger)
+    target, decision, findings = _assessment_inputs(ledger, independent_method="web-fetch")
+    assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
+
+    assessment = _assess(
+        assessor,
+        ledger,
+        target,
+        decision,
+        findings,
+        oracle_runs=(run,),
+        provenance_groups=("caller-claimed-a", "caller-claimed-b"),
+        counterevidence_disposition="caller-claimed-search",
+    )
+
+    assert assessment.payload["status"] == "inconclusive"
+    assert assessment.payload["checks"]["provenance_independence"] is False
+    assert assessment.payload["closure_token"] is None
+
+
+def test_same_worker_cannot_be_accepted_as_independent_reviewer(tmp_path) -> None:
+    ledger, service = _service(tmp_path)
+    _, _, run = _oracle_run(service, ledger)
+    target, decision, findings = _assessment_inputs(ledger, adjudication_reviewer="attempt-support")
+    assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
+
+    assessment = _assess(assessor, ledger, target, decision, findings, oracle_runs=(run,))
+
+    assert assessment.payload["status"] == "inconclusive"
+    assert assessment.payload["checks"]["reviewer_independence"] is False
+    assert assessment.payload["closure_token"] is None
+
+
+def test_missing_adjudication_cannot_be_replaced_by_caller_disposition(tmp_path) -> None:
+    ledger, service = _service(tmp_path)
+    _, _, run = _oracle_run(service, ledger)
+    target, decision, findings = _assessment_inputs(ledger)
+    decision_without_adjudication = _append(
+        ledger,
+        "decision-1",
+        "decision-ledger-entry",
+        thaw_json(decision.payload),
+        (_ref(target), *(_ref(item) for item in findings)),
+    )
+    assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
+
+    assessment = _assess(
+        assessor,
+        ledger,
+        target,
+        decision_without_adjudication,
+        findings,
+        oracle_runs=(run,),
+        counterevidence_disposition="fabricated searched and found none",
+    )
+
+    assert assessment.payload["status"] == "inconclusive"
+    assert assessment.payload["checks"]["counterevidence"] is False
+    assert assessment.payload["closure_token"] is None
+
+
+def test_closure_token_is_deterministic_and_current_for_the_same_graph(tmp_path) -> None:
+    ledger, service = _service(tmp_path)
+    _, _, run = _oracle_run(service, ledger)
+    target, decision, findings = _assessment_inputs(ledger)
+    assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
+
+    first = _assess(
+        assessor,
+        ledger,
+        target,
+        decision,
+        findings,
+        oracle_runs=(run,),
+        assessment_id="assessment-deterministic-a",
+    )
+    second = _assess(
+        assessor,
+        ledger,
+        target,
+        decision,
+        findings,
+        oracle_runs=(run,),
+        assessment_id="assessment-deterministic-b",
+    )
+
+    assert first.payload["status"] == "passed"
+    assert first.payload["closure_token"] == second.payload["closure_token"]
+    assert assessor.is_current(first)
+    assert assessor.is_current(_ref(first))
+
+
+@pytest.mark.parametrize("dependency", ["evidence", "adjudication", "oracle"])
+def test_superseding_bound_dependency_invalidates_closure_token(tmp_path, dependency: str) -> None:
+    ledger, service = _service(tmp_path)
+    _, _, run = _oracle_run(service, ledger)
+    target, decision, findings = _assessment_inputs(ledger)
+    assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
+    assessment = _assess(assessor, ledger, target, decision, findings, oracle_runs=(run,))
+    assert assessment.payload["status"] == "passed"
+    assert assessor.is_current(assessment)
+
+    if dependency == "evidence":
+        anchor = EvidenceAnchor.from_dict(findings[0].payload["observations"][0]["anchor"])
+        assert anchor.artifact_ref is not None
+        evidence = ledger.get_artifact(anchor.artifact_ref)
+        payload = thaw_json(evidence.payload)
+        payload["revision"] = evidence.revision + 1
+        content = ledger.get_bound_content(anchor.artifact_ref)
+        ledger.append_artifact_with_content(
+            RUN_ID,
+            evidence.id,
+            EVIDENCE_ARTIFACT_KIND,
+            payload,
+            content,
+            ContentAddressedStore(ledger.workspace),
+            parent_refs=evidence.parent_refs,
+            expected_revision=ledger.get_revision(RUN_ID),
+        )
+    elif dependency == "adjudication":
+        adjudication = next(
+            ledger.get_artifact(reference)
+            for reference in decision.parent_refs
+            if ledger.get_artifact(reference).kind == ADJUDICATION_KIND
+        )
+        payload = thaw_json(adjudication.payload)
+        payload["status"] = "resolved"
+        _append(ledger, adjudication.id, ADJUDICATION_KIND, payload, adjudication.parent_refs)
+    else:
+        run_model = OracleRun.from_revision(_ref(run), run)
+        service.record_run(
+            round_id=RUN_ID,
+            run=replace(run_model, toolchain_digest=_digest("superseding-toolchain")),
+            expected_revision=ledger.get_revision(RUN_ID),
+        )
+
+    assert not assessor.is_current(assessment)

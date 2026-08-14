@@ -494,6 +494,12 @@
       "rollback": "treat unprovable closure evidence as inconclusive and retain existing assessments as history"
     },
     {
+      "group": 47,
+      "state": "in_progress",
+      "evidence_refs": [],
+      "rollback": "revoke quality-derived closure tokens and retain assessments as inconclusive history"
+    },
+    {
       "group": 54,
       "state": "verified",
       "evidence_refs": [

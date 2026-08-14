@@ -32,6 +32,7 @@ from .source_capture import ACQUISITION_RECEIPT_KIND, SOURCE_CAPTURE_KIND, Acqui
 
 ASSESSMENT_KIND = "slot-closure-assessment"
 FINDING_PACK_KIND = "finding-pack"
+ADJUDICATION_KIND = "closure-adjudication"
 
 
 class ClosureAssessmentError(InvalidOracleError):
@@ -268,6 +269,7 @@ class SlotClosureAssessor:
         try:
             for revision in oracle_runs:
                 reference = _artifact_ref(revision)
+                revision = self._current_artifact(reference, ORACLE_RUN_KIND)
                 run = OracleRun.from_revision(reference, revision)
                 spec = self.ledger.get_artifact(run.oracle_spec_ref)
                 attempt = self.ledger.get_artifact(run.attempt_ref)
@@ -346,82 +348,110 @@ class SlotClosureAssessor:
                 label="source capture origin",
             )
 
+    def _finding_evidence_facts(
+        self,
+        finding: ArtifactRevision,
+        round_id: str,
+    ) -> tuple[dict[str, Any], ...]:
+        if finding.round_id != round_id:
+            raise ClosureAssessmentError("finding pack belongs to another run")
+        if finding.payload.get("evidence_mode") != "strict":
+            raise ClosureAssessmentError("finding pack is not backed by strict evidence")
+        observations = finding.payload.get("observations")
+        if isinstance(observations, (str, bytes)) or not isinstance(observations, Sequence):
+            raise ClosureAssessmentError("finding pack observations are not a sequence")
+        resolver = EvidenceResolver.from_ledger(
+            self.ledger,
+            ContentAddressedStore(self.ledger.workspace),
+            workspace=self.ledger.workspace,
+        )
+        facts: list[dict[str, Any]] = []
+        for observation in observations:
+            if not isinstance(observation, Mapping):
+                raise ClosureAssessmentError("finding observation is not a mapping")
+            anchor = EvidenceAnchor.from_dict(observation.get("anchor"))
+            if anchor.artifact_ref is None or anchor.artifact_ref not in finding.parent_refs:
+                raise ClosureAssessmentError("finding observation has no direct evidence parent")
+            if anchor.artifact_ref.round_id != round_id:
+                raise ClosureAssessmentError("finding evidence belongs to another run")
+            evidence_revision = self._current_artifact(anchor.artifact_ref, EVIDENCE_ARTIFACT_KIND)
+            evidence = EvidenceArtifact.from_revision(anchor.artifact_ref, evidence_revision)
+            if evidence.run_id != round_id:
+                raise ClosureAssessmentError("evidence artifact belongs to another run")
+            if evidence.evidence_class == "legacy_unspecified":
+                raise ClosureAssessmentError("finding anchor does not identify authoritative evidence")
+            if (
+                anchor.artifact_digest != evidence.content_digest
+                or anchor.artifact_revision != evidence.revision
+                or anchor.extractor_version != evidence.extractor_version
+                or evidence.status != "active"
+            ):
+                raise ClosureAssessmentError("finding anchor does not match active canonical evidence")
+            resolver.resolve(anchor)
+            self._require_bound_content(
+                anchor.artifact_ref,
+                digest=evidence.content_digest,
+                media_type=evidence.media_type,
+                size_bytes=evidence.size_bytes,
+                label="evidence artifact",
+            )
+            receipt_ref, receipt_revision = self._parent_of_kind(
+                evidence_revision,
+                ACQUISITION_RECEIPT_KIND,
+                "evidence artifact",
+                round_id,
+            )
+            receipt = AcquisitionReceipt.from_dict(receipt_revision.payload)
+            capture_ref, capture_revision = self._parent_of_kind(
+                receipt_revision,
+                SOURCE_CAPTURE_KIND,
+                "acquisition receipt",
+                round_id,
+            )
+            capture = SourceCapture.from_dict(capture_revision.payload)
+            if (
+                receipt.receipt_id != receipt_ref.artifact_id
+                or receipt.status != "succeeded"
+                or capture.capture_id != capture_ref.artifact_id
+                or capture.run_id != capture_ref.round_id
+                or capture.status != "committed"
+                or capture.capture_id != receipt.capture_id
+                or capture.attempt_id != receipt.attempt_id
+                or capture.method_id != receipt.method_id
+                or capture.provider_id != receipt.provider_id
+                or evidence.acquisition_method != capture.method_id
+            ):
+                raise ClosureAssessmentError("evidence receipt and source capture are not exact")
+            self._capture_origin_is_bound(capture_ref, capture, round_id)
+            facts.append(
+                {
+                    "evidence_ref": anchor.artifact_ref,
+                    "receipt_ref": receipt_ref,
+                    "capture_ref": capture_ref,
+                    "content_digest": evidence.content_digest,
+                    "method_id": capture.method_id,
+                    "provider_id": capture.provider_id,
+                    "provenance_group": capture.provenance_group,
+                    "worker_id": next(
+                        (
+                            str(finding.payload[key]).strip()
+                            for key in ("worker_id", "producer_id", "submitted_by")
+                            if isinstance(finding.payload.get(key), str) and finding.payload[key].strip()
+                        ),
+                        capture.attempt_id,
+                    ),
+                }
+            )
+        if not facts:
+            raise ClosureAssessmentError("finding pack has no bound evidence")
+        return tuple(facts)
+
     def _finding_evidence_is_bound(self, finding: ArtifactRevision, round_id: str) -> bool:
         try:
-            if finding.round_id != round_id:
-                raise ClosureAssessmentError("finding pack belongs to another run")
-            if finding.payload.get("evidence_mode") != "strict":
-                raise ClosureAssessmentError("finding pack is not backed by strict evidence")
-            observations = finding.payload.get("observations")
-            if isinstance(observations, (str, bytes)) or not isinstance(observations, Sequence):
-                raise ClosureAssessmentError("finding pack observations are not a sequence")
-            resolver = EvidenceResolver.from_ledger(
-                self.ledger,
-                ContentAddressedStore(self.ledger.workspace),
-                workspace=self.ledger.workspace,
-            )
-            references: set[ArtifactRef] = set()
-            for observation in observations:
-                if not isinstance(observation, Mapping):
-                    raise ClosureAssessmentError("finding observation is not a mapping")
-                anchor = EvidenceAnchor.from_dict(observation.get("anchor"))
-                if anchor.artifact_ref is None or anchor.artifact_ref not in finding.parent_refs:
-                    raise ClosureAssessmentError("finding observation has no direct evidence parent")
-                if anchor.artifact_ref.round_id != round_id:
-                    raise ClosureAssessmentError("finding evidence belongs to another run")
-                evidence_revision = self._current_artifact(anchor.artifact_ref, EVIDENCE_ARTIFACT_KIND)
-                evidence = EvidenceArtifact.from_revision(anchor.artifact_ref, evidence_revision)
-                if evidence.run_id != round_id:
-                    raise ClosureAssessmentError("evidence artifact belongs to another run")
-                if evidence.evidence_class == "legacy_unspecified":
-                    raise ClosureAssessmentError("finding anchor does not identify authoritative evidence")
-                if (
-                    anchor.artifact_digest != evidence.content_digest
-                    or anchor.artifact_revision != evidence.revision
-                    or anchor.extractor_version != evidence.extractor_version
-                    or evidence.status != "active"
-                ):
-                    raise ClosureAssessmentError("finding anchor does not match active canonical evidence")
-                resolver.resolve(anchor)
-                self._require_bound_content(
-                    anchor.artifact_ref,
-                    digest=evidence.content_digest,
-                    media_type=evidence.media_type,
-                    size_bytes=evidence.size_bytes,
-                    label="evidence artifact",
-                )
-                receipt_ref, receipt_revision = self._parent_of_kind(
-                    evidence_revision,
-                    ACQUISITION_RECEIPT_KIND,
-                    "evidence artifact",
-                    round_id,
-                )
-                receipt = AcquisitionReceipt.from_dict(receipt_revision.payload)
-                capture_ref, capture_revision = self._parent_of_kind(
-                    receipt_revision,
-                    SOURCE_CAPTURE_KIND,
-                    "acquisition receipt",
-                    round_id,
-                )
-                capture = SourceCapture.from_dict(capture_revision.payload)
-                if (
-                    receipt.receipt_id != receipt_ref.artifact_id
-                    or receipt.status != "succeeded"
-                    or capture.capture_id != capture_ref.artifact_id
-                    or capture.run_id != capture_ref.round_id
-                    or capture.status != "committed"
-                    or capture.capture_id != receipt.capture_id
-                    or capture.attempt_id != receipt.attempt_id
-                    or capture.method_id != receipt.method_id
-                    or capture.provider_id != receipt.provider_id
-                    or evidence.acquisition_method != capture.method_id
-                ):
-                    raise ClosureAssessmentError("evidence receipt and source capture are not exact")
-                self._capture_origin_is_bound(capture_ref, capture, round_id)
-                references.add(anchor.artifact_ref)
-            return bool(references)
+            self._finding_evidence_facts(finding, round_id)
         except (RuntimeStoreError, TypeError, ValueError, ClosureAssessmentError):
             return False
+        return True
 
     def _decision_findings(
         self,
@@ -457,6 +487,292 @@ class SlotClosureAssessor:
         if len(set(supplied_refs)) != len(supplied_refs) or set(supplied_refs) != decision_refs:
             raise ClosureAssessmentError("findings must equal the complete decision Finding set")
 
+    @staticmethod
+    def _finding_effects(finding: ArtifactRevision, selected_option: str) -> frozenset[str]:
+        effects = finding.payload.get("option_effects")
+        if isinstance(effects, (str, bytes)) or not isinstance(effects, Sequence):
+            return frozenset()
+        result: set[str] = set()
+        for item in effects:
+            if not isinstance(item, Mapping) or item.get("option") != selected_option:
+                continue
+            effect = item.get("effect")
+            if isinstance(effect, str) and effect.strip():
+                result.add(effect.strip().lower().replace(" ", "_"))
+        return frozenset(result)
+
+    def _adjudication_facts(
+        self,
+        *,
+        decision: ArtifactRevision,
+        target_ref: ArtifactRef,
+        finding_refs: Sequence[ArtifactRef],
+        supplied: Sequence[ArtifactRevision],
+        round_id: str,
+    ) -> tuple[dict[str, Any], ...]:
+        candidates: dict[ArtifactRef, ArtifactRevision] = {}
+        for reference in decision.parent_refs:
+            try:
+                parent = self.ledger.get_artifact(reference)
+            except RuntimeStoreError as error:
+                raise ClosureAssessmentError("decision has an unresolved adjudication parent") from error
+            if parent.kind == ADJUDICATION_KIND:
+                candidates[reference] = self._current_artifact(reference, ADJUDICATION_KIND)
+        for revision in supplied:
+            reference = self._resolve(revision, ADJUDICATION_KIND, round_id)
+            candidates[reference] = revision
+        facts: list[dict[str, Any]] = []
+        expected_findings = set(finding_refs)
+        for reference in sorted(candidates, key=lambda item: (item.artifact_id, item.revision)):
+            revision = candidates[reference]
+            payload = revision.payload
+            if target_ref not in revision.parent_refs or expected_findings - set(revision.parent_refs):
+                raise ClosureAssessmentError("adjudication is not bound to the exact decision graph")
+            decision_id = payload.get("decision_id")
+            if decision_id is not None and decision_id != decision.id:
+                raise ClosureAssessmentError("adjudication is bound to another decision")
+            finding_payload_refs = payload.get("finding_refs")
+            if finding_payload_refs is not None:
+                try:
+                    declared_refs = set(_refs(finding_payload_refs, "adjudication.finding_refs"))
+                except (TypeError, ValueError, RuntimeStoreError) as error:
+                    raise ClosureAssessmentError("adjudication finding refs are not exact") from error
+                if declared_refs != expected_findings:
+                    raise ClosureAssessmentError("adjudication does not cover the complete Finding set")
+            reviewer = next(
+                (
+                    payload[key].strip()
+                    for key in ("reviewer_id", "reviewer", "adjudicator_id")
+                    if isinstance(payload.get(key), str) and payload[key].strip()
+                ),
+                "",
+            )
+            method = next(
+                (
+                    payload[key].strip()
+                    for key in ("method_id", "method", "review_method")
+                    if isinstance(payload.get(key), str) and payload[key].strip()
+                ),
+                "",
+            )
+            status = next(
+                (
+                    payload[key].strip().lower().replace(" ", "_")
+                    for key in ("status", "disposition", "outcome")
+                    if isinstance(payload.get(key), str) and payload[key].strip()
+                ),
+                "",
+            )
+            raw_contradiction_refs = payload.get("contradiction_refs", ())
+            try:
+                contradiction_refs = _refs(raw_contradiction_refs, "adjudication.contradiction_refs")
+            except (TypeError, ValueError, RuntimeStoreError) as error:
+                raise ClosureAssessmentError("adjudication contradiction refs are not exact") from error
+            if not set(contradiction_refs).issubset(expected_findings):
+                raise ClosureAssessmentError("adjudication contradiction refs are outside the Finding set")
+            facts.append(
+                {
+                    "ref": reference,
+                    "reviewer_id": reviewer,
+                    "method_id": method,
+                    "status": status,
+                    "contradiction_refs": tuple(sorted(contradiction_refs)),
+                    "disposition": str(payload.get("disposition", status)),
+                }
+            )
+        return tuple(facts)
+
+    def _derive_quality(
+        self,
+        *,
+        round_id: str,
+        assessment_id: str,
+        slot_id: str,
+        target_ref: ArtifactRef,
+        decision: ArtifactRevision,
+        decision_ref: ArtifactRef,
+        findings: Sequence[ArtifactRevision],
+        finding_refs: Sequence[ArtifactRef],
+        oracle_runs: Sequence[ArtifactRevision],
+        run_refs: Sequence[ArtifactRef],
+        adjudications: Sequence[ArtifactRevision],
+        active_contradiction: bool,
+    ) -> tuple[dict[str, Any], dict[str, Any], tuple[ArtifactRef, ...]]:
+        evidence_facts: list[dict[str, Any]] = []
+        evidence_ok = bool(finding_refs)
+        try:
+            for finding in findings:
+                evidence_facts.extend(self._finding_evidence_facts(finding, round_id))
+        except (RuntimeStoreError, TypeError, ValueError, ClosureAssessmentError):
+            evidence_ok = False
+        selected_option = decision.payload.get("selected_option")
+        selected_option = selected_option if isinstance(selected_option, str) else ""
+        effects_by_finding = {
+            reference: self._finding_effects(finding, selected_option)
+            for reference, finding in zip(finding_refs, findings)
+        }
+        contradiction_refs = tuple(
+            sorted(
+                reference
+                for reference, effects in effects_by_finding.items()
+                if effects.intersection({"contradicts", "contradiction", "counterevidence", "disconfirms", "against"})
+            )
+        )
+        adjudication_facts: tuple[dict[str, Any], ...]
+        try:
+            adjudication_facts = self._adjudication_facts(
+                decision=decision,
+                target_ref=target_ref,
+                finding_refs=finding_refs,
+                supplied=adjudications,
+                round_id=round_id,
+            )
+        except (RuntimeStoreError, TypeError, ValueError, ClosureAssessmentError):
+            adjudication_facts = ()
+        workers = {fact["worker_id"] for fact in evidence_facts}
+        methods = {fact["method_id"] for fact in evidence_facts}
+        providers = {fact["provider_id"] for fact in evidence_facts}
+        groups = {fact["provenance_group"] for fact in evidence_facts}
+        provenance_signatures = {
+            f"{fact['provenance_group']}::{fact['method_id']}::{fact['provider_id']}" for fact in evidence_facts
+        }
+        independent_adjudications = tuple(
+            fact
+            for fact in adjudication_facts
+            if fact["reviewer_id"]
+            and fact["method_id"]
+            and fact["reviewer_id"] not in workers
+            and fact["method_id"] not in methods
+        )
+        searched_statuses = {
+            "searched_without_result",
+            "none_found",
+            "searched",
+            "resolved",
+            "adjudicated",
+            "accepted",
+            "rejected",
+        }
+        counterevidence = any(fact["status"] in searched_statuses for fact in independent_adjudications)
+        resolved_contradictions = not contradiction_refs or any(
+            fact["status"] in {"resolved", "adjudicated", "accepted", "rejected"}
+            and set(contradiction_refs).issubset(set(fact["contradiction_refs"]))
+            for fact in independent_adjudications
+        )
+        validated_oracle_runs = self._validated_oracle_runs(oracle_runs)
+        no_active_contradiction = not bool(active_contradiction is True) and resolved_contradictions
+        checks = {
+            "slot_lineage": True,
+            "evidence": evidence_ok and len(evidence_facts) > 0,
+            "provenance_independence": len(provenance_signatures) >= 2
+            and len(groups) >= 2
+            and len(methods) >= 2
+            and len(providers) >= 2,
+            "reviewer_independence": bool(independent_adjudications),
+            "counterevidence": counterevidence,
+            "no_active_contradiction": no_active_contradiction,
+            "oracle": validated_oracle_runs is not None
+            and any(item.verdict == "passed" for item in validated_oracle_runs),
+            "fallback": bool(str(decision.payload.get("fallback", "")).strip()),
+            "reversal_condition": bool(str(decision.payload.get("reversal_condition", "")).strip()),
+        }
+        successors: list[str] = []
+        if not checks["oracle"]:
+            successors.append("validation")
+        if validated_oracle_runs is not None and any(
+            item.verdict in {"failed", "blocked"} for item in validated_oracle_runs
+        ):
+            successors.append("method_switch")
+        if (
+            not checks["provenance_independence"]
+            or not checks["reviewer_independence"]
+            or not checks["counterevidence"]
+            or not checks["no_active_contradiction"]
+        ):
+            successors.append("adversarial")
+        if not checks["fallback"] or not checks["reversal_condition"]:
+            successors.append("residual_risk")
+        parents = tuple(dict.fromkeys((*finding_refs, *run_refs, *(fact["ref"] for fact in adjudication_facts))))
+        parent_refs = (target_ref, decision_ref, *parents)
+        disposition = (
+            "unresolved_contradiction"
+            if contradiction_refs and not resolved_contradictions
+            else next(
+                (fact["status"] for fact in independent_adjudications if fact["status"] in searched_statuses),
+                "not_recorded",
+            )
+        )
+        contradiction_status = (
+            "active"
+            if contradiction_refs and not resolved_contradictions
+            else ("resolved" if contradiction_refs else "none")
+        )
+        base = {
+            "assessment_id": assessment_id,
+            "slot_id": slot_id,
+            "status": "passed" if all(checks.values()) else "inconclusive",
+            "checks": checks,
+            "successor_kinds": sorted(set(successors)),
+            "counterevidence_disposition": disposition,
+            "parent_refs": [ref.to_dict() for ref in parent_refs],
+        }
+        token_material = {
+            "slot_id": slot_id,
+            "target_ref": target_ref.to_dict(),
+            "decision_ref": decision_ref.to_dict(),
+            "finding_refs": [ref.to_dict() for ref in finding_refs],
+            "oracle_refs": [ref.to_dict() for ref in run_refs],
+            "adjudication_refs": [fact["ref"].to_dict() for fact in adjudication_facts],
+            "evidence": sorted(
+                (
+                    {
+                        "ref": fact["evidence_ref"].to_dict(),
+                        "digest": fact["content_digest"],
+                        "method_id": fact["method_id"],
+                        "provider_id": fact["provider_id"],
+                        "provenance_group": fact["provenance_group"],
+                    }
+                    for fact in evidence_facts
+                ),
+                key=lambda item: canonical_json_bytes(item),
+            ),
+            "checks": checks,
+            "independence_groups": sorted(provenance_signatures),
+            "counterevidence_disposition": disposition,
+            "contradiction_refs": [ref.to_dict() for ref in contradiction_refs],
+            "oracle_verdicts": [item.verdict for item in validated_oracle_runs or ()],
+            "fallback": str(decision.payload.get("fallback", "")),
+            "reversal_condition": str(decision.payload.get("reversal_condition", "")),
+        }
+        token_digest = (
+            hashlib.sha256(canonical_json_bytes(token_material)).hexdigest() if base["status"] == "passed" else None
+        )
+        token = "closure-" + token_digest if token_digest else None
+        payload = {
+            **base,
+            "closure_token": token,
+            "token_digest": token_digest,
+            "assessment_revision": 1,
+            "required_evidence_results": [{"check": name, "passed": result} for name, result in checks.items()],
+            "independence_groups": sorted(provenance_signatures),
+            "counterevidence_search": {
+                "status": disposition,
+                "adjudication_refs": [fact["ref"].to_dict() for fact in adjudication_facts],
+                "reviewer_ids": sorted({fact["reviewer_id"] for fact in independent_adjudications}),
+                "method_ids": sorted({fact["method_id"] for fact in independent_adjudications}),
+            },
+            "contradiction_disposition": {
+                "status": contradiction_status,
+                "finding_refs": [ref.to_dict() for ref in contradiction_refs],
+                "adjudication_refs": [fact["ref"].to_dict() for fact in adjudication_facts],
+            },
+            "oracle_refs": [ref.to_dict() for ref in run_refs],
+            "fallback": str(decision.payload.get("fallback", "")),
+            "reversal_condition": str(decision.payload.get("reversal_condition", "")),
+            "assessor_version": "core-closure-v2",
+        }
+        return base, payload, parent_refs
+
     def assess(
         self,
         *,
@@ -472,6 +788,7 @@ class SlotClosureAssessor:
         counterevidence_disposition: str,
         active_contradiction: bool,
         expected_revision: int,
+        adjudications: Sequence[ArtifactRevision] = (),
     ) -> ArtifactRevision:
         if evaluator_id != self.core_evaluator_id:
             raise ClosureAssessmentError("only the core evaluator may issue closure")
@@ -482,66 +799,113 @@ class SlotClosureAssessor:
         if target_ref not in decision.parent_refs or decision.payload.get("decision_slot_id") != slot_id:
             raise ClosureAssessmentError("decision is not bound to the exact target and slot")
         finding_values = tuple(findings)
-        finding_refs = tuple(self._resolve(item, FINDING_PACK_KIND, round_id) for item in finding_values)
+        supplied_finding_refs = tuple(self._resolve(item, FINDING_PACK_KIND, round_id) for item in finding_values)
         self._require_complete_findings(finding_values, self._decision_findings(decision, target_ref, slot_id))
+        finding_pairs = tuple(
+            sorted(
+                zip(supplied_finding_refs, finding_values),
+                key=lambda item: (item[0].artifact_id, item[0].revision),
+            )
+        )
+        finding_refs = tuple(item[0] for item in finding_pairs)
+        finding_values = tuple(item[1] for item in finding_pairs)
         oracle_values = tuple(oracle_runs)
-        run_refs = tuple(self._resolve(item, ORACLE_RUN_KIND, round_id) for item in oracle_values)
-        validated_oracle_runs = self._validated_oracle_runs(oracle_values)
-        if not isinstance(provenance_groups, Sequence) or any(
-            not isinstance(group, str) or not group.strip() for group in provenance_groups
-        ):
-            raise ClosureAssessmentError("provenance_groups must contain non-empty strings")
-        disposition = _text(counterevidence_disposition, "counterevidence_disposition")
-        checks = {
-            "slot_lineage": True,
-            "evidence": bool(finding_refs)
-            and all(self._finding_evidence_is_bound(item, round_id) for item in finding_values),
-            "provenance_independence": len(set(provenance_groups)) >= 2,
-            "counterevidence": bool(disposition),
-            "no_active_contradiction": not active_contradiction,
-            "oracle": validated_oracle_runs is not None
-            and any(item.verdict == "passed" for item in validated_oracle_runs),
-            "fallback": bool(str(decision.payload.get("fallback", "")).strip()),
-            "reversal_condition": bool(str(decision.payload.get("reversal_condition", "")).strip()),
-        }
-        successors: list[str] = []
-        if not checks["oracle"]:
-            successors.append("validation")
-        if validated_oracle_runs is not None and any(
-            item.verdict in {"failed", "blocked"} for item in validated_oracle_runs
-        ):
-            successors.append("method_switch")
-        if not checks["no_active_contradiction"]:
-            successors.append("adversarial")
-        if not checks["fallback"] or not checks["reversal_condition"]:
-            successors.append("residual_risk")
-        base = {
-            "assessment_id": assessment_id,
-            "slot_id": slot_id,
-            "status": "passed" if all(checks.values()) else "inconclusive",
-            "checks": checks,
-            "successor_kinds": sorted(set(successors)),
-            "counterevidence_disposition": disposition,
-            "parent_refs": [ref.to_dict() for ref in (target_ref, decision_ref, *finding_refs, *run_refs)],
-        }
-        token_digest = hashlib.sha256(canonical_json_bytes(base)).hexdigest() if base["status"] == "passed" else None
-        token = "closure-" + token_digest if token_digest else None
-        payload = {
-            **base,
-            "closure_token": token,
-            "token_digest": token_digest,
-            "assessment_revision": 1,
-            "required_evidence_results": [{"check": name, "passed": result} for name, result in checks.items()],
-            "independence_groups": list(provenance_groups),
-            "counterevidence_search": {"status": disposition},
-            "contradiction_disposition": {"status": "active" if active_contradiction else "none"},
-            "oracle_refs": [ref.to_dict() for ref in run_refs],
-            "fallback": str(decision.payload.get("fallback", "")),
-            "reversal_condition": str(decision.payload.get("reversal_condition", "")),
-            "assessor_version": "core-closure-v1",
-        }
-        parents = (target_ref, decision_ref, *finding_refs, *run_refs)
+        supplied_run_refs = tuple(self._resolve(item, ORACLE_RUN_KIND, round_id) for item in oracle_values)
+        run_pairs = tuple(
+            sorted(
+                zip(supplied_run_refs, oracle_values),
+                key=lambda item: (item[0].artifact_id, item[0].revision),
+            )
+        )
+        run_refs = tuple(item[0] for item in run_pairs)
+        oracle_values = tuple(item[1] for item in run_pairs)
+        adjudication_values = tuple(adjudications)
+        _, payload, parents = self._derive_quality(
+            round_id=round_id,
+            assessment_id=assessment_id,
+            slot_id=slot_id,
+            target_ref=target_ref,
+            decision=decision,
+            decision_ref=decision_ref,
+            findings=finding_values,
+            finding_refs=finding_refs,
+            oracle_runs=oracle_values,
+            run_refs=run_refs,
+            adjudications=adjudication_values,
+            active_contradiction=active_contradiction,
+        )
         return self._append_assessment(round_id, assessment_id, payload, parents, expected_revision)
+
+    def is_current(self, assessment: ArtifactRevision | ArtifactRef) -> bool:
+        """Recompute a passed assessment against the current bound graph."""
+
+        try:
+            reference = assessment if isinstance(assessment, ArtifactRef) else _artifact_ref(assessment)
+            stored = self._current_artifact(reference, ASSESSMENT_KIND)
+            if isinstance(assessment, ArtifactRevision) and assessment != stored:
+                return False
+            if stored.payload.get("status") != "passed" or not stored.payload.get("closure_token"):
+                return False
+            payload_refs = _refs(stored.payload.get("parent_refs", ()), "assessment.parent_refs")
+            if payload_refs != stored.parent_refs:
+                return False
+            target_refs: list[ArtifactRef] = []
+            decision_refs: list[ArtifactRef] = []
+            finding_refs: list[ArtifactRef] = []
+            run_refs: list[ArtifactRef] = []
+            adjudication_refs: list[ArtifactRef] = []
+            revisions: dict[ArtifactRef, ArtifactRevision] = {}
+            for parent_ref in stored.parent_refs:
+                parent = self.ledger.get_artifact(parent_ref)
+                current = self._current_artifact(parent_ref, parent.kind)
+                revisions[parent_ref] = current
+                if parent.kind == "blueprint-target":
+                    target_refs.append(parent_ref)
+                elif parent.kind == "decision-ledger-entry":
+                    decision_refs.append(parent_ref)
+                elif parent.kind == FINDING_PACK_KIND:
+                    finding_refs.append(parent_ref)
+                elif parent.kind == ORACLE_RUN_KIND:
+                    run_refs.append(parent_ref)
+                elif parent.kind == ADJUDICATION_KIND:
+                    adjudication_refs.append(parent_ref)
+            if len(target_refs) != 1 or len(decision_refs) != 1:
+                return False
+            target_ref = target_refs[0]
+            decision_ref = decision_refs[0]
+            decision = revisions[decision_ref]
+            slot_id = stored.payload.get("slot_id")
+            if not isinstance(slot_id, str) or decision.payload.get("decision_slot_id") != slot_id:
+                return False
+            finding_refs = sorted(finding_refs, key=lambda item: (item.artifact_id, item.revision))
+            findings = tuple(revisions[ref] for ref in finding_refs)
+            self._require_complete_findings(findings, self._decision_findings(decision, target_ref, slot_id))
+            run_refs = sorted(run_refs, key=lambda item: (item.artifact_id, item.revision))
+            oracle_runs = tuple(revisions[ref] for ref in run_refs)
+            adjudication_refs = sorted(adjudication_refs, key=lambda item: (item.artifact_id, item.revision))
+            adjudications = tuple(revisions[ref] for ref in adjudication_refs)
+            _, recomputed, parents = self._derive_quality(
+                round_id=stored.round_id,
+                assessment_id=stored.id,
+                slot_id=slot_id,
+                target_ref=target_ref,
+                decision=decision,
+                decision_ref=decision_ref,
+                findings=findings,
+                finding_refs=tuple(finding_refs),
+                oracle_runs=oracle_runs,
+                run_refs=tuple(run_refs),
+                adjudications=adjudications,
+                active_contradiction=False,
+            )
+            return (
+                parents == stored.parent_refs
+                and recomputed.get("token_digest") == stored.payload.get("token_digest")
+                and recomputed.get("closure_token") == stored.payload.get("closure_token")
+                and recomputed.get("status") == "passed"
+            )
+        except (RuntimeStoreError, TypeError, ValueError, ClosureAssessmentError):
+            return False
 
     def _append_assessment(
         self,
@@ -569,4 +933,11 @@ class SlotClosureAssessor:
         )
 
 
-__all__ = ["ASSESSMENT_KIND", "ClosureAssessmentError", "OracleService", "SlotClosureAssessor", "SlotClosureAssessment"]
+__all__ = [
+    "ADJUDICATION_KIND",
+    "ASSESSMENT_KIND",
+    "ClosureAssessmentError",
+    "OracleService",
+    "SlotClosureAssessor",
+    "SlotClosureAssessment",
+]
