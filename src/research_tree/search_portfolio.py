@@ -2050,49 +2050,6 @@ class SearchPortfolioService:
             raise SearchPortfolioError("stale ledger revision") from error
         return created[0]
 
-    def record_execution(
-        self,
-        *,
-        run_id: str,
-        portfolio_ref: ArtifactRef,
-        execution: PortfolioExecution,
-        finding_artifacts_by_batch: Mapping[str, Sequence[ArtifactRevision]] | None = None,
-        capture_artifacts_by_batch: Mapping[str, Sequence[ArtifactRevision]] | None = None,
-        receipt_artifacts_by_batch: Mapping[str, Sequence[ArtifactRevision]] | None = None,
-        checkpoint_artifacts_by_batch: Mapping[str, Sequence[ArtifactRevision]] | None = None,
-        expected_revision: int,
-    ) -> tuple[ArtifactRevision, ...]:
-        if not isinstance(execution, PortfolioExecution):
-            raise SearchPortfolioError("execution must be a PortfolioExecution")
-        finding_map = finding_artifacts_by_batch or {}
-        capture_map = capture_artifacts_by_batch or {}
-        receipt_map = receipt_artifacts_by_batch or {}
-        checkpoint_map = checkpoint_artifacts_by_batch or {}
-        results: list[ArtifactRevision] = []
-        for batch, assessment in zip(execution.batches, execution.assessments):
-            batch_artifact = self.record_batch(
-                run_id=run_id,
-                batch=batch,
-                portfolio_ref=portfolio_ref,
-                finding_artifacts=finding_map.get(batch.batch_id, ()),
-                expected_revision=expected_revision,
-            )
-            expected_revision = self.ledger.get_revision(run_id)
-            assessment_artifact = self.record_assessment(
-                run_id=run_id,
-                assessment=assessment,
-                portfolio_ref=portfolio_ref,
-                batch_ref=_runtime_artifact_ref(batch_artifact),
-                capture_artifacts=capture_map.get(batch.batch_id, ()),
-                receipt_artifacts=receipt_map.get(batch.batch_id, ()),
-                checkpoint_artifacts=checkpoint_map.get(batch.batch_id, ()),
-                finding_artifacts=finding_map.get(batch.batch_id, ()),
-                expected_revision=expected_revision,
-            )
-            expected_revision = self.ledger.get_revision(run_id)
-            results.extend((batch_artifact, assessment_artifact))
-        return tuple(results)
-
     def validate_persisted_portfolio(self, *, run_id: str, portfolio_ref: ArtifactRef) -> ArtifactRevision:
         run_id = _identifier(run_id, "run_id")
         portfolio = self._stored(

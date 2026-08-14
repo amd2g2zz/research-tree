@@ -7,6 +7,7 @@ import pytest
 
 from research_tree import (
     ACQUISITION_DISPOSITIONS,
+    AdaptiveResearchPolicy,
     ArtifactRef,
     BATCH_DECISIONS,
     BatchCoverageAssessment,
@@ -28,6 +29,7 @@ from research_tree import (
     Subquestion,
     assess_acquisition_batch,
 )
+from test_adaptive_policy import slot as policy_slot
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,6 +69,11 @@ def selection(method_id: str, provider_id: str, *query_refs: str) -> MethodSelec
 
 def portfolio(
     *,
+    portfolio_id: str = "portfolio-1",
+    run_id: str = "run-1",
+    slot_id: str = "slot-1",
+    intent_revision: str = "intent-1",
+    brief_revision: str = "brief-1",
     selected_methods: tuple[MethodSelection, ...] = (selection("web-search", "provider-a", "query-1"),),
     rejected_methods: tuple[RejectedMethod, ...] = (
         RejectedMethod(
@@ -77,11 +84,11 @@ def portfolio(
     ),
 ) -> SearchPortfolio:
     return SearchPortfolio(
-        portfolio_id="portfolio-1",
-        run_id="run-1",
-        slot_id="slot-1",
-        intent_revision="intent-1",
-        brief_revision="brief-1",
+        portfolio_id=portfolio_id,
+        run_id=run_id,
+        slot_id=slot_id,
+        intent_revision=intent_revision,
+        brief_revision=brief_revision,
         subquestions=(
             Subquestion(
                 subquestion_id="question-1",
@@ -512,36 +519,35 @@ def test_batch_assessment_records_all_decision_metrics_and_pivots_on_contradicti
 def test_runtime_service_persists_complete_portfolio_lineage_and_decision(tmp_path) -> None:
     ledger = RunLedger(tmp_path)
     ledger.create_run("run-lineage")
-    intent = ledger.append_artifact(
-        "run-lineage",
-        "intent-1",
-        "intent-model",
-        {"task_id": "task-1", "revision": "intent-1"},
-        expected_revision=ledger.get_revision("run-lineage"),
-    )
-    brief = ledger.append_artifact(
-        "run-lineage",
+
+    def append(artifact_id, kind, payload, parent_refs=()):
+        return ledger.append_artifact(
+            "run-lineage",
+            artifact_id,
+            kind,
+            payload,
+            parent_refs=parent_refs,
+            expected_revision=ledger.get_revision("run-lineage"),
+        )
+
+    intent = append("intent-1", "intent-model", {"task_id": "task-1", "revision": "intent-1"})
+    brief = append(
         "brief-1",
         "working-brief",
         {"task_id": "task-1", "domain_id": "domain-1", "revision": "brief-1"},
-        parent_refs=(ArtifactRef("run-lineage", intent.id, intent.revision),),
-        expected_revision=ledger.get_revision("run-lineage"),
+        (ArtifactRef("run-lineage", intent.id, intent.revision),),
     )
-    target = ledger.append_artifact(
-        "run-lineage",
+    target = append(
         "target-1",
         "blueprint-target",
         {"decision_slots": [{"id": "slot-1"}]},
-        parent_refs=(ArtifactRef("run-lineage", brief.id, brief.revision),),
-        expected_revision=ledger.get_revision("run-lineage"),
+        (ArtifactRef("run-lineage", brief.id, brief.revision),),
     )
-    strategy = ledger.append_artifact(
-        "run-lineage",
+    strategy = append(
         "strategy-1",
         "strategy-projection",
         {"revision": "strategy-1"},
-        parent_refs=(ArtifactRef("run-lineage", target.id, target.revision),),
-        expected_revision=ledger.get_revision("run-lineage"),
+        (ArtifactRef("run-lineage", target.id, target.revision),),
     )
     method_registry = registry(
         registration("web-search", "provider-a"),
@@ -606,13 +612,11 @@ def test_runtime_service_persists_complete_portfolio_lineage_and_decision(tmp_pa
         facts=({"claim": "implementation evidence is captured"},),
         expected_revision=ledger.get_revision("run-lineage"),
     )
-    finding = ledger.append_artifact(
-        "run-lineage",
+    finding = append(
         "finding-1",
         "finding-pack",
         {"attempt_id": "attempt-1", "status": "committed"},
-        parent_refs=(checkpoint.artifact_ref,),
-        expected_revision=ledger.get_revision("run-lineage"),
+        (checkpoint.artifact_ref,),
     )
     outcome = MethodExecutionOutcome(
         outcome_id="outcome-1",
@@ -676,29 +680,15 @@ def test_runtime_service_persists_complete_portfolio_lineage_and_decision(tmp_pa
 
 
 def test_policy_consumes_persisted_assessment_without_becoming_persistence_authority() -> None:
-    from research_tree import AdaptiveResearchPolicy
-
-    evaluation = AdaptiveResearchPolicy().evaluate(
-        slots=(
-            {
-                "slot_id": "slot-1",
-                "question": "Which mechanism is decisive?",
-                "closure_oracle": "two independent sources agree",
-                "missing_dimensions": ("evidence_class_coverage",),
-            },
-        ),
-        portfolio_assessments=(
-            {
-                "portfolio_id": "portfolio-1",
-                "batch_id": "batch-1",
-                "decision_slot_id": "slot-1",
-                "attempt_id": "attempt-1",
-                "disposition": "pivot",
-                "evidence_disposition": "captured",
-                "causal_refs": ("assessment-1",),
-            },
-        ),
+    assessment = dict(
+        portfolio_id="portfolio-1",
+        batch_id="batch-1",
+        decision_slot_id="slot-architecture",
+        disposition="pivot",
+        evidence_disposition="captured",
+        causal_refs=("assessment-1",),
     )
+    evaluation = AdaptiveResearchPolicy().evaluate(slots=(policy_slot(),), portfolio_assessments=(assessment,))
 
     assert evaluation.trace.normalized_inputs["portfolio_assessments"][0]["disposition"] == "pivot"
     assert evaluation.proposals

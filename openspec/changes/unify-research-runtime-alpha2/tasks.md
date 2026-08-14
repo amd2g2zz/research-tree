@@ -451,14 +451,7 @@ substitute for local evidence.
 
 ## 76. Durable SearchPortfolio Runtime Lineage (#187)
 
-- [x] 76.1 Persist intent, subquestion, query variant, method, capture,
-  finding, batch, assessment, and decision lineage through canonical ledger
-  artifacts without introducing a second persistence authority.
-- [x] 76.2 Require current portfolio, selected method/query, capture, receipt,
-  checkpoint, finding, and assessment bindings at acquisition dispatch and
-  worker-finished ingestion.
-- [x] 76.3 Feed persisted assessments into policy, quarantine correction-stale
-  portfolio/action state, preserve autonomous pivot successors, and reopen only
-  the human-authority boundary when requester input is required.
-- [ ] 76.4 Run the exact group-76 acceptance command and record a source-bound
-  receipt after the source commit.
+- [x] 76.1 Persist intent, subquestion, query variant, method, capture, finding, batch, assessment, and decision lineage through canonical ledger artifacts without introducing a second persistence authority.
+- [x] 76.2 Require current portfolio, selected method/query, capture, receipt, checkpoint, finding, and assessment bindings at acquisition dispatch and worker-finished ingestion.
+- [x] 76.3 Feed persisted assessments into policy, quarantine correction-stale portfolio/action state, preserve autonomous pivot successors, and reopen only the human-authority boundary when requester input is required.
+- [x] 76.4 Run the exact group-76 acceptance command and record a source-bound receipt after the source commit.
