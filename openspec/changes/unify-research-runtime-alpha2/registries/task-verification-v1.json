@@ -623,7 +623,7 @@
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "239504d4f08fbdaa4466d9474e8ca0d59feb7c0992c1c4774b1de6a80dfd4c0e",
-        "source_revision": "57e870da3b65081ef6c6fdfc8db6b39b8233d7d2",
+        "source_revision": "1917debbba387226ecc502bcecdd88971602f8c7",
         "raw_output_ref": "ci://issue-151/acceptance",
         "recorded_at": "2026-08-14T03:38:34+00:00"
       },

@@ -3,7 +3,7 @@
   "issue": 151,
   "group": 61,
   "status": "verified",
-  "source_revision": "57e870da3b65081ef6c6fdfc8db6b39b8233d7d2",
+  "source_revision": "1917debbba387226ecc502bcecdd88971602f8c7",
   "checks": [
     {
       "name": "host-event-boundary-focused",
