@@ -1,9 +1,0 @@
-{
-  "command": "uv run pytest -q tests/test_adaptive_policy.py tests/test_evidence_delta.py tests/test_insights.py && uv run ruff check src/research_tree/policy.py src/research_tree/evidence_delta.py src/research_tree/insights.py tests/test_adaptive_policy.py tests/test_evidence_delta.py tests/test_insights.py && uv run ruff format --check src/research_tree/policy.py src/research_tree/evidence_delta.py src/research_tree/insights.py tests/test_adaptive_policy.py tests/test_evidence_delta.py tests/test_insights.py",
-  "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
-  "exit_code": 0,
-  "output_digest": "196727ca8a4f92f845aede9077ee994cbc3c1bb791cf297b52a7b20ace210132",
-  "raw_output_ref": "openspec/changes/refactor-adaptive-research-policy/evidence/group-6-output.txt",
-  "recorded_at": "2026-08-11T13:35:44.313954+00:00",
-  "source_revision": "b098948e68d557ee7cf6047b97349a6ad931f56c"
-}

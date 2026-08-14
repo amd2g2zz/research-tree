@@ -19,6 +19,10 @@ migration must be separate deliveries.
 4. Receipt-generation APIs reject destinations below
    `openspec/changes/**/evidence/` and require the ignored verification-run
    boundary instead.
+5. Historical verification migrations replace local output references with the
+   stable `ci://delivery-governance/delivery-gate` locator and retain compact
+   historical command provenance; they do not claim that an old local log is
+   current proof.
 
 ## Retained Source Classes
 

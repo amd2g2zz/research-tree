@@ -1,9 +1,0 @@
-{
-  "command": "uv run pytest -q tests/test_host_event_protocol.py tests/test_native_execution_adapter.py tests/test_research_run_coordinator.py && uv run ruff check src/research_tree/host_events.py src/research_tree/coordinator.py scripts/host_event_protocol.py scripts/native_execution_adapter.py tests/test_host_event_protocol.py tests/test_native_execution_adapter.py && uv run ruff format --check src/research_tree/host_events.py src/research_tree/coordinator.py scripts/host_event_protocol.py tests/test_host_event_protocol.py && uv run python scripts/build_skill_packages.py --check",
-  "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
-  "exit_code": 0,
-  "output_digest": "3f920ca0e17b50a7e54354b62cb0eb9f3de717aa0bd6948bfe2169090522e6cb",
-  "raw_output_ref": "openspec/changes/define-host-event-protocol/evidence/group-8-output.txt",
-  "recorded_at": "2026-08-11T14:00:52.931611+00:00",
-  "source_revision": "63b989eb9cc28e73b69e989e33f6af14febb5d07"
-}

@@ -5,8 +5,7 @@
       "group": 1,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/reconcile-foundation-verification-receipts/evidence/group-1-output.txt",
-        "openspec/changes/reconcile-foundation-verification-receipts/evidence/group-1-receipt.json"
+        "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
         "command": "uv run pytest -q tests/test_alpha1_baseline.py",
@@ -14,7 +13,7 @@
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "30b93ba063c66ab48ca2344a932094302f5186163a9cc4c7c260c3abba8b9620",
         "source_revision": "dcabcd5b11771d46ad9b00a3fc7ae5f437186996",
-        "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/group-1-output.txt",
+        "raw_output_ref": "ci://delivery-governance/delivery-gate",
         "recorded_at": "2026-08-10T03:22:20.174174+00:00"
       },
       "rollback": "remove fixture revision only"
@@ -23,8 +22,7 @@
       "group": 2,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/reconcile-foundation-verification-receipts/evidence/group-2-output.txt",
-        "openspec/changes/reconcile-foundation-verification-receipts/evidence/group-2-receipt.json"
+        "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
         "command": "uv run pytest -q tests/test_sqlite_ledger.py",
@@ -32,7 +30,7 @@
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "39bc3895b4e73b7509d217d28d7669c79846c50b49c760712b78669706ebb863",
         "source_revision": "dcabcd5b11771d46ad9b00a3fc7ae5f437186996",
-        "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/group-2-output.txt",
+        "raw_output_ref": "ci://delivery-governance/delivery-gate",
         "recorded_at": "2026-08-10T03:22:21.617825+00:00"
       },
       "rollback": "disable Alpha2 SQLite ledger use and retain immutable rows read-only"
@@ -41,9 +39,7 @@
       "group": 3,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/reconcile-foundation-verification-receipts/evidence/group-3-output.txt",
-        "openspec/changes/reconcile-foundation-verification-receipts/evidence/group-3-receipt.json",
-        "openspec/changes/reconcile-foundation-verification-receipts/evidence/integrated-strict-slices.json"
+        "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
         "command": "uv run pytest -q tests/test_evidence_contract.py",
@@ -51,7 +47,7 @@
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "93ad466a87be38cd5628adafe15c0c5c1a34a65be08624d4674766079dbe0ab3",
         "source_revision": "63164fbd6ffe28c5ecee90de896e4dfe897bcede",
-        "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/group-3-output.txt",
+        "raw_output_ref": "ci://delivery-governance/delivery-gate",
         "recorded_at": "2026-08-11T05:56:12.109047+00:00"
       },
       "rollback": "retain imported evidence as read-only"
@@ -60,8 +56,7 @@
       "group": 4,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/add-oracle-slot-closure/evidence/group-4-output.txt",
-        "openspec/changes/add-oracle-slot-closure/evidence/group-4-receipt.json"
+        "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
         "command": "uv run pytest -q tests/test_oracle_slot_closure.py tests/test_oracles.py",
@@ -69,7 +64,7 @@
         "environment_digest": "0000000000000000000000000000000000000000000000000000000000000000",
         "output_digest": "6d93f6965ff4938b33cc0c5486dbc4e87d94f29fd72440683cbf83ef07f7466f",
         "source_revision": "1dc0f6519235e5e64316e2de8b075a7f775bec10",
-        "raw_output_ref": "openspec/changes/add-oracle-slot-closure/evidence/group-4-output.txt",
+        "raw_output_ref": "ci://delivery-governance/delivery-gate",
         "recorded_at": "2026-08-11T16:00:00+08:00"
       },
       "rollback": "revoke alpha2 closure tokens and route reads to prior projections"
@@ -78,8 +73,7 @@
       "group": 5,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/introduce-research-run-coordinator/evidence/group-5-output.txt",
-        "openspec/changes/introduce-research-run-coordinator/evidence/group-5-receipt.json"
+        "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
         "command": "uv run pytest -q tests/test_research_run_coordinator.py",
@@ -87,18 +81,33 @@
         "environment_digest": "0000000000000000000000000000000000000000000000000000000000000000",
         "output_digest": "9e4a7d8eed9a207251c7d7982d00ec14620573d034b424ae6f278acfb22e495d",
         "source_revision": "69b36a629846bd72cf35a01c75b09d1906f926d7",
-        "raw_output_ref": "openspec/changes/introduce-research-run-coordinator/evidence/group-5-output.txt",
+        "raw_output_ref": "ci://delivery-governance/delivery-gate",
         "recorded_at": "2026-08-11T18:00:00+08:00"
       },
       "rollback": "revert the release through Git before publication"
     },
-    {"group":6,"state":"verified","evidence_refs":["openspec/changes/refactor-adaptive-research-policy/evidence/group-6-output.txt","openspec/changes/refactor-adaptive-research-policy/evidence/group-6-receipt.json","openspec/changes/refactor-adaptive-research-policy/evidence/policy-fixtures.json"],"command_receipt":{"command":"uv run pytest -q tests/test_adaptive_policy.py tests/test_evidence_delta.py tests/test_insights.py && uv run ruff check src/research_tree/policy.py src/research_tree/evidence_delta.py src/research_tree/insights.py tests/test_adaptive_policy.py tests/test_evidence_delta.py tests/test_insights.py && uv run ruff format --check src/research_tree/policy.py src/research_tree/evidence_delta.py src/research_tree/insights.py tests/test_adaptive_policy.py tests/test_evidence_delta.py tests/test_insights.py","exit_code":0,"environment_digest":"52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f","output_digest":"196727ca8a4f92f845aede9077ee994cbc3c1bb791cf297b52a7b20ace210132","source_revision":"b098948e68d557ee7cf6047b97349a6ad931f56c","raw_output_ref":"openspec/changes/refactor-adaptive-research-policy/evidence/group-6-output.txt","recorded_at":"2026-08-11T13:35:44.313954+00:00"},"rollback":"freeze optional frontier growth"},
+    {
+      "group": 6,
+      "state": "verified",
+      "evidence_refs": [
+        "ci://delivery-governance/delivery-gate"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_adaptive_policy.py tests/test_evidence_delta.py tests/test_insights.py && uv run ruff check src/research_tree/policy.py src/research_tree/evidence_delta.py src/research_tree/insights.py tests/test_adaptive_policy.py tests/test_evidence_delta.py tests/test_insights.py && uv run ruff format --check src/research_tree/policy.py src/research_tree/evidence_delta.py src/research_tree/insights.py tests/test_adaptive_policy.py tests/test_evidence_delta.py tests/test_insights.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "196727ca8a4f92f845aede9077ee994cbc3c1bb791cf297b52a7b20ace210132",
+        "source_revision": "b098948e68d557ee7cf6047b97349a6ad931f56c",
+        "raw_output_ref": "ci://delivery-governance/delivery-gate",
+        "recorded_at": "2026-08-11T13:35:44.313954+00:00"
+      },
+      "rollback": "freeze optional frontier growth"
+    },
     {
       "group": 7,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/unify-research-runtime-alpha2/evidence/group-7-output.txt",
-        "openspec/changes/unify-research-runtime-alpha2/evidence/group-7-receipt.json"
+        "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
         "command": "uv run pytest -q tests/test_alignment_protocol.py tests/test_alignment_actions.py tests/test_alignment_beliefs.py tests/test_alignment_messages.py tests/test_alignment_handoff.py && uv run ruff check src/research_tree/alignment_protocol.py tests/test_alignment_protocol.py tests/test_alignment_actions.py tests/test_alignment_beliefs.py tests/test_alignment_messages.py tests/test_alignment_handoff.py && uv run ruff format --check src/research_tree/alignment_protocol.py tests/test_alignment_protocol.py tests/test_alignment_actions.py tests/test_alignment_beliefs.py tests/test_alignment_messages.py tests/test_alignment_handoff.py",
@@ -106,7 +115,7 @@
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "0c2afd23e0f2acf69b5bf88435a5595835d01404dbe350cb53c10809e631481d",
         "source_revision": "388bda96bf9e6dcee1073fa98106209f6007ce12",
-        "raw_output_ref": "openspec/changes/unify-research-runtime-alpha2/evidence/group-7-output.txt",
+        "raw_output_ref": "ci://delivery-governance/delivery-gate",
         "recorded_at": "2026-08-11T12:41:13.416502+00:00"
       },
       "rollback": "remain handoff_pending"
@@ -115,8 +124,7 @@
       "group": 8,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/define-host-event-protocol/evidence/group-8-output.txt",
-        "openspec/changes/define-host-event-protocol/evidence/group-8-receipt.json"
+        "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
         "command": "uv run pytest -q tests/test_host_event_protocol.py tests/test_native_execution_adapter.py tests/test_research_run_coordinator.py && uv run ruff check src/research_tree/host_events.py src/research_tree/coordinator.py scripts/host_event_protocol.py scripts/native_execution_adapter.py tests/test_host_event_protocol.py tests/test_native_execution_adapter.py && uv run ruff format --check src/research_tree/host_events.py src/research_tree/coordinator.py scripts/host_event_protocol.py tests/test_host_event_protocol.py && uv run python scripts/build_skill_packages.py --check",
@@ -124,7 +132,7 @@
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "3f920ca0e17b50a7e54354b62cb0eb9f3de717aa0bd6948bfe2169090522e6cb",
         "source_revision": "63b989eb9cc28e73b69e989e33f6af14febb5d07",
-        "raw_output_ref": "openspec/changes/define-host-event-protocol/evidence/group-8-output.txt",
+        "raw_output_ref": "ci://delivery-governance/delivery-gate",
         "recorded_at": "2026-08-11T14:00:52.931611+00:00"
       },
       "rollback": "disable canonical event cutover"
@@ -133,8 +141,7 @@
       "group": 9,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/integrate-hermes-native-execution/evidence/group-9-output.txt",
-        "openspec/changes/integrate-hermes-native-execution/evidence/group-9-receipt.json"
+        "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
         "command": "uv run pytest -q tests/test_hermes_execution_adapter.py tests/test_hermes_host_events.py tests/test_host_event_protocol.py tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py && uv run ruff check scripts/hermes_execution_adapter.py scripts/hermes_event_adapter.py scripts/hermes_runtime_hook.py src/research_tree/coordinator.py tests/test_hermes_execution_adapter.py tests/test_hermes_host_events.py tests/test_host_event_protocol.py tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py && uv run ruff format --check scripts/hermes_execution_adapter.py scripts/hermes_event_adapter.py src/research_tree/coordinator.py tests/test_hermes_execution_adapter.py tests/test_hermes_host_events.py && uv run python scripts/build_skill_packages.py --check",
@@ -142,13 +149,48 @@
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "852194f33d09eed48b3f9d33b681246c26e003a211eac06bcfce4feaeb318604",
         "source_revision": "95420dac163f367d234e02a67eb84fb44922700a",
-        "raw_output_ref": "openspec/changes/integrate-hermes-native-execution/evidence/group-9-output.txt",
+        "raw_output_ref": "ci://delivery-governance/delivery-gate",
         "recorded_at": "2026-08-11T14:45:39.945146+00:00"
       },
       "rollback": "disable Hermes translation and retain canonical events read-only"
     },
-    { "group": 10, "state": "verified", "evidence_refs": ["openspec/changes/enforce-semantic-dual-delivery/evidence/group-10-output.txt", "openspec/changes/enforce-semantic-dual-delivery/evidence/group-10-receipt.json"], "command_receipt": {"command": "uv run pytest -q tests/test_alpha2_semantic_delivery.py tests/test_alpha2_delivery_lifecycle.py tests/test_deliveries.py tests/test_e2e_blueprint.py; uv run ruff check src/research_tree/acceptance.py src/research_tree/delivery.py src/research_tree/__init__.py tests/test_alpha2_semantic_delivery.py tests/test_alpha2_delivery_lifecycle.py tests/test_deliveries.py tests/test_e2e_blueprint.py; uv run ruff format --check src/research_tree/acceptance.py src/research_tree/delivery.py src/research_tree/__init__.py tests/test_alpha2_semantic_delivery.py tests/test_alpha2_delivery_lifecycle.py tests/test_deliveries.py tests/test_e2e_blueprint.py", "exit_code": 0, "environment_digest": "d476b6ec39a19742178e4da2b44aa787397dbce695427af4097bfcfe8f0abd0c", "output_digest": "a2a93ed6a02097710b7db3f10f457d5860cbc48a92da4872700fbb6b5831037e", "source_revision": "d76194a8a6160ce561044c658266bbc819dc1173", "raw_output_ref": "openspec/changes/enforce-semantic-dual-delivery/evidence/group-10-output.txt", "recorded_at": "2026-08-12T12:40:15.4276356+08:00", "rollback": "retain immutable prior delivery revisions and keep legacy read compatibility"}, "rollback": "retain immutable prior delivery revisions and keep legacy read compatibility" },
-    { "group": 11, "state": "verified", "evidence_refs": ["openspec/changes/add-causal-observability/evidence/group-11-output.txt", "openspec/changes/add-causal-observability/evidence/group-11-receipt.json"], "command_receipt": {"command": "uv run pytest -q tests/test_debug_trace.py tests/test_replay.py tests/test_research_run_coordinator.py && uv run ruff check src/research_tree/debug_trace.py tests/test_debug_trace.py tests/test_replay.py && uv run ruff format --check src/research_tree/debug_trace.py tests/test_debug_trace.py tests/test_replay.py", "exit_code": 0, "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f", "output_digest": "e2078f71a99ade09d6b5291a6d221e93313514f64e0564746990d734d13790e1", "source_revision": "73b8ae77bd710e1238e33461608a7e32d3b729dd", "raw_output_ref": "openspec/changes/add-causal-observability/evidence/group-11-output.txt", "recorded_at": "2026-08-11T15:21:42.097987+00:00"}, "rollback": "retain append-only events" },
+    {
+      "group": 10,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/enforce-semantic-dual-delivery/evidence/group-10-output.txt",
+        "openspec/changes/enforce-semantic-dual-delivery/evidence/group-10-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_alpha2_semantic_delivery.py tests/test_alpha2_delivery_lifecycle.py tests/test_deliveries.py tests/test_e2e_blueprint.py; uv run ruff check src/research_tree/acceptance.py src/research_tree/delivery.py src/research_tree/__init__.py tests/test_alpha2_semantic_delivery.py tests/test_alpha2_delivery_lifecycle.py tests/test_deliveries.py tests/test_e2e_blueprint.py; uv run ruff format --check src/research_tree/acceptance.py src/research_tree/delivery.py src/research_tree/__init__.py tests/test_alpha2_semantic_delivery.py tests/test_alpha2_delivery_lifecycle.py tests/test_deliveries.py tests/test_e2e_blueprint.py",
+        "exit_code": 0,
+        "environment_digest": "d476b6ec39a19742178e4da2b44aa787397dbce695427af4097bfcfe8f0abd0c",
+        "output_digest": "a2a93ed6a02097710b7db3f10f457d5860cbc48a92da4872700fbb6b5831037e",
+        "source_revision": "d76194a8a6160ce561044c658266bbc819dc1173",
+        "raw_output_ref": "openspec/changes/enforce-semantic-dual-delivery/evidence/group-10-output.txt",
+        "recorded_at": "2026-08-12T12:40:15.4276356+08:00",
+        "rollback": "retain immutable prior delivery revisions and keep legacy read compatibility"
+      },
+      "rollback": "retain immutable prior delivery revisions and keep legacy read compatibility"
+    },
+    {
+      "group": 11,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/add-causal-observability/evidence/group-11-output.txt",
+        "openspec/changes/add-causal-observability/evidence/group-11-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_debug_trace.py tests/test_replay.py tests/test_research_run_coordinator.py && uv run ruff check src/research_tree/debug_trace.py tests/test_debug_trace.py tests/test_replay.py && uv run ruff format --check src/research_tree/debug_trace.py tests/test_debug_trace.py tests/test_replay.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "e2078f71a99ade09d6b5291a6d221e93313514f64e0564746990d734d13790e1",
+        "source_revision": "73b8ae77bd710e1238e33461608a7e32d3b729dd",
+        "raw_output_ref": "openspec/changes/add-causal-observability/evidence/group-11-output.txt",
+        "recorded_at": "2026-08-11T15:21:42.097987+00:00"
+      },
+      "rollback": "retain append-only events"
+    },
     {
       "group": 12,
       "state": "verified",
@@ -170,15 +212,85 @@
       },
       "rollback": "reject candidate manifest"
     },
-    { "group": 14, "state": "verified", "evidence_refs": ["openspec/changes/reconcile-group-14-contract-verification/evidence/group-14-output.txt", "openspec/changes/reconcile-group-14-contract-verification/evidence/group-14-receipt.json"], "command_receipt": { "command": "uv run python scripts/validate_contracts.py", "exit_code": 0, "environment_digest": "d476b6ec39a19742178e4da2b44aa787397dbce695427af4097bfcfe8f0abd0c", "output_digest": "5c9258a0de83f38243aa16ddbdf4932629810a56e692fb8852a52f3a6f665024", "source_revision": "90fdb25a2385ce3ded971a15fcb447f8f5c460ca", "raw_output_ref": "openspec/changes/reconcile-group-14-contract-verification/evidence/group-14-output.txt", "recorded_at": "2026-08-12T11:37:49.0167905+08:00" }, "rollback": "reject implementation slice" },
-    { "group": 15, "state": "planned" },
-    {"group":16,"state":"verified","evidence_refs":["openspec/changes/refactor-adaptive-research-policy/evidence/group-16-output.txt","openspec/changes/refactor-adaptive-research-policy/evidence/group-16-receipt.json","openspec/changes/refactor-adaptive-research-policy/evidence/policy-fixtures.json"],"command_receipt":{"command":"uv run pytest -q tests/test_insight_digest.py tests/test_policy_replay.py && uv run ruff check src/research_tree/policy.py src/research_tree/insights.py tests/test_insight_digest.py tests/test_policy_replay.py && uv run ruff format --check src/research_tree/policy.py src/research_tree/insights.py tests/test_insight_digest.py tests/test_policy_replay.py","exit_code":0,"environment_digest":"52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f","output_digest":"5ac90e2ff0734f62fc02934ab04189f66ec4a2112c2448d102eda4a06a0b2691","source_revision":"b098948e68d557ee7cf6047b97349a6ad931f56c","raw_output_ref":"openspec/changes/refactor-adaptive-research-policy/evidence/group-16-output.txt","recorded_at":"2026-08-11T13:35:45.729050+00:00"},"rollback":"use prior policy version"},
-    { "group": 17, "state": "planned" },
-    { "group": 18, "state": "planned" },
-    { "group": 19, "state": "planned" },
-    { "group": 20, "state": "verified", "evidence_refs": ["openspec/changes/govern-evaluation-assets/evidence/group-20-output.txt", "openspec/changes/govern-evaluation-assets/evidence/group-20-receipt.json"], "command_receipt": {"command": "uv run python scripts/check_evaluation_assets.py", "exit_code": 0, "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f", "output_digest": "1120bcf0a81e833b17601d1137bf2c192003f08b50b99102b2e21cb0e14c64fd", "source_revision": "69b8a5c78fbbebfb4095ae9e0fbf063b6b985b14", "raw_output_ref": "openspec/changes/govern-evaluation-assets/evidence/group-20-output.txt", "recorded_at": "2026-08-12T03:50:59.927590+00:00"}, "rollback": "retain raw runs outside tracked source" },
-    { "group": 21, "state": "planned" },
-    { "group": 22, "state": "planned" },
+    {
+      "group": 14,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/reconcile-group-14-contract-verification/evidence/group-14-output.txt",
+        "openspec/changes/reconcile-group-14-contract-verification/evidence/group-14-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run python scripts/validate_contracts.py",
+        "exit_code": 0,
+        "environment_digest": "d476b6ec39a19742178e4da2b44aa787397dbce695427af4097bfcfe8f0abd0c",
+        "output_digest": "5c9258a0de83f38243aa16ddbdf4932629810a56e692fb8852a52f3a6f665024",
+        "source_revision": "90fdb25a2385ce3ded971a15fcb447f8f5c460ca",
+        "raw_output_ref": "openspec/changes/reconcile-group-14-contract-verification/evidence/group-14-output.txt",
+        "recorded_at": "2026-08-12T11:37:49.0167905+08:00"
+      },
+      "rollback": "reject implementation slice"
+    },
+    {
+      "group": 15,
+      "state": "planned"
+    },
+    {
+      "group": 16,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/refactor-adaptive-research-policy/evidence/group-16-output.txt",
+        "openspec/changes/refactor-adaptive-research-policy/evidence/group-16-receipt.json",
+        "openspec/changes/refactor-adaptive-research-policy/evidence/policy-fixtures.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_insight_digest.py tests/test_policy_replay.py && uv run ruff check src/research_tree/policy.py src/research_tree/insights.py tests/test_insight_digest.py tests/test_policy_replay.py && uv run ruff format --check src/research_tree/policy.py src/research_tree/insights.py tests/test_insight_digest.py tests/test_policy_replay.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "5ac90e2ff0734f62fc02934ab04189f66ec4a2112c2448d102eda4a06a0b2691",
+        "source_revision": "b098948e68d557ee7cf6047b97349a6ad931f56c",
+        "raw_output_ref": "openspec/changes/refactor-adaptive-research-policy/evidence/group-16-output.txt",
+        "recorded_at": "2026-08-11T13:35:45.729050+00:00"
+      },
+      "rollback": "use prior policy version"
+    },
+    {
+      "group": 17,
+      "state": "planned"
+    },
+    {
+      "group": 18,
+      "state": "planned"
+    },
+    {
+      "group": 19,
+      "state": "planned"
+    },
+    {
+      "group": 20,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/govern-evaluation-assets/evidence/group-20-output.txt",
+        "openspec/changes/govern-evaluation-assets/evidence/group-20-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run python scripts/check_evaluation_assets.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "1120bcf0a81e833b17601d1137bf2c192003f08b50b99102b2e21cb0e14c64fd",
+        "source_revision": "69b8a5c78fbbebfb4095ae9e0fbf063b6b985b14",
+        "raw_output_ref": "openspec/changes/govern-evaluation-assets/evidence/group-20-output.txt",
+        "recorded_at": "2026-08-12T03:50:59.927590+00:00"
+      },
+      "rollback": "retain raw runs outside tracked source"
+    },
+    {
+      "group": 21,
+      "state": "planned"
+    },
+    {
+      "group": 22,
+      "state": "planned"
+    },
     {
       "group": 23,
       "state": "verified",
@@ -199,7 +311,10 @@
       },
       "rollback": "retain prior revisions as historical"
     },
-    { "group": 24, "state": "planned" },
+    {
+      "group": 24,
+      "state": "planned"
+    },
     {
       "group": 25,
       "state": "verified",
@@ -218,11 +333,71 @@
       },
       "rollback": "quarantine incomplete worker attempts"
     },
-    { "group": 26, "state": "verified", "evidence_refs": ["openspec/changes/integrate-host-native-dynamic-workflows/evidence/group-26-output.txt", "openspec/changes/integrate-host-native-dynamic-workflows/evidence/group-26-receipt.json"], "command_receipt": {"command": "uv run pytest -q tests/test_native_dynamic_workflows.py tests/test_host_event_protocol.py tests/test_worker_orchestration.py", "exit_code": 0, "environment_digest": "37f06035cca23f27ec913ec6c57a4bf557524adbc80fe136467f5e89216dae14", "output_digest": "e5e607e103d3d836b0726ee4b50b13c6cf166cc3e95104af310ddc357213937f", "source_revision": "1a77b4be2fa23e1b21b04067b4138a194ae408f1", "raw_output_ref": "openspec/changes/integrate-host-native-dynamic-workflows/evidence/group-26-output.txt", "recorded_at": "2026-08-12T06:57:52.9801186+00:00", "rollback": "disable native projections and use coordinator-dispatch-v1"}, "rollback": "disable native projections and use coordinator-dispatch-v1" },
-    { "group": 27, "state": "planned" },
-    { "group": 28, "state": "verified", "evidence_refs": ["openspec/changes/add-four-stage-strategy-handoff/evidence/group-28-output.txt", "openspec/changes/add-four-stage-strategy-handoff/evidence/group-28-receipt.json", "openspec/changes/add-four-stage-strategy-handoff/evidence/strategy-handoff-black-box-v1.json"], "command_receipt": { "command": "uv run pytest -q tests/test_strategy_projection.py tests/test_strategy_handoff.py tests/test_strategy_handoff_black_box.py tests/test_sqlite_ledger.py && uv run ruff check src/research_tree/strategy_projection.py src/research_tree/coordinator.py src/research_tree/run_ledger.py src/research_tree/__init__.py tests/test_strategy_projection.py tests/test_strategy_handoff.py tests/test_strategy_handoff_black_box.py tests/test_sqlite_ledger.py && uv run ruff format --check src/research_tree/strategy_projection.py src/research_tree/coordinator.py src/research_tree/run_ledger.py src/research_tree/__init__.py tests/test_strategy_projection.py tests/test_strategy_handoff.py tests/test_strategy_handoff_black_box.py tests/test_sqlite_ledger.py", "exit_code": 0, "source_revision": "f7da3d3f69bb8daff0fe203fef61f106cdb009df", "environment_digest": "d476b6ec39a19742178e4da2b44aa787397dbce695427af4097bfcfe8f0abd0c", "output_digest": "a0122b03aff1efd095a5574b5e521be670fae009d7ddbf63e5920bfa9f644e60", "raw_output_ref": "openspec/changes/add-four-stage-strategy-handoff/evidence/group-28-output.txt", "recorded_at": "2026-08-12T10:00:00+08:00" }, "rollback": "remain handoff_pending" },
-    { "group": 29, "state": "verified", "evidence_refs": ["openspec/changes/archive/2026-08-13-add-project-user-preference-profile/evidence/group-29-output.txt", "openspec/changes/archive/2026-08-13-add-project-user-preference-profile/evidence/group-29-receipt.json"], "command_receipt": { "command": "uv run pytest -q tests/test_user_preferences.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py && uv run ruff check src/research_tree/preferences.py src/research_tree/strategy_projection.py src/research_tree/run_ledger.py src/research_tree/cli.py src/research_tree/__init__.py tests/test_user_preferences.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py && uv run ruff format --check src/research_tree/preferences.py src/research_tree/strategy_projection.py src/research_tree/run_ledger.py src/research_tree/cli.py src/research_tree/__init__.py tests/test_user_preferences.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py", "exit_code": 0, "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f", "output_digest": "f0b54146e5db39568c3885117f130b6d6d1dc1668a8c17bd10ab042ae94d47f9", "source_revision": "81d7e82eb4c345b81b8b4fda0f4540edb019064b", "raw_output_ref": "openspec/changes/archive/2026-08-13-add-project-user-preference-profile/evidence/group-29-output.txt", "recorded_at": "2026-08-12T06:46:27.8501506+00:00", "rollback": "disable profile influence while retaining observations read-only" }, "rollback": "disable profile influence while retaining observations read-only" },
-    { "group": 30, "state": "planned" },
+    {
+      "group": 26,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/integrate-host-native-dynamic-workflows/evidence/group-26-output.txt",
+        "openspec/changes/integrate-host-native-dynamic-workflows/evidence/group-26-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_native_dynamic_workflows.py tests/test_host_event_protocol.py tests/test_worker_orchestration.py",
+        "exit_code": 0,
+        "environment_digest": "37f06035cca23f27ec913ec6c57a4bf557524adbc80fe136467f5e89216dae14",
+        "output_digest": "e5e607e103d3d836b0726ee4b50b13c6cf166cc3e95104af310ddc357213937f",
+        "source_revision": "1a77b4be2fa23e1b21b04067b4138a194ae408f1",
+        "raw_output_ref": "openspec/changes/integrate-host-native-dynamic-workflows/evidence/group-26-output.txt",
+        "recorded_at": "2026-08-12T06:57:52.9801186+00:00",
+        "rollback": "disable native projections and use coordinator-dispatch-v1"
+      },
+      "rollback": "disable native projections and use coordinator-dispatch-v1"
+    },
+    {
+      "group": 27,
+      "state": "planned"
+    },
+    {
+      "group": 28,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/add-four-stage-strategy-handoff/evidence/group-28-output.txt",
+        "openspec/changes/add-four-stage-strategy-handoff/evidence/group-28-receipt.json",
+        "openspec/changes/add-four-stage-strategy-handoff/evidence/strategy-handoff-black-box-v1.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_strategy_projection.py tests/test_strategy_handoff.py tests/test_strategy_handoff_black_box.py tests/test_sqlite_ledger.py && uv run ruff check src/research_tree/strategy_projection.py src/research_tree/coordinator.py src/research_tree/run_ledger.py src/research_tree/__init__.py tests/test_strategy_projection.py tests/test_strategy_handoff.py tests/test_strategy_handoff_black_box.py tests/test_sqlite_ledger.py && uv run ruff format --check src/research_tree/strategy_projection.py src/research_tree/coordinator.py src/research_tree/run_ledger.py src/research_tree/__init__.py tests/test_strategy_projection.py tests/test_strategy_handoff.py tests/test_strategy_handoff_black_box.py tests/test_sqlite_ledger.py",
+        "exit_code": 0,
+        "source_revision": "f7da3d3f69bb8daff0fe203fef61f106cdb009df",
+        "environment_digest": "d476b6ec39a19742178e4da2b44aa787397dbce695427af4097bfcfe8f0abd0c",
+        "output_digest": "a0122b03aff1efd095a5574b5e521be670fae009d7ddbf63e5920bfa9f644e60",
+        "raw_output_ref": "openspec/changes/add-four-stage-strategy-handoff/evidence/group-28-output.txt",
+        "recorded_at": "2026-08-12T10:00:00+08:00"
+      },
+      "rollback": "remain handoff_pending"
+    },
+    {
+      "group": 29,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/archive/2026-08-13-add-project-user-preference-profile/evidence/group-29-output.txt",
+        "openspec/changes/archive/2026-08-13-add-project-user-preference-profile/evidence/group-29-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_user_preferences.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py && uv run ruff check src/research_tree/preferences.py src/research_tree/strategy_projection.py src/research_tree/run_ledger.py src/research_tree/cli.py src/research_tree/__init__.py tests/test_user_preferences.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py && uv run ruff format --check src/research_tree/preferences.py src/research_tree/strategy_projection.py src/research_tree/run_ledger.py src/research_tree/cli.py src/research_tree/__init__.py tests/test_user_preferences.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "f0b54146e5db39568c3885117f130b6d6d1dc1668a8c17bd10ab042ae94d47f9",
+        "source_revision": "81d7e82eb4c345b81b8b4fda0f4540edb019064b",
+        "raw_output_ref": "openspec/changes/archive/2026-08-13-add-project-user-preference-profile/evidence/group-29-output.txt",
+        "recorded_at": "2026-08-12T06:46:27.8501506+00:00",
+        "rollback": "disable profile influence while retaining observations read-only"
+      },
+      "rollback": "disable profile influence while retaining observations read-only"
+    },
+    {
+      "group": 30,
+      "state": "planned"
+    },
     {
       "group": 31,
       "state": "verified",
@@ -242,7 +417,24 @@
       },
       "rollback": "remain in alignment"
     },
-    { "group": 32, "state": "verified", "evidence_refs": ["openspec/changes/archive/2026-08-13-verify-cross-host-skill-activation/evidence/group-32-output.txt", "openspec/changes/archive/2026-08-13-verify-cross-host-skill-activation/evidence/group-32-receipt.json"], "command_receipt": { "command": "uv run pytest -q tests/test_skill_activation.py tests/test_skill_setup.py tests/test_skill_packages.py && uv run ruff check src/research_tree/skill_activation.py src/research_tree/skill_setup.py scripts/check_skill_activation.py scripts/build_skill_packages.py tests/test_skill_activation.py tests/test_skill_setup.py tests/test_skill_packages.py && uv run ruff format --check src/research_tree/skill_activation.py scripts/check_skill_activation.py tests/test_skill_activation.py", "exit_code": 0, "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f", "output_digest": "d83d3e7c48fd3412f2e976fcaed274302dd403df10e5aacf13b03d537bba169b", "raw_output_ref": "openspec/changes/archive/2026-08-13-verify-cross-host-skill-activation/evidence/group-32-output.txt", "recorded_at": "2026-08-11T16:07:03.2835791Z", "source_revision": "0473171431dbcdd27bbaa99647682fc05d28f062" }, "rollback": "record each host as unavailable or failed; never infer live activation" },
+    {
+      "group": 32,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/archive/2026-08-13-verify-cross-host-skill-activation/evidence/group-32-output.txt",
+        "openspec/changes/archive/2026-08-13-verify-cross-host-skill-activation/evidence/group-32-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_skill_activation.py tests/test_skill_setup.py tests/test_skill_packages.py && uv run ruff check src/research_tree/skill_activation.py src/research_tree/skill_setup.py scripts/check_skill_activation.py scripts/build_skill_packages.py tests/test_skill_activation.py tests/test_skill_setup.py tests/test_skill_packages.py && uv run ruff format --check src/research_tree/skill_activation.py scripts/check_skill_activation.py tests/test_skill_activation.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "d83d3e7c48fd3412f2e976fcaed274302dd403df10e5aacf13b03d537bba169b",
+        "raw_output_ref": "openspec/changes/archive/2026-08-13-verify-cross-host-skill-activation/evidence/group-32-output.txt",
+        "recorded_at": "2026-08-11T16:07:03.2835791Z",
+        "source_revision": "0473171431dbcdd27bbaa99647682fc05d28f062"
+      },
+      "rollback": "record each host as unavailable or failed; never infer live activation"
+    },
     {
       "group": 33,
       "state": "verified",
