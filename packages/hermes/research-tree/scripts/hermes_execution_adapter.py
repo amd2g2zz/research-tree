@@ -157,6 +157,7 @@ def _parser() -> argparse.ArgumentParser:
     emit.add_argument("--attempt-id", required=True)
     emit.add_argument("--expected-revision", type=int, required=True)
     emit.add_argument("--sequence", type=int, required=True)
+    emit.add_argument("--causation-id")
     emit.add_argument("--action-id")
     emit.add_argument("--decision-slot-id")
     emit.add_argument("--created-at", required=True)
@@ -234,6 +235,7 @@ def main() -> int:
                 attempt_id=args.attempt_id,
                 expected_revision=args.expected_revision,
                 sequence=args.sequence,
+                causation_id=args.causation_id,
                 action_id=args.action_id,
                 decision_slot_id=args.decision_slot_id,
                 created_at=args.created_at,

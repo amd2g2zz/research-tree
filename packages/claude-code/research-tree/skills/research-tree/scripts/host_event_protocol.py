@@ -88,6 +88,7 @@ def build_host_event(
     payload: Mapping[str, Any],
     decision_slot_id: str | None = None,
     action_id: str | None = None,
+    causation_id: str | None = None,
     created_at: str | None = None,
 ) -> dict[str, Any]:
     if kind not in EVENT_KINDS:
@@ -119,6 +120,8 @@ def build_host_event(
         envelope["decision_slot_id"] = decision_slot_id
     if action_id is not None:
         envelope["action_id"] = action_id
+    if causation_id is not None:
+        envelope["causation_id"] = causation_id
     return envelope
 
 
