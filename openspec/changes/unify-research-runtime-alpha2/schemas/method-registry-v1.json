@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/method-registry-v1.json",
+  "title": "Alpha2 MethodRegistry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "registry_id", "registrations"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "kind": { "type": "string", "const": "method-registry" },
+    "registry_id": { "$ref": "#/$defs/identifier" },
+    "registrations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/registration" }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "registration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method_id", "provider_id", "capability", "failure_boundary", "availability", "degradation_reason"],
+      "properties": {
+        "method_id": { "$ref": "#/$defs/identifier" },
+        "provider_id": { "$ref": "#/$defs/identifier" },
+        "capability": { "$ref": "#/$defs/identifier" },
+        "failure_boundary": { "$ref": "#/$defs/identifier" },
+        "availability": { "type": "string", "enum": ["available", "degraded", "unavailable"] },
+        "degradation_reason": { "type": ["string", "null"], "enum": [null, "single-provider", "provider-outage", "rate-limited", "partial-capability", "permission-limited", "unsupported-media"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "availability": { "const": "available" } } },
+          "then": { "properties": { "degradation_reason": { "const": null } } },
+          "else": { "properties": { "degradation_reason": { "type": "string" } } }
+        }
+      ]
+    }
+  }
+}

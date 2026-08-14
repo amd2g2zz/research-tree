@@ -52,6 +52,7 @@
     { "issue": 169, "primary_group": 57, "supporting_groups": [], "capabilities": ["current-only-skill-setup"], "openspec_change": "remove-legacy-setup-migration" },
     { "issue": 173, "primary_group": 59, "supporting_groups": [], "capabilities": ["current-strategy-projection-reader"], "openspec_change": "remove-legacy-strategy-projection-reader" },
     { "issue": 174, "primary_group": 60, "supporting_groups": [], "capabilities": ["current-insight-payload-reader"], "openspec_change": "remove-legacy-insight-payload-reader" },
-    { "issue": 178, "primary_group": 62, "supporting_groups": [], "capabilities": ["public-runstore-scheduler-surface-removal"], "openspec_change": "retire-public-runstore-scheduler-surface" }
+    { "issue": 178, "primary_group": 62, "supporting_groups": [], "capabilities": ["public-runstore-scheduler-surface-removal"], "openspec_change": "retire-public-runstore-scheduler-surface" },
+    { "issue": 163, "primary_group": 48, "supporting_groups": [], "capabilities": ["typed-search-portfolio-contract"], "openspec_change": "define-typed-search-portfolio-contract" }
   ]
 }
