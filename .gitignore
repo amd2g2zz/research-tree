@@ -21,6 +21,46 @@ Desktop.ini
 .research-tree-hooks/
 .research-tree-debug/
 .research-tree-alignment/
+
+# Local test and coverage reports
+.coverage
+.coverage.*
+coverage.xml
+coverage.lcov
+coverage.json
+htmlcov/
+junit.xml
+junit-*.xml
+pytestdebug.log
+
+# Local type-checking, benchmarking, and profiling state
+.mypy_cache/
+.pyright/
+.basedpyright/
+.pyre/
+.pytype/
+.dmypy.json
+.benchmarks/
+.hypothesis/
+*.prof
+*.pstats
+
+# Rebuildable code-intelligence state
+.gitnexus/
+
+# IDE and editor-local state
+.idea/
+.vscode-test/
+.ropeproject/
+.history/
+*~
+*.swp
+*.swo
+*.swn
+.*.swp
+.*.swo
+.#*
+\#*\#
 .research-tree-native/
 .research-tree-hermes/
 
