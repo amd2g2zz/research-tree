@@ -13,5 +13,5 @@
 
 - [x] 4. Add red/green tests for complete lineage, current capture/checkpoint,
   acquisition dispatch, assessment-gated worker finish, and policy input.
-- [ ] 5. Run the exact group-76 acceptance command and record a source-bound
+- [x] 5. Run the exact group-76 acceptance command and record a source-bound
   receipt after the implementation commit.
