@@ -9,9 +9,9 @@
       "name": "replay-focused",
       "command": "uv run pytest -q tests/test_replay.py tests/test_debug_trace.py",
       "exit_code": 0,
-      "output_digest": "84e904eb8b21484e6d12ccf1c6b43528f0b8444aff9f984d241a9ec5fdd58aa0",
+      "output_digest": "0c54b24f560882dabd5f6a8d7d1f7a04aeecb589783775bf9699be32fcaf0f12",
       "raw_output_ref": "ci://issue-154/replay-focused",
-      "recorded_at": "2026-08-14T12:39:52+08:00"
+      "recorded_at": "2026-08-14T12:42:46+08:00"
     }
   ],
   "rollback": "revert the semantic replay change; retain immutable events and report only chain_intact until replay is restored"
