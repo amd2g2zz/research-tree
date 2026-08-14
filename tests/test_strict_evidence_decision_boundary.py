@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from test_readiness import greenfield_package
+from canonical_finding_fixture import canonical_context
+from test_deliveries import (
+    api as delivery_api,
+    compile_deliveries,
+    readiness as delivery_readiness,
+    repository,
+)
 
 from research_tree import (
     ArtifactRef,
@@ -31,34 +37,9 @@ from research_tree.domain import thaw_json
 from research_tree.readiness import _strict_findings_are_authoritative
 
 
-def _migrate_run_store(source_store, round_record, ledger: RunLedger) -> None:
-    ledger.create_run(round_record.id)
-    source = source_store.load_round(round_record.id).artifacts
-    copied: set[tuple[str, int]] = set()
-    while len(copied) < len(source):
-        progressed = False
-        for artifact in source:
-            key = (artifact.id, artifact.revision)
-            if key in copied or any(
-                (parent.artifact_id, parent.revision) not in copied
-                for parent in artifact.parent_refs
-            ):
-                continue
-            result = ledger.append_artifact(
-                artifact.round_id,
-                artifact.id,
-                artifact.kind,
-                thaw_json(artifact.payload),
-                parent_refs=artifact.parent_refs,
-                expected_revision=ledger.get_revision(round_record.id),
-            )
-            assert result.revision == artifact.revision
-            copied.add(key)
-            progressed = True
-        assert progressed, "source artifact graph must be topologically copyable"
-
-
-def _artifact(*, run_id: str, evidence_id: str, digest: str, size: int, locator: dict[str, str], revision: int = 1) -> EvidenceArtifact:
+def _artifact(
+    *, run_id: str, evidence_id: str, digest: str, size: int, locator: dict[str, str], revision: int = 1
+) -> EvidenceArtifact:
     return EvidenceArtifact(
         evidence_id=evidence_id,
         run_id=run_id,
@@ -155,24 +136,49 @@ def _observation(anchor: EvidenceAnchor) -> dict[str, object]:
     }
 
 
-def _converge(ledger, resolver, *, target, decision_id, findings, expected_revision, slot_id="slot-one", status="conditional", selected="option-a", change_tasks=()):
+def _converge(
+    ledger,
+    resolver,
+    *,
+    target,
+    decision_id,
+    findings,
+    expected_revision,
+    slot_id="slot-one",
+    status="conditional",
+    selected="option-a",
+    change_tasks=(),
+):
     return CanonicalDecisionLedgerCompiler(ledger, resolver).converge(
-        round_id=target.round_id, decision_id=decision_id, blueprint_target=target,
-        decision_slot_id=slot_id, finding_packs=findings, status=status,
+        round_id=target.round_id,
+        decision_id=decision_id,
+        blueprint_target=target,
+        decision_slot_id=slot_id,
+        finding_packs=findings,
+        status=status,
         selected_option=selected,
         alternatives=[{"option": "option-b", "disposition": "deferred", "reason": "Needs further evidence."}],
         anchors=[{"kind": "finding", "ref": finding.id} for finding in findings],
-        design_consequence="Use option-a behind a guard.", repository_touchpoints=[],
-        validation={"kind": "test", "oracle": "fixture test passes"}, change_tasks=change_tasks,
-        assumptions=[], fallback="Keep option-b available.", reversal_condition="Contrary evidence appears.",
-        revision_reason="Strict decision fixture.", expected_revision=expected_revision,
+        design_consequence="Use option-a behind a guard.",
+        repository_touchpoints=[],
+        validation={"kind": "test", "oracle": "fixture test passes"},
+        change_tasks=change_tasks,
+        assumptions=[],
+        fallback="Keep option-b available.",
+        reversal_condition="Contrary evidence appears.",
+        revision_reason="Strict decision fixture.",
+        expected_revision=expected_revision,
     )
 
 
 def _raw_decision(ledger, decision_id, payload, parent_refs, expected_revision):
     return ledger.append_artifact(
-        "run-strict", decision_id, "decision-ledger-entry", payload,
-        parent_refs=parent_refs, expected_revision=expected_revision,
+        "run-strict",
+        decision_id,
+        "decision-ledger-entry",
+        payload,
+        parent_refs=parent_refs,
+        expected_revision=expected_revision,
     )
 
 
@@ -274,8 +280,20 @@ def test_canonical_finding_and_decision_preserve_strict_evidence_parents(tmp_pat
 
     assert reference in finding.parent_refs
     decision = _converge(
-        ledger, resolver, target=target, decision_id="decision-one", findings=[finding], expected_revision=4,
-        change_tasks=[{"id": "task-one", "description": "Implement guard.", "acceptance_oracle": "fixture test passes", "repository_touchpoints": []}],
+        ledger,
+        resolver,
+        target=target,
+        decision_id="decision-one",
+        findings=[finding],
+        expected_revision=4,
+        change_tasks=[
+            {
+                "id": "task-one",
+                "description": "Implement guard.",
+                "acceptance_oracle": "fixture test passes",
+                "repository_touchpoints": [],
+            }
+        ],
     )
 
     assert reference in decision.parent_refs
@@ -293,7 +311,9 @@ def test_canonical_finding_and_decision_preserve_strict_evidence_parents(tmp_pat
         expected_run_revision=5,
     )
     with pytest.raises(InvalidDecisionLedgerError, match="not resolvable"):
-        _converge(ledger, resolver, target=target, decision_id="decision-stale", findings=[finding], expected_revision=6)
+        _converge(
+            ledger, resolver, target=target, decision_id="decision-stale", findings=[finding], expected_revision=6
+        )
 
 
 def test_canonical_selected_decision_requires_strict_finding_at_any_priority(tmp_path: Path) -> None:
@@ -316,8 +336,14 @@ def test_canonical_selected_decision_requires_strict_finding_at_any_priority(tmp
     )
     with pytest.raises(InvalidDecisionLedgerError, match="requires at least one strict Finding Pack"):
         _converge(
-            ledger, resolver, target=low_target, decision_id="decision-low", findings=[], expected_revision=4,
-            slot_id="slot-low", status="selected",
+            ledger,
+            resolver,
+            target=low_target,
+            decision_id="decision-low",
+            findings=[],
+            expected_revision=4,
+            slot_id="slot-low",
+            status="selected",
         )
 
 
@@ -344,7 +370,8 @@ def test_strict_readiness_rejects_empty_finding_and_unlinked_selected_decision(t
             "decision_slot_id": "slot-one",
             "status": "selected",
         },
-        (ArtifactRef("run-strict", target.id, target.revision),), 4,
+        (ArtifactRef("run-strict", target.id, target.revision),),
+        4,
     )
     strict_finding = CanonicalFindingPackCompiler(ledger, resolver).compile(
         round_id="run-strict",
@@ -358,27 +385,32 @@ def test_strict_readiness_rejects_empty_finding_and_unlinked_selected_decision(t
     )
     parent_refs = (
         ArtifactRef("run-strict", target.id, target.revision),
-        ArtifactRef("run-strict", strict_finding.id, strict_finding.revision), reference,
+        ArtifactRef("run-strict", strict_finding.id, strict_finding.revision),
+        reference,
     )
     mismatched_slot = _raw_decision(
-        ledger, "decision-mismatched-slot",
+        ledger,
+        "decision-mismatched-slot",
         {
             "blueprint_target_id": target.id,
             "decision_slot_id": "slot-other",
             "status": "selected",
             "selected_option": "option-a",
         },
-        parent_refs, 6,
+        parent_refs,
+        6,
     )
     unsupported = _raw_decision(
-        ledger, "decision-unsupported-option",
+        ledger,
+        "decision-unsupported-option",
         {
             "blueprint_target_id": target.id,
             "decision_slot_id": "slot-one",
             "status": "conditional",
             "selected_option": "option-b",
         },
-        parent_refs, 7,
+        parent_refs,
+        7,
     )
     diagnostics: list[dict[str, object]] = []
     assert not _strict_findings_are_authoritative(
@@ -414,7 +446,9 @@ def test_legacy_compiler_cannot_claim_strict_evidence_or_enter_canonical_decisio
         expected_revision=3,
     )
     with pytest.raises(InvalidDecisionLedgerError, match="strict evidence"):
-        _converge(ledger, _resolver, target=target, decision_id="decision-legacy", findings=[legacy], expected_revision=4)
+        _converge(
+            ledger, _resolver, target=target, decision_id="decision-legacy", findings=[legacy], expected_revision=4
+        )
 
 
 def test_canonical_ledger_cannot_use_non_strict_readiness_verifier(tmp_path: Path) -> None:
@@ -424,99 +458,119 @@ def test_canonical_ledger_cannot_use_non_strict_readiness_verifier(tmp_path: Pat
         ReadinessVerifier(ledger)
 
 
+def _canonical_readiness_package(tmp_path: Path):
+    repository(tmp_path / "repository")
+    (
+        ledger,
+        resolver,
+        round_record,
+        _model,
+        brief,
+        target,
+        work,
+        finding,
+        decision,
+        _evidence,
+        _anchor_value,
+    ) = canonical_context(tmp_path)
+    modules = delivery_api()
+    modules["resolver"] = resolver
+    readiness = delivery_readiness()
+    readiness["gates"]["decision_closure"] = "pass"
+    readiness["gates"]["implementation_readiness"] = "pass"
+    package = compile_deliveries(
+        modules,
+        ledger,
+        round_record,
+        brief,
+        target,
+        [decision],
+        readiness_input=readiness,
+    ).technical_package
+    return ledger, resolver, round_record, target, work, finding, decision, package
+
+
 def test_strict_readiness_rejects_legacy_and_foreign_target_packages(tmp_path: Path) -> None:
-    source_store, round_record, legacy_package = greenfield_package(tmp_path / "legacy")
-    ledger = RunLedger(tmp_path / "canonical")
-    _migrate_run_store(source_store, round_record, ledger)
-    store = ContentAddressedStore(tmp_path / "canonical")
-    content = store.ingest(b"strict evidence", "text/plain")
-    evidence = _artifact(
-        run_id=round_record.id,
-        evidence_id="strict-source",
-        digest=content.digest,
-        size=content.byte_size,
-        locator={"url": "https://example.invalid/strict"},
-    )
-    reference = EvidenceRepository(ledger, store).record(
-        evidence,
-        content,
-        expected_run_revision=ledger.get_revision(round_record.id),
-    )
-    resolver = EvidenceResolver.from_ledger(ledger, store, workspace=tmp_path / "canonical")
-    target = ledger.get_artifact(ArtifactRef(round_record.id, "greenfield-target", 1))
-    work = ledger.get_artifact(ArtifactRef(round_record.id, "work-greenfield", 1))
-    legacy_decision = ledger.get_artifact(ArtifactRef(round_record.id, "decision-greenfield", 1))
-    decision_data = thaw_json(legacy_decision.payload)
-    finding = CanonicalFindingPackCompiler(ledger, resolver).compile(
-        round_id=round_record.id,
-        finding_id="finding-greenfield",
-        work_item=work,
-        observations=[_observation(_anchor(reference, content.digest))],
-        option_effects=[{"option": "new-worker", "effect": "supports"}],
-        implementation_implications=["Create the isolated component."],
-        remaining_uncertainties=[],
-        expected_revision=ledger.get_revision(round_record.id),
-    )
-    decision = CanonicalDecisionLedgerCompiler(ledger, resolver).converge(
-        round_id=round_record.id,
-        decision_id="decision-greenfield",
-        blueprint_target=target,
-        decision_slot_id="slot-greenfield",
-        finding_packs=[finding],
-        status=decision_data["status"],
-        selected_option=decision_data["selected_option"],
-        alternatives=decision_data["alternatives"],
-        anchors=decision_data["anchors"],
-        design_consequence=decision_data["design_consequence"],
-        repository_touchpoints=decision_data["repository_touchpoints"],
-        validation=decision_data["validation"],
-        change_tasks=decision_data["change_tasks"],
-        assumptions=decision_data["assumptions"],
-        fallback=decision_data["fallback"],
-        reversal_condition=decision_data["reversal_condition"],
-        revision_reason="Canonical strict readiness fixture.",
-        expected_revision=ledger.get_revision(round_record.id),
-    )
-    document = deepcopy(thaw_json(legacy_package.payload["document"]))
-    document["research_findings"][0].update(
-        {"revision": finding.revision, "observations": thaw_json(finding.payload["observations"])}
-    )
-    document["decision_records"][0]["revision"] = decision.revision
-    document["traceability"]["finding_refs"][0]["revision"] = finding.revision
-    document["traceability"]["decision_refs"][0]["revision"] = decision.revision
-    parent_refs = tuple(
-        ArtifactRef(
-            ref.round_id,
-            ref.artifact_id,
-            finding.revision if ref.artifact_id == finding.id
-            else decision.revision if ref.artifact_id == decision.id else ref.revision,
-        )
-        for ref in legacy_package.parent_refs
-    )
-    strict_package = ledger.append_artifact(
-        round_record.id,
-        "technical-package",
-        "technical-research-package",
-        {"document": document, "markdown": legacy_package.payload["markdown"]},
-        parent_refs=parent_refs,
-        expected_revision=ledger.get_revision(round_record.id),
-    )
+    (
+        ledger,
+        resolver,
+        round_record,
+        target,
+        work,
+        finding,
+        decision,
+        strict_package,
+    ) = _canonical_readiness_package(tmp_path)
+    root = tmp_path / "repository"
+    decision_data = thaw_json(decision.payload)
+    strict_observation = thaw_json(finding.payload["observations"])[0]
+
     strict_readiness = CanonicalReadinessVerifier(ledger, resolver).verify(
         round_id=round_record.id,
         readiness_id="strict-readiness",
         technical_package=strict_package,
-        repository_roots={"input-repository": tmp_path / "legacy" / "repository"},
+        repository_roots={"input-repository": root},
         expected_revision=ledger.get_revision(round_record.id),
     )
     strict_gates = strict_readiness.payload["delivery_readiness"]["gates"]
     assert strict_gates["decision_closure"] == "pass"
     assert strict_gates["implementation_readiness"] == "pass"
 
+    legacy_finding_payload = thaw_json(finding.payload)
+    legacy_finding_payload["evidence_mode"] = "legacy_unverified"
+    legacy_finding = ledger.append_artifact(
+        round_record.id,
+        finding.id,
+        finding.kind,
+        legacy_finding_payload,
+        parent_refs=finding.parent_refs,
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    legacy_decision_payload = thaw_json(decision.payload)
+    legacy_decision = ledger.append_artifact(
+        round_record.id,
+        decision.id,
+        decision.kind,
+        legacy_decision_payload,
+        parent_refs=tuple(
+            ArtifactRef(
+                reference.round_id,
+                reference.artifact_id,
+                legacy_finding.revision if reference.artifact_id == legacy_finding.id else reference.revision,
+            )
+            for reference in decision.parent_refs
+        ),
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    legacy_document = deepcopy(thaw_json(strict_package.payload["document"]))
+    legacy_document["research_findings"][0]["revision"] = legacy_finding.revision
+    legacy_document["decision_records"][0]["revision"] = legacy_decision.revision
+    legacy_document["traceability"]["finding_refs"][0]["revision"] = legacy_finding.revision
+    legacy_document["traceability"]["decision_refs"][0]["revision"] = legacy_decision.revision
+    legacy_package = ledger.append_artifact(
+        round_record.id,
+        strict_package.id,
+        strict_package.kind,
+        {"document": legacy_document, "markdown": strict_package.payload["markdown"]},
+        parent_refs=tuple(
+            ArtifactRef(
+                reference.round_id,
+                reference.artifact_id,
+                legacy_finding.revision
+                if reference.artifact_id == legacy_finding.id
+                else legacy_decision.revision
+                if reference.artifact_id == legacy_decision.id
+                else reference.revision,
+            )
+            for reference in strict_package.parent_refs
+        ),
+        expected_revision=ledger.get_revision(round_record.id),
+    )
     legacy_readiness = CanonicalReadinessVerifier(ledger, resolver).verify(
         round_id=round_record.id,
         readiness_id="legacy-readiness",
-        technical_package=ledger.get_artifact(ArtifactRef(round_record.id, "technical-package", 1)),
-        repository_roots={"input-repository": tmp_path / "legacy" / "repository"},
+        technical_package=legacy_package,
+        repository_roots={"input-repository": root},
         expected_revision=ledger.get_revision(round_record.id),
     )
     legacy_gates = legacy_readiness.payload["delivery_readiness"]["gates"]
@@ -546,19 +600,19 @@ def test_strict_readiness_rejects_legacy_and_foreign_target_packages(tmp_path: P
     )
     foreign_finding = CanonicalFindingPackCompiler(ledger, resolver).compile(
         round_id=round_record.id,
-        finding_id="finding-greenfield",
+        finding_id=finding.id,
         work_item=foreign_work,
-        observations=[_observation(_anchor(reference, content.digest))],
-        option_effects=[{"option": "new-worker", "effect": "supports"}],
+        observations=[strict_observation],
+        option_effects=thaw_json(finding.payload["option_effects"]),
         implementation_implications=["Create the isolated component."],
         remaining_uncertainties=[],
         expected_revision=ledger.get_revision(round_record.id),
     )
     foreign_decision = CanonicalDecisionLedgerCompiler(ledger, resolver).converge(
         round_id=round_record.id,
-        decision_id="decision-greenfield",
+        decision_id=decision.id,
         blueprint_target=foreign_target,
-        decision_slot_id="slot-greenfield",
+        decision_slot_id=decision_data["decision_slot_id"],
         finding_packs=[foreign_finding],
         status=decision_data["status"],
         selected_option=decision_data["selected_option"],
@@ -574,7 +628,7 @@ def test_strict_readiness_rejects_legacy_and_foreign_target_packages(tmp_path: P
         revision_reason="Foreign Target must not pass.",
         expected_revision=ledger.get_revision(round_record.id),
     )
-    foreign_document = deepcopy(document)
+    foreign_document = deepcopy(thaw_json(strict_package.payload["document"]))
     foreign_document["research_findings"][0]["revision"] = foreign_finding.revision
     foreign_document["decision_records"][0]["revision"] = foreign_decision.revision
     foreign_document["traceability"]["finding_refs"][0]["revision"] = foreign_finding.revision
@@ -583,8 +637,11 @@ def test_strict_readiness_rejects_legacy_and_foreign_target_packages(tmp_path: P
         ArtifactRef(
             ref.round_id,
             ref.artifact_id,
-            foreign_finding.revision if ref.artifact_id == foreign_finding.id
-            else foreign_decision.revision if ref.artifact_id == foreign_decision.id else ref.revision,
+            foreign_finding.revision
+            if ref.artifact_id == foreign_finding.id
+            else foreign_decision.revision
+            if ref.artifact_id == foreign_decision.id
+            else ref.revision,
         )
         for ref in strict_package.parent_refs
     )
@@ -600,7 +657,7 @@ def test_strict_readiness_rejects_legacy_and_foreign_target_packages(tmp_path: P
         round_id=round_record.id,
         readiness_id="foreign-target-readiness",
         technical_package=foreign_package,
-        repository_roots={"input-repository": tmp_path / "legacy" / "repository"},
+        repository_roots={"input-repository": root},
         expected_revision=ledger.get_revision(round_record.id),
     )
     foreign_gates = foreign_readiness.payload["delivery_readiness"]["gates"]
@@ -628,9 +685,7 @@ def test_strict_readiness_rejects_legacy_and_foreign_target_packages(tmp_path: P
             ArtifactRef(
                 ref.round_id,
                 ref.artifact_id,
-                forged_finding.revision
-                if ref.artifact_id == forged_finding.id
-                else ref.revision,
+                forged_finding.revision if ref.artifact_id == forged_finding.id else ref.revision,
             )
             for ref in foreign_decision.parent_refs
         ),
@@ -664,7 +719,7 @@ def test_strict_readiness_rejects_legacy_and_foreign_target_packages(tmp_path: P
         round_id=round_record.id,
         readiness_id="forged-target-parent-readiness",
         technical_package=forged_package,
-        repository_roots={"input-repository": tmp_path / "legacy" / "repository"},
+        repository_roots={"input-repository": root},
         expected_revision=ledger.get_revision(round_record.id),
     )
     forged_gates = forged_readiness.payload["delivery_readiness"]["gates"]
