@@ -25,6 +25,17 @@
     "scripts/build_skill_packages.py",
     "skill-src/**"
   ],
+  "ephemeral_verification_paths": [
+    ".research-tree/verification-runs/**",
+    "openspec/changes/**/evidence/*-output.txt",
+    "openspec/changes/**/evidence/*-output.log",
+    "openspec/changes/**/evidence/*-receipt.json",
+    "openspec/changes/**/evidence/verification-*.md",
+    "openspec/changes/**/evidence/future-evidence-gaps.json",
+    "openspec/changes/**/evidence/integrated-strict-slices.json",
+    "openspec/changes/**/evidence/integrated-receipt-byte-preservation-v*.json",
+    "openspec/changes/**/evidence/worktree-recovery-inventory-v*.json"
+  ],
   "protected_branches": {
     "dev": {
       "required_pull_request": true,

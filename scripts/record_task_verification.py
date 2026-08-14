@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from research_tree.verification_receipts import generate_receipt
+from research_tree.verification_receipts import generate_receipt, local_verification_path
 
 
 def main() -> int:
@@ -17,9 +17,13 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     repository = args.repo.resolve()
-    registry = repository / "openspec" / "changes" / "unify-research-runtime-alpha2" / "registries" / "task-execution-v1.json"
+    registry = (
+        repository / "openspec" / "changes" / "unify-research-runtime-alpha2" / "registries" / "task-execution-v1.json"
+    )
+    receipt_path = local_verification_path(repository, args.receipt)
     receipt = generate_receipt(repository, registry, args.group, args.output)
-    args.receipt.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return 0 if receipt["exit_code"] == 0 else int(receipt["exit_code"] or 1)
 
 

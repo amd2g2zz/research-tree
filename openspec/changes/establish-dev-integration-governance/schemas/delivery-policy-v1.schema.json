@@ -15,6 +15,7 @@
     "review_limits",
     "generated_paths",
     "canonical_generation_inputs",
+    "ephemeral_verification_paths",
     "protected_branches"
   ],
   "properties": {
@@ -40,6 +41,11 @@
       "items": { "type": "string", "minLength": 1 }
     },
     "canonical_generation_inputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "ephemeral_verification_paths": {
       "type": "array",
       "minItems": 1,
       "items": { "type": "string", "minLength": 1 }

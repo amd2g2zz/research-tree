@@ -349,6 +349,82 @@ def test_pull_request_gate_requires_generated_output_commit_separation() -> None
     assert separated.passed is True
 
 
+def test_pull_request_gate_rejects_new_generated_verification_records() -> None:
+    policy = load_delivery_policy(POLICY_PATH)
+    artifacts = [
+        "openspec/changes/ignore-generated-verification-records/evidence/group-188-output.txt",
+        "openspec/changes/ignore-generated-verification-records/evidence/group-188-receipt.json",
+        "openspec/changes/ignore-generated-verification-records/evidence/verification-2026-08-14.md",
+        "openspec/changes/ignore-generated-verification-records/evidence/integrated-strict-slices.json",
+    ]
+
+    rejected = evaluate_pull_request(
+        policy=policy,
+        base_branch="dev",
+        head_branch="chore/issue-188-ignore-generated-verification-records",
+        title="chore: ignore generated verification records",
+        body="Closes #188",
+        changed_files=artifacts,
+        non_generated_lines=10,
+        commit_file_sets=[set(artifacts)],
+        added_files=artifacts,
+    )
+
+    assert rejected.passed is False
+    assert rejected.errors == ("generated_verification_record_tracked",)
+    assert rejected.details["new_generated_verification_records"] == sorted(artifacts)
+
+    historical = evaluate_pull_request(
+        policy=policy,
+        base_branch="dev",
+        head_branch="chore/issue-188-ignore-generated-verification-records",
+        title="chore: migrate historical verification records",
+        body="Closes #188",
+        changed_files=artifacts,
+        non_generated_lines=10,
+        commit_file_sets=[set(artifacts)],
+        added_files=[],
+    )
+
+    assert historical.passed is True
+
+
+def test_check_pr_cli_rejects_generated_verification_record_added_after_base(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repository = make_repository(tmp_path)
+    git(repository, "remote", "add", "origin", str(repository))
+    git(repository, "fetch", "origin", "dev:refs/remotes/origin/dev")
+    artifact = repository / "openspec" / "changes" / "change" / "evidence" / "group-88-output.txt"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("generated output\n", encoding="utf-8")
+    git(repository, "add", artifact.relative_to(repository).as_posix())
+    git(repository, "commit", "-m", "add generated verification record")
+
+    assert (
+        main(
+            [
+                "check-pr",
+                "--repo",
+                str(repository),
+                "--base",
+                "dev",
+                "--head",
+                "chore/issue-88-dev-governance",
+                "--body",
+                "Closes #88",
+            ]
+        )
+        == 1
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["errors"] == ["generated_verification_record_tracked"]
+    assert payload["details"]["new_generated_verification_records"] == [
+        "openspec/changes/change/evidence/group-88-output.txt"
+    ]
+
+
 @pytest.mark.parametrize(
     ("record", "expected"),
     [
