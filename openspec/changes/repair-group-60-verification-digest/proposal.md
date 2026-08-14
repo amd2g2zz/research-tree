@@ -13,6 +13,8 @@ test fail even though the recorded command result is otherwise valid.
 - Keep the historical command, source revision, environment digest, and raw
   output unchanged.
 - Preserve the #188 prevention boundary and leave runtime code untouched.
+- Preserve the retained output bytes on every checkout; the receipt digest is a
+  byte contract and the file MUST NOT be text-normalized.
 
 ## Non-goals
 

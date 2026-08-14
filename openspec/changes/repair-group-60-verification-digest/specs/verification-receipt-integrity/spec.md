@@ -4,6 +4,7 @@
 
 The active verification registry SHALL copy the receipt's output digest exactly,
 and that digest SHALL equal the SHA-256 of the referenced raw output bytes.
+The retained output SHALL be checked out without line-ending normalization.
 
 #### Scenario: Historical group-60 receipt is internally consistent
 
