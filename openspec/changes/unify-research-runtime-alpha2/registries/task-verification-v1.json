@@ -802,7 +802,20 @@
     },
     {
       "group": 76,
-      "state": "planned"
+      "state": "verified",
+      "evidence_refs": [
+        "local://.research-tree/verification-runs/issue-179/group-76-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_runstore_scheduler_surface_removal.py tests/test_runtime_discoverability.py tests/test_skill_packages.py tests/test_openspec_execution_governance.py && uv run ruff check tests/test_runstore_scheduler_surface_removal.py tests/test_openspec_execution_governance.py && uv run ruff format --check tests/test_runstore_scheduler_surface_removal.py tests/test_openspec_execution_governance.py && uv run python scripts/check_openspec_governance.py && uv run python scripts/check_docs.py && uv run python scripts/build_skill_packages.py --check",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "a0403e0b4d07ba809aa84a36edf63874297da194cae10ea6e5f03b5b92c2088a",
+        "source_revision": "4f6711284cb5fab3cd05e7aed6542fcec804a19b",
+        "raw_output_ref": ".research-tree/verification-runs/issue-179/group-76-output.txt",
+        "recorded_at": "2026-08-14T07:21:40.677924+00:00"
+      },
+      "rollback": "revert the scheduler source purge in Git; do not restore a scheduler, bridge, alias, adapter, replacement, migration, fallback, or user-data operation"
     }
   ]
 }

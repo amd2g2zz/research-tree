@@ -462,5 +462,5 @@ substitute for local evidence.
   scheduler contract after the group-62 public-surface retirement.
 - [x] 76.2 Prove no runtime import, active contract, dedicated behavior test,
   or generated package can resolve the retired boundary.
-- [ ] 76.3 Run the exact group-76 acceptance command and record a source-bound
+- [x] 76.3 Run the exact group-76 acceptance command and record a source-bound
   receipt after the rebased source and registry commits.

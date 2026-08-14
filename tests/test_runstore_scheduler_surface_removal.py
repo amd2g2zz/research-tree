@@ -119,7 +119,7 @@ def test_generated_packages_do_not_advertise_the_retired_scheduler() -> None:
     assert all(claim not in package_text for claim in retired_claims)
 
 
-def test_scheduler_source_purge_has_its_own_planned_group() -> None:
+def test_scheduler_source_purge_has_its_own_verified_group() -> None:
     root = Path(__file__).resolve().parents[1]
     registry_root = root / "openspec" / "changes" / "unify-research-runtime-alpha2" / "registries"
     execution = json.loads((registry_root / "task-execution-v1.json").read_text(encoding="utf-8"))
@@ -138,7 +138,11 @@ def test_scheduler_source_purge_has_its_own_planned_group() -> None:
 
     assert group["depends_on"] == [62]
     assert group["outputs"] == ["unreachable-runstore-scheduler-source-removal", "group-76-receipt"]
-    assert verification_record["state"] == "planned"
+    assert verification_record["state"] == "verified"
+    assert verification_record["command_receipt"]["source_revision"] == "4f6711284cb5fab3cd05e7aed6542fcec804a19b"
+    assert verification_record["command_receipt"]["raw_output_ref"] == (
+        ".research-tree/verification-runs/issue-179/group-76-output.txt"
+    )
     assert issue == {
         "issue": 179,
         "primary_group": 76,
