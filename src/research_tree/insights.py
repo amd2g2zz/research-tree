@@ -11,7 +11,9 @@ import hashlib
 import json
 from typing import Any, Mapping, Sequence
 
+from .domain import ArtifactRef, ArtifactRevision, RuntimeStoreError, validate_identifier
 from .evidence_delta import EvidenceBaseline, measure_realized_delta
+from .run_ledger import RunLedger
 
 INSIGHT_SCHEMA_VERSION = 1
 INSIGHT_PRODUCER_VERSION = "insight-v1"
@@ -248,6 +250,36 @@ def synthesize_insights(
     }
 
 
+def persist_insight_digest(
+    ledger: RunLedger,
+    *,
+    round_id: str,
+    insight_id: str,
+    payload: Mapping[str, Any],
+    parent_refs: Sequence[ArtifactRef],
+    expected_revision: int,
+) -> ArtifactRevision:
+    """Persist a validated Insight Digest through completion-input authority."""
+
+    if not isinstance(ledger, RunLedger):
+        raise RuntimeStoreError("canonical insight persistence requires a RunLedger")
+    round_id = validate_identifier(round_id, "round_id")
+    insight_id = validate_identifier(insight_id, "insight_id")
+    validate_insight_digest(payload)
+    digest, _, _ = ledger.append_canonical_completion_input(
+        round_id,
+        input_id=insight_id,
+        input_kind="insight-digest",
+        input_payload=dict(payload),
+        input_parent_refs=parent_refs,
+        role="insight",
+        issuer_id=f"{insight_id}-issuer",
+        registration_id=f"{insight_id}-completion-input",
+        expected_revision=expected_revision,
+    )
+    return digest
+
+
 def validate_insight_digest(value: Mapping[str, Any]) -> None:
     if not isinstance(value, Mapping):
         raise ValueError("insight digest must be a mapping")
@@ -349,6 +381,7 @@ def _digest(value: Any) -> str:
 __all__ = [
     "INSIGHT_PRODUCER_VERSION",
     "INSIGHT_SCHEMA_VERSION",
+    "persist_insight_digest",
     "synthesize_insights",
     "validate_insight_digest",
 ]

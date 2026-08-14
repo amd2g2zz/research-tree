@@ -49,38 +49,14 @@ class CanonicalCompletionInputRegistrar:
     ) -> ArtifactRevision:
         run_id = validate_identifier(run_id, "run_id")
         role = _role(role)
-        issuer_id = validate_identifier(issuer_id, "issuer_id")
+        validate_identifier(issuer_id, "issuer_id")
         registration_id = validate_identifier(registration_id, "registration_id")
         input_ref = _exact_current_input(self.ledger, run_id, role, input_artifact)
         _validate_role(role, input_artifact, self.closure_assessor)
-        payload = {
-            "schema_version": 1,
-            "role": role,
-            "input_ref": input_ref.to_dict(),
-            "issuer_id": issuer_id,
-        }
-        existing = _existing_registration(self.ledger, run_id, registration_id, payload)
-        if existing is not None:
-            return existing
-        issuer, registration = self.ledger.append_canonical_completion_registration(
-            run_id,
-            issuer_id=issuer_id,
-            issuer_payload={
-                "schema_version": 1,
-                "role": role,
-                "input_ref": input_ref.to_dict(),
-                "issuer_id": issuer_id,
-            },
-            registration_id=registration_id,
-            registration_payload=payload,
-            input_ref=input_ref,
-            expected_revision=expected_revision,
-        )
-        if (
-            issuer.kind != CANONICAL_COMPLETION_INPUT_ISSUER_KIND
-            or registration.kind != CANONICAL_COMPLETION_INPUT_KIND
-        ):
-            raise CompletionInputRegistrationError("ledger returned invalid completion registration")
+        registration = _existing_registration(self.ledger, run_id, registration_id)
+        if registration is None:
+            raise CompletionInputRegistrationError("completion input must be recorded by a dedicated writer")
+        _validate_registration(self.ledger, registration, input_ref, role, issuer_id)
         return registration
 
 
@@ -133,15 +109,54 @@ def _existing_registration(
     ledger: RunLedger,
     run_id: str,
     registration_id: str,
-    payload: Mapping[str, object],
 ) -> ArtifactRevision | None:
     for item in ledger.load_run(run_id).artifacts:
         if item.id != registration_id or item.kind != CANONICAL_COMPLETION_INPUT_KIND:
             continue
-        if thaw_json(item.payload) == dict(payload):
-            return item
-        raise CompletionInputRegistrationError("registration id is already bound to different input")
+        return item
     return None
+
+
+def _validate_registration(
+    ledger: RunLedger,
+    registration: ArtifactRevision,
+    input_ref: ArtifactRef,
+    role: str,
+    issuer_id: str,
+) -> None:
+    payload = thaw_json(registration.payload)
+    expected = {
+        "schema_version": 1,
+        "run_id": input_ref.round_id,
+        "role": role,
+        "input_ref": input_ref.to_dict(),
+        "issuer_ref": registration.parent_refs[1].to_dict() if len(registration.parent_refs) == 2 else None,
+    }
+    if (
+        not isinstance(payload, Mapping)
+        or {key: value for key, value in payload.items() if key != "committed_revision"} != expected
+        or isinstance(payload.get("committed_revision"), bool)
+        or not isinstance(payload.get("committed_revision"), int)
+        or payload["committed_revision"] < 1
+    ):
+        raise CompletionInputRegistrationError("completion registration does not bind the exact input")
+    if len(registration.parent_refs) != 2 or registration.parent_refs[0] != input_ref:
+        raise CompletionInputRegistrationError("completion registration has invalid parents")
+    issuer_ref = registration.parent_refs[1]
+    if issuer_ref.round_id != input_ref.round_id:
+        raise CompletionInputRegistrationError("completion registration issuer belongs to another run")
+    if issuer_ref.artifact_id != issuer_id:
+        raise CompletionInputRegistrationError("completion registration issuer does not match the requested issuer")
+    issuer = ledger.get_artifact(issuer_ref)
+    if issuer.kind != CANONICAL_COMPLETION_INPUT_ISSUER_KIND:
+        raise CompletionInputRegistrationError("completion registration issuer kind is invalid")
+    if issuer.parent_refs != (input_ref,) or thaw_json(issuer.payload) != {
+        "schema_version": 1,
+        "run_id": input_ref.round_id,
+        "role": role,
+        "input_ref": input_ref.to_dict(),
+    }:
+        raise CompletionInputRegistrationError("completion registration issuer does not bind the exact input")
 
 
 __all__ = [

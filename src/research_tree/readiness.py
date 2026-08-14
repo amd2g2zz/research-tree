@@ -178,14 +178,18 @@ class ReadinessVerifier:
         )
         if isinstance(self._store, RunLedger):
             assert expected_revision is not None
-            return self._store.append_artifact(
+            record, _, _ = self._store.append_canonical_completion_input(
                 round_id,
-                readiness_id,
-                READINESS_RECORD_KIND,
-                payload,
-                parent_refs=parent_refs,
+                input_id=readiness_id,
+                input_kind=READINESS_RECORD_KIND,
+                input_payload=payload,
+                input_parent_refs=parent_refs,
+                role="readiness",
+                issuer_id=f"{readiness_id}-issuer",
+                registration_id=f"{readiness_id}-completion-input",
                 expected_revision=expected_revision,
             )
+            return record
         return self._store.append_artifact(
             round_id,
             readiness_id,

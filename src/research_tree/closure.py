@@ -1050,14 +1050,18 @@ class SlotClosureAssessor:
                 and _same_payload(existing, payload)
             ):
                 return existing
-        return self.ledger.append_artifact(
+        assessment, _, _ = self.ledger.append_canonical_completion_input(
             round_id,
-            assessment_id,
-            ASSESSMENT_KIND,
-            dict(payload),
-            parent_refs=parents,
+            input_id=assessment_id,
+            input_kind=ASSESSMENT_KIND,
+            input_payload=dict(payload),
+            input_parent_refs=parents,
+            role="closure",
+            issuer_id=f"{assessment_id}-issuer",
+            registration_id=f"{assessment_id}-completion-input",
             expected_revision=expected_revision,
         )
+        return assessment
 
 
 __all__ = ["ASSESSMENT_KIND", "ClosureAssessmentError", "OracleService", "SlotClosureAssessor", "SlotClosureAssessment"]

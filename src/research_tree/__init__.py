@@ -212,7 +212,7 @@ from .native_workflows import (
     resume_native_workflow,
     workflow_host_event,
 )
-from .insights import synthesize_insights, validate_insight_digest
+from .insights import persist_insight_digest, synthesize_insights, validate_insight_digest
 from .evidence_delta import (
     EvidenceBaseline,
     RealizedDelta,
@@ -384,6 +384,7 @@ __all__ = [
     "RESEARCH_PHASES",
     "advance_execution",
     "compile_orchestration_plan",
+    "persist_insight_digest",
     "validate_orchestration_plan",
     "synthesize_insights",
     "validate_insight_digest",

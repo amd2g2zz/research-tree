@@ -29,6 +29,7 @@ from research_tree import (
 from research_tree.work_items import WORK_ITEM_KIND
 from research_tree.domain import thaw_json
 from research_tree.readiness import _strict_findings_are_authoritative
+from research_tree.run_ledger import LedgerIntegrityError
 
 
 def _migrate_run_store(source_store, round_record, ledger: RunLedger) -> None:
@@ -512,16 +513,16 @@ def test_strict_readiness_rejects_legacy_and_foreign_target_packages(tmp_path: P
     assert strict_gates["decision_closure"] == "pass"
     assert strict_gates["implementation_readiness"] == "pass"
 
-    legacy_readiness = CanonicalReadinessVerifier(ledger, resolver).verify(
-        round_id=round_record.id,
-        readiness_id="legacy-readiness",
-        technical_package=ledger.get_artifact(ArtifactRef(round_record.id, "technical-package", 1)),
-        repository_roots={"input-repository": tmp_path / "legacy" / "repository"},
-        expected_revision=ledger.get_revision(round_record.id),
-    )
-    legacy_gates = legacy_readiness.payload["delivery_readiness"]["gates"]
-    assert legacy_gates["decision_closure"] == "fail"
-    assert legacy_gates["implementation_readiness"] == "fail"
+    revision_before_stale_readiness = ledger.get_revision(round_record.id)
+    with pytest.raises(LedgerIntegrityError, match="parent is not current"):
+        CanonicalReadinessVerifier(ledger, resolver).verify(
+            round_id=round_record.id,
+            readiness_id="legacy-readiness",
+            technical_package=ledger.get_artifact(ArtifactRef(round_record.id, "technical-package", 1)),
+            repository_roots={"input-repository": tmp_path / "legacy" / "repository"},
+            expected_revision=revision_before_stale_readiness,
+        )
+    assert ledger.get_revision(round_record.id) == revision_before_stale_readiness
 
     foreign_target_payload = deepcopy(thaw_json(target.payload))
     foreign_target_payload["id"] = "foreign-target"

@@ -6,7 +6,7 @@ from pathlib import Path
 import hashlib
 import json
 import sqlite3
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 from .domain import (
     ArtifactRef,
@@ -16,6 +16,7 @@ from .domain import (
     RoundRecord,
     RoundSnapshot,
     canonical_json_bytes,
+    thaw_json,
     validate_identifier,
 )
 from .content_store import ContentAddressedStore, ContentObject
@@ -628,29 +629,76 @@ class RunLedger:
             allow_completion_authority=False,
         )
 
-    def append_canonical_completion_registration(
+    def append_canonical_completion_input(
         self,
         run_id: str,
         *,
+        input_id: str,
+        input_kind: str,
+        input_payload: Any,
+        input_parent_refs: Iterable[ArtifactRef],
+        role: str,
         issuer_id: str,
-        issuer_payload: Any,
         registration_id: str,
-        registration_payload: Any,
-        input_ref: ArtifactRef,
         expected_revision: int,
-    ) -> tuple[ArtifactRevision, ArtifactRevision]:
-        """Append one issuer-bound completion input through the reserved path."""
+    ) -> tuple[ArtifactRevision, ArtifactRevision, ArtifactRevision]:
+        """Append one input, its issuer, and its registration atomically."""
 
         run_id = validate_identifier(run_id, "run_id")
+        input_id = validate_identifier(input_id, "input_id")
+        role = validate_identifier(role, "role")
         issuer_id = validate_identifier(issuer_id, "issuer_id")
         registration_id = validate_identifier(registration_id, "registration_id")
-        if not isinstance(input_ref, ArtifactRef) or input_ref.round_id != run_id:
-            raise LedgerIntegrityError("completion input must reference the target run")
+        if len({input_id, issuer_id, registration_id}) != 3:
+            raise LedgerIntegrityError("completion input, issuer, and registration ids must be distinct")
+        _require_non_authoritative_completion_kind(input_kind)
+        parent_refs = tuple(input_parent_refs)
+        if any(not isinstance(reference, ArtifactRef) for reference in parent_refs):
+            raise LedgerIntegrityError("completion input parents must contain ArtifactRef values")
+        if any(reference.round_id != run_id for reference in parent_refs):
+            raise LedgerIntegrityError("completion input parents must belong to the target run")
+        input_ref = ArtifactRef(run_id, input_id, 1)
         issuer_ref = ArtifactRef(run_id, issuer_id, 1)
+        issuer_payload = {
+            "schema_version": 1,
+            "run_id": run_id,
+            "role": role,
+            "input_ref": input_ref.to_dict(),
+        }
+        registration_payload = {
+            "schema_version": 1,
+            "run_id": run_id,
+            "role": role,
+            "input_ref": input_ref.to_dict(),
+            "issuer_ref": issuer_ref.to_dict(),
+            "committed_revision": expected_revision + 1,
+        }
+        artifacts = self.list_artifacts(run_id)
+        if set(parent_refs) & _quarantined_artifact_refs(artifacts):
+            raise LedgerIntegrityError("completion input parent is quarantined")
+        existing = _existing_canonical_completion_input(
+            artifacts,
+            input_ref=input_ref,
+            input_kind=input_kind,
+            input_payload=input_payload,
+            input_parent_refs=parent_refs,
+            issuer_ref=issuer_ref,
+            registration_id=registration_id,
+            issuer_payload=issuer_payload,
+            registration_payload=registration_payload,
+        )
+        if existing is not None:
+            return existing
         created = self._append_artifact_batch(
             run_id,
             (
-                (issuer_id, "canonical-completion-input-issuer", issuer_payload, (input_ref,)),
+                (input_id, input_kind, input_payload, parent_refs),
+                (
+                    issuer_id,
+                    "canonical-completion-input-issuer",
+                    issuer_payload,
+                    (input_ref,),
+                ),
                 (
                     registration_id,
                     "canonical-completion-input",
@@ -660,8 +708,10 @@ class RunLedger:
             ),
             expected_revision=expected_revision,
             allow_completion_authority=True,
+            initial_artifact_ids=frozenset({input_id, issuer_id, registration_id}),
+            require_current_parent_refs=True,
         )
-        return created[0], created[1]
+        return created[0], created[1], created[2]
 
     def _append_artifact_batch(
         self,
@@ -670,6 +720,8 @@ class RunLedger:
         *,
         expected_revision: int,
         allow_completion_authority: bool,
+        initial_artifact_ids: frozenset[str] = frozenset(),
+        require_current_parent_refs: bool = False,
     ) -> tuple[ArtifactRevision, ...]:
         """Append an ordered artifact batch under one run revision.
 
@@ -711,8 +763,15 @@ class RunLedger:
                             )
                         if reference in created:
                             continue
-                        self._require_artifact(connection, reference)
+                        if require_current_parent_refs:
+                            self._require_current_artifact(connection, reference)
+                        else:
+                            self._require_artifact(connection, reference)
                     next_revision = self._next_artifact_revision(connection, run_id, artifact_id)
+                    if artifact_id in initial_artifact_ids and next_revision != 1:
+                        raise LedgerIntegrityError(
+                            f"canonical completion artifact id is already used: {artifact_id}"
+                        )
                     artifact = ArtifactRevision.create(
                         artifact_id=artifact_id,
                         round_id=run_id,
@@ -1008,10 +1067,91 @@ class RunLedger:
         if not isinstance(reference, ArtifactRef) or not cls._artifact_exists(connection, reference):
             raise LedgerIntegrityError(f"artifact parent does not exist: {reference}")
 
+    @classmethod
+    def _require_current_artifact(cls, connection: sqlite3.Connection, reference: ArtifactRef) -> None:
+        cls._require_artifact(connection, reference)
+        row = connection.execute(
+            "SELECT MAX(revision) FROM artifacts WHERE run_id = ? AND artifact_id = ?",
+            (reference.round_id, reference.artifact_id),
+        ).fetchone()
+        if row is None or int(row[0]) != reference.revision:
+            raise LedgerIntegrityError(f"artifact parent is not current: {reference}")
+
 
 def _require_non_authoritative_completion_kind(kind: Any) -> None:
     if kind in CANONICAL_COMPLETION_AUTHORITY_KINDS:
         raise LedgerIntegrityError(f"reserved canonical completion kind: {kind}")
+
+
+def _existing_canonical_completion_input(
+    artifacts: Iterable[ArtifactRevision],
+    *,
+    input_ref: ArtifactRef,
+    input_kind: str,
+    input_payload: Any,
+    input_parent_refs: tuple[ArtifactRef, ...],
+    issuer_ref: ArtifactRef,
+    registration_id: str,
+    issuer_payload: dict[str, Any],
+    registration_payload: dict[str, Any],
+) -> tuple[ArtifactRevision, ArtifactRevision, ArtifactRevision] | None:
+    by_id = {item.id: item for item in artifacts if item.id in {input_ref.artifact_id, issuer_ref.artifact_id, registration_id}}
+    if not by_id:
+        return None
+    if set(by_id) != {input_ref.artifact_id, issuer_ref.artifact_id, registration_id}:
+        raise LedgerIntegrityError("canonical completion artifact id is already used")
+    input_artifact = by_id[input_ref.artifact_id]
+    issuer = by_id[issuer_ref.artifact_id]
+    registration = by_id[registration_id]
+    if (
+        ArtifactRef(input_artifact.round_id, input_artifact.id, input_artifact.revision) != input_ref
+        or input_artifact.kind != input_kind
+        or canonical_json_bytes(thaw_json(input_artifact.payload)) != canonical_json_bytes(input_payload)
+        or input_artifact.parent_refs != input_parent_refs
+        or ArtifactRef(issuer.round_id, issuer.id, issuer.revision) != issuer_ref
+        or issuer.kind != "canonical-completion-input-issuer"
+        or issuer.parent_refs != (input_ref,)
+        or thaw_json(issuer.payload) != issuer_payload
+        or registration.kind != "canonical-completion-input"
+        or registration.parent_refs != (input_ref, issuer_ref)
+            or not _same_registration_binding(thaw_json(registration.payload), registration_payload)
+    ):
+        raise LedgerIntegrityError("canonical completion artifact id is already bound to different input")
+    return input_artifact, issuer, registration
+
+
+def _same_registration_binding(actual: Any, expected: Mapping[str, Any]) -> bool:
+    if not isinstance(actual, Mapping):
+        return False
+    committed_revision = actual.get("committed_revision")
+    if isinstance(committed_revision, bool) or not isinstance(committed_revision, int) or committed_revision < 1:
+        return False
+    return {key: value for key, value in actual.items() if key != "committed_revision"} == {
+        key: value for key, value in expected.items() if key != "committed_revision"
+    }
+
+
+def _quarantined_artifact_refs(artifacts: Iterable[ArtifactRevision]) -> frozenset[ArtifactRef]:
+    result: set[ArtifactRef] = set()
+    for artifact in artifacts:
+        if artifact.kind != "stale-state-quarantine":
+            continue
+        payload = thaw_json(artifact.payload)
+        if not isinstance(payload, Mapping):
+            continue
+        values: list[Any] = []
+        stale_bindings = payload.get("stale_bindings")
+        if isinstance(stale_bindings, Mapping):
+            values.extend(value.get("artifact_ref") for value in stale_bindings.values() if isinstance(value, Mapping))
+        dependent_refs = payload.get("dependent_refs")
+        if isinstance(dependent_refs, Sequence) and not isinstance(dependent_refs, (str, bytes)):
+            values.extend(dependent_refs)
+        for value in values:
+            try:
+                result.add(ArtifactRef.from_dict(value))
+            except (TypeError, ValueError, KeyError):
+                continue
+    return frozenset(result)
 
 
 def _json(value: Any) -> str:
