@@ -20,6 +20,6 @@
 
 - [x] 3.1 Run the focused manifold, registration, coordinator, replay, trace,
   and correction regression suite plus lint/format checks.
-- [ ] 3.2 Record the source-bound group-45 receipt after the final commit.
+- [x] 3.2 Record the source-bound group-45 receipt after the final commit.
 - [ ] 3.3 Run delivery governance, open the single Issue #158 PR, and merge it
   to `dev` with PR body `Closes #158` only.

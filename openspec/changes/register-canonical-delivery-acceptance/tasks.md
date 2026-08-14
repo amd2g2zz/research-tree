@@ -20,6 +20,6 @@
 
 - [x] 3.1 Add focused red/green delivery-registration tests and run the
   adjacent strict delivery/lifecycle regression suite.
-- [ ] 3.2 Record the source-bound group-44 receipt after final verification.
+- [x] 3.2 Record the source-bound group-44 receipt after final verification.
 - [ ] 3.3 Run delivery governance, open the single Issue #157 PR, and merge it
   to `dev` with PR body `Closes #157` only.
