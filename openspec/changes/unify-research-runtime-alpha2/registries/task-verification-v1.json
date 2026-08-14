@@ -477,6 +477,10 @@
       "rollback": "revert the parent acceptance in Git and retain child evidence as immutable history"
     },
     {
+      "group": 40,
+      "state": "planned"
+    },
+    {
       "group": 42,
       "state": "verified",
       "evidence_refs": [
