@@ -1,0 +1,3 @@
+schema: spec-driven
+created: 2026-08-14
+goal: "Migrate retained decision, delivery, and strict-delivery Finding Pack test consumers to direct canonical RunLedger fixtures without changing runtime behavior."

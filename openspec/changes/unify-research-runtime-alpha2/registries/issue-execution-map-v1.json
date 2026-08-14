@@ -62,6 +62,7 @@
     { "issue": 186, "primary_group": 75, "supporting_groups": [48, 74], "capabilities": ["multi-method-portfolio-execution"], "openspec_change": "execute-search-portfolio-batches" },
     { "issue": 179, "primary_group": 76, "supporting_groups": [62], "capabilities": ["unreachable-runstore-scheduler-source-removal"], "openspec_change": "purge-unreachable-runstore-scheduler-source" },
     { "issue": 187, "primary_group": 77, "supporting_groups": [23, 25, 61, 75], "capabilities": ["canonical-search-portfolio-lineage"], "openspec_change": "persist-search-portfolio-lineage" },
-    { "issue": 175, "primary_group": 78, "supporting_groups": [62, 76], "capabilities": ["runstore-scheduler-retirement-acceptance"], "openspec_change": "accept-runstore-scheduler-retirement" }
+    { "issue": 175, "primary_group": 78, "supporting_groups": [62, 76], "capabilities": ["runstore-scheduler-retirement-acceptance"], "openspec_change": "accept-runstore-scheduler-retirement" },
+    { "issue": 180, "primary_group": 79, "supporting_groups": [78], "capabilities": ["canonical-findingpack-test-fixtures"], "openspec_change": "canonicalize-findingpack-decision-delivery-consumers" }
   ]
 }

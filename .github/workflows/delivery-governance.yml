@@ -34,6 +34,14 @@ jobs:
       - name: Verify generated package parity
         run: uv run --frozen python scripts/build_skill_packages.py --check
 
+      - name: Lint changed Python files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          git diff --name-only -z "$BASE_SHA" "$HEAD_SHA" -- '*.py'
+          | xargs -0r uv run --frozen ruff check
+
       - name: Check pull request delivery contract
         run: >-
           uv run --frozen python scripts/check_delivery_workflow.py check-pr

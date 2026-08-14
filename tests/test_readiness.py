@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from test_deliveries import (
+from legacy_runstore_fixture import (
     compile_deliveries,
     context,
     decision_kwargs,
