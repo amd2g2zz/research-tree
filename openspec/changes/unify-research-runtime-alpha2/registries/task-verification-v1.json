@@ -452,10 +452,10 @@
         "command": "uv run pytest -q tests/test_integrated_evidence_receipt.py",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
-        "output_digest": "0000000000000000000000000000000000000000000000000000000000000000",
-        "source_revision": "63164fbd6ffe28c5ecee90de896e4dfe897bcede",
+        "output_digest": "35a1d58c48b74e0e3e7b158b5545a9552f2371583edfef1ea0d022c59f5a0a1c",
+        "source_revision": "81daedb3d5169026414a55d9516e82f3cc35b168",
         "raw_output_ref": "ci://delivery-governance/delivery-gate",
-        "recorded_at": "2026-08-11T00:00:00+00:00"
+        "recorded_at": "2026-08-14T02:28:37Z"
       },
       "rollback": "retain merged strict-slice evidence as historical and keep future groups planned"
     },
