@@ -277,14 +277,14 @@ substitute for local evidence.
 
 ## 27. Intent-Derived Search Portfolios (#83)
 
-- [ ] 27.1 Implement SearchPortfolio generation from IntentModel, WorkingBrief, Decision Slot deficits, and prior acquisition outcomes.
-- [ ] 27.2 Add explicit/implicit subquestion expansion and query rewriting with provenance to the originating slot and reason.
-- [ ] 27.3 Implement method/provider registry selection and distinguish provider, corpus, extraction, repository, primary-source, and experiment boundaries.
-- [ ] 27.4 Add post-batch coverage/depth/contradiction/implementation/oracle assessment with deepen, broaden, pivot, validate, and sufficient_for_slot dispositions.
-- [ ] 27.5 Add hidden-mechanism and shallow-search fixtures proving the portfolio does not stop at a single AnySearch query family.
-- [ ] 27.6 Add invalid-direction fixtures proving successor strategy/action lineage and autonomous continuation inside authority.
-- [ ] 27.7 Add a controlled comparison against the legacy direct-query behavior and publish rediscovery, coverage, depth, and decision-closure deltas.
-- [ ] 27.8 Link portfolio artifacts, query/method traces, comparison results, and limitations to #83 and the alpha2 release manifest.
+- [x] 27.1 Implement SearchPortfolio generation from IntentModel, WorkingBrief, Decision Slot deficits, and prior acquisition outcomes.
+- [x] 27.2 Add explicit/implicit subquestion expansion and query rewriting with provenance to the originating slot and reason.
+- [x] 27.3 Implement method/provider registry selection and distinguish provider, corpus, extraction, repository, primary-source, and experiment boundaries.
+- [x] 27.4 Add post-batch coverage/depth/contradiction/implementation/oracle assessment with deepen, broaden, pivot, validate, and sufficient_for_slot dispositions.
+- [x] 27.5 Add hidden-mechanism and shallow-search fixtures proving the portfolio does not stop at a single AnySearch query family.
+- [x] 27.6 Add invalid-direction fixtures proving successor strategy/action lineage and autonomous continuation inside authority.
+- [x] 27.7 Add a controlled comparison against the legacy direct-query behavior and publish rediscovery, coverage, depth, and decision-closure deltas.
+- [x] 27.8 Link portfolio artifacts, query/method traces, comparison results, and limitations to #83 and the alpha2 release manifest.
 
 ## 28. Four-Stage Strategy Handoff (#85)
 
