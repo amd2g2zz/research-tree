@@ -17,5 +17,5 @@
 
 - [x] 3.1 Run focused and full regression tests plus `ruff`.
 - [x] 3.2 Run strict OpenSpec, governance, docs, package, and delivery gates.
-- [ ] 3.3 After source acceptance, register group 80 and its source-bound
+- [x] 3.3 After source acceptance, register group 80 and its source-bound
   receipt, then open the sole non-WIP PR for #181 targeting `dev`.
