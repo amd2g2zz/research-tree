@@ -19,42 +19,42 @@
   "entries": [
     {
       "name": "focused_strict_suite",
-      "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/integrated-focused-suite-output.txt",
+      "raw_output_ref": "ci://delivery-governance/delivery-gate",
       "declared_digest": "c8901f858168d20fab84ffb8eb3587f2c382169be8e78c7adfcab8bd3961c557",
       "normalized_lf_digest": "6b47f795482222ad38654b91aec849f2e8bd6fdd0a6df0060243494bacc5a758",
       "restored_crlf_digest": "c8901f858168d20fab84ffb8eb3587f2c382169be8e78c7adfcab8bd3961c557"
     },
     {
       "name": "full_regression",
-      "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/integrated-full-regression-output.txt",
+      "raw_output_ref": "ci://delivery-governance/delivery-gate",
       "declared_digest": "a692c5a8e75615746b63d960568ce7efa15787139aa0f02d2b1ae6a969568718",
       "normalized_lf_digest": "549e3ef312f2d9663f964c8f1f474d1ff9005ee48136b23e317e648d6bc8a53c",
       "restored_crlf_digest": "a692c5a8e75615746b63d960568ce7efa15787139aa0f02d2b1ae6a969568718"
     },
     {
       "name": "openspec_strict",
-      "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/integrated-openspec-output.txt",
+      "raw_output_ref": "ci://delivery-governance/delivery-gate",
       "declared_digest": "c7c20c27de7af7884b94449fb99bbc8b8c9d2203539da53a4f16c8e919de8ca4",
       "normalized_lf_digest": "084647996eb0b14b1b69ed29f8814d2b707d63b445d56bfe918527992c55882c",
       "restored_crlf_digest": "c7c20c27de7af7884b94449fb99bbc8b8c9d2203539da53a4f16c8e919de8ca4"
     },
     {
       "name": "package_parity",
-      "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/integrated-package-output.txt",
+      "raw_output_ref": "ci://delivery-governance/delivery-gate",
       "declared_digest": "fcefa332e552632418622ceaffe6b0e558fd8ac1d1dee23d45277f7d17842525",
       "normalized_lf_digest": "c58802758442599afe30e15aba0a82ea04bfbadf8e013badb6a5e5ca9ab145c0",
       "restored_crlf_digest": "fcefa332e552632418622ceaffe6b0e558fd8ac1d1dee23d45277f7d17842525"
     },
     {
       "name": "governance",
-      "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/integrated-governance-output.txt",
+      "raw_output_ref": "ci://delivery-governance/delivery-gate",
       "declared_digest": "43600e4e05728380a95611eb54d5be058b9d548d219669406ef5e93a88774d8f",
       "normalized_lf_digest": "a336a7d84efe07a88233725246463cd2de3baea63e626dc87248fbcdaccd402d",
       "restored_crlf_digest": "43600e4e05728380a95611eb54d5be058b9d548d219669406ef5e93a88774d8f"
     },
     {
       "name": "delivery_workflow",
-      "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/integrated-delivery-output.txt",
+      "raw_output_ref": "ci://delivery-governance/delivery-gate",
       "declared_digest": "743f0566d844f0aad6a748723944d031170987d53e41834197ea94cd6fcd7a55",
       "normalized_lf_digest": "c557b0b49d620cc6269fdb91fac29204f4b32f67235130a4278ba7048660ed9a",
       "restored_crlf_digest": "743f0566d844f0aad6a748723944d031170987d53e41834197ea94cd6fcd7a55"

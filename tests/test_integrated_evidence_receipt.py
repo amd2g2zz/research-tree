@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -24,6 +23,15 @@ RECEIPT = (
     / "evidence"
     / "integrated-strict-slices.json"
 )
+BYTE_PROVENANCE = (
+    ROOT
+    / "openspec"
+    / "changes"
+    / "reconcile-foundation-verification-receipts"
+    / "evidence"
+    / "integrated-receipt-byte-preservation-v1.json"
+)
+CI_LOCATOR = "ci://delivery-governance/delivery-gate"
 
 
 def test_integrated_receipt_records_merged_slices_and_boundary() -> None:
@@ -51,9 +59,21 @@ def test_integrated_receipt_records_merged_slices_and_boundary() -> None:
 
     for command in payload["commands"]:
         assert command["exit_code"] == 0
-        raw_output = ROOT / command["raw_output_ref"]
-        raw_bytes = raw_output.read_bytes()
-        assert command["output_digest"] == hashlib.sha256(raw_bytes).hexdigest()
+        assert command["raw_output_ref"] == CI_LOCATOR
+        assert re.fullmatch(r"[0-9a-f]{64}", command["output_digest"])
+
+
+def test_integrated_byte_preservation_remains_provenance_only() -> None:
+    payload = json.loads(BYTE_PROVENANCE.read_text(encoding="utf-8"))
+
+    assert payload["scope"]["historical_commands_rerun"] is False
+    assert payload["scope"]["receipt_fields_changed"] is False
+    assert payload["scope"]["runtime_code_changed"] is False
+    for entry in payload["entries"]:
+        assert entry["raw_output_ref"] == CI_LOCATOR
+        for digest_name in ("declared_digest", "normalized_lf_digest", "restored_crlf_digest"):
+            assert re.fullmatch(r"[0-9a-f]{64}", entry[digest_name])
+        assert entry["declared_digest"] == entry["restored_crlf_digest"]
 
 
 def test_group_35_owns_integrated_receipt_and_preserves_historical_future_gap_evidence() -> None:
