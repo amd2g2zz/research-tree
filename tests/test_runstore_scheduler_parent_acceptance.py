@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import subprocess
 
 
@@ -30,7 +31,32 @@ def test_parent_group_binds_reachable_scheduler_retirement_children() -> None:
     parent = _group(execution, 78)
     assert parent["depends_on"] == [62, 76]
     assert parent["outputs"] == ["runstore-scheduler-retirement-acceptance", "group-78-receipt"]
-    assert _group(verification, 78)["state"] in {"planned", "verified"}
+    parent_verification = _group(verification, 78)
+    assert parent_verification["state"] == "verified"
+
+    parent_receipt = parent_verification["command_receipt"]
+    assert isinstance(parent_receipt, dict)
+    assert parent_receipt["command"] == parent["acceptance_command"]
+    assert parent_receipt["exit_code"] == 0
+    assert parent_receipt["raw_output_ref"] == ".research-tree/verification-runs/issue-175/group-78-output.txt"
+
+    parent_revision = parent_receipt["source_revision"]
+    environment_digest = parent_receipt["environment_digest"]
+    output_digest = parent_receipt["output_digest"]
+    assert isinstance(parent_revision, str)
+    assert isinstance(environment_digest, str)
+    assert isinstance(output_digest, str)
+    assert re.fullmatch(r"[0-9a-f]{40}", parent_revision)
+    assert re.fullmatch(r"[0-9a-f]{64}", environment_digest)
+    assert re.fullmatch(r"[0-9a-f]{64}", output_digest)
+    assert (
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", parent_revision, "HEAD"],
+            cwd=ROOT,
+            check=False,
+        ).returncode
+        == 0
+    )
 
     for child in (62, 76):
         receipt = _group(verification, child)["command_receipt"]
