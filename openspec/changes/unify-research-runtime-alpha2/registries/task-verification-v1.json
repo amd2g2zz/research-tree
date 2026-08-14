@@ -460,6 +460,23 @@
       "rollback": "retain merged strict-slice evidence as historical and keep future groups planned"
     },
     {
+      "group": 36,
+      "state": "verified",
+      "evidence_refs": [
+        "local://.research-tree/verification-runs/issue-149/group-36-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_canonical_completion_parent_acceptance.py tests/test_completion_manifold.py tests/test_completion_input_registration.py tests/test_completion_delivery_registration.py tests/test_research_run_coordinator.py tests/test_replay.py && uv run ruff check tests/test_canonical_completion_parent_acceptance.py tests/test_completion_manifold.py tests/test_completion_input_registration.py tests/test_completion_delivery_registration.py tests/test_research_run_coordinator.py tests/test_replay.py && uv run ruff format --check tests/test_canonical_completion_parent_acceptance.py tests/test_completion_manifold.py tests/test_completion_input_registration.py tests/test_completion_delivery_registration.py tests/test_research_run_coordinator.py tests/test_replay.py && uv run python scripts/check_openspec_governance.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "9dc321aa2690281342a1ad005f575448c316247941e13792b467bf8715faa540",
+        "source_revision": "bb01f4208ea1990c337463b032449a82fd108dbb",
+        "raw_output_ref": ".research-tree/verification-runs/issue-149/group-36-output.txt",
+        "recorded_at": "2026-08-14T07:12:05.906898+00:00"
+      },
+      "rollback": "revert the parent acceptance in Git; retain immutable child completion evidence and block generic artifacts from canonical completion"
+    },
+    {
       "group": 39,
       "state": "verified",
       "evidence_refs": [

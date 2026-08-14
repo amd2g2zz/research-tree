@@ -106,6 +106,7 @@ def test_group_35_owns_integrated_receipt_and_preserves_historical_future_gap_ev
         32,
         33,
         35,
+        36,
         39,
         40,
         42,
@@ -124,6 +125,7 @@ def test_group_35_owns_integrated_receipt_and_preserves_historical_future_gap_ev
         62,
         63,
         74,
+        75,
     )
     assert report.unverified_groups == (
         *(
