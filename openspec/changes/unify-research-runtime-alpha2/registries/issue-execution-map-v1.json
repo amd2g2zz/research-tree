@@ -40,6 +40,7 @@
     { "issue": 98, "primary_group": 33, "supporting_groups": [], "capabilities": ["content-addressed-artifacts"], "openspec_change": "add-content-addressed-artifacts" },
     { "issue": 112, "primary_group": 35, "supporting_groups": [], "capabilities": ["integrated-evidence-reconciliation"], "openspec_change": "reconcile-foundation-verification-receipts" },
     { "issue": 155, "primary_group": 42, "supporting_groups": [], "capabilities": ["isolated-hermes-executable-bundle"], "openspec_change": "make-isolated-hermes-bundle-executable" },
+    { "issue": 152, "primary_group": 39, "supporting_groups": [46, 47], "capabilities": ["evidence-graph-closure-quality-acceptance"], "openspec_change": "accept-evidence-graph-closure-quality" },
     { "issue": 160, "primary_group": 46, "supporting_groups": [], "capabilities": ["closure-evidence-content-binding"], "openspec_change": "bind-closure-evidence-content" },
     { "issue": 161, "primary_group": 47, "supporting_groups": [], "capabilities": ["closure-quality-currentness"], "openspec_change": "derive-closure-quality-currentness" },
     { "issue": 164, "primary_group": 54, "supporting_groups": [], "capabilities": ["legacy-cli-surface-removal"], "openspec_change": "remove-legacy-cli-surface" },

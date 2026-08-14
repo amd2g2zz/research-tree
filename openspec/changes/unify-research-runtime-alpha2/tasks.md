@@ -347,6 +347,13 @@ substitute for local evidence.
 - [x] 47.3 Run the focused closure acceptance command and record a
   source-bound group-47 receipt before treating this child as verified.
 
+## 39. Evidence-Graph Closure Quality Parent Acceptance (#152)
+
+- [x] 39.1 Verify the merged group-46 and group-47 source-bound receipts are
+  reachable from the parent acceptance baseline.
+- [x] 39.2 Run the parent acceptance command and record a source-bound
+  group-39 receipt before closing #152.
+
 ## 54. Legacy CLI Surface Removal (#164)
 
 - [x] 54.1 Remove every published legacy round, tree, and profile command
