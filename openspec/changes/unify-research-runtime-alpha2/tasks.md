@@ -464,3 +464,14 @@ substitute for local evidence.
   or generated package can resolve the retired boundary.
 - [x] 76.3 Run the exact group-76 acceptance command and record a source-bound
   receipt after the rebased source and registry commits.
+
+## 77. Canonical SearchPortfolio Lineage (#187)
+
+- [x] 77.1 Persist settled SearchPortfolio execution values through the
+  coordinator with exact capture, receipt, checkpoint, and finding parents.
+- [x] 77.2 Require a portfolio-backed worker-finished HostEvent to reference
+  the exact current canonical lineage before it can be accepted.
+- [x] 77.3 Route authorized pivots through correction quarantine and
+  requester-controlled changes to pending human reopen records.
+- [x] 77.4 Run the exact group-77 acceptance command and record a source-bound
+  receipt after the source commit.

@@ -23,10 +23,36 @@ from research_tree import (
     Subquestion,
     assess_acquisition_batch,
 )
+from test_search_portfolio_lineage import _coordinator, _parents, _values, durable_evidence
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = ROOT / "openspec" / "changes" / "unify-research-runtime-alpha2" / "schemas"
+
+
+def test_portfolio_lineage_uses_exact_resolvable_planner_parents(tmp_path: Path) -> None:
+    ledger, coordinator, artifacts = _coordinator(tmp_path)
+    capture, receipt, checkpoint, finding = durable_evidence(tmp_path, ledger)
+    portfolio, execution = _values()
+
+    lineage = coordinator.persist_search_portfolio_lineage(
+        run_id="run-portfolio",
+        attempt_id="attempt-1",
+        portfolio=portfolio,
+        execution=execution,
+        capture_refs=(capture,),
+        receipt_refs=(receipt,),
+        checkpoint_refs=(checkpoint,),
+        finding_refs=(finding,),
+        **_parents(artifacts),
+        expected_revision=ledger.get_revision("run-portfolio"),
+    )
+
+    parents = set(lineage.parent_refs)
+    assert set(_parents(artifacts).values()) <= parents
+    assert {capture, receipt, checkpoint, finding} <= parents
+    assert lineage.payload["portfolio"]["intent_revision"] == artifacts["intent_model"].id
+    assert lineage.payload["portfolio"]["slot_id"] == "slot-1"
 
 
 def registration(
