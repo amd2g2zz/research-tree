@@ -765,6 +765,10 @@
         "recorded_at": "2026-08-14T12:00:00+08:00"
       },
       "rollback": "revert the pure planner in Git; do not restore legacy portfolio planning, batch assessment, persistence, or dispatch"
+    },
+    {
+      "group": 75,
+      "state": "planned"
     }
   ]
 }

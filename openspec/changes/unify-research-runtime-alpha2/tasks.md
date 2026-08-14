@@ -435,3 +435,16 @@ substitute for local evidence.
   requester-outcome changes; keep execution and durable lineage out of scope.
 - [x] 74.4 Run group-74 acceptance and record a source-bound receipt after the
   source commit.
+
+## 75. Multi-Method SearchPortfolio Execution (#186)
+
+- [x] 75.1 Add immutable method outcomes and dependency-ready batches bound to
+  the strict portfolio and method/provider registry.
+- [x] 75.2 Classify 404, no-result, parser-failure, rate-limit, and shallow
+  outcomes; select typed fallbacks and report degraded single-provider
+  capability without coordinator persistence.
+- [x] 75.3 Assess coverage, novelty, contradictions, source quality,
+  provenance independence, and unresolved decision risk after each batch, with
+  typed stop/rewrite/switch/deepen/experiment/pivot/blocked decisions.
+- [ ] 75.4 Run the exact group-75 acceptance command and record a source-bound
+  receipt after the source commit.
