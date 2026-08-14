@@ -356,9 +356,9 @@ substitute for local evidence.
 
 ## 36. Canonical Completion Integrity Parent Acceptance (#149)
 
-- [ ] 36.1 Verify groups 43, 44, and 45 have reachable source-bound receipts
+- [x] 36.1 Verify groups 43, 44, and 45 have reachable source-bound receipts
   from the parent acceptance baseline.
-- [ ] 36.2 Run the parent false-completion and reopen acceptance command, then
+- [x] 36.2 Run the parent false-completion and reopen acceptance command, then
   record a source-bound group-36 receipt before closing #149.
 
 ## 40. Transitive Correction Invalidation (#153)

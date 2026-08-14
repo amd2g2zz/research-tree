@@ -8,16 +8,16 @@
 
 ## 2. False-Completion Verification
 
-- [ ] 2.1 Run the delivered manifold regressions for generic lookalikes,
+- [x] 2.1 Run the delivered manifold regressions for generic lookalikes,
   idempotent canonical completion, and stale/quarantined reopening.
-- [ ] 2.2 Run strict OpenSpec and governance validation for the parent
+- [x] 2.2 Run strict OpenSpec and governance validation for the parent
   registry state.
 
 ## 3. Evidence and Delivery
 
-- [ ] 3.1 Commit the parent acceptance source before recording group-36
+- [x] 3.1 Commit the parent acceptance source before recording group-36
   evidence.
-- [ ] 3.2 Generate local source-bound group-36 output and receipt, then mark
+- [x] 3.2 Generate local source-bound group-36 output and receipt, then mark
   group 36 verified with the generated command metadata.
 - [ ] 3.3 Run final governance and PR delivery checks, merge the one #149 PR,
   close #149, and clean its worktree.
