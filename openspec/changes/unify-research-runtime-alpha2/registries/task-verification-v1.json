@@ -866,6 +866,10 @@
         "recorded_at": "2026-08-14T14:26:14.355915+00:00"
       },
       "rollback": "revert the parent acceptance metadata in Git; do not restore a scheduler, bridge, alias, adapter, replacement, migration, fallback, or user-data operation"
+    },
+    {
+      "group": 79,
+      "state": "planned"
     }
   ]
 }

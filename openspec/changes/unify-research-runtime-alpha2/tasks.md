@@ -484,3 +484,12 @@ substitute for local evidence.
   the completed scheduler source/contract absence.
 - [x] 78.3 Run the exact group-78 acceptance command and record a source-bound
   receipt before closing #175.
+
+## 79. Canonical Finding Pack Test Fixtures (#180)
+
+- [x] 79.1 Move decision, delivery, and strict-delivery Finding Pack tests to
+  direct canonical ledger fixtures.
+- [x] 79.2 Preserve assurance and pre-#181 readiness behavior on the isolated
+  test-only legacy fixture without a runtime bridge.
+- [ ] 79.3 Run the exact group-79 acceptance command and record a source-bound
+  receipt before closing #180.
