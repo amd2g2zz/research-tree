@@ -475,3 +475,12 @@ substitute for local evidence.
   requester-controlled changes to pending human reopen records.
 - [x] 77.4 Run the exact group-77 acceptance command and record a source-bound
   receipt after the source commit.
+
+## 78. RunStore Scheduler Retirement Parent Acceptance (#175)
+
+- [x] 78.1 Bind the parent-only acceptance boundary to the merged group-62 and
+  group-76 source-bound receipts.
+- [x] 78.2 Add focused parent evidence for receipt reachability, ownership, and
+  the completed scheduler source/contract absence.
+- [ ] 78.3 Run the exact group-78 acceptance command and record a source-bound
+  receipt before closing #175.

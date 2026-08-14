@@ -849,6 +849,10 @@
         "recorded_at": "2026-08-14T07:21:40.677924+00:00"
       },
       "rollback": "revert the scheduler source purge in Git; do not restore a scheduler, bridge, alias, adapter, replacement, migration, fallback, or user-data operation"
+    },
+    {
+      "group": 78,
+      "state": "planned"
     }
   ]
 }
