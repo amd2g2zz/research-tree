@@ -1050,12 +1050,23 @@ class SlotClosureAssessor:
                 and _same_payload(existing, payload)
             ):
                 return existing
-        return self.ledger.append_artifact(
-            round_id,
-            assessment_id,
-            ASSESSMENT_KIND,
-            dict(payload),
+        if payload.get("status") != "passed":
+            return self.ledger.append_artifact(
+                round_id,
+                assessment_id,
+                ASSESSMENT_KIND,
+                dict(payload),
+                parent_refs=parents,
+                expected_revision=expected_revision,
+            )
+        from .completion_inputs import CompletionInputRegistrar
+
+        return CompletionInputRegistrar(self.ledger).write_closure(
+            round_id=round_id,
+            assessment_id=assessment_id,
+            payload=payload,
             parent_refs=parents,
+            core_evaluator_id=self.core_evaluator_id,
             expected_revision=expected_revision,
         )
 

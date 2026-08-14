@@ -511,6 +511,10 @@
       "rollback": "fail Hermes package compatibility and installation closed when executable cold-start validation fails"
     },
     {
+      "group": 43,
+      "state": "planned"
+    },
+    {
       "group": 46,
       "state": "verified",
       "evidence_refs": [
