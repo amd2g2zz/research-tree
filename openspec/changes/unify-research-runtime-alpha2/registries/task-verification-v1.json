@@ -503,10 +503,10 @@
         "command": "uv run pytest -q tests/test_oracle_slot_closure.py && uv run ruff check src/research_tree/closure.py src/research_tree/__init__.py tests/test_oracle_slot_closure.py && uv run ruff format --check src/research_tree/closure.py src/research_tree/__init__.py tests/test_oracle_slot_closure.py",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
-        "output_digest": "08ed07698f061cc067c8d910cb03f84c13815c2c45595aca389632a5d6915cd7",
-        "source_revision": "b0462df4f079fcc478c6b66d7fb378d50ea2eeae",
+        "output_digest": "954fb1992995066d7907e2539c28a8e9b7d5bdabdf8d9c375ee153e3650f88f6",
+        "source_revision": "21c15298228a7e02aa94cde5fd17b07ffaa4f521",
         "raw_output_ref": "ci://delivery-governance/delivery-gate",
-        "recorded_at": "2026-08-14T02:52:56Z"
+        "recorded_at": "2026-08-14T02:58:30Z"
       },
       "rollback": "revoke quality-derived closure tokens and retain assessments as inconclusive history"
     },
