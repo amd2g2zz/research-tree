@@ -289,8 +289,7 @@
       "group": 23,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/invalidate-stale-alignment-state/evidence/group-23-output.txt",
-        "openspec/changes/invalidate-stale-alignment-state/evidence/group-23-receipt.json",
+        "ci://delivery-governance/delivery-gate",
         "openspec/changes/invalidate-stale-alignment-state/evidence/group-23-lineage.json",
         "evaluation/cases/correction-invalidation-v1.json"
       ],
@@ -300,7 +299,7 @@
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "8ca54e0c50c8b12ca1af98dd1dfb3b67bc0439484f2e14d25ccad31c4cc2c534",
         "source_revision": "6dfa314e73fca11aaa3243626b626282033b75ae",
-        "raw_output_ref": "openspec/changes/invalidate-stale-alignment-state/evidence/group-23-output.txt",
+        "raw_output_ref": "ci://delivery-governance/delivery-gate",
         "recorded_at": "2026-08-11T15:56:47.912501+00:00"
       },
       "rollback": "retain prior revisions as historical"
@@ -313,8 +312,7 @@
       "group": 25,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/enforce-durable-source-capture/evidence/group-25-output.txt",
-        "openspec/changes/enforce-durable-source-capture/evidence/group-25-receipt.json"
+        "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
         "command": "uv run pytest -q tests/test_source_capture.py tests/test_content_store.py tests/test_worker_orchestration.py tests/test_acquisition.py",
@@ -322,7 +320,7 @@
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "f83266e2a7393de2e6765bd190a2eecfce62e5dcbcc971cea7e1eec23d1354d3",
         "source_revision": "e989288671d56072876e125d7d902818b6beb885",
-        "raw_output_ref": "openspec/changes/enforce-durable-source-capture/evidence/group-25-output.txt",
+        "raw_output_ref": "ci://delivery-governance/delivery-gate",
         "recorded_at": "2026-08-12T05:12:12.733429+00:00"
       },
       "rollback": "quarantine incomplete worker attempts"
@@ -331,8 +329,7 @@
       "group": 26,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/integrate-host-native-dynamic-workflows/evidence/group-26-output.txt",
-        "openspec/changes/integrate-host-native-dynamic-workflows/evidence/group-26-receipt.json"
+        "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
         "command": "uv run pytest -q tests/test_native_dynamic_workflows.py tests/test_host_event_protocol.py tests/test_worker_orchestration.py",
@@ -340,7 +337,7 @@
         "environment_digest": "37f06035cca23f27ec913ec6c57a4bf557524adbc80fe136467f5e89216dae14",
         "output_digest": "e5e607e103d3d836b0726ee4b50b13c6cf166cc3e95104af310ddc357213937f",
         "source_revision": "1a77b4be2fa23e1b21b04067b4138a194ae408f1",
-        "raw_output_ref": "openspec/changes/integrate-host-native-dynamic-workflows/evidence/group-26-output.txt",
+        "raw_output_ref": "ci://delivery-governance/delivery-gate",
         "recorded_at": "2026-08-12T06:57:52.9801186+00:00",
         "rollback": "disable native projections and use coordinator-dispatch-v1"
       },
@@ -354,8 +351,7 @@
       "group": 28,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/add-four-stage-strategy-handoff/evidence/group-28-output.txt",
-        "openspec/changes/add-four-stage-strategy-handoff/evidence/group-28-receipt.json",
+        "ci://delivery-governance/delivery-gate",
         "openspec/changes/add-four-stage-strategy-handoff/evidence/strategy-handoff-black-box-v1.json"
       ],
       "command_receipt": {
@@ -364,7 +360,7 @@
         "source_revision": "f7da3d3f69bb8daff0fe203fef61f106cdb009df",
         "environment_digest": "d476b6ec39a19742178e4da2b44aa787397dbce695427af4097bfcfe8f0abd0c",
         "output_digest": "a0122b03aff1efd095a5574b5e521be670fae009d7ddbf63e5920bfa9f644e60",
-        "raw_output_ref": "openspec/changes/add-four-stage-strategy-handoff/evidence/group-28-output.txt",
+        "raw_output_ref": "ci://delivery-governance/delivery-gate",
         "recorded_at": "2026-08-12T10:00:00+08:00"
       },
       "rollback": "remain handoff_pending"
@@ -373,8 +369,7 @@
       "group": 29,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/archive/2026-08-13-add-project-user-preference-profile/evidence/group-29-output.txt",
-        "openspec/changes/archive/2026-08-13-add-project-user-preference-profile/evidence/group-29-receipt.json"
+        "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
         "command": "uv run pytest -q tests/test_user_preferences.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py && uv run ruff check src/research_tree/preferences.py src/research_tree/strategy_projection.py src/research_tree/run_ledger.py src/research_tree/cli.py src/research_tree/__init__.py tests/test_user_preferences.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py && uv run ruff format --check src/research_tree/preferences.py src/research_tree/strategy_projection.py src/research_tree/run_ledger.py src/research_tree/cli.py src/research_tree/__init__.py tests/test_user_preferences.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py",
@@ -382,7 +377,7 @@
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "f0b54146e5db39568c3885117f130b6d6d1dc1668a8c17bd10ab042ae94d47f9",
         "source_revision": "81d7e82eb4c345b81b8b4fda0f4540edb019064b",
-        "raw_output_ref": "openspec/changes/archive/2026-08-13-add-project-user-preference-profile/evidence/group-29-output.txt",
+        "raw_output_ref": "ci://delivery-governance/delivery-gate",
         "recorded_at": "2026-08-12T06:46:27.8501506+00:00",
         "rollback": "disable profile influence while retaining observations read-only"
       },
@@ -396,8 +391,7 @@
       "group": 31,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/clarify-intent-before-strategy/evidence/group-31-output.txt",
-        "openspec/changes/clarify-intent-before-strategy/evidence/group-31-receipt.json",
+        "ci://delivery-governance/delivery-gate",
         "openspec/changes/clarify-intent-before-strategy/evidence/intent-decision-frame-black-box-v1.json"
       ],
       "command_receipt": {
@@ -406,7 +400,7 @@
         "environment_digest": "d476b6ec39a19742178e4da2b44aa787397dbce695427af4097bfcfe8f0abd0c",
         "output_digest": "710a2b48dffe62d76d290fa5760f0d060a7c52655cfe57cc522c2771533a0d84",
         "source_revision": "bc38ea3c6dd1cc638e7ed1fe4a907a9736207f58",
-        "raw_output_ref": "openspec/changes/clarify-intent-before-strategy/evidence/group-31-output.txt",
+        "raw_output_ref": "ci://delivery-governance/delivery-gate",
         "recorded_at": "2026-08-12T00:00:00+08:00"
       },
       "rollback": "remain in alignment"
@@ -415,15 +409,14 @@
       "group": 32,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/archive/2026-08-13-verify-cross-host-skill-activation/evidence/group-32-output.txt",
-        "openspec/changes/archive/2026-08-13-verify-cross-host-skill-activation/evidence/group-32-receipt.json"
+        "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
         "command": "uv run pytest -q tests/test_skill_activation.py tests/test_skill_setup.py tests/test_skill_packages.py && uv run ruff check src/research_tree/skill_activation.py src/research_tree/skill_setup.py scripts/check_skill_activation.py scripts/build_skill_packages.py tests/test_skill_activation.py tests/test_skill_setup.py tests/test_skill_packages.py && uv run ruff format --check src/research_tree/skill_activation.py scripts/check_skill_activation.py tests/test_skill_activation.py",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "d83d3e7c48fd3412f2e976fcaed274302dd403df10e5aacf13b03d537bba169b",
-        "raw_output_ref": "openspec/changes/archive/2026-08-13-verify-cross-host-skill-activation/evidence/group-32-output.txt",
+        "raw_output_ref": "ci://delivery-governance/delivery-gate",
         "recorded_at": "2026-08-11T16:07:03.2835791Z",
         "source_revision": "0473171431dbcdd27bbaa99647682fc05d28f062"
       },

@@ -38,6 +38,6 @@
     ],
     "fault_point": "RunLedger._before_commit; unrelated dependent kinds remain outside lineage quarantine"
   },
-  "receipt_ref": "openspec/changes/invalidate-stale-alignment-state/evidence/group-23-receipt.json",
-  "output_ref": "openspec/changes/invalidate-stale-alignment-state/evidence/group-23-output.txt"
+  "receipt_ref": "ci://delivery-governance/delivery-gate",
+  "output_ref": "ci://delivery-governance/delivery-gate"
 }

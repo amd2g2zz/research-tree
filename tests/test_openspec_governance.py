@@ -65,8 +65,10 @@ def test_current_only_setup_contract_replaces_archived_refresh_behavior() -> Non
         "archive/2026-08-13-verify-cross-host-skill-activation"
     )
     group_32 = next(item for item in verification["groups"] if item["group"] == 32)
-    assert all(reference.startswith("openspec/changes/archive/") for reference in group_32["evidence_refs"])
-    assert group_32["command_receipt"]["raw_output_ref"].startswith("openspec/changes/archive/")
+    assert group_32["evidence_refs"] == ["ci://delivery-governance/delivery-gate"]
+    assert group_32["command_receipt"]["raw_output_ref"] == (
+        "ci://delivery-governance/delivery-gate"
+    )
     assert "`unsupported`" in umbrella_spec
     assert "`stale_link`" not in umbrella_spec
     assert "refresh flag" not in umbrella_spec
