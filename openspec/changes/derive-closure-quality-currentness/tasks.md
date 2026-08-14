@@ -18,4 +18,4 @@
 ## 4. Evidence And Handoff
 
 - [x] 4.1 Run the focused closure, lint, formatting, OpenSpec, and governance acceptance commands.
-- [ ] 4.2 Record source-bound group-47 evidence and mark the child and umbrella tasks complete.
+- [x] 4.2 Record source-bound group-47 evidence and mark the child and umbrella tasks complete.
