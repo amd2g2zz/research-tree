@@ -1,9 +1,0 @@
-{
-  "command": "uv run pytest -q tests/test_content_store.py",
-  "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
-  "exit_code": 0,
-  "output_digest": "a9dc2b8d1ae5df59470225d3a0d49d4102bebeba369930940e5c21b775a2c389",
-  "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/group-33-output.txt",
-  "recorded_at": "2026-08-10T03:22:22.752916+00:00",
-  "source_revision": "dcabcd5b11771d46ad9b00a3fc7ae5f437186996"
-}

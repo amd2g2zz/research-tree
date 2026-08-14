@@ -1,9 +1,0 @@
-{
-  "command": "uv run pytest -q tests/test_legacy_runstore_import.py",
-  "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
-  "exit_code": 0,
-  "output_digest": "940a2cb6c1c498722dd3b3be1bfc2007e62bde2e71d3a95fdaa863c635f32baa",
-  "raw_output_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/group-34-output.txt",
-  "recorded_at": "2026-08-10T03:22:24.185027+00:00",
-  "source_revision": "dcabcd5b11771d46ad9b00a3fc7ae5f437186996"
-}
