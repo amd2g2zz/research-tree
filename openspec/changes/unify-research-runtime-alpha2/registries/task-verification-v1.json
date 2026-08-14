@@ -700,7 +700,19 @@
     },
     {
       "group": 74,
-      "state": "planned",
+      "state": "verified",
+      "evidence_refs": [
+        "ci://issue-185/group-74-focused"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_search_portfolio.py tests/test_adaptive_policy.py && uv run ruff check src/research_tree/__init__.py src/research_tree/search_portfolio.py tests/test_search_portfolio.py tests/test_adaptive_policy.py && uv run ruff format --check src/research_tree/__init__.py src/research_tree/search_portfolio.py tests/test_search_portfolio.py tests/test_adaptive_policy.py && uv run python scripts/check_openspec_governance.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "b1926849b9388664bb56a4cba6fbd501b35e4efbf182e74cf91842864e8119ea",
+        "source_revision": "6a663c9425f79a3ffba6857ac1806c0c377d5eb6",
+        "raw_output_ref": "ci://issue-185/group-74-focused",
+        "recorded_at": "2026-08-14T12:00:00+08:00"
+      },
       "rollback": "revert the pure planner in Git; do not restore legacy portfolio planning, batch assessment, persistence, or dispatch"
     }
   ]

@@ -370,6 +370,7 @@ def test_alpha2_registry_has_resolvable_ownership_and_noncyclic_boundaries() -> 
         60,
         61,
         62,
+        74,
     )
     assert report.unverified_groups == (
         *(

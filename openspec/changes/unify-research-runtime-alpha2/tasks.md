@@ -433,5 +433,5 @@ substitute for local evidence.
   decision effect, closure oracle, and stop/replan triggers without retrieval.
 - [x] 74.3 Reopen human decisions only for material authority, safety, or
   requester-outcome changes; keep execution and durable lineage out of scope.
-- [ ] 74.4 Run group-74 acceptance and record a source-bound receipt after the
+- [x] 74.4 Run group-74 acceptance and record a source-bound receipt after the
   source commit.

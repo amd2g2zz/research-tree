@@ -11,5 +11,5 @@
 ## Verification
 
 - [x] 4. Add focused planner regressions alongside the typed contract suite.
-- [ ] 5. Run group-74 acceptance and record its source-bound receipt after the
+- [x] 5. Run group-74 acceptance and record its source-bound receipt after the
   source commit.
