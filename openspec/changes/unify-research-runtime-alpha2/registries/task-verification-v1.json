@@ -612,6 +612,23 @@
       },
       "rollback": "revert the removal through Git before release; do not restore a digest reader, adapter, alias, default, migration, or user-data action"
     },
+    {
+      "group": 61,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/close-canonical-host-event-boundary/evidence/issue-151-boundary.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_host_event_protocol.py tests/test_native_execution_adapter.py tests/test_research_run_coordinator.py tests/test_hermes_execution_adapter.py tests/test_hermes_host_events.py tests/test_skill_packages.py && uv run ruff check src/research_tree/coordinator.py src/research_tree/host_events.py src/research_tree/native_workflows.py scripts/host_event_protocol.py scripts/native_execution_adapter.py scripts/hermes_event_adapter.py scripts/hermes_execution_adapter.py tests/test_host_event_protocol.py tests/test_native_execution_adapter.py tests/test_research_run_coordinator.py && uv run ruff format --check src/research_tree/coordinator.py src/research_tree/host_events.py src/research_tree/native_workflows.py scripts/host_event_protocol.py scripts/native_execution_adapter.py scripts/hermes_event_adapter.py scripts/hermes_execution_adapter.py tests/test_host_event_protocol.py tests/test_native_execution_adapter.py tests/test_research_run_coordinator.py && uv run python scripts/build_skill_packages.py --check",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "239504d4f08fbdaa4466d9474e8ca0d59feb7c0992c1c4774b1de6a80dfd4c0e",
+        "source_revision": "57e870da3b65081ef6c6fdfc8db6b39b8233d7d2",
+        "raw_output_ref": "ci://issue-151/acceptance",
+        "recorded_at": "2026-08-14T03:38:34+00:00"
+      },
+      "rollback": "revert the issue-151 boundary change; retain accepted immutable events and do not restore generic ingestion"
+    },
       {
         "group": 62,
         "state": "verified",

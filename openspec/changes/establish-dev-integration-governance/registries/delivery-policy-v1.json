@@ -23,6 +23,10 @@
     "assets/**",
     "references/**",
     "scripts/build_skill_packages.py",
+    "scripts/hermes_event_adapter.py",
+    "scripts/hermes_execution_adapter.py",
+    "scripts/host_event_protocol.py",
+    "scripts/native_execution_adapter.py",
     "skill-src/**"
   ],
   "ephemeral_verification_paths": [

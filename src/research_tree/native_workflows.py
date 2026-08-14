@@ -52,6 +52,7 @@ def workflow_host_event(
     attempt_id: str,
     sequence: int,
     created_at: str,
+    causation_id: str | None = None,
     **details: Any,
 ) -> HostEvent:
     common = {
@@ -95,6 +96,7 @@ def workflow_host_event(
         created_at=created_at,
         payload=payload,
         payload_digest=payload_digest(payload),
+        causation_id=causation_id,
     )
 
 

@@ -568,21 +568,26 @@ def emit_host_event(
     sequence: int,
     actor: str,
     payload: dict[str, Any],
+    expected_revision: int,
+    causation_id: str | None = None,
 ) -> dict[str, Any]:
     state = _load_state(workspace, run_id, host)
     task = state["tasks"].get(task_id)
     if not isinstance(task, dict) or not task.get("attempt_id"):
         raise AdapterError("host event requires an active task attempt")
+    if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 0:
+        raise AdapterError("canonical expected revision must be a nonnegative integer")
     return build_host_event(
         event_id=event_id,
         kind=kind,
         run_id=run_id,
         attempt_id=str(task["attempt_id"]),
-        expected_revision=int(state.get("revision", 0)),
+        expected_revision=expected_revision,
         sequence=sequence,
         actor=actor,
         payload=payload,
         decision_slot_id=str(task["decision_slot"]),
+        causation_id=causation_id,
     )
 
 
@@ -655,6 +660,17 @@ def _parser() -> argparse.ArgumentParser:
 
     resume_parser = subparsers.add_parser("resume-workflow")
     resume_parser.add_argument("--request", type=Path, required=True)
+
+    emit_parser = subparsers.add_parser("emit-event")
+    emit_parser.add_argument("--run-id", required=True)
+    emit_parser.add_argument("--task-id", required=True)
+    emit_parser.add_argument("--event-id", required=True)
+    emit_parser.add_argument("--kind", required=True)
+    emit_parser.add_argument("--expected-revision", type=int, required=True)
+    emit_parser.add_argument("--sequence", type=int, required=True)
+    emit_parser.add_argument("--actor", required=True)
+    emit_parser.add_argument("--causation-id")
+    emit_parser.add_argument("--payload", type=Path, required=True)
     return parser
 
 
@@ -675,6 +691,21 @@ def main() -> int:
             result = replan_workflow(_read_json(args.request.resolve(), "workflow replan request"), contract_host)
         elif args.command == "resume-workflow":
             result = resume_workflow(_read_json(args.request.resolve(), "workflow resume request"), contract_host)
+        elif args.command == "emit-event":
+            payload_path = args.payload if args.payload.is_absolute() else workspace / args.payload
+            result = emit_host_event(
+                workspace,
+                args.run_id,
+                args.host,
+                args.task_id,
+                event_id=args.event_id,
+                kind=args.kind,
+                sequence=args.sequence,
+                actor=args.actor,
+                payload=_read_json(payload_path, "host event payload"),
+                expected_revision=args.expected_revision,
+                causation_id=args.causation_id,
+            )
         elif args.command == "init":
             handoff = args.handoff if args.handoff.is_absolute() else workspace / args.handoff
             result = init_run(workspace, args.run_id, args.host, handoff)

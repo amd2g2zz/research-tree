@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -35,6 +36,9 @@ from .feedback import (
     CorrectionEvent,
 )
 from .run_ledger import LedgerConflictError, RunLedger
+from .source_capture import ACQUISITION_RECEIPT_KIND, ANALYSIS_CHECKPOINT_KIND, SOURCE_CAPTURE_KIND
+
+FINDING_PACK_KIND = "finding-pack"
 
 
 LIFECYCLE_STATES = (
@@ -1208,33 +1212,22 @@ class ResearchRunCoordinator:
         )
 
     def ingest_event(
-        self, *, run_id: str, event_id: str, attempt_id: str, payload: Mapping[str, Any], expected_revision: int
+        self,
+        *,
+        event: HostEvent | Mapping[str, Any] | None = None,
+        run_id: str | None = None,
+        event_id: str | None = None,
+        attempt_id: str | None = None,
+        payload: Mapping[str, Any] | None = None,
+        expected_revision: int | None = None,
     ) -> ArtifactRevision:
-        validate_identifier(event_id, "event_id")
-        event_digest = _digest(payload)
-        for item in self.ledger.load_run(run_id).artifacts:
-            if item.kind == HOST_EVENT_KIND and item.payload.get("event_id") == event_id:
-                if item.payload.get("payload_digest") != event_digest:
-                    raise CoordinatorEventConflictError("event_id_conflict")
-                return item
-        current = self._latest_state(run_id)
-        event_payload = {
-            "event_id": event_id,
-            "attempt_id": _text(attempt_id, "attempt_id"),
-            "payload_digest": event_digest,
-            "payload": dict(payload),
-        }
-        try:
-            return self.ledger.append_artifact(
-                run_id,
-                event_id,
-                HOST_EVENT_KIND,
-                event_payload,
-                parent_refs=(ArtifactRef(run_id, current.id, current.revision),),
-                expected_revision=expected_revision,
-            )
-        except LedgerConflictError as error:
-            raise CoordinatorConflictError("stale_revision") from error
+        """Compatibility wrapper for the one canonical HostEvent ingress."""
+
+        if event is None:
+            raise CoordinatorConflictError("host_event_envelope_required")
+        if any(value is not None for value in (run_id, event_id, attempt_id, payload, expected_revision)):
+            raise CoordinatorConflictError("canonical_host_event_only")
+        return self.ingest_host_event(event)
 
     def ingest_host_event(self, event: HostEvent | Mapping[str, Any]) -> ArtifactRevision:
         """Validate and atomically persist one non-authoritative host event."""
@@ -1279,6 +1272,8 @@ class ResearchRunCoordinator:
                     "attempt_id",
                     "sequence",
                     "actor",
+                    "created_at",
+                    "causation_id",
                     "payload_digest",
                 )
                 if any(existing.payload.get(field) != declared.get(field) for field in identity_fields):
@@ -1301,12 +1296,41 @@ class ResearchRunCoordinator:
             raise CoordinatorConflictError("unknown_attempt")
         if self._artifact_ref(lease) in self._quarantined_refs(run_id):
             raise StaleStateError("host_event")
+        lease_payload = lease.payload
+        if lease_payload.get("attempt_id") != attempt_id:
+            raise CoordinatorConflictError("lease_attempt_mismatch")
+        if lease_payload.get("status") != "active":
+            raise CoordinatorConflictError("lease_inactive")
+        expires_at = lease_payload.get("expires_at")
+        if expires_at is not None:
+            try:
+                expiry = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+            except ValueError as error:
+                raise CoordinatorConflictError("lease_expiry_invalid") from error
+            if expiry.tzinfo is None or expiry <= datetime.now(timezone.utc):
+                raise CoordinatorConflictError("lease_expired")
+        work_item = lease_payload.get("work_item")
+        if isinstance(work_item, Mapping):
+            for event_value, keys, label in (
+                (envelopes[0].decision_slot_id, ("decision_slot_id", "slot_id"), "decision_slot"),
+                (envelopes[0].action_id, ("action_id",), "action"),
+            ):
+                if event_value is None:
+                    continue
+                expected = next((work_item[key] for key in keys if key in work_item), None)
+                if expected is not None and str(expected) != event_value:
+                    raise CoordinatorConflictError(f"{label}_binding_mismatch")
         previous_sequences = [
             int(item.payload.get("sequence", 0))
             for item in artifacts
             if item.kind == HOST_EVENT_KIND and item.payload.get("attempt_id") == attempt_id
         ]
         expected_sequence = max(previous_sequences, default=0) + 1
+        previous_events = {
+            int(item.payload.get("sequence", 0)): str(item.payload.get("event_id"))
+            for item in artifacts
+            if item.kind == HOST_EVENT_KIND and item.payload.get("attempt_id") == attempt_id
+        }
         specs = []
         for offset, envelope in enumerate(envelopes):
             required_sequence = expected_sequence + offset
@@ -1314,6 +1338,16 @@ class ResearchRunCoordinator:
                 raise HostEventSequenceError(
                     f"host event sequence must be {required_sequence}; got {envelope.sequence}"
                 )
+            predecessor = previous_events.get(envelope.sequence - 1)
+            if envelope.sequence > 1:
+                if envelope.causation_id is None:
+                    raise CoordinatorConflictError("causation_required")
+                if predecessor is None or predecessor != envelope.causation_id:
+                    raise CoordinatorConflictError("causation_mismatch")
+            elif envelope.causation_id not in (None, attempt_id):
+                raise CoordinatorConflictError("causation_mismatch")
+            self._validate_host_event_payload(envelope, run_id=run_id, attempt_id=attempt_id)
+            previous_events[envelope.sequence] = envelope.event_id
             event_ref = ArtifactRef(run_id, envelope.event_id, 1)
             specs.extend(
                 (
@@ -1352,6 +1386,138 @@ class ResearchRunCoordinator:
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
         return tuple(created[::2])
+
+    def _validate_host_event_payload(self, event: HostEvent, *, run_id: str, attempt_id: str) -> None:
+        payload = event.payload
+        if event.kind == "checkpoint_persisted":
+            checkpoint = self._resolve_host_artifact_ref(
+                run_id,
+                attempt_id,
+                payload.get("checkpoint_ref"),
+                label="checkpoint",
+                kinds=(ANALYSIS_CHECKPOINT_KIND,),
+                statuses=(),
+            )
+            declared_digest = payload.get("checkpoint_digest")
+            if declared_digest not in {_digest(thaw_json(checkpoint.payload)), checkpoint.content_hash}:
+                raise CoordinatorConflictError("checkpoint_digest_mismatch")
+            return
+        if event.kind != "worker_finished":
+            return
+        capture_values = payload.get("capture_refs", payload.get("source_capture_refs"))
+        receipt_values = payload.get("receipt_refs")
+        checkpoint_value = payload.get("checkpoint_ref", payload.get("analysis_checkpoint_ref"))
+        finding_values = payload.get("finding_refs", payload.get("finding_pack_refs"))
+        produced_values = payload.get("produced_artifact_refs")
+        if not isinstance(capture_values, Sequence) or isinstance(capture_values, (str, bytes)) or not capture_values:
+            raise CoordinatorConflictError("capture_incomplete")
+        if not isinstance(receipt_values, Sequence) or isinstance(receipt_values, (str, bytes)) or not receipt_values:
+            raise CoordinatorConflictError("receipt_incomplete")
+        if checkpoint_value is None:
+            raise CoordinatorConflictError("checkpoint_incomplete")
+        if not isinstance(finding_values, Sequence) or isinstance(finding_values, (str, bytes)) or not finding_values:
+            raise CoordinatorConflictError("finding_pack_incomplete")
+        if not isinstance(produced_values, Sequence) or isinstance(produced_values, (str, bytes)):
+            raise CoordinatorConflictError("produced_artifact_refs_invalid")
+        capture_artifacts = tuple(
+            self._resolve_host_artifact_ref(
+                run_id,
+                attempt_id,
+                value,
+                label="capture",
+                kinds=(SOURCE_CAPTURE_KIND,),
+                statuses=("committed",),
+            )
+            for value in capture_values
+        )
+        receipt_artifacts = tuple(
+            self._resolve_host_artifact_ref(
+                run_id,
+                attempt_id,
+                value,
+                label="receipt",
+                kinds=(ACQUISITION_RECEIPT_KIND,),
+                statuses=("succeeded",),
+            )
+            for value in receipt_values
+        )
+        checkpoint = self._resolve_host_artifact_ref(
+            run_id,
+            attempt_id,
+            checkpoint_value,
+            label="checkpoint",
+            kinds=(ANALYSIS_CHECKPOINT_KIND,),
+            statuses=(),
+        )
+        finding_artifacts = tuple(
+            self._resolve_host_artifact_ref(
+                run_id,
+                attempt_id,
+                value,
+                label="finding_pack",
+                kinds=(FINDING_PACK_KIND,),
+                statuses=(),
+            )
+            for value in finding_values
+        )
+        for value in produced_values:
+            self._resolve_host_artifact_ref(
+                run_id,
+                attempt_id,
+                value,
+                label="produced_artifact",
+                kinds=None,
+                statuses=(),
+            )
+        capture_ids = {artifact.id for artifact in capture_artifacts}
+        for receipt in receipt_artifacts:
+            capture_id = receipt.payload.get("capture_id")
+            if capture_id is not None and str(capture_id) not in capture_ids:
+                raise CoordinatorConflictError("receipt_capture_mismatch")
+        if checkpoint.payload.get("attempt_id") != attempt_id:
+            raise CoordinatorConflictError("checkpoint_attempt_mismatch")
+        for finding in finding_artifacts:
+            finding_attempt = finding.payload.get("attempt_id")
+            if finding_attempt is not None and str(finding_attempt) != attempt_id:
+                raise CoordinatorConflictError("finding_pack_attempt_mismatch")
+
+    def _resolve_host_artifact_ref(
+        self,
+        run_id: str,
+        attempt_id: str,
+        value: Any,
+        *,
+        label: str,
+        kinds: tuple[str, ...] | None,
+        statuses: tuple[str, ...],
+    ) -> ArtifactRevision:
+        try:
+            if isinstance(value, ArtifactRef):
+                reference = value
+            elif isinstance(value, Mapping):
+                reference = ArtifactRef.from_dict(value)
+            elif isinstance(value, str):
+                parts = value.split(":")
+                if len(parts) != 3:
+                    raise ValueError("reference must be an exact artifact reference")
+                reference = ArtifactRef(parts[0], parts[1], int(parts[2]))
+            else:
+                raise ValueError("reference must be an exact artifact reference")
+            if reference.round_id != run_id:
+                raise ValueError("reference belongs to another run")
+            artifact = self.ledger.get_artifact(reference)
+            if not self.ledger.is_latest_artifact(reference):
+                raise ValueError("reference is stale")
+            if kinds is not None and artifact.kind not in kinds:
+                raise ValueError("reference kind is not allowed")
+            if statuses and artifact.payload.get("status") not in statuses:
+                raise ValueError("reference is not committed")
+            artifact_attempt = artifact.payload.get("attempt_id")
+            if artifact_attempt is not None and str(artifact_attempt) != attempt_id:
+                raise ValueError("reference belongs to another attempt")
+            return artifact
+        except (RuntimeStoreError, TypeError, ValueError) as error:
+            raise CoordinatorConflictError(f"{label}_reference_invalid") from error
 
     def dispatch(
         self,
