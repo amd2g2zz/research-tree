@@ -119,6 +119,12 @@ def canonical_context(tmp_path: Path, *, include_decision: bool = True):
             "kind": "repository",
             "origin": {"type": "workspace", "locator": "fixture"},
             "role": "baseline",
+            "revision": {
+                "branch": "fixture",
+                "commit": "fixture",
+                "sha256": "f" * 64,
+                "observed_at": "2026-08-15T00:00:00+00:00",
+            },
             "repository_baseline": {
                 "revision": {"commit": "fixture"},
                 "anchors": [{"path": "src/agent.py", "symbol": "run"}],

@@ -62,7 +62,8 @@
     { "capability": "unreachable-runstore-scheduler-source-removal", "source_modules": ["tests/test_runstore_scheduler_surface_removal.py"], "public_surface": [], "task_groups": [76], "github_issue": "#179", "owner": "runtime" },
     { "capability": "canonical-search-portfolio-lineage", "source_modules": ["src/research_tree/coordinator.py", "tests/test_search_portfolio_lineage.py"], "public_surface": ["ResearchRunCoordinator.persist_search_portfolio_lineage"], "task_groups": [77], "github_issue": "#187", "owner": "runtime" },
     { "capability": "runstore-scheduler-retirement-acceptance", "source_modules": ["tests/test_runstore_scheduler_parent_acceptance.py"], "public_surface": [], "task_groups": [78], "github_issue": "#175", "owner": "runtime" },
-    { "capability": "canonical-findingpack-test-fixtures", "source_modules": ["tests/canonical_finding_fixture.py", "tests/test_decision_ledger.py", "tests/test_deliveries.py", "tests/test_strict_delivery_lineage.py"], "public_surface": [], "task_groups": [79], "github_issue": "#180", "owner": "runtime" }
+    { "capability": "canonical-findingpack-test-fixtures", "source_modules": ["tests/canonical_finding_fixture.py", "tests/test_decision_ledger.py", "tests/test_deliveries.py", "tests/test_strict_delivery_lineage.py"], "public_surface": [], "task_groups": [79], "github_issue": "#180", "owner": "runtime" },
+    { "capability": "canonical-readiness-test-fixtures", "source_modules": ["tests/canonical_finding_fixture.py", "tests/test_readiness.py", "tests/test_strict_evidence_decision_boundary.py", "tests/test_readiness_findingpack_lineage.py", "tests/test_risk_verification.py", "tests/test_evaluation_suite.py"], "public_surface": [], "task_groups": [80], "github_issue": "#181", "owner": "runtime" }
   ],
   "release_rule": "A capability row is not evidence of implementation. The generated requirement rows, tests, and immutable release manifest must all resolve before status becomes verified."
 }

@@ -883,6 +883,23 @@
         "recorded_at": "2026-08-14T15:53:16.561083+00:00"
       },
       "rollback": "revert the canonical test-fixture migration in Git; do not restore a RunStore bridge, runtime adapter, dual store, compatibility migration, or weakened canonical test"
+    },
+    {
+      "group": 80,
+      "state": "verified",
+      "evidence_refs": [
+        "local://.research-tree/verification-runs/issue-181/group-80-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_readiness.py tests/test_strict_evidence_decision_boundary.py tests/test_readiness_findingpack_lineage.py tests/test_risk_verification.py tests/test_evaluation_suite.py tests/test_openspec_execution_governance.py tests/test_integrated_evidence_receipt.py && uv run ruff check tests/canonical_finding_fixture.py tests/test_readiness.py tests/test_strict_evidence_decision_boundary.py tests/test_readiness_findingpack_lineage.py tests/test_risk_verification.py tests/test_evaluation_suite.py tests/test_openspec_execution_governance.py tests/test_integrated_evidence_receipt.py && uv run ruff format --check tests/canonical_finding_fixture.py tests/test_readiness.py tests/test_strict_evidence_decision_boundary.py tests/test_readiness_findingpack_lineage.py tests/test_risk_verification.py tests/test_evaluation_suite.py tests/test_openspec_execution_governance.py tests/test_integrated_evidence_receipt.py && openspec validate canonicalize-readiness-findingpack-consumers --strict && uv run python scripts/check_openspec_governance.py && uv run python scripts/check_docs.py && uv run python scripts/build_skill_packages.py --check",
+        "exit_code": 0,
+        "environment_digest": "d7376b615db9b16aa41392640c306aa22d65d89dc56f24df6f3e602ad2b0e560",
+        "output_digest": "6521665da41021078f61fb7f1c824325e8473137848a898e0577b925220dd314",
+        "source_revision": "84fa76f1c71862459c2b9ddac741bb6e05d900a3",
+        "raw_output_ref": ".research-tree/verification-runs/issue-181/group-80-output.txt",
+        "recorded_at": "2026-08-14T18:04:24.021080+00:00"
+      },
+      "rollback": "revert the canonical readiness test-fixture migration in Git; do not restore a RunStore bridge, runtime adapter, dual store, compatibility migration, or weakened canonical test"
     }
   ]
 }
