@@ -32,6 +32,19 @@ from .source_capture import ACQUISITION_RECEIPT_KIND, SOURCE_CAPTURE_KIND, Acqui
 
 ASSESSMENT_KIND = "slot-closure-assessment"
 FINDING_PACK_KIND = "finding-pack"
+ASSESSMENT_REVISION = 2
+ASSESSOR_VERSION = "core-closure-v2"
+ASSESSMENT_CHECK_NAMES = frozenset(
+    {
+        "slot_lineage",
+        "evidence",
+        "provenance_independence",
+        "no_selected_option_contradiction",
+        "oracle",
+        "fallback",
+        "reversal_condition",
+    }
+)
 
 
 class ClosureAssessmentError(InvalidOracleError):
@@ -64,8 +77,191 @@ def _artifact_ref(value: ArtifactRevision) -> ArtifactRef:
     return ArtifactRef(value.round_id, value.id, value.revision)
 
 
+def _reference_sort_key(reference: ArtifactRef) -> tuple[str, str, int]:
+    return reference.round_id, reference.artifact_id, reference.revision
+
+
 def _same_payload(existing: ArtifactRevision, payload: Mapping[str, Any]) -> bool:
     return canonical_json_bytes(thaw_json(existing.payload)) == canonical_json_bytes(payload)
+
+
+def _ref_dict(reference: ArtifactRef) -> dict[str, Any]:
+    return reference.to_dict()
+
+
+def _exact_mapping(value: Any, expected: frozenset[str], label: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != expected:
+        raise ClosureAssessmentError(f"{label} has unsupported fields")
+    return value
+
+
+def _check_values(value: Any) -> dict[str, bool]:
+    checks = _exact_mapping(value, ASSESSMENT_CHECK_NAMES, "assessment checks")
+    if any(not isinstance(result, bool) for result in checks.values()):
+        raise ClosureAssessmentError("assessment checks must be boolean")
+    return {name: checks[name] for name in sorted(ASSESSMENT_CHECK_NAMES)}
+
+
+def _reference_list(value: Any, label: str) -> tuple[ArtifactRef, ...]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise ClosureAssessmentError(f"{label} must be a reference sequence")
+    return _refs(value, label)
+
+
+def _sorted_reference_list(value: Any, label: str) -> tuple[ArtifactRef, ...]:
+    references = _reference_list(value, label)
+    if references != tuple(sorted(references, key=_reference_sort_key)):
+        raise ClosureAssessmentError(f"{label} must be sorted")
+    return references
+
+
+def _boundary_values(value: Any, label: str) -> list[dict[str, str]]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise ClosureAssessmentError(f"{label} must be a sequence")
+    boundaries: list[dict[str, str]] = []
+    for index, item in enumerate(value):
+        boundary = _exact_mapping(item, frozenset({"method_id", "provider_id"}), f"{label}[{index}]")
+        boundaries.append(
+            {
+                "method_id": _text(boundary["method_id"], f"{label}[{index}].method_id"),
+                "provider_id": _text(boundary["provider_id"], f"{label}[{index}].provider_id"),
+            }
+        )
+    if boundaries != sorted(boundaries, key=lambda item: (item["method_id"], item["provider_id"])):
+        raise ClosureAssessmentError(f"{label} must be sorted")
+    if len({(item["method_id"], item["provider_id"]) for item in boundaries}) != len(boundaries):
+        raise ClosureAssessmentError(f"{label} must not contain duplicates")
+    return boundaries
+
+
+def _finding_lineages(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise ClosureAssessmentError("finding_lineages must be a sequence")
+    lineages: list[dict[str, Any]] = []
+    expected = frozenset(
+        {"finding_ref", "evidence_refs", "receipt_refs", "capture_refs", "origin_refs", "method_provider_boundaries"}
+    )
+    for index, item in enumerate(value):
+        lineage = _exact_mapping(item, expected, f"finding_lineages[{index}]")
+        lineages.append(
+            {
+                "finding_ref": _ref(lineage["finding_ref"], f"finding_lineages[{index}].finding_ref").to_dict(),
+                "evidence_refs": [
+                    reference.to_dict()
+                    for reference in _reference_list(
+                        lineage["evidence_refs"], f"finding_lineages[{index}].evidence_refs"
+                    )
+                ],
+                "receipt_refs": [
+                    reference.to_dict()
+                    for reference in _reference_list(lineage["receipt_refs"], f"finding_lineages[{index}].receipt_refs")
+                ],
+                "capture_refs": [
+                    reference.to_dict()
+                    for reference in _reference_list(lineage["capture_refs"], f"finding_lineages[{index}].capture_refs")
+                ],
+                "origin_refs": [
+                    reference.to_dict()
+                    for reference in _reference_list(lineage["origin_refs"], f"finding_lineages[{index}].origin_refs")
+                ],
+                "method_provider_boundaries": _boundary_values(
+                    lineage["method_provider_boundaries"],
+                    f"finding_lineages[{index}].method_provider_boundaries",
+                ),
+            }
+        )
+    if lineages != sorted(
+        lineages,
+        key=lambda item: (
+            item["finding_ref"]["round_id"],
+            item["finding_ref"]["artifact_id"],
+            item["finding_ref"]["revision"],
+        ),
+    ):
+        raise ClosureAssessmentError("finding_lineages must be sorted")
+    return lineages
+
+
+def _oracle_lineages(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise ClosureAssessmentError("oracle_lineages must be a sequence")
+    lineages: list[dict[str, Any]] = []
+    expected = frozenset(
+        {
+            "oracle_run_ref",
+            "oracle_spec_ref",
+            "attempt_ref",
+            "input_refs",
+            "result_refs",
+            "tool_event_refs",
+            "evaluator",
+        }
+    )
+    for index, item in enumerate(value):
+        lineage = _exact_mapping(item, expected, f"oracle_lineages[{index}]")
+        lineages.append(
+            {
+                "oracle_run_ref": _ref(lineage["oracle_run_ref"], f"oracle_lineages[{index}].oracle_run_ref").to_dict(),
+                "oracle_spec_ref": _ref(
+                    lineage["oracle_spec_ref"], f"oracle_lineages[{index}].oracle_spec_ref"
+                ).to_dict(),
+                "attempt_ref": _ref(lineage["attempt_ref"], f"oracle_lineages[{index}].attempt_ref").to_dict(),
+                "input_refs": [
+                    reference.to_dict()
+                    for reference in _reference_list(lineage["input_refs"], f"oracle_lineages[{index}].input_refs")
+                ],
+                "result_refs": [
+                    reference.to_dict()
+                    for reference in _reference_list(lineage["result_refs"], f"oracle_lineages[{index}].result_refs")
+                ],
+                "tool_event_refs": [
+                    reference.to_dict()
+                    for reference in _reference_list(
+                        lineage["tool_event_refs"], f"oracle_lineages[{index}].tool_event_refs"
+                    )
+                ],
+                "evaluator": _text(lineage["evaluator"], f"oracle_lineages[{index}].evaluator"),
+            }
+        )
+    if lineages != sorted(
+        lineages,
+        key=lambda item: (
+            item["oracle_run_ref"]["round_id"],
+            item["oracle_run_ref"]["artifact_id"],
+            item["oracle_run_ref"]["revision"],
+        ),
+    ):
+        raise ClosureAssessmentError("oracle_lineages must be sorted")
+    return lineages
+
+
+def _diagnostic_values(value: Any) -> dict[str, Any]:
+    diagnostics = _exact_mapping(
+        value,
+        frozenset(
+            {
+                "method_provider_boundaries",
+                "finding_lineages",
+                "oracle_lineages",
+                "selected_option_contradiction_refs",
+            }
+        ),
+        "assessment diagnostics",
+    )
+    return {
+        "method_provider_boundaries": _boundary_values(
+            diagnostics["method_provider_boundaries"], "method_provider_boundaries"
+        ),
+        "finding_lineages": _finding_lineages(diagnostics["finding_lineages"]),
+        "oracle_lineages": _oracle_lineages(diagnostics["oracle_lineages"]),
+        "selected_option_contradiction_refs": [
+            reference.to_dict()
+            for reference in _reference_list(
+                diagnostics["selected_option_contradiction_refs"],
+                "selected_option_contradiction_refs",
+            )
+        ],
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,56 +270,122 @@ class SlotClosureAssessment:
 
     assessment_id: str
     slot_id: str
+    evaluator_id: str
     status: str
     checks: Mapping[str, bool]
+    diagnostics: Mapping[str, Any]
     successor_kinds: tuple[str, ...]
-    counterevidence_disposition: str
     closure_token: str | None
+    token_digest: str | None
+    target_ref: ArtifactRef
+    decision_ref: ArtifactRef
+    finding_refs: tuple[ArtifactRef, ...]
+    oracle_refs: tuple[ArtifactRef, ...]
     parent_refs: tuple[ArtifactRef, ...]
 
     def __post_init__(self) -> None:
         validate_identifier(self.assessment_id, "assessment_id")
         _text(self.slot_id, "slot_id")
+        _text(self.evaluator_id, "evaluator_id")
         if self.status not in {"passed", "inconclusive"}:
             raise ClosureAssessmentError("assessment status is unsupported")
-        if not isinstance(self.checks, Mapping) or any(not isinstance(value, bool) for value in self.checks.values()):
-            raise ClosureAssessmentError("checks must be a boolean mapping")
+        checks = _check_values(self.checks)
+        _diagnostic_values(self.diagnostics)
         if not isinstance(self.successor_kinds, tuple) or any(
             not isinstance(value, str) or not value.strip() for value in self.successor_kinds
         ):
             raise ClosureAssessmentError("successor_kinds must be a tuple of strings")
-        _text(self.counterevidence_disposition, "counterevidence_disposition")
-        if self.status == "passed" and not self.closure_token:
-            raise ClosureAssessmentError("passed assessment requires a closure token")
-        if self.status != "passed" and self.closure_token is not None:
+        if self.successor_kinds != tuple(sorted(set(self.successor_kinds))):
+            raise ClosureAssessmentError("successor_kinds must be sorted and unique")
+        if self.status != ("passed" if all(checks.values()) else "inconclusive"):
+            raise ClosureAssessmentError("assessment status does not match its checks")
+        if self.status == "passed":
+            if not isinstance(self.token_digest, str) or len(self.token_digest) != 64:
+                raise ClosureAssessmentError("passed assessment requires a token digest")
+            if self.closure_token != f"closure-{self.token_digest}":
+                raise ClosureAssessmentError("passed assessment requires an exact closure token")
+        elif self.closure_token is not None or self.token_digest is not None:
             raise ClosureAssessmentError("inconclusive assessment must not issue a token")
+        if not all(isinstance(reference, ArtifactRef) for reference in (self.target_ref, self.decision_ref)):
+            raise ClosureAssessmentError("assessment target and decision refs must be exact")
+        if not isinstance(self.finding_refs, tuple) or not isinstance(self.oracle_refs, tuple):
+            raise ClosureAssessmentError("assessment refs must be tuples")
+        if self.finding_refs != tuple(sorted(self.finding_refs, key=_reference_sort_key)) or self.oracle_refs != tuple(
+            sorted(self.oracle_refs, key=_reference_sort_key)
+        ):
+            raise ClosureAssessmentError("assessment finding and oracle refs must be sorted")
         if not isinstance(self.parent_refs, tuple) or not all(isinstance(ref, ArtifactRef) for ref in self.parent_refs):
             raise ClosureAssessmentError("parent_refs must contain ArtifactRef values")
+        expected_parents = (self.target_ref, self.decision_ref, *self.finding_refs, *self.oracle_refs)
+        if len(set(expected_parents)) != len(expected_parents) or self.parent_refs != expected_parents:
+            raise ClosureAssessmentError("assessment parent_refs must exactly match typed refs")
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "assessment_id": self.assessment_id,
+            "assessment_revision": ASSESSMENT_REVISION,
             "slot_id": self.slot_id,
+            "evaluator_id": self.evaluator_id,
             "status": self.status,
-            "checks": dict(self.checks),
+            "checks": _check_values(self.checks),
+            "diagnostics": _diagnostic_values(self.diagnostics),
             "successor_kinds": list(self.successor_kinds),
-            "counterevidence_disposition": self.counterevidence_disposition,
             "closure_token": self.closure_token,
+            "token_digest": self.token_digest,
+            "target_ref": self.target_ref.to_dict(),
+            "decision_ref": self.decision_ref.to_dict(),
+            "finding_refs": [reference.to_dict() for reference in self.finding_refs],
+            "oracle_refs": [reference.to_dict() for reference in self.oracle_refs],
             "parent_refs": [ref.to_dict() for ref in self.parent_refs],
+            "assessor_version": ASSESSOR_VERSION,
         }
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "SlotClosureAssessment":
         if not isinstance(value, Mapping):
             raise ClosureAssessmentError("assessment payload must be a mapping")
+        _exact_mapping(
+            value,
+            frozenset(
+                {
+                    "assessment_id",
+                    "assessment_revision",
+                    "slot_id",
+                    "evaluator_id",
+                    "status",
+                    "checks",
+                    "diagnostics",
+                    "successor_kinds",
+                    "closure_token",
+                    "token_digest",
+                    "target_ref",
+                    "decision_ref",
+                    "finding_refs",
+                    "oracle_refs",
+                    "parent_refs",
+                    "assessor_version",
+                }
+            ),
+            "assessment payload",
+        )
+        if value["assessment_revision"] != ASSESSMENT_REVISION:
+            raise ClosureAssessmentError("assessment payload revision is unsupported")
+        if value["assessor_version"] != ASSESSOR_VERSION:
+            raise ClosureAssessmentError("assessment assessor version is unsupported")
         return cls(
             assessment_id=value["assessment_id"],
             slot_id=value["slot_id"],
+            evaluator_id=value["evaluator_id"],
             status=value["status"],
-            checks=value["checks"],
+            checks=_check_values(value["checks"]),
+            diagnostics=_diagnostic_values(value["diagnostics"]),
             successor_kinds=tuple(value["successor_kinds"]),
-            counterevidence_disposition=value["counterevidence_disposition"],
             closure_token=value["closure_token"],
+            token_digest=value["token_digest"],
+            target_ref=_ref(value["target_ref"], "target_ref"),
+            decision_ref=_ref(value["decision_ref"], "decision_ref"),
+            finding_refs=_sorted_reference_list(value["finding_refs"], "finding_refs"),
+            oracle_refs=_sorted_reference_list(value["oracle_refs"], "oracle_refs"),
             parent_refs=_refs(value["parent_refs"], "parent_refs"),
         )
 
@@ -220,6 +482,70 @@ class SlotClosureAssessor:
             raise ClosureAssessmentError(f"{kind} reference is stale or mismatched")
         return artifact
 
+    def _current_reference(self, reference: ArtifactRef, round_id: str) -> ArtifactRevision:
+        if reference.round_id != round_id:
+            raise ClosureAssessmentError("assessment lineage belongs to another run")
+        try:
+            artifact = self.ledger.get_artifact(reference)
+        except RuntimeStoreError as error:
+            raise ClosureAssessmentError("assessment lineage reference is unresolved") from error
+        if not self.ledger.is_latest_artifact(reference):
+            raise ClosureAssessmentError("assessment lineage reference is stale")
+        return artifact
+
+    @staticmethod
+    def _decision_slot(target: ArtifactRevision, slot_id: str) -> Mapping[str, Any]:
+        slots = target.payload.get("slots")
+        if isinstance(slots, (str, bytes)) or not isinstance(slots, Sequence):
+            raise ClosureAssessmentError("Blueprint Target has no canonical Decision Slots")
+        matching_slot: Mapping[str, Any] | None = None
+        seen_ids: set[str] = set()
+        for index, candidate in enumerate(slots):
+            if not isinstance(candidate, Mapping):
+                raise ClosureAssessmentError(f"Blueprint Target slots[{index}] is malformed")
+            candidate_id = candidate.get("id")
+            try:
+                candidate_id = validate_identifier(candidate_id, f"Blueprint Target slots[{index}].id")
+            except (TypeError, ValueError, RuntimeStoreError) as error:
+                raise ClosureAssessmentError(str(error)) from error
+            if candidate_id in seen_ids:
+                raise ClosureAssessmentError(f"Blueprint Target repeats Decision Slot {candidate_id}")
+            seen_ids.add(candidate_id)
+            if candidate_id == slot_id:
+                matching_slot = candidate
+        if matching_slot is None:
+            raise ClosureAssessmentError("Decision Slot is absent from the exact Blueprint Target")
+        alternatives = matching_slot.get("alternatives")
+        if isinstance(alternatives, (str, bytes)) or not isinstance(alternatives, Sequence):
+            raise ClosureAssessmentError("Decision Slot alternatives are malformed")
+        option_values = tuple(_text(option, "Decision Slot alternative") for option in alternatives)
+        if len(option_values) < 2 or len(set(option_values)) != len(option_values):
+            raise ClosureAssessmentError("Decision Slot alternatives must be distinct and complete")
+        return matching_slot
+
+    def _validate_decision_slot_semantics(
+        self,
+        target: ArtifactRevision,
+        decision: ArtifactRevision,
+        slot_id: str,
+    ) -> None:
+        if decision.payload.get("blueprint_target_id") != target.id:
+            raise ClosureAssessmentError("decision does not belong to the exact Blueprint Target")
+        slot = self._decision_slot(target, slot_id)
+        if decision.payload.get("status") not in {"selected", "conditional"}:
+            raise ClosureAssessmentError("closure requires a selected or conditional Decision Ledger entry")
+        selected_option = _text(decision.payload.get("selected_option"), "decision selected_option")
+        if selected_option not in slot["alternatives"]:
+            raise ClosureAssessmentError("decision selected_option is absent from the Decision Slot")
+
+    @staticmethod
+    def _sorted_revisions(values: Sequence[ArtifactRevision]) -> tuple[ArtifactRevision, ...]:
+        return tuple(sorted(values, key=lambda value: (value.round_id, value.id, value.revision)))
+
+    @staticmethod
+    def _sorted_refs(values: set[ArtifactRef]) -> list[dict[str, Any]]:
+        return [reference.to_dict() for reference in sorted(values, key=_reference_sort_key)]
+
     def _current_by_id(self, round_id: str, artifact_id: str, kind: str) -> tuple[ArtifactRef, ArtifactRevision]:
         candidates = [
             artifact
@@ -263,28 +589,48 @@ class SlotClosureAssessor:
     def _validated_oracle_runs(
         self,
         oracle_runs: Sequence[ArtifactRevision],
-    ) -> tuple[OracleRun, ...] | None:
-        validated: list[OracleRun] = []
+        round_id: str,
+    ) -> tuple[tuple[OracleRun, dict[str, Any]], ...] | None:
+        validated: list[tuple[OracleRun, dict[str, Any]]] = []
         try:
             for revision in oracle_runs:
                 reference = _artifact_ref(revision)
+                current_run = self._current_artifact(reference, ORACLE_RUN_KIND)
+                if current_run != revision or reference.round_id != round_id:
+                    raise ClosureAssessmentError("OracleRun reference is stale or belongs to another run")
                 run = OracleRun.from_revision(reference, revision)
-                spec = self.ledger.get_artifact(run.oracle_spec_ref)
-                attempt = self.ledger.get_artifact(run.attempt_ref)
-                inputs = tuple(self.ledger.get_artifact(item) for item in run.input_refs)
-                results = tuple(self.ledger.get_artifact(item) for item in run.result_artifact_refs)
-                events = tuple(self.ledger.get_artifact(item) for item in run.tool_event_refs)
+                spec = self._current_artifact(run.oracle_spec_ref, ORACLE_SPEC_KIND)
+                if run.oracle_spec_ref.round_id != round_id:
+                    raise ClosureAssessmentError("OracleSpec belongs to another run")
+                attempt = self._current_artifact(run.attempt_ref, ORACLE_ATTEMPT_KIND)
+                if run.attempt_ref.round_id != round_id:
+                    raise ClosureAssessmentError("OracleAttempt belongs to another run")
+                inputs = tuple(self._current_reference(item, round_id) for item in run.input_refs)
+                results = tuple(self._current_reference(item, round_id) for item in run.result_artifact_refs)
+                events = tuple(self._current_reference(item, round_id) for item in run.tool_event_refs)
+                canonical_run = validate_oracle_run_lineage(
+                    revision,
+                    spec,
+                    attempt,
+                    input_revisions=inputs,
+                    result_revisions=results,
+                    tool_event_revisions=events,
+                )
                 validated.append(
-                    validate_oracle_run_lineage(
-                        revision,
-                        spec,
-                        attempt,
-                        input_revisions=inputs,
-                        result_revisions=results,
-                        tool_event_revisions=events,
+                    (
+                        canonical_run,
+                        {
+                            "oracle_run_ref": reference.to_dict(),
+                            "oracle_spec_ref": run.oracle_spec_ref.to_dict(),
+                            "attempt_ref": run.attempt_ref.to_dict(),
+                            "input_refs": [item.to_dict() for item in run.input_refs],
+                            "result_refs": [item.to_dict() for item in run.result_artifact_refs],
+                            "tool_event_refs": [item.to_dict() for item in run.tool_event_refs],
+                            "evaluator": run.evaluator,
+                        },
                     )
                 )
-        except (RuntimeStoreError, InvalidOracleError, TypeError, ValueError):
+        except (RuntimeStoreError, InvalidOracleError, TypeError, ValueError, ClosureAssessmentError):
             return None
         return tuple(validated)
 
@@ -314,7 +660,7 @@ class SlotClosureAssessor:
         capture_ref: ArtifactRef,
         capture: SourceCapture,
         round_id: str,
-    ) -> None:
+    ) -> tuple[ArtifactRef, ...]:
         if capture_ref.round_id != round_id or capture.run_id != round_id:
             raise ClosureAssessmentError("source capture belongs to another run")
         self._require_bound_content(
@@ -326,6 +672,7 @@ class SlotClosureAssessor:
         )
         visited = {capture.capture_id}
         origin = capture
+        origin_refs: list[ArtifactRef] = []
         while origin.origin_capture_id is not None:
             origin_id = origin.origin_capture_id
             if origin_id in visited:
@@ -345,11 +692,20 @@ class SlotClosureAssessor:
                 size_bytes=origin.size_bytes,
                 label="source capture origin",
             )
+            origin_refs.append(origin_ref)
+        return tuple(origin_refs)
 
-    def _finding_evidence_is_bound(self, finding: ArtifactRevision, round_id: str) -> bool:
+    def _finding_evidence_lineage(
+        self,
+        finding: ArtifactRevision,
+        round_id: str,
+    ) -> dict[str, Any] | None:
         try:
             if finding.round_id != round_id:
                 raise ClosureAssessmentError("finding pack belongs to another run")
+            current_finding = self._current_artifact(_artifact_ref(finding), FINDING_PACK_KIND)
+            if current_finding != finding:
+                raise ClosureAssessmentError("finding pack is stale")
             if finding.payload.get("evidence_mode") != "strict":
                 raise ClosureAssessmentError("finding pack is not backed by strict evidence")
             observations = finding.payload.get("observations")
@@ -360,7 +716,11 @@ class SlotClosureAssessor:
                 ContentAddressedStore(self.ledger.workspace),
                 workspace=self.ledger.workspace,
             )
-            references: set[ArtifactRef] = set()
+            evidence_refs: set[ArtifactRef] = set()
+            receipt_refs: set[ArtifactRef] = set()
+            capture_refs: set[ArtifactRef] = set()
+            origin_refs: set[ArtifactRef] = set()
+            boundaries: set[tuple[str, str]] = set()
             for observation in observations:
                 if not isinstance(observation, Mapping):
                     raise ClosureAssessmentError("finding observation is not a mapping")
@@ -396,6 +756,7 @@ class SlotClosureAssessor:
                     "evidence artifact",
                     round_id,
                 )
+                receipt_refs.add(receipt_ref)
                 receipt = AcquisitionReceipt.from_dict(receipt_revision.payload)
                 capture_ref, capture_revision = self._parent_of_kind(
                     receipt_revision,
@@ -403,6 +764,7 @@ class SlotClosureAssessor:
                     "acquisition receipt",
                     round_id,
                 )
+                capture_refs.add(capture_ref)
                 capture = SourceCapture.from_dict(capture_revision.payload)
                 if (
                     receipt.receipt_id != receipt_ref.artifact_id
@@ -417,11 +779,27 @@ class SlotClosureAssessor:
                     or evidence.acquisition_method != capture.method_id
                 ):
                     raise ClosureAssessmentError("evidence receipt and source capture are not exact")
-                self._capture_origin_is_bound(capture_ref, capture, round_id)
-                references.add(anchor.artifact_ref)
-            return bool(references)
+                origin_refs.update(self._capture_origin_is_bound(capture_ref, capture, round_id))
+                evidence_refs.add(anchor.artifact_ref)
+                boundaries.add((capture.method_id, capture.provider_id))
+            if not evidence_refs:
+                raise ClosureAssessmentError("finding pack has no strict evidence references")
+            return {
+                "finding_ref": _artifact_ref(finding).to_dict(),
+                "evidence_refs": self._sorted_refs(evidence_refs),
+                "receipt_refs": self._sorted_refs(receipt_refs),
+                "capture_refs": self._sorted_refs(capture_refs),
+                "origin_refs": self._sorted_refs(origin_refs),
+                "method_provider_boundaries": [
+                    {"method_id": method_id, "provider_id": provider_id}
+                    for method_id, provider_id in sorted(boundaries)
+                ],
+            }
         except (RuntimeStoreError, TypeError, ValueError, ClosureAssessmentError):
-            return False
+            return None
+
+    def _finding_evidence_is_bound(self, finding: ArtifactRevision, round_id: str) -> bool:
+        return self._finding_evidence_lineage(finding, round_id) is not None
 
     def _decision_findings(
         self,
@@ -457,6 +835,135 @@ class SlotClosureAssessor:
         if len(set(supplied_refs)) != len(supplied_refs) or set(supplied_refs) != decision_refs:
             raise ClosureAssessmentError("findings must equal the complete decision Finding set")
 
+    @staticmethod
+    def _selected_option_contradictions(
+        findings: Sequence[ArtifactRevision],
+        selected_option: str,
+    ) -> tuple[ArtifactRef, ...]:
+        contradictions: list[ArtifactRef] = []
+        for finding in findings:
+            effects = finding.payload.get("option_effects")
+            if isinstance(effects, (str, bytes)) or not isinstance(effects, Sequence):
+                raise ClosureAssessmentError("finding option_effects must be a sequence")
+            for effect in effects:
+                if not isinstance(effect, Mapping):
+                    raise ClosureAssessmentError("finding option effect must be a mapping")
+                option = effect.get("option")
+                disposition = effect.get("effect")
+                if not isinstance(option, str) or not isinstance(disposition, str):
+                    raise ClosureAssessmentError("finding option effect must use strings")
+                if option == selected_option and disposition == "contradicts":
+                    contradictions.append(_artifact_ref(finding))
+                    break
+        return tuple(sorted(contradictions, key=_reference_sort_key))
+
+    @staticmethod
+    def _payload_with_token(base: Mapping[str, Any]) -> dict[str, Any]:
+        status = base["status"]
+        token_digest = hashlib.sha256(canonical_json_bytes(base)).hexdigest() if status == "passed" else None
+        payload = {
+            **base,
+            "closure_token": f"closure-{token_digest}" if token_digest else None,
+            "token_digest": token_digest,
+        }
+        return SlotClosureAssessment.from_dict(payload).to_dict()
+
+    def _derive_payload(
+        self,
+        *,
+        round_id: str,
+        assessment_id: str,
+        slot_id: str,
+        blueprint_target: ArtifactRevision,
+        decision: ArtifactRevision,
+        findings: Sequence[ArtifactRevision],
+        oracle_runs: Sequence[ArtifactRevision],
+        evaluator_id: str,
+    ) -> tuple[dict[str, Any], tuple[ArtifactRef, ...]]:
+        if evaluator_id != self.core_evaluator_id:
+            raise ClosureAssessmentError("only the core evaluator may issue closure")
+        validate_identifier(assessment_id, "assessment_id")
+        _text(slot_id, "slot_id")
+        target_ref = self._resolve(blueprint_target, "blueprint-target", round_id)
+        decision_ref = self._resolve(decision, "decision-ledger-entry", round_id)
+        if target_ref not in decision.parent_refs or decision.payload.get("decision_slot_id") != slot_id:
+            raise ClosureAssessmentError("decision is not bound to the exact target and slot")
+        self._validate_decision_slot_semantics(blueprint_target, decision, slot_id)
+        decision_findings = self._decision_findings(decision, target_ref, slot_id)
+        finding_values = tuple(findings)
+        self._require_complete_findings(finding_values, decision_findings)
+        finding_values = self._sorted_revisions(decision_findings)
+        finding_refs = tuple(self._resolve(item, FINDING_PACK_KIND, round_id) for item in finding_values)
+        oracle_values = self._sorted_revisions(tuple(oracle_runs))
+        run_refs = tuple(self._resolve(item, ORACLE_RUN_KIND, round_id) for item in oracle_values)
+        if len(set(run_refs)) != len(run_refs):
+            raise ClosureAssessmentError("oracle_runs must not contain duplicate references")
+        validated_oracle_runs = self._validated_oracle_runs(oracle_values, round_id)
+        finding_lineages = [self._finding_evidence_lineage(item, round_id) for item in finding_values]
+        evidence = bool(finding_refs) and all(lineage is not None for lineage in finding_lineages)
+        typed_lineages = [lineage for lineage in finding_lineages if lineage is not None]
+        boundaries = {
+            (item["method_id"], item["provider_id"])
+            for lineage in typed_lineages
+            for item in lineage["method_provider_boundaries"]
+        }
+        selected_option = _text(decision.payload.get("selected_option"), "decision selected_option")
+        contradiction_refs = self._selected_option_contradictions(finding_values, selected_option)
+        passed_input_refs = {
+            reference
+            for run, _ in validated_oracle_runs or ()
+            if run.verdict == "passed"
+            for reference in run.input_refs
+        }
+        oracle = validated_oracle_runs is not None and any(run.verdict == "passed" for run, _ in validated_oracle_runs)
+        checks = {
+            "slot_lineage": True,
+            "evidence": evidence,
+            "provenance_independence": evidence and len(boundaries) >= 2,
+            "no_selected_option_contradiction": all(reference in passed_input_refs for reference in contradiction_refs),
+            "oracle": oracle,
+            "fallback": bool(str(decision.payload.get("fallback", "")).strip()),
+            "reversal_condition": bool(str(decision.payload.get("reversal_condition", "")).strip()),
+        }
+        successors: list[str] = []
+        if not checks["oracle"]:
+            successors.append("validation")
+        if not checks["provenance_independence"] or (
+            validated_oracle_runs is not None
+            and any(run.verdict in {"failed", "blocked"} for run, _ in validated_oracle_runs)
+        ):
+            successors.append("method_switch")
+        if not checks["no_selected_option_contradiction"]:
+            successors.append("adversarial")
+        if not checks["fallback"] or not checks["reversal_condition"]:
+            successors.append("residual_risk")
+        parent_refs = (target_ref, decision_ref, *finding_refs, *run_refs)
+        diagnostics = {
+            "method_provider_boundaries": [
+                {"method_id": method_id, "provider_id": provider_id} for method_id, provider_id in sorted(boundaries)
+            ],
+            "finding_lineages": typed_lineages,
+            "oracle_lineages": [lineage for _, lineage in validated_oracle_runs or ()],
+            "selected_option_contradiction_refs": [reference.to_dict() for reference in contradiction_refs],
+        }
+        base = {
+            "assessment_id": assessment_id,
+            "assessment_revision": ASSESSMENT_REVISION,
+            "slot_id": slot_id,
+            "evaluator_id": evaluator_id,
+            "status": "passed" if all(checks.values()) else "inconclusive",
+            "checks": {name: checks[name] for name in sorted(ASSESSMENT_CHECK_NAMES)},
+            "diagnostics": diagnostics,
+            "successor_kinds": sorted(set(successors)),
+            "target_ref": target_ref.to_dict(),
+            "decision_ref": decision_ref.to_dict(),
+            "finding_refs": [reference.to_dict() for reference in finding_refs],
+            "oracle_refs": [reference.to_dict() for reference in run_refs],
+            "parent_refs": [reference.to_dict() for reference in parent_refs],
+            "assessor_version": ASSESSOR_VERSION,
+        }
+        return self._payload_with_token(base), parent_refs
+
     def assess(
         self,
         *,
@@ -468,80 +975,64 @@ class SlotClosureAssessor:
         findings: Sequence[ArtifactRevision],
         oracle_runs: Sequence[ArtifactRevision],
         evaluator_id: str,
-        provenance_groups: Sequence[str],
-        counterevidence_disposition: str,
-        active_contradiction: bool,
         expected_revision: int,
     ) -> ArtifactRevision:
-        if evaluator_id != self.core_evaluator_id:
-            raise ClosureAssessmentError("only the core evaluator may issue closure")
-        validate_identifier(assessment_id, "assessment_id")
-        _text(slot_id, "slot_id")
-        target_ref = self._resolve(blueprint_target, "blueprint-target", round_id)
-        decision_ref = self._resolve(decision, "decision-ledger-entry", round_id)
-        if target_ref not in decision.parent_refs or decision.payload.get("decision_slot_id") != slot_id:
-            raise ClosureAssessmentError("decision is not bound to the exact target and slot")
-        finding_values = tuple(findings)
-        finding_refs = tuple(self._resolve(item, FINDING_PACK_KIND, round_id) for item in finding_values)
-        self._require_complete_findings(finding_values, self._decision_findings(decision, target_ref, slot_id))
-        oracle_values = tuple(oracle_runs)
-        run_refs = tuple(self._resolve(item, ORACLE_RUN_KIND, round_id) for item in oracle_values)
-        validated_oracle_runs = self._validated_oracle_runs(oracle_values)
-        if not isinstance(provenance_groups, Sequence) or any(
-            not isinstance(group, str) or not group.strip() for group in provenance_groups
-        ):
-            raise ClosureAssessmentError("provenance_groups must contain non-empty strings")
-        disposition = _text(counterevidence_disposition, "counterevidence_disposition")
-        checks = {
-            "slot_lineage": True,
-            "evidence": bool(finding_refs)
-            and all(self._finding_evidence_is_bound(item, round_id) for item in finding_values),
-            "provenance_independence": len(set(provenance_groups)) >= 2,
-            "counterevidence": bool(disposition),
-            "no_active_contradiction": not active_contradiction,
-            "oracle": validated_oracle_runs is not None
-            and any(item.verdict == "passed" for item in validated_oracle_runs),
-            "fallback": bool(str(decision.payload.get("fallback", "")).strip()),
-            "reversal_condition": bool(str(decision.payload.get("reversal_condition", "")).strip()),
-        }
-        successors: list[str] = []
-        if not checks["oracle"]:
-            successors.append("validation")
-        if validated_oracle_runs is not None and any(
-            item.verdict in {"failed", "blocked"} for item in validated_oracle_runs
-        ):
-            successors.append("method_switch")
-        if not checks["no_active_contradiction"]:
-            successors.append("adversarial")
-        if not checks["fallback"] or not checks["reversal_condition"]:
-            successors.append("residual_risk")
-        base = {
-            "assessment_id": assessment_id,
-            "slot_id": slot_id,
-            "status": "passed" if all(checks.values()) else "inconclusive",
-            "checks": checks,
-            "successor_kinds": sorted(set(successors)),
-            "counterevidence_disposition": disposition,
-            "parent_refs": [ref.to_dict() for ref in (target_ref, decision_ref, *finding_refs, *run_refs)],
-        }
-        token_digest = hashlib.sha256(canonical_json_bytes(base)).hexdigest() if base["status"] == "passed" else None
-        token = "closure-" + token_digest if token_digest else None
-        payload = {
-            **base,
-            "closure_token": token,
-            "token_digest": token_digest,
-            "assessment_revision": 1,
-            "required_evidence_results": [{"check": name, "passed": result} for name, result in checks.items()],
-            "independence_groups": list(provenance_groups),
-            "counterevidence_search": {"status": disposition},
-            "contradiction_disposition": {"status": "active" if active_contradiction else "none"},
-            "oracle_refs": [ref.to_dict() for ref in run_refs],
-            "fallback": str(decision.payload.get("fallback", "")),
-            "reversal_condition": str(decision.payload.get("reversal_condition", "")),
-            "assessor_version": "core-closure-v1",
-        }
-        parents = (target_ref, decision_ref, *finding_refs, *run_refs)
+        payload, parents = self._derive_payload(
+            round_id=round_id,
+            assessment_id=assessment_id,
+            slot_id=slot_id,
+            blueprint_target=blueprint_target,
+            decision=decision,
+            findings=findings,
+            oracle_runs=oracle_runs,
+            evaluator_id=evaluator_id,
+        )
         return self._append_assessment(round_id, assessment_id, payload, parents, expected_revision)
+
+    def is_current(self, assessment: ArtifactRevision) -> bool:
+        """Return whether one passed current assessment replays exactly."""
+
+        try:
+            reference = _artifact_ref(assessment)
+            if assessment.kind != ASSESSMENT_KIND or not self.ledger.is_latest_artifact(reference):
+                return False
+            stored = self.ledger.get_artifact(reference)
+            if stored != assessment:
+                return False
+            model = SlotClosureAssessment.from_dict(assessment.payload)
+            if (
+                model.status != "passed"
+                or model.assessment_id != assessment.id
+                or model.evaluator_id != self.core_evaluator_id
+                or model.target_ref.round_id != assessment.round_id
+            ):
+                return False
+            target = self._current_artifact(model.target_ref, "blueprint-target")
+            decision = self._current_artifact(model.decision_ref, "decision-ledger-entry")
+            findings = tuple(self._current_artifact(item, FINDING_PACK_KIND) for item in model.finding_refs)
+            oracle_runs = tuple(self._current_artifact(item, ORACLE_RUN_KIND) for item in model.oracle_refs)
+            expected, parents = self._derive_payload(
+                round_id=assessment.round_id,
+                assessment_id=model.assessment_id,
+                slot_id=model.slot_id,
+                blueprint_target=target,
+                decision=decision,
+                findings=findings,
+                oracle_runs=oracle_runs,
+                evaluator_id=model.evaluator_id,
+            )
+            return parents == assessment.parent_refs and canonical_json_bytes(expected) == canonical_json_bytes(
+                thaw_json(assessment.payload)
+            )
+        except (
+            ClosureAssessmentError,
+            InvalidOracleError,
+            RuntimeStoreError,
+            TypeError,
+            ValueError,
+            KeyError,
+        ):
+            return False
 
     def _append_assessment(
         self,

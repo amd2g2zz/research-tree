@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/slot-closure-assessment-v2.json",
+  "title": "Alpha2 SlotClosureAssessment replay envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["assessment_id", "assessment_revision", "slot_id", "evaluator_id", "status", "checks", "diagnostics", "successor_kinds", "closure_token", "token_digest", "target_ref", "decision_ref", "finding_refs", "oracle_refs", "parent_refs", "assessor_version"],
+  "properties": {
+    "assessment_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "assessment_revision": { "const": 2 },
+    "slot_id": { "type": "string", "minLength": 1 },
+    "evaluator_id": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["passed", "inconclusive"] },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slot_lineage", "evidence", "provenance_independence", "no_selected_option_contradiction", "oracle", "fallback", "reversal_condition"],
+      "properties": {
+        "slot_lineage": { "type": "boolean" },
+        "evidence": { "type": "boolean" },
+        "provenance_independence": { "type": "boolean" },
+        "no_selected_option_contradiction": { "type": "boolean" },
+        "oracle": { "type": "boolean" },
+        "fallback": { "type": "boolean" },
+        "reversal_condition": { "type": "boolean" }
+      }
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method_provider_boundaries", "finding_lineages", "oracle_lineages", "selected_option_contradiction_refs"],
+      "properties": {
+        "method_provider_boundaries": { "type": "array", "items": { "$ref": "#/$defs/boundary" } },
+        "finding_lineages": { "type": "array", "items": { "$ref": "#/$defs/findingLineage" } },
+        "oracle_lineages": { "type": "array", "items": { "$ref": "#/$defs/oracleLineage" } },
+        "selected_option_contradiction_refs": { "type": "array", "items": { "$ref": "#/$defs/reference" } }
+      }
+    },
+    "successor_kinds": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "closure_token": { "type": ["string", "null"] },
+    "token_digest": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "target_ref": { "$ref": "#/$defs/reference" },
+    "decision_ref": { "$ref": "#/$defs/reference" },
+    "finding_refs": { "type": "array", "items": { "$ref": "#/$defs/reference" }, "uniqueItems": true },
+    "oracle_refs": { "type": "array", "items": { "$ref": "#/$defs/reference" }, "uniqueItems": true },
+    "parent_refs": { "type": "array", "items": { "$ref": "#/$defs/reference" }, "uniqueItems": true },
+    "assessor_version": { "const": "core-closure-v2" }
+  },
+  "$defs": {
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["round_id", "artifact_id", "revision"],
+      "properties": {
+        "round_id": { "type": "string", "minLength": 1 },
+        "artifact_id": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method_id", "provider_id"],
+      "properties": {
+        "method_id": { "type": "string", "minLength": 1 },
+        "provider_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "findingLineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["finding_ref", "evidence_refs", "receipt_refs", "capture_refs", "origin_refs", "method_provider_boundaries"],
+      "properties": {
+        "finding_ref": { "$ref": "#/$defs/reference" },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/reference" } },
+        "receipt_refs": { "type": "array", "items": { "$ref": "#/$defs/reference" } },
+        "capture_refs": { "type": "array", "items": { "$ref": "#/$defs/reference" } },
+        "origin_refs": { "type": "array", "items": { "$ref": "#/$defs/reference" } },
+        "method_provider_boundaries": { "type": "array", "items": { "$ref": "#/$defs/boundary" } }
+      }
+    },
+    "oracleLineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["oracle_run_ref", "oracle_spec_ref", "attempt_ref", "input_refs", "result_refs", "tool_event_refs", "evaluator"],
+      "properties": {
+        "oracle_run_ref": { "$ref": "#/$defs/reference" },
+        "oracle_spec_ref": { "$ref": "#/$defs/reference" },
+        "attempt_ref": { "$ref": "#/$defs/reference" },
+        "input_refs": { "type": "array", "items": { "$ref": "#/$defs/reference" } },
+        "result_refs": { "type": "array", "items": { "$ref": "#/$defs/reference" } },
+        "tool_event_refs": { "type": "array", "items": { "$ref": "#/$defs/reference" } },
+        "evaluator": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

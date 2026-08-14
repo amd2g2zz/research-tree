@@ -24,7 +24,7 @@ evidence.
 | evidence-anchor-v1.json | Exact evidence selector | evidence resolver |
 | oracle-spec-v1.json | Reproducible validation contract | oracle runner |
 | oracle-run-v1.json | Executed validation result | oracle runner |
-| slot-closure-assessment-v1.json | Closure token inputs and lifecycle | closure evaluator |
+| slot-closure-assessment-v2.json | Replayable graph-derived closure assessment | closure evaluator |
 | host-event-v1.json | Cross-host event wire protocol | event ingestion |
 | native-workflow-run-v1.json | Non-authoritative host workflow projection | host adapter/coordinator |
 | preference-observation-v1.json | Privacy-bounded project preference evidence | alignment/coordinator |
@@ -50,9 +50,9 @@ be validated together; a schema passing in isolation is not a release decision.
 All schemas use JSON Schema 2020-12, reject unknown fields, and require
 canonical UTF-8-without-BOM JSON hashing: NFC-normalized strings, sorted keys,
 no insignificant whitespace, finite JSON numbers, and SHA-256 over the object
-with its content_hash member omitted. A schema change requires a new version, a
-versioning decision, a valid and invalid example, and an explicit rejection
-disposition for unsupported input.
+with its content_hash member omitted. A schema replacement removes the prior
+active schema and examples; no compatibility row, compatibility reader, or
+migration path is retained.
 
 ## Validation
 

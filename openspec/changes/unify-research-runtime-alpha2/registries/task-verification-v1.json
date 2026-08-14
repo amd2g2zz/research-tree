@@ -493,6 +493,23 @@
       },
       "rollback": "treat unprovable closure evidence as inconclusive and retain existing assessments as history"
     },
+      {
+        "group": 47,
+        "state": "verified",
+        "evidence_refs": [
+          "ci://delivery-governance/delivery-gate"
+        ],
+        "command_receipt": {
+          "command": "uv run pytest -q tests/test_oracle_slot_closure.py && uv run ruff check src/research_tree/closure.py tests/test_oracle_slot_closure.py && uv run ruff format --check src/research_tree/closure.py tests/test_oracle_slot_closure.py",
+          "exit_code": 0,
+          "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+          "output_digest": "dbe6acf295ee9d4248370fcf05778f3b0e6f38ba4dfae5525f95837c99eface2",
+          "source_revision": "93c90a4f9b4f37334ddfa722657ba958bb2cfc1c",
+          "raw_output_ref": "ci://delivery-governance/delivery-gate",
+          "recorded_at": "2026-08-14T02:54:14.279806+00:00"
+        },
+        "rollback": "revert the current-only contract in Git; do not restore a legacy parser, schema, or runtime fallback"
+      },
     {
       "group": 54,
       "state": "verified",
