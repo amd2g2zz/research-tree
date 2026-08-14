@@ -67,23 +67,6 @@ CORRECTION_SENSITIVE_EVENTS = frozenset(
         "delivery_accepted",
     }
 )
-CORRECTION_DEPENDENT_KINDS = frozenset(
-    {
-        "alignment-action",
-        "alignment-attempt",
-        "alignment-message",
-        "alignment-readiness",
-        "attempt-lease",
-        "blueprint-evaluation",
-        "completion-record",
-        "delivery-acceptance",
-        "human-research-report",
-        "insight-digest",
-        "readiness-record",
-        "slot-closure-assessment",
-        "technical-research-package",
-    }
-)
 
 
 class CoordinatorError(RuntimeStoreError):
@@ -857,22 +840,35 @@ class ResearchRunCoordinator:
         current_ref = ArtifactRef(correction.run_id, current.id, current.revision)
         affected_ref_set = set(affected_refs)
         reachable = affected_ref_set | {current_ref}
+        paths = {reference: (reference,) for reference in reachable}
         dependent_refs: list[ArtifactRef] = []
         candidates = [
             item
             for item in self.ledger.load_run(correction.run_id).artifacts
-            if item.kind in CORRECTION_DEPENDENT_KINDS
-            and self._artifact_ref(item) not in affected_ref_set
+            if self._artifact_ref(item) not in affected_ref_set | {current_ref}
             and self.ledger.is_latest_artifact(self._artifact_ref(item))
         ]
         while candidates:
-            found = [item for item in candidates if reachable.intersection(item.parent_refs)]
+            found = sorted(
+                (item for item in candidates if reachable.intersection(item.parent_refs)),
+                key=lambda item: (item.round_id, item.id, item.revision),
+            )
             if not found:
                 break
             for item in found:
                 reference = self._artifact_ref(item)
+                parent = min(
+                    (candidate for candidate in item.parent_refs if candidate in reachable),
+                    key=lambda candidate: (
+                        tuple((entry.round_id, entry.artifact_id, entry.revision) for entry in paths[candidate]),
+                        candidate.round_id,
+                        candidate.artifact_id,
+                        candidate.revision,
+                    ),
+                )
                 dependent_refs.append(reference)
                 reachable.add(reference)
+                paths[reference] = (*paths[parent], reference)
                 candidates.remove(item)
         correction_ref = ArtifactRef(correction.run_id, correction.event_id, 1)
         quarantine_id = "quarantine-" + correction.event_id
@@ -882,6 +878,13 @@ class ResearchRunCoordinator:
             "relation": correction.relation,
             "stale_bindings": correction_payload["affected"],
             "dependent_refs": [reference.to_dict() for reference in dependent_refs],
+            "dependent_paths": [
+                {
+                    "artifact_ref": reference.to_dict(),
+                    "path": [entry.to_dict() for entry in paths[reference]],
+                }
+                for reference in dependent_refs
+            ],
             "source_state_ref": current_ref.to_dict(),
         }
         state_payload = self._state_payload(
@@ -1030,6 +1033,38 @@ class ResearchRunCoordinator:
                     except CoordinatorConflictError:
                         continue
         return frozenset(result)
+
+    def _quarantine_paths(self, run_id: str) -> tuple[dict[str, Any], ...]:
+        paths: list[dict[str, Any]] = []
+        for item in self.ledger.load_run(run_id).artifacts:
+            if item.kind != STALE_STATE_QUARANTINE_KIND:
+                continue
+            correction_event_id = item.payload.get("correction_event_id")
+            for entry in item.payload.get("dependent_paths", ()):
+                if not isinstance(entry, Mapping):
+                    continue
+                artifact_ref = entry.get("artifact_ref")
+                path = entry.get("path")
+                if not isinstance(artifact_ref, Mapping) or not isinstance(path, Sequence) or isinstance(path, str):
+                    continue
+                paths.append(
+                    {
+                        "correction_event_id": correction_event_id,
+                        "artifact_ref": dict(artifact_ref),
+                        "path": [dict(reference) for reference in path if isinstance(reference, Mapping)],
+                    }
+                )
+        return tuple(
+            sorted(
+                paths,
+                key=lambda entry: (
+                    str(entry["correction_event_id"]),
+                    str(entry["artifact_ref"].get("round_id", "")),
+                    str(entry["artifact_ref"].get("artifact_id", "")),
+                    int(entry["artifact_ref"].get("revision", 0)),
+                ),
+            )
+        )
 
     @staticmethod
     def _carry_correction_context(
@@ -1554,6 +1589,7 @@ class ResearchRunCoordinator:
             "state": current.payload["state"],
             "unmet_obligations": missing,
             "next_actions": ["resolve:" + item for item in missing],
+            "quarantined_paths": self._quarantine_paths(run_id),
             "state_digest": current.payload["state_digest"],
         }
 
@@ -1648,6 +1684,8 @@ class ResearchRunCoordinator:
 
     def recover(self, run_id: str) -> dict[str, Any]:
         reconciled: list[str] = []
+        quarantined_attempts: list[str] = []
+        quarantined_refs = self._quarantined_refs(run_id)
         for item in self.ledger.load_run(run_id).artifacts:
             if item.kind != LEASE_KIND or item.payload.get("status") != "active":
                 continue
@@ -1660,6 +1698,9 @@ class ResearchRunCoordinator:
                 key=lambda candidate: candidate.revision,
             )
             if latest != item:
+                continue
+            if self._artifact_ref(item) in quarantined_refs:
+                quarantined_attempts.append(str(item.payload["attempt_id"]))
                 continue
             payload = {**dict(item.payload), "status": "unknown", "recovery_reason": "process_restart"}
             try:
@@ -1677,6 +1718,7 @@ class ResearchRunCoordinator:
         return {
             "run_id": run_id,
             "reconciled_attempts": sorted(reconciled),
+            "quarantined_attempts": sorted(quarantined_attempts),
             "state_digest": self._latest_state(run_id).payload["state_digest"],
         }
 
