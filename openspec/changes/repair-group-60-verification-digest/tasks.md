@@ -4,6 +4,8 @@
 - [x] 1.2 Verify the committed raw output bytes are unchanged from the original
   group-60 recording.
 - [x] 1.3 Correct only the receipt and canonical registry output digests.
+- [x] 1.4 Preserve the retained group-60 output as exact bytes across checkout
+  line-ending policies.
 
 ## 2. Verify and hand off
 
