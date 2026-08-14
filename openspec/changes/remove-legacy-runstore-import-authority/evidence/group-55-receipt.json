@@ -1,9 +1,0 @@
-{
-  "command": "uv run pytest -q tests/test_legacy_import_removal.py tests/test_sqlite_ledger.py && uv run ruff check src/research_tree/run_ledger.py src/research_tree/__init__.py tests/test_legacy_import_removal.py tests/test_sqlite_ledger.py && uv run ruff format --check src/research_tree/run_ledger.py src/research_tree/__init__.py tests/test_legacy_import_removal.py tests/test_sqlite_ledger.py",
-  "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
-  "exit_code": 0,
-  "output_digest": "34a9f46f5146227e0a40a733aa1677d454887b2dcde3923004857f8f02a4b66b",
-  "raw_output_ref": "openspec/changes/remove-legacy-runstore-import-authority/evidence/group-55-output.txt",
-  "recorded_at": "2026-08-13T12:16:08.345163+00:00",
-  "source_revision": "22abe973b6fa522ccbcfffa16900842038041150"
-}

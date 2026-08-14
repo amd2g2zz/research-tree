@@ -1,9 +1,0 @@
-{
-  "command": "uv run pytest -q tests/test_cli.py tests/test_recursive_search.py tests/test_runtime_discoverability.py tests/test_repository_layout.py tests/test_skill_packages.py && uv run ruff check src/research_tree/cli.py scripts/check_repository_layout.py tests/test_cli.py tests/test_runtime_discoverability.py tests/test_repository_layout.py && uv run ruff format --check src/research_tree/cli.py scripts/check_repository_layout.py tests/test_cli.py tests/test_runtime_discoverability.py tests/test_repository_layout.py && uv run python scripts/build_skill_packages.py --check",
-  "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
-  "exit_code": 0,
-  "output_digest": "4efe8fa81b253ef2a9346c891893440fa22b18b95051804f20038fc3f4dcea17",
-  "raw_output_ref": "openspec/changes/remove-legacy-cli-surface/evidence/group-54-output.txt",
-  "recorded_at": "2026-08-13T12:16:06.720840+00:00",
-  "source_revision": "22abe973b6fa522ccbcfffa16900842038041150"
-}
