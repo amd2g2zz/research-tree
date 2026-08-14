@@ -86,6 +86,114 @@ def test_current_registry_covers_checkout_and_lifecycle() -> None:
     assert checker().validate_repository(ROOT, REGISTRY)["errors"] == []
 
 
+def test_repository_ignores_generated_verification_and_local_tooling_artifacts() -> None:
+    required_rules = {
+        ".research-tree/verification-runs/",
+        "openspec/changes/**/evidence/*-output.txt",
+        "openspec/changes/**/evidence/*-output.log",
+        "openspec/changes/**/evidence/*-receipt.json",
+        "openspec/changes/**/evidence/verification-*.md",
+        "openspec/changes/**/evidence/future-evidence-gaps.json",
+        "openspec/changes/**/evidence/integrated-strict-slices.json",
+        "openspec/changes/**/evidence/integrated-receipt-byte-preservation-v*.json",
+        "openspec/changes/**/evidence/worktree-recovery-inventory-v*.json",
+        ".mypy_cache/",
+        ".pyright/",
+        ".basedpyright/",
+        ".pyre/",
+        ".pytype/",
+        ".dmypy.json",
+        ".tox/",
+        ".nox/",
+        ".hypothesis/",
+        ".benchmarks/",
+        ".coverage",
+        ".coverage.*",
+        "coverage.xml",
+        "coverage.lcov",
+        "coverage.json",
+        "htmlcov/",
+        "junit.xml",
+        "junit-*.xml",
+        "pytestdebug.log",
+        ".idea/",
+        ".vscode-test/",
+        ".ropeproject/",
+        ".history/",
+        ".gitnexus/",
+        "*.prof",
+        "*.pstats",
+        "*.swp",
+        "*.swo",
+        "*.swn",
+        ".*.swp",
+        ".*.swo",
+        "*~",
+        ".#*",
+        "\\#*#",
+    }
+    rules = {
+        line.strip()
+        for line in (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
+    assert required_rules <= rules
+
+    ignored_paths = [
+        ".research-tree/verification-runs/issue-188/group-188-output.txt",
+        "openspec/changes/issue-188/evidence/group-188-output.txt",
+        "openspec/changes/issue-188/evidence/group-188-output.log",
+        "openspec/changes/issue-188/evidence/group-188-receipt.json",
+        "openspec/changes/issue-188/evidence/verification-2026-08-14.md",
+        "openspec/changes/issue-188/evidence/future-evidence-gaps.json",
+        "openspec/changes/issue-188/evidence/integrated-strict-slices.json",
+        "openspec/changes/issue-188/evidence/integrated-receipt-byte-preservation-v1.json",
+        "openspec/changes/issue-188/evidence/worktree-recovery-inventory-v1.json",
+        ".mypy_cache/3.13/cache.json",
+        ".pyright/cache.json",
+        ".basedpyright/cache.json",
+        ".pyre/config",
+        ".pytype/cache",
+        ".dmypy.json",
+        ".tox/py311/log",
+        ".nox/tests/log",
+        ".hypothesis/constants",
+        ".benchmarks/latest.json",
+        ".coverage",
+        ".coverage.local",
+        "coverage.xml",
+        "coverage.lcov",
+        "coverage.json",
+        "htmlcov/index.html",
+        "junit.xml",
+        "junit-unit.xml",
+        "pytestdebug.log",
+        ".idea/workspace.xml",
+        ".vscode-test/logs/main.log",
+        ".ropeproject/config.py",
+        ".history/session.json",
+        ".gitnexus/index.db",
+        "session.prof",
+        "session.pstats",
+        "session.swp",
+        "session.swo",
+        "session.swn",
+        ".session.swp",
+        ".session.swo",
+        "session~",
+        ".#session",
+        "#session#",
+    ]
+    for candidate in ignored_paths:
+        result = subprocess.run(
+            ["git", "check-ignore", "--quiet", "--no-index", "--", candidate],
+            cwd=ROOT,
+            check=False,
+        )
+        assert result.returncode == 0, candidate
+
+
 def test_checker_rejects_registry_shape_and_type_drift(tmp_path: Path) -> None:
     registry = write_registry(tmp_path, [entry("src/")])
     payload = json.loads(registry.read_text(encoding="utf-8"))

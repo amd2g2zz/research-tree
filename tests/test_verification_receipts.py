@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from research_tree.verification_receipts import generate_receipt
+import pytest
+
+from research_tree.verification_receipts import VerificationReceiptError, generate_receipt
 
 
 def test_receipt_generator_runs_only_registered_command_and_hashes_raw_output(tmp_path: Path) -> None:
@@ -26,7 +28,7 @@ def test_receipt_generator_runs_only_registered_command_and_hashes_raw_output(tm
         ),
         encoding="utf-8",
     )
-    output = tmp_path / "evidence" / "group-1.txt"
+    output = tmp_path / ".research-tree" / "verification-runs" / "group-1.txt"
 
     receipt = generate_receipt(tmp_path, registry, 1, output, source_revision="a" * 40)
 
@@ -56,9 +58,37 @@ def test_receipt_generator_executes_registered_conditional_chain(tmp_path: Path)
         ),
         encoding="utf-8",
     )
-    output = tmp_path / "evidence" / "group-1.txt"
+    output = tmp_path / ".research-tree" / "verification-runs" / "group-1.txt"
 
     receipt = generate_receipt(tmp_path, registry, 1, output, source_revision="a" * 40)
 
     assert receipt["exit_code"] == 0
     assert [line.strip() for line in output.read_text(encoding="utf-8").splitlines()] == ["first", "second"]
+
+
+def test_receipt_generator_rejects_tracked_openspec_evidence_destination(tmp_path: Path) -> None:
+    registry = tmp_path / "task-execution.json"
+    registry.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "groups": [
+                    {
+                        "group": 1,
+                        "depends_on": [],
+                        "owner": "quality",
+                        "outputs": ["fixture"],
+                        "acceptance_command": "python -c \"print('verified')\"",
+                        "rollback": "remove fixture",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "openspec" / "changes" / "change" / "evidence" / "group-1-output.txt"
+
+    with pytest.raises(VerificationReceiptError, match="local verification boundary"):
+        generate_receipt(tmp_path, registry, 1, output, source_revision="a" * 40)
+
+    assert output.exists() is False

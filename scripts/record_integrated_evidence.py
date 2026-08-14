@@ -9,8 +9,9 @@ import json
 from pathlib import Path
 import re
 import subprocess
-import sys
 from typing import Any
+
+from research_tree.verification_receipts import local_verification_path
 
 
 MERGED_SLICES = [
@@ -119,13 +120,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--evidence-dir",
         type=Path,
-        default=Path(
-            "openspec/changes/reconcile-foundation-verification-receipts/evidence"
-        ),
+        default=Path(".research-tree/verification-runs/integrated-evidence"),
     )
     args = parser.parse_args(argv)
     repo = args.repo.resolve()
-    evidence_dir = (repo / args.evidence_dir).resolve()
+    evidence_dir = local_verification_path(repo, args.evidence_dir)
     evidence_dir.mkdir(parents=True, exist_ok=True)
     source_revision = _source_revision(repo)
     commands: list[dict[str, Any]] = []
@@ -139,8 +138,7 @@ def main(argv: list[str] | None = None) -> int:
                     "source_revision": source_revision,
                     "gaps": _future_gaps(
                         repo,
-                        repo
-                        / "openspec/changes/unify-research-runtime-alpha2/registries/task-execution-v1.json",
+                        repo / "openspec/changes/unify-research-runtime-alpha2/registries/task-execution-v1.json",
                     ),
                 },
                 indent=2,
@@ -158,7 +156,9 @@ def main(argv: list[str] | None = None) -> int:
                     "recorded_at": datetime.now(timezone.utc).isoformat(),
                     "merged_slices": MERGED_SLICES,
                     "commands": commands,
-                    "future_evidence_gaps_ref": "openspec/changes/reconcile-foundation-verification-receipts/evidence/future-evidence-gaps.json",
+                    "future_evidence_gaps_ref": (evidence_dir / "future-evidence-gaps.json")
+                    .relative_to(repo)
+                    .as_posix(),
                     "boundary": {
                         "current_issue": 112,
                         "legacy_worker_validation_guard_issue": 109,

@@ -32,6 +32,7 @@ class DeliveryPolicy:
     hard_limit: ReviewLimit
     generated_paths: tuple[str, ...]
     canonical_generation_inputs: tuple[str, ...]
+    ephemeral_verification_paths: tuple[str, ...]
     protected_branches: Mapping[str, Mapping[str, bool]]
 
 
@@ -169,6 +170,7 @@ def load_delivery_policy(path: Path) -> DeliveryPolicy:
 
     generated_paths = payload.get("generated_paths")
     canonical_inputs = payload.get("canonical_generation_inputs")
+    ephemeral_verification_paths = payload.get("ephemeral_verification_paths")
     protected = payload.get("protected_branches")
     if not isinstance(generated_paths, list) or not all(
         isinstance(item, str) and item for item in generated_paths
@@ -178,6 +180,10 @@ def load_delivery_policy(path: Path) -> DeliveryPolicy:
         isinstance(item, str) and item for item in canonical_inputs
     ):
         raise ValueError("canonical_generation_inputs must be a string list")
+    if not isinstance(ephemeral_verification_paths, list) or not all(
+        isinstance(item, str) and item for item in ephemeral_verification_paths
+    ):
+        raise ValueError("ephemeral_verification_paths must be a non-empty string list")
     if not isinstance(protected, dict):
         raise ValueError("protected_branches must be an object")
     for branch in (strings["integration_branch"], strings["release_branch"]):
@@ -205,6 +211,7 @@ def load_delivery_policy(path: Path) -> DeliveryPolicy:
         hard_limit=hard,
         generated_paths=tuple(generated_paths),
         canonical_generation_inputs=tuple(canonical_inputs),
+        ephemeral_verification_paths=tuple(ephemeral_verification_paths),
         protected_branches=protected,
     )
 
@@ -429,6 +436,7 @@ def evaluate_pull_request(
     changed_files: Sequence[str],
     non_generated_lines: int,
     commit_file_sets: Sequence[set[str]],
+    added_files: Sequence[str] = (),
     approved_exception: bool = False,
     release_derived_from_dev: bool | None = None,
     release_has_unintegrated_commits: bool | None = None,
@@ -463,6 +471,11 @@ def evaluate_pull_request(
     generated = {
         path for path in changed_files if _matches_any(path, policy.generated_paths)
     }
+    new_generated_verification_records = sorted(
+        {path for path in added_files if _matches_any(path, policy.ephemeral_verification_paths)}
+    )
+    if new_generated_verification_records:
+        errors.append("generated_verification_record_tracked")
     non_generated = set(changed_files) - generated
     file_count = len(non_generated)
     if (
@@ -500,6 +513,7 @@ def evaluate_pull_request(
             "delivery_issues": sorted(issue_ids),
             "non_generated_files": file_count,
             "generated_files": len(generated),
+            "new_generated_verification_records": new_generated_verification_records,
             "non_generated_lines": non_generated_lines,
             "release_derived_from_dev": release_derived_from_dev,
             "release_has_unintegrated_commits": release_has_unintegrated_commits,
@@ -614,6 +628,17 @@ def _commit_file_sets(repository: Path, base_ref: str) -> list[set[str]]:
         )
         results.append({path for path in paths.splitlines() if path})
     return results
+
+
+def _added_paths(repository: Path, base_ref: str) -> list[str]:
+    output = _git(
+        repository,
+        "diff",
+        "--diff-filter=A",
+        "--name-only",
+        f"{base_ref}...HEAD",
+    )
+    return [path for path in output.splitlines() if path]
 
 
 def _is_ancestor(repository: Path, ancestor: str, descendant: str) -> bool:
@@ -877,6 +902,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 changed_files=changed_files,
                 non_generated_lines=non_generated_lines,
                 commit_file_sets=_commit_file_sets(args.repo, base_ref),
+                added_files=_added_paths(args.repo, base_ref),
                 approved_exception=args.approved_exception,
                 release_derived_from_dev=(
                     _is_ancestor(

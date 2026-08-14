@@ -17,6 +17,9 @@ class VerificationReceiptError(ValueError):
     """The selected task group or receipt destination is invalid."""
 
 
+LOCAL_VERIFICATION_ROOT = Path(".research-tree/verification-runs")
+
+
 def generate_receipt(
     repository: str | Path,
     task_registry: str | Path,
@@ -29,8 +32,7 @@ def generate_receipt(
 
     repo = Path(repository).resolve()
     registry_path = Path(task_registry).resolve()
-    output = Path(output_path).resolve()
-    _within(repo, output)
+    output = local_verification_path(repo, output_path)
     command = _registered_command(registry_path, group)
     revision = source_revision or _source_revision(repo)
     _sha(revision, "source_revision", lengths={40, 64})
@@ -58,6 +60,22 @@ def generate_receipt(
         "raw_output_ref": output.relative_to(repo).as_posix(),
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def local_verification_path(repository: str | Path, candidate: str | Path) -> Path:
+    """Resolve a generated verification record within the local-only boundary."""
+
+    repo = Path(repository).resolve()
+    path = Path(candidate)
+    output = path.resolve() if path.is_absolute() else (repo / path).resolve()
+    _within(repo, output)
+    try:
+        output.relative_to(repo / LOCAL_VERIFICATION_ROOT)
+    except ValueError as error:
+        raise VerificationReceiptError(
+            "receipt output must be under the local verification boundary .research-tree/verification-runs/"
+        ) from error
+    return output
 
 
 def _registered_command(path: Path, group: int) -> str:
