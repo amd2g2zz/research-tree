@@ -117,3 +117,33 @@ def test_generated_packages_do_not_advertise_the_retired_scheduler() -> None:
     )
 
     assert all(claim not in package_text for claim in retired_claims)
+
+
+def test_scheduler_source_purge_has_its_own_planned_group() -> None:
+    root = Path(__file__).resolve().parents[1]
+    registry_root = root / "openspec" / "changes" / "unify-research-runtime-alpha2" / "registries"
+    execution = json.loads((registry_root / "task-execution-v1.json").read_text(encoding="utf-8"))
+    verification = json.loads((registry_root / "task-verification-v1.json").read_text(encoding="utf-8"))
+    issue_map = json.loads((registry_root / "issue-execution-map-v1.json").read_text(encoding="utf-8"))
+    matrix = json.loads((registry_root / "delivery-matrix-v1.json").read_text(encoding="utf-8"))
+
+    group = next(item for item in execution["groups"] if item["group"] == 76)
+    verification_record = next(item for item in verification["groups"] if item["group"] == 76)
+    issue = next(item for item in issue_map["issues"] if item["issue"] == 179)
+    capability = next(
+        item
+        for item in matrix["capability_rows"]
+        if item["capability"] == "unreachable-runstore-scheduler-source-removal"
+    )
+
+    assert group["depends_on"] == [62]
+    assert group["outputs"] == ["unreachable-runstore-scheduler-source-removal", "group-76-receipt"]
+    assert verification_record["state"] == "planned"
+    assert issue == {
+        "issue": 179,
+        "primary_group": 76,
+        "supporting_groups": [62],
+        "capabilities": ["unreachable-runstore-scheduler-source-removal"],
+        "openspec_change": "purge-unreachable-runstore-scheduler-source",
+    }
+    assert capability["task_groups"] == [76]

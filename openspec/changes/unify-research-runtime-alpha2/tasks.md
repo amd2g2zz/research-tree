@@ -455,3 +455,12 @@ substitute for local evidence.
   typed stop/rewrite/switch/deepen/experiment/pivot/blocked decisions.
 - [x] 75.4 Run the exact group-75 acceptance command and record a source-bound
   receipt after the source commit.
+
+## 76. Unreachable RunStore Scheduler Source Purge (#179)
+
+- [x] 76.1 Delete the unreachable scheduler source and obsolete active
+  scheduler contract after the group-62 public-surface retirement.
+- [x] 76.2 Prove no runtime import, active contract, dedicated behavior test,
+  or generated package can resolve the retired boundary.
+- [ ] 76.3 Run the exact group-76 acceptance command and record a source-bound
+  receipt after the rebased source and registry commits.
