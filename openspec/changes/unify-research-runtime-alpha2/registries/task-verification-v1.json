@@ -532,6 +532,10 @@
       "state": "planned"
     },
     {
+      "group": 45,
+      "state": "planned"
+    },
+    {
       "group": 46,
       "state": "verified",
       "evidence_refs": [

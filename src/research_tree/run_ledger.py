@@ -865,6 +865,34 @@ class RunLedger:
                 selected.setdefault(role, artifact)
         return tuple(selected[role] for role in sorted(selected))
 
+    def list_completion_input_registrations(self, run_id: str) -> dict[str, tuple[ArtifactRevision, ...]]:
+        """Return every current registered artifact grouped by its typed role."""
+
+        self.initialize()
+        run_id = validate_identifier(run_id, "run_id")
+        with self._connect() as connection:
+            quarantined = self._quarantined_refs(connection, run_id)
+            rows = connection.execute(
+                "SELECT registration.input_role, artifact.artifact_json "
+                "FROM completion_input_registrations registration "
+                "JOIN artifacts artifact ON artifact.run_id = registration.run_id "
+                "AND artifact.artifact_id = registration.artifact_id "
+                "AND artifact.revision = registration.artifact_revision "
+                "WHERE registration.run_id = ? "
+                "ORDER BY registration.input_role, registration.registered_run_revision DESC",
+                (run_id,),
+            ).fetchall()
+        grouped: dict[str, list[ArtifactRevision]] = {}
+        seen_refs: set[ArtifactRef] = set()
+        for row in rows:
+            artifact = ArtifactRevision.from_dict(json.loads(row[1]))
+            reference = ArtifactRef(artifact.round_id, artifact.id, artifact.revision)
+            if reference in seen_refs or reference in quarantined or not self.is_latest_artifact(reference):
+                continue
+            seen_refs.add(reference)
+            grouped.setdefault(str(row[0]), []).append(artifact)
+        return {role: tuple(items) for role, items in grouped.items()}
+
     def append_artifact_batch(
         self,
         run_id: str,
