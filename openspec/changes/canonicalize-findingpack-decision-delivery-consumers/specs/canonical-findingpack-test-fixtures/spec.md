@@ -2,62 +2,55 @@
 
 ### Requirement: Retained Finding Pack consumers SHALL use canonical fixtures
 
-The decision, delivery, and strict-delivery lineage test consumers SHALL construct their Finding Pack state through one direct `RunLedger` and a matching ledger-backed `EvidenceResolver`. Each retained Finding Pack SHALL be compiled with the existing `CanonicalFindingPackCompiler`.
+Decision, delivery, and strict-delivery consumers SHALL construct Finding Pack
+state through one direct `RunLedger`, matching ledger-backed `EvidenceResolver`,
+and existing `CanonicalFindingPackCompiler`.
 
 #### Scenario: A retained consumer needs a Finding Pack
 
-- **WHEN** a decision, delivery, or strict-delivery consumer constructs a Finding Pack fixture
-- **THEN** its fixture SHALL create canonical ledger state directly and compile
-  the Finding Pack with `CanonicalFindingPackCompiler`
+- **WHEN** a named consumer creates a Finding Pack fixture
+- **THEN** it SHALL compile the pack from direct canonical ledger state
 
 #### Scenario: A fixture is restarted
 
-- **WHEN** a test reopens its fixture ledger to inspect persisted artifacts
-- **THEN** the reopened `RunLedger` SHALL contain the same canonical artifact
-  lineage and no source `RunStore` migration is required
+- **WHEN** a test reopens its fixture ledger
+- **THEN** the canonical artifact lineage SHALL remain available without a
+  source `RunStore` migration
 
 ### Requirement: Named consumers SHALL exclude retired fixture paths
 
-The named canonical consumers SHALL not import or construct the retired Finding
-Pack compiler through a `RunStore` fixture. They SHALL not introduce a runtime
-facade, adapter, runtime old-state helper, fallback parser, alias, dual store, or
-compatibility migration to preserve the old test setup.
+Named canonical consumers SHALL not construct `FindingPackCompiler` or
+`RunStore` fixture state, or introduce a runtime facade, adapter, runtime
+old-state helper, fallback, alias, dual store, or compatibility migration.
 
 #### Scenario: Static regression inspection
 
-- **WHEN** focused canonical-fixture regression coverage inspects each named
-  canonical consumer suite
-- **THEN** it SHALL find no `FindingPackCompiler` construction and no
-  `RunStore` fixture setup for its Finding Pack path
+- **WHEN** focused regression inspects every named canonical suite
+- **THEN** it SHALL find no retired compiler or `RunStore` fixture path
 
-### Requirement: Canonical fixture migration SHALL preserve consumer behavior
+### Requirement: Canonical fixture migration SHALL preserve behavior
 
-The canonical test fixtures SHALL preserve the existing consumer assertions
-for decision lineage, delivery output, and strict delivery evidence lineage.
+Canonical fixtures SHALL preserve existing decision lineage, delivery output,
+and strict delivery evidence-lineage assertions.
 
 #### Scenario: Focused canonical-consumer regression
 
-- **WHEN** the decision, delivery, and strict-delivery focused suites run
-  against the canonical fixture
+- **WHEN** the three named suites run against the canonical fixture
 - **THEN** they SHALL pass without a production source change
 
 ### Requirement: Legacy coverage SHALL retain its explicit boundary
 
-The assurance suite SHALL remain `RunStore` runtime coverage until #165
-supplies a verified canonical replacement or retires the runtime. The readiness
-suite MAY use the same private test-only legacy fixture until #181 migrates it.
-That fixture SHALL not be imported by the named canonical consumers, nor become
-a runtime shim, adapter, dual store, or weakened assertion that appears
-canonical.
+Assurance SHALL remain `RunStore` coverage until #165 replaces or retires it.
+Readiness MAY use the same private test-only fixture until #181. Named canonical
+consumers SHALL not import it, and it SHALL not become a runtime shim, adapter,
+dual store, or weakened assertion.
 
 #### Scenario: Canonical consumer fixtures change
 
-- **WHEN** the decision fixture becomes canonical
-- **THEN** assurance and retained readiness coverage SHALL not depend on it for
-  their legacy-runtime setup
+- **WHEN** a named fixture becomes canonical
+- **THEN** assurance and retained readiness SHALL keep their legacy setup
 
 #### Scenario: Legacy regression runs after canonical migration
 
-- **WHEN** the canonical consumer suites run
-- **THEN** the assurance and retained readiness regression suites SHALL still
-  pass against the private legacy fixture
+- **WHEN** canonical consumers run
+- **THEN** assurance and retained readiness regressions SHALL still pass

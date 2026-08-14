@@ -1,47 +1,35 @@
 ## Why
 
-The retained decision, delivery, and strict-delivery lineage tests still
-establish some Finding Pack graphs through `RunStore` fixtures and the retired
-`FindingPackCompiler`. That obscures the canonical authority exercised by the
-consumers and leaves test coverage coupled to a compatibility path.
+Decision, delivery, and strict-delivery lineage tests still build some Finding
+Packs with `RunStore` and the retired `FindingPackCompiler`, obscuring the
+canonical authority under test.
 
-The assurance suite is a separate legacy-runtime boundary: its selector and
-runner only accept `RunStore`, and its blocked path uses the legacy decision
-compiler. The still-legacy readiness suite also consumes the old delivery fixture
-until #181 migrates it. Both use one private test-only `RunStore` fixture, which
-the named canonical consumers never import.
+Assurance remains a `RunStore` boundary and readiness consumes the old delivery
+fixture until #181. They use one private test-only legacy fixture; canonical
+consumers never import it.
 
 ## What Changes
 
-- Replace the decision, delivery, and strict-delivery test fixtures with direct, isolated `RunLedger`
-  graphs.
-- Compile Finding Packs with the existing `CanonicalFindingPackCompiler` and
-  its matching ledger-backed `EvidenceResolver`.
-- Preserve each canonical test's behavior and assertions while removing fixture
-  migration from `RunStore` and construction through the retired compiler.
-- Add narrow regression checks that the retained fixtures expose canonical
-  ledger state and do not use the retired compiler.
-- Move the preserved legacy `RunStore` setup into a private test-only fixture
-  for assurance and readiness until their designated follow-up migrations.
-- Do not add a runtime shim, dual store, or production change.
+- Move the three named consumers to direct `RunLedger`, ledger-backed evidence,
+  and `CanonicalFindingPackCompiler` graphs.
+- Preserve their behavioral assertions and add static regression checks.
+- Isolate unchanged assurance/readiness legacy setup without a runtime shim,
+  dual store, or production change.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `canonical-findingpack-test-fixtures`: Retained Finding Pack consumers use
-  direct canonical fixtures that exercise only the canonical ledger path.
+- `canonical-findingpack-test-fixtures`: retained Finding Pack consumers test
+  the canonical ledger path directly.
 
 ### Modified Capabilities
 
-- None. This is test-only canonicalization; runtime APIs and persisted
-  production contracts do not change.
+- None; runtime APIs and persisted contracts do not change.
 
 ## Impact
 
-- Changes are limited to the decision, delivery, assurance, readiness, and
-  strict-delivery lineage tests plus canonical and legacy test-only fixture
-  helpers; the legacy fixture does not claim canonical runtime coverage.
-- No runtime facade, adapter, legacy state helper, fallback parser, alias,
-  dual store, compatibility migration, compiler deletion, registry, or receipt
-  is included until the #175 delivery queue is merged.
+- Only decision, delivery, strict-delivery, assurance, readiness, and
+  test-only fixture files change.
+- No runtime facade, adapter, compatibility migration, compiler deletion,
+  registry, or receipt is included until #175 is reachable from `dev`.
