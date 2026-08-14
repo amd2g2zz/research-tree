@@ -47,6 +47,26 @@ def test_generic_ledger_batch_cannot_create_canonical_completion_authority(tmp_p
     assert ledger.load_run("run-156").artifacts == ()
 
 
+def test_dedicated_writer_rejects_role_kind_mismatch_without_mutation(tmp_path) -> None:
+    ledger = RunLedger(tmp_path)
+    ledger.create_run("run-156")
+
+    with pytest.raises(LedgerIntegrityError, match="role does not match"):
+        ledger.append_canonical_completion_input(
+            "run-156",
+            input_id="insight-1",
+            input_kind="insight-digest",
+            input_payload=synthesize_insights((), active_slot_ids=()),
+            input_parent_refs=(),
+            role="evaluation",
+            issuer_id="issuer-1",
+            registration_id="completion-input-1",
+            expected_revision=0,
+        )
+
+    assert ledger.get_revision("run-156") == 0
+
+
 def test_dedicated_completion_writer_commits_input_issuer_and_registration_atomically(tmp_path) -> None:
     ledger = RunLedger(tmp_path)
     ledger.create_run("run-156")

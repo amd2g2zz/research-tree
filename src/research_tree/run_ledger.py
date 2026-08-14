@@ -15,6 +15,7 @@ from .domain import (
     LineageEvent,
     RoundRecord,
     RoundSnapshot,
+    RuntimeStoreError,
     canonical_json_bytes,
     thaw_json,
     validate_identifier,
@@ -652,6 +653,7 @@ class RunLedger:
         if len({input_id, issuer_id, registration_id}) != 3:
             raise LedgerIntegrityError("completion input, issuer, and registration ids must be distinct")
         _require_non_authoritative_completion_kind(input_kind)
+        _validate_canonical_completion_input(role, input_id, run_id, input_kind, input_payload)
         parent_refs = tuple(input_parent_refs)
         if any(not isinstance(reference, ArtifactRef) for reference in parent_refs):
             raise LedgerIntegrityError("completion input parents must contain ArtifactRef values")
@@ -1081,6 +1083,48 @@ class RunLedger:
 def _require_non_authoritative_completion_kind(kind: Any) -> None:
     if kind in CANONICAL_COMPLETION_AUTHORITY_KINDS:
         raise LedgerIntegrityError(f"reserved canonical completion kind: {kind}")
+
+
+def _validate_canonical_completion_input(
+    role: str,
+    input_id: str,
+    run_id: str,
+    input_kind: str,
+    input_payload: Any,
+) -> None:
+    expected_kinds = {
+        "closure": "slot-closure-assessment",
+        "insight": "insight-digest",
+        "readiness": "readiness-record",
+        "evaluation": "blueprint-evaluation",
+    }
+    if role not in expected_kinds or input_kind != expected_kinds[role]:
+        raise LedgerIntegrityError("completion input role does not match its artifact kind")
+    try:
+        if role == "closure":
+            from .closure import SlotClosureAssessment
+
+            assessment = SlotClosureAssessment.from_dict(input_payload)
+            if assessment.assessment_id != input_id or assessment.target_ref.round_id != run_id:
+                raise LedgerIntegrityError("closure input identity does not match its artifact")
+            return
+        if role == "insight":
+            from .insights import validate_insight_digest
+
+            validate_insight_digest(input_payload)
+            return
+        if role == "readiness":
+            from .readiness import validate_readiness_record_payload
+
+            validate_readiness_record_payload(input_payload)
+            return
+        from .evaluation import validate_blueprint_evaluation_payload
+
+        validate_blueprint_evaluation_payload(input_payload)
+    except (LedgerIntegrityError, RuntimeStoreError, TypeError, ValueError, KeyError) as error:
+        if isinstance(error, LedgerIntegrityError):
+            raise
+        raise LedgerIntegrityError("completion input payload is invalid") from error
 
 
 def _existing_canonical_completion_input(
