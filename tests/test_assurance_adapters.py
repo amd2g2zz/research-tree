@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from test_decision_ledger import compile_finding, context, decision_kwargs, finding_payload
+from legacy_runstore_fixture import compile_finding, context, decision_kwargs, finding_payload
 
 
 def api():
@@ -29,7 +29,11 @@ def api():
 
 
 def decision_context(tmp_path: Path):
-    modules, store, round_record, target, work = context(tmp_path)
+    modules, store, round_record, _model, _brief, target, _seed_finding, _seed_decision = context(
+        tmp_path,
+        include_decision=False,
+    )
+    work = next(artifact for artifact in store.load_round(round_record.id).artifacts if artifact.id == "work-isolation")
     finding = compile_finding(
         modules,
         store,
@@ -45,7 +49,7 @@ def decision_context(tmp_path: Path):
     decision = modules["DecisionLedgerCompiler"](store).converge(
         round_id=round_record.id,
         decision_id="decision-isolation",
-        **decision_kwargs(target, [finding]),
+        **decision_kwargs(target, finding),
     )
     return modules, store, round_record, target, work, finding, decision
 
@@ -54,12 +58,8 @@ def strategy_for(api_modules, store, round_record, target):
     artifact_ref = api_modules["ArtifactRef"]
     snapshot = store.load_round(round_record.id)
     by_key = {(item.id, item.revision): item for item in snapshot.artifacts}
-    brief_ref = next(
-        ref for ref in target.parent_refs if ref.artifact_id == target.payload["brief_id"]
-    )
-    model_ref = next(
-        ref for ref in target.parent_refs if ref.artifact_id == target.payload["intent_model_id"]
-    )
+    brief_ref = next(ref for ref in target.parent_refs if ref.artifact_id == target.payload["brief_id"])
+    model_ref = next(ref for ref in target.parent_refs if ref.artifact_id == target.payload["intent_model_id"])
     brief = by_key[(brief_ref.artifact_id, brief_ref.revision)]
     model = by_key[(model_ref.artifact_id, model_ref.revision)]
     lineage = store.append_artifact(
@@ -347,10 +347,7 @@ def test_failed_high_assurance_review_appends_a_blocked_decision_revision(
     assert result.blocked_decision.revision == decision.revision + 1
     assert result.blocked_decision.payload["status"] == "blocked"
     assert result.blocked_decision.payload["selected_option"] is None
-    assert any(
-        item["option"] == "isolated-worker"
-        for item in result.blocked_decision.payload["alternatives"]
-    )
+    assert any(item["option"] == "isolated-worker" for item in result.blocked_decision.payload["alternatives"])
     assert result.resolution.payload["status"] == "blocked"
     assert result.resolution.payload["decision_ref"]["revision"] == result.blocked_decision.revision
     assert decision.to_dict() == before_decision
@@ -385,11 +382,7 @@ def test_missing_selected_adapter_rejects_before_persisting_partial_evidence(tmp
             adapters=api_modules["AssuranceAdapterSet"](),
         )
 
-    assert not [
-        item
-        for item in store.load_round(round_record.id).artifacts
-        if item.kind == "assurance-evidence"
-    ]
+    assert not [item for item in store.load_round(round_record.id).artifacts if item.kind == "assurance-evidence"]
 
 
 def test_selection_rejects_a_strategy_that_does_not_share_the_target_brief(
@@ -420,7 +413,5 @@ def test_selection_rejects_a_strategy_that_does_not_share_the_target_brief(
         )
 
     assert not [
-        item
-        for item in store.load_round(round_record.id).artifacts
-        if item.kind == "assurance-adapter-selection"
+        item for item in store.load_round(round_record.id).artifacts if item.kind == "assurance-adapter-selection"
     ]

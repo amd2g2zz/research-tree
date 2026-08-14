@@ -1,17 +1,16 @@
 from __future__ import annotations
 
+import ast
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
-from test_readiness import greenfield_package
+from canonical_finding_fixture import canonical_context
 
 from research_tree import (
     ArtifactRef,
-    CanonicalDecisionLedgerCompiler,
     CanonicalDeliveryCompiler,
-    CanonicalFindingPackCompiler,
     ContentAddressedStore,
     EvidenceAnchor,
     EvidenceArtifact,
@@ -24,33 +23,8 @@ from research_tree import (
     RunLedger,
 )
 from research_tree.domain import thaw_json
-from research_tree.work_items import WORK_ITEM_KIND
-def _migrate_run_store(source_store, round_record, ledger: RunLedger) -> None:
-    ledger.create_run(round_record.id)
-    source = source_store.load_round(round_record.id).artifacts
-    copied: set[tuple[str, int]] = set()
-    while len(copied) < len(source):
-        progressed = False
-        for artifact in source:
-            key = (artifact.id, artifact.revision)
-            if key in copied or any(
-                (parent.artifact_id, parent.revision) not in copied
-                and parent.round_id == round_record.id
-                for parent in artifact.parent_refs
-            ):
-                continue
-            result = ledger.append_artifact(
-                artifact.round_id,
-                artifact.id,
-                artifact.kind,
-                thaw_json(artifact.payload),
-                parent_refs=artifact.parent_refs,
-                expected_revision=ledger.get_revision(round_record.id),
-            )
-            assert result.revision == artifact.revision
-            copied.add(key)
-            progressed = True
-        assert progressed, "source artifact graph must be topologically copyable"
+
+
 def _evidence_artifact(
     run_id: str,
     evidence_id: str,
@@ -77,6 +51,8 @@ def _evidence_artifact(
         extractor_version="reader-1",
         evidence_class="source",
     )
+
+
 def _strict_anchor(reference: ArtifactRef, digest: str) -> EvidenceAnchor:
     return EvidenceAnchor(
         artifact_ref=reference,
@@ -89,6 +65,8 @@ def _strict_anchor(reference: ArtifactRef, digest: str) -> EvidenceAnchor:
         confidence="high",
         limitations=(),
     )
+
+
 def _readiness_payload(package: ArtifactRef) -> dict[str, object]:
     return {
         "technical_package_ref": package.to_dict(),
@@ -109,11 +87,15 @@ def _readiness_payload(package: ArtifactRef) -> dict[str, object]:
         "repository_anchor_checks": [],
         "source_refs": [],
     }
+
+
 def _ref(fixture, key: str) -> ArtifactRef:
     artifact = fixture[key]
     if isinstance(artifact, ArtifactRef):
         return artifact
     return ArtifactRef(fixture["round_id"], artifact.id, artifact.revision)
+
+
 def _append(fixture, artifact_id: str, kind: str, payload, parent_refs=()):
     ledger = fixture["ledger"]
     return ledger.append_artifact(
@@ -124,13 +106,17 @@ def _append(fixture, artifact_id: str, kind: str, payload, parent_refs=()):
         parent_refs=parent_refs,
         expected_revision=ledger.get_revision(fixture["round_id"]),
     )
+
+
 def _append_finding(fixture, finding_id: str, payload, parent_refs):
     return _append(fixture, finding_id, "finding-pack", payload, parent_refs)
+
+
 def _append_decision(fixture, decision_id: str, payload, parent_refs):
     return _append(fixture, decision_id, "decision-ledger-entry", payload, parent_refs)
-def _forged_finding_decision(
-    fixture, name: str, *, finding_has_evidence: bool, decision_has_evidence: bool
-):
+
+
+def _forged_finding_decision(fixture, name: str, *, finding_has_evidence: bool, decision_has_evidence: bool):
     target_ref, evidence_ref = _ref(fixture, "target"), _ref(fixture, "evidence")
     finding_payload = thaw_json(fixture["finding"].payload)
     finding_payload["id"] = f"finding-{name}"
@@ -141,87 +127,32 @@ def _forged_finding_decision(
         (target_ref, evidence_ref) if finding_has_evidence else (target_ref,),
     )
     decision_payload = thaw_json(fixture["decision"].payload)
-    decision_payload.update(
-        {"id": f"decision-{name}", "anchors": [{"kind": "finding", "ref": finding.id}]}
-    )
+    decision_payload.update({"id": f"decision-{name}", "anchors": [{"kind": "finding", "ref": finding.id}]})
     parents = (target_ref, ArtifactRef(finding.round_id, finding.id, finding.revision))
     return _append_decision(
         fixture, decision_payload["id"], decision_payload, parents + ((evidence_ref,) if decision_has_evidence else ())
     )
+
+
 def _assert_no_outputs(fixture, name: str) -> None:
     assert not any(
         item.id in {f"technical-{name}", f"human-{name}"}
         for item in fixture["ledger"].load_run(fixture["round_id"]).artifacts
     )
+
+
 def _new_batch_ledger(tmp_path: Path, name: str) -> RunLedger:
     ledger = RunLedger(tmp_path / name)
     ledger.initialize()
     ledger.create_run("batch-run")
     return ledger
-def _fixture(tmp_path: Path):
-    source_store, round_record, seed_package = greenfield_package(tmp_path / "source")
-    ledger = RunLedger(tmp_path / "canonical")
-    _migrate_run_store(source_store, round_record, ledger)
-    traceability = seed_package.payload["document"]["traceability"]
-    brief = ledger.get_artifact(ArtifactRef.from_dict(traceability["working_brief"]))
-    model = ledger.get_artifact(ArtifactRef.from_dict(traceability["intent_model"]))
-    target = ledger.get_artifact(ArtifactRef.from_dict(traceability["blueprint_target"]))
-    work = next(
-        item
-        for item in ledger.load_run(round_record.id).artifacts
-        if item.kind == WORK_ITEM_KIND and item.payload.get("blueprint_target_id") == target.id
-    )
-    legacy_decision = ledger.get_artifact(ArtifactRef(round_record.id, "decision-greenfield", 1))
 
-    cas = ContentAddressedStore(tmp_path / "cas")
-    content = cas.ingest(b"strict source line\n", "text/plain")
-    evidence = EvidenceRepository(ledger, cas).record(
-        _evidence_artifact(round_record.id, "strict-source", content.digest, content.byte_size),
-        content,
-        expected_run_revision=ledger.get_revision(round_record.id),
+
+def _fixture(tmp_path: Path):
+    ledger, resolver, round_record, model, brief, target, _work, finding, decision, evidence, _anchor = (
+        canonical_context(tmp_path)
     )
-    resolver = EvidenceResolver.from_ledger(ledger, cas, workspace=tmp_path / "cas")
-    finding = CanonicalFindingPackCompiler(ledger, resolver).compile(
-        round_id=round_record.id,
-        finding_id="finding-strict",
-        work_item=work,
-        observations=[
-            {
-                "claim": "The strict source supports the selected option.",
-                "anchor": _strict_anchor(evidence, content.digest).to_dict(),
-                "applicability": "the selected fixture option",
-                "confidence": "high",
-                "limitation": "fixture evidence only",
-            }
-        ],
-        option_effects=[{"option": "new-worker", "effect": "supports"}],
-        implementation_implications=["Create the isolated component."],
-        remaining_uncertainties=[],
-        expected_revision=ledger.get_revision(round_record.id),
-    )
-    decision_data = thaw_json(legacy_decision.payload)
-    decision = CanonicalDecisionLedgerCompiler(ledger, resolver).converge(
-        round_id=round_record.id,
-        decision_id="decision-strict",
-        blueprint_target=target,
-        decision_slot_id=decision_data["decision_slot_id"],
-        finding_packs=[finding],
-        status=decision_data["status"],
-        selected_option=decision_data["selected_option"],
-        alternatives=decision_data["alternatives"],
-        anchors=[{"kind": "finding", "ref": finding.id}],
-        design_consequence=decision_data["design_consequence"],
-        repository_touchpoints=decision_data["repository_touchpoints"],
-        validation=decision_data["validation"],
-        change_tasks=decision_data["change_tasks"],
-        assumptions=decision_data["assumptions"],
-        fallback=decision_data["fallback"],
-        reversal_condition=decision_data["reversal_condition"],
-        revision_reason="Strict delivery fixture.",
-        expected_revision=ledger.get_revision(round_record.id),
-    )
-    seed_ref = ArtifactRef(round_record.id, seed_package.id, seed_package.revision)
-    readiness = _readiness_payload(seed_ref)["delivery_readiness"]
+    readiness = _readiness_payload(ArtifactRef(round_record.id, "technical-seed", 1))["delivery_readiness"]
     return {
         "ledger": ledger,
         "resolver": resolver,
@@ -235,6 +166,8 @@ def _fixture(tmp_path: Path):
         "evidence": evidence,
         "expected_revision": ledger.get_revision(round_record.id),
     }
+
+
 def _append_p1_target(fixture):
     target_payload = thaw_json(fixture["target"].payload)
     p1_slot = thaw_json(target_payload["slots"][0])
@@ -256,6 +189,8 @@ def _append_p1_target(fixture):
     target_ref = ArtifactRef(fixture["round_id"], target.id, target.revision)
     evidence_ref = _ref(fixture, "evidence")
     return target, target_ref, evidence_ref
+
+
 def _compile(
     fixture,
     name: str,
@@ -275,18 +210,20 @@ def _compile(
         decision_entries=[fixture["decision"]] if decision_entries is None else decision_entries,
         readiness=fixture["readiness"] if readiness is None else readiness,
         expected_revision=(
-            ledger.get_revision(fixture["round_id"])
-            if expected_revision is None
-            else expected_revision
+            ledger.get_revision(fixture["round_id"]) if expected_revision is None else expected_revision
         ),
     )
+
+
 def test_canonical_delivery_preserves_exact_evidence_lineage(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
     result = _compile(fixture, "strict", expected_revision=fixture["expected_revision"])
     evidence_ref = _ref(fixture, "evidence")
     assert evidence_ref in result.technical_package.parent_refs
     assert evidence_ref in result.human_brief.parent_refs
-    assert "evidence:round-delivery/strict-source@1#line" in result.technical_package.payload["markdown"]
+    assert f"evidence:{fixture['round_id']}/strict-source@1#line" in result.technical_package.payload["markdown"]
+
+
 def test_canonical_delivery_rejects_stale_evidence_before_any_output(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
     ledger = fixture["ledger"]
@@ -308,6 +245,8 @@ def test_canonical_delivery_rejects_stale_evidence_before_any_output(tmp_path: P
     with pytest.raises(InvalidDeliveryError, match="stale|evidence"):
         _compile(fixture, "stale", expected_revision=stale_revision)
     _assert_no_outputs(fixture, "stale")
+
+
 def test_canonical_delivery_rejects_foreign_resolver(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
     foreign_ledger = RunLedger(tmp_path / "foreign")
@@ -316,6 +255,8 @@ def test_canonical_delivery_rejects_foreign_resolver(tmp_path: Path) -> None:
     foreign_resolver = EvidenceResolver.from_ledger(foreign_ledger, foreign_cas)
     with pytest.raises(InvalidDeliveryError, match="matching|ledger"):
         CanonicalDeliveryCompiler(fixture["ledger"], foreign_resolver)
+
+
 def test_canonical_delivery_rejects_malformed_readiness_before_any_output(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
     with pytest.raises(InvalidDeliveryError, match="readiness"):
@@ -326,6 +267,8 @@ def test_canonical_delivery_rejects_malformed_readiness_before_any_output(tmp_pa
             expected_revision=fixture["expected_revision"],
         )
     _assert_no_outputs(fixture, "bad-readiness")
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message", "suffix"),
     (
@@ -354,6 +297,8 @@ def test_canonical_delivery_rejects_foreign_target_or_slot_before_any_output(
             expected_revision=fixture["ledger"].get_revision(fixture["round_id"]),
         )
     _assert_no_outputs(fixture, suffix)
+
+
 def test_canonical_delivery_rejects_finding_without_direct_evidence_parent(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
     ledger = fixture["ledger"]
@@ -369,6 +314,8 @@ def test_canonical_delivery_rejects_finding_without_direct_evidence_parent(tmp_p
             expected_revision=ledger.get_revision(fixture["round_id"]),
         )
     _assert_no_outputs(fixture, "missing-parent")
+
+
 def test_canonical_delivery_rejects_decision_without_direct_evidence_parent(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
     ledger = fixture["ledger"]
@@ -383,6 +330,8 @@ def test_canonical_delivery_rejects_decision_without_direct_evidence_parent(tmp_
             decision_entries=[decision],
             expected_revision=ledger.get_revision(fixture["round_id"]),
         )
+
+
 def test_canonical_delivery_rejects_cross_run_finding_with_a_colliding_identity(
     tmp_path: Path,
 ) -> None:
@@ -417,6 +366,8 @@ def test_canonical_delivery_rejects_cross_run_finding_with_a_colliding_identity(
             decision_entries=[forged],
             expected_revision=ledger.get_revision(fixture["round_id"]),
         )
+
+
 def test_canonical_delivery_rejects_finding_from_a_different_p1_slot(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
     ledger = fixture["ledger"]
@@ -460,6 +411,8 @@ def test_canonical_delivery_rejects_finding_from_a_different_p1_slot(tmp_path: P
             decision_entries=[forged],
             expected_revision=ledger.get_revision(fixture["round_id"]),
         )
+
+
 def test_canonical_delivery_rejects_strict_finding_without_observations(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
     ledger = fixture["ledger"]
@@ -468,9 +421,7 @@ def test_canonical_delivery_rejects_strict_finding_without_observations(tmp_path
     finding_payload.update({"id": "finding-empty", "observations": []})
     finding = _append_finding(fixture, "finding-empty", finding_payload, (target_ref, evidence_ref))
     decision_payload = thaw_json(fixture["decision"].payload)
-    decision_payload.update(
-        {"id": "decision-empty", "anchors": [{"kind": "finding", "ref": finding.id}]}
-    )
+    decision_payload.update({"id": "decision-empty", "anchors": [{"kind": "finding", "ref": finding.id}]})
     decision = _append_decision(
         fixture,
         "decision-empty",
@@ -485,6 +436,8 @@ def test_canonical_delivery_rejects_strict_finding_without_observations(tmp_path
             decision_entries=[decision],
             expected_revision=ledger.get_revision(fixture["round_id"]),
         )
+
+
 def test_canonical_delivery_rejects_selected_p1_decision_without_a_finding(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
     ledger = fixture["ledger"]
@@ -516,6 +469,8 @@ def test_canonical_delivery_rejects_selected_p1_decision_without_a_finding(tmp_p
             decision_entries=[decision],
             expected_revision=ledger.get_revision(fixture["round_id"]),
         )
+
+
 def test_canonical_delivery_rejects_selected_p1_decision_without_anchor_or_support(
     tmp_path: Path,
 ) -> None:
@@ -574,6 +529,8 @@ def test_canonical_delivery_rejects_selected_p1_decision_without_anchor_or_suppo
             decision_entries=[no_support],
             expected_revision=ledger.get_revision(fixture["round_id"]),
         )
+
+
 @pytest.mark.parametrize(
     ("artifact_key", "kind", "message"),
     (
@@ -597,6 +554,8 @@ def test_canonical_delivery_rejects_stale_target_or_finding_revision(
             f"stale-{artifact_key}",
             expected_revision=fixture["ledger"].get_revision(fixture["round_id"]),
         )
+
+
 def test_canonical_delivery_rejects_stale_run_revision_without_output_pair(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
     ledger = fixture["ledger"]
@@ -608,10 +567,36 @@ def test_canonical_delivery_rejects_stale_run_revision_without_output_pair(tmp_p
         _compile(fixture, "stale-revision", expected_revision=stale_revision)
     assert ledger.get_revision(fixture["round_id"]) == current_revision
     _assert_no_outputs(fixture, "stale-revision")
+
+
 def test_legacy_delivery_compiler_does_not_accept_canonical_storage(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
     with pytest.raises(InvalidDeliveryError, match="RunStore"):
         DeliveryCompiler(fixture["ledger"])
+
+
+def test_retained_finding_pack_consumers_have_no_legacy_fixture_path() -> None:
+    consumers = (
+        Path(__file__).with_name("test_decision_ledger.py"),
+        Path(__file__).with_name("test_deliveries.py"),
+        Path(__file__),
+    )
+
+    for consumer in consumers:
+        tree = ast.parse(consumer.read_text(encoding="utf-8"))
+        names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+        imports = {
+            alias.asname or alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            for alias in node.names
+        }
+        assert "FindingPackCompiler" not in names | imports
+        assert "RunStore" not in names | imports
+        assert "_migrate_run_store" not in names
+        assert "greenfield_package" not in names | imports
+
+
 def test_ledger_batch_append_rolls_back_both_outputs_on_commit_failure(tmp_path: Path, monkeypatch) -> None:
     ledger = _new_batch_ledger(tmp_path, "batch")
     before_events = ledger.load_run("batch-run").lineage_events
@@ -635,6 +620,8 @@ def test_ledger_batch_append_rolls_back_both_outputs_on_commit_failure(tmp_path:
     assert snapshot.artifacts == ()
     assert snapshot.lineage_events == before_events
     assert ledger.get_revision("batch-run") == 0
+
+
 def test_ledger_batch_append_supports_ordered_parents_and_advances_once_per_artifact(
     tmp_path: Path,
 ) -> None:
@@ -652,6 +639,8 @@ def test_ledger_batch_append_supports_ordered_parents_and_advances_once_per_arti
     assert (first.id, first.revision) == ("first", 1)
     assert second.parent_refs == (ArtifactRef("batch-run", "first", 1),)
     assert ledger.get_revision("batch-run") == 2
+
+
 def test_ledger_batch_append_assigns_distinct_revisions_for_repeated_artifact_id(
     tmp_path: Path,
 ) -> None:
@@ -666,11 +655,11 @@ def test_ledger_batch_append_assigns_distinct_revisions_for_repeated_artifact_id
         expected_revision=0,
     )
 
-    assert ArtifactRef("batch-run", first.id, first.revision) != ArtifactRef(
-        "batch-run", second.id, second.revision
-    )
+    assert ArtifactRef("batch-run", first.id, first.revision) != ArtifactRef("batch-run", second.id, second.revision)
     assert (first.revision, second.revision) == (1, 2)
     assert ledger.get_revision("batch-run") == 2
+
+
 def test_ledger_batch_append_rolls_back_when_second_entry_validation_fails(tmp_path: Path) -> None:
     ledger = _new_batch_ledger(tmp_path, "second-entry-failure")
     before_events = ledger.load_run("batch-run").lineage_events
@@ -688,6 +677,8 @@ def test_ledger_batch_append_rolls_back_when_second_entry_validation_fails(tmp_p
     assert ledger.load_run("batch-run").artifacts == ()
     assert ledger.load_run("batch-run").lineage_events == before_events
     assert ledger.get_revision("batch-run") == 0
+
+
 def test_ledger_batch_append_rejects_forward_parent_and_stale_revision(tmp_path: Path) -> None:
     ledger = _new_batch_ledger(tmp_path, "invalid-batch")
 
