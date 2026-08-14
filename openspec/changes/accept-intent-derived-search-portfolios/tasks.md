@@ -15,7 +15,7 @@
 
 ## 3. Verification and evidence
 
-- [ ] 3.1 Run the exact group-27 aggregate command after the source commit and
+- [x] 3.1 Run the exact group-27 aggregate command after the source commit and
   record its local-only source-bound receipt.
 - [ ] 3.2 Mark group 27 and the #83 parent tasks verified only after strict
   OpenSpec, full regression, package, governance, and delivery-gate checks

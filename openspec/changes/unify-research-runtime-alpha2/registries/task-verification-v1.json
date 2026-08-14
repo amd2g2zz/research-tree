@@ -345,7 +345,23 @@
     },
     {
       "group": 27,
-      "state": "planned"
+      "state": "verified",
+      "evidence_refs": [
+        "local://.research-tree/verification-runs/issue-185/group-74-rebind-receipt.json",
+        "openspec/changes/accept-intent-derived-search-portfolios/evidence/search-portfolio-historical-baseline-v1.json",
+        "local://.research-tree/verification-runs/issue-83/group-27-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_search_portfolio_parent_acceptance.py tests/test_search_portfolio.py tests/test_acquisition.py tests/test_worker_orchestration.py tests/test_research_run_coordinator.py tests/test_search_portfolio_lineage.py tests/test_adaptive_policy.py && uv run ruff check src/research_tree/__init__.py src/research_tree/search_portfolio.py src/research_tree/source_capture.py src/research_tree/coordinator.py tests/test_search_portfolio_parent_acceptance.py tests/test_search_portfolio.py tests/test_acquisition.py tests/test_worker_orchestration.py tests/test_research_run_coordinator.py tests/test_search_portfolio_lineage.py tests/test_adaptive_policy.py && uv run ruff format --check src/research_tree/__init__.py src/research_tree/search_portfolio.py src/research_tree/source_capture.py src/research_tree/coordinator.py tests/test_search_portfolio_parent_acceptance.py tests/test_search_portfolio.py tests/test_acquisition.py tests/test_worker_orchestration.py tests/test_research_run_coordinator.py tests/test_search_portfolio_lineage.py tests/test_adaptive_policy.py && uv run python scripts/check_openspec_governance.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "767724d6b0df69d65230732aa62de617c9fd8e324f11e7c6baf7e513d826555b",
+        "source_revision": "3ff389d2b91d7f8186c4f8a2eb62830585957293",
+        "raw_output_ref": "local://.research-tree/verification-runs/issue-83/group-27-output.txt",
+        "recorded_at": "2026-08-14T09:44:33.396054+00:00",
+        "rollback": "revert the aggregate acceptance registration; do not restore a legacy query path, acquisition projection, compatibility reader, or second persistence writer"
+      },
+      "rollback": "revert the aggregate acceptance registration; do not restore a legacy query path, acquisition projection, compatibility reader, or second persistence writer"
     },
     {
       "group": 28,
