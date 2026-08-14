@@ -473,5 +473,5 @@ substitute for local evidence.
   the exact current canonical lineage before it can be accepted.
 - [x] 77.3 Route authorized pivots through correction quarantine and
   requester-controlled changes to pending human reopen records.
-- [ ] 77.4 Run the exact group-77 acceptance command and record a source-bound
+- [x] 77.4 Run the exact group-77 acceptance command and record a source-bound
   receipt after the source commit.

@@ -802,9 +802,19 @@
     },
     {
       "group": 77,
-      "state": "planned",
-      "evidence_refs": [],
-      "command_receipt": null,
+      "state": "verified",
+      "evidence_refs": [
+        "local://.research-tree/verification-runs/issue-187/group-77-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_search_portfolio.py tests/test_worker_orchestration.py tests/test_research_run_coordinator.py tests/test_search_portfolio_lineage.py && uv run ruff check src/research_tree/coordinator.py tests/test_search_portfolio.py tests/test_worker_orchestration.py tests/test_research_run_coordinator.py tests/test_search_portfolio_lineage.py && uv run ruff format --check src/research_tree/coordinator.py tests/test_search_portfolio.py tests/test_worker_orchestration.py tests/test_research_run_coordinator.py tests/test_search_portfolio_lineage.py && uv run python scripts/check_openspec_governance.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "e1f400d73bf11d274b4e6795d7c95b9307a78e0da547fd15070ce6d5fe79c378",
+        "source_revision": "4639c2095d16004b2191385939ccd8e10dae45c7",
+        "raw_output_ref": ".research-tree/verification-runs/issue-187/group-77-output.txt",
+        "recorded_at": "2026-08-14T08:53:13.902504+00:00"
+      },
       "rollback": "revert canonical portfolio lineage in Git; retain immutable evidence history and do not restore an acquisition fallback or second persistence writer"
     },
     {

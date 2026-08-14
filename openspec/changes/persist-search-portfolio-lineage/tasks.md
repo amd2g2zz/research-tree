@@ -18,7 +18,7 @@
 
 - [x] 3.1 Register planned group 77, issue map, delivery capability, and
   execution tasks after the source contract is established.
-- [ ] 3.2 Run the group-77 acceptance and record a local-only source-bound
+- [x] 3.2 Run the group-77 acceptance and record a local-only source-bound
   receipt after the source commit.
-- [ ] 3.3 Run focused and full regression, strict OpenSpec/governance, package,
+- [x] 3.3 Run focused and full regression, strict OpenSpec/governance, package,
   formatting, and diff checks before handoff.
