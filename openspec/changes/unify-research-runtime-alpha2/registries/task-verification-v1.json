@@ -512,7 +512,20 @@
     },
     {
       "group": 43,
-      "state": "planned"
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/register-canonical-completion-inputs/evidence/issue-156-completion-input-registration.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_completion_input_registration.py tests/test_sqlite_ledger.py tests/test_oracle_slot_closure.py tests/test_readiness.py tests/test_evaluation_suite.py tests/test_insights.py && uv run ruff check src/research_tree/completion_inputs.py src/research_tree/run_ledger.py src/research_tree/closure.py src/research_tree/readiness.py src/research_tree/evaluation.py src/research_tree/insights.py tests/test_completion_input_registration.py tests/test_sqlite_ledger.py && uv run ruff format --check src/research_tree/completion_inputs.py src/research_tree/run_ledger.py tests/test_completion_input_registration.py tests/test_sqlite_ledger.py",
+        "exit_code": 0,
+        "environment_digest": "5f3da9df13291c990765237d1c3b9f82e229eaea3aa480ef4350282dc3d5b1b8",
+        "output_digest": "a47dbf2e704c21f85c8912dce1f904a8e32708e605ae636d16df5b1cf162f0f4",
+        "source_revision": "0fa1c4213382658d7191dc2b6f6dcb5ef6b7d288",
+        "raw_output_ref": "ci://issue-156/completion-input-registration",
+        "recorded_at": "2026-08-14T13:12:50+08:00"
+      },
+      "rollback": "revert the typed registration slice in Git; retain ordinary generic artifacts as non-authoritative lineage"
     },
     {
       "group": 46,

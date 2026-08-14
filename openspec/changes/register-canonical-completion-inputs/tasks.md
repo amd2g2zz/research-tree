@@ -15,5 +15,5 @@
 ## 3. Verification and handoff
 
 - [x] 3.1 Add focused red/green and atomicity regression coverage.
-- [ ] 3.2 Record the source-bound group-43 receipt after final verification.
+- [x] 3.2 Record the source-bound group-43 receipt after final verification.
 - [ ] 3.3 Run the delivery governance checks and open the single Issue #156 PR.
