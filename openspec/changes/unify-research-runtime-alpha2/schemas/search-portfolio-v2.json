@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/search-portfolio-v2.json",
+  "title": "Alpha2 SearchPortfolio v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "portfolio_id",
+    "run_id",
+    "slot_id",
+    "intent_revision",
+    "brief_revision",
+    "subquestions",
+    "selected_methods",
+    "rejected_methods",
+    "reassessment_policy",
+    "status"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 2 },
+    "kind": { "type": "string", "const": "search-portfolio" },
+    "portfolio_id": { "$ref": "#/$defs/identifier" },
+    "run_id": { "$ref": "#/$defs/identifier" },
+    "slot_id": { "$ref": "#/$defs/identifier" },
+    "intent_revision": { "$ref": "#/$defs/identifier" },
+    "brief_revision": { "$ref": "#/$defs/identifier" },
+    "subquestions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/subquestion" }
+    },
+    "selected_methods": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/selectedMethod" }
+    },
+    "rejected_methods": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/rejectedMethod" }
+    },
+    "reassessment_policy": { "$ref": "#/$defs/reassessmentPolicy" },
+    "status": { "type": "string", "enum": ["draft", "active", "superseded", "closed"] }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "subquestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text", "kind", "decision_impact"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "text": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "enum": ["explicit", "implicit", "validation", "implementation", "counterevidence"] },
+        "decision_impact": { "type": "string", "enum": ["p0", "p1", "optional"] }
+      }
+    },
+    "selectedMethod": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method_id", "provider_id", "failure_boundary", "query_refs", "selection_reason"],
+      "properties": {
+        "method_id": { "$ref": "#/$defs/identifier" },
+        "provider_id": { "$ref": "#/$defs/identifier" },
+        "failure_boundary": { "$ref": "#/$defs/identifier" },
+        "query_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        },
+        "selection_reason": { "type": "string", "enum": ["primary-coverage", "independence", "fallback", "direct-source", "validation", "recovery"] }
+      }
+    },
+    "rejectedMethod": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method_id", "provider_id", "rejection_reason"],
+      "properties": {
+        "method_id": { "$ref": "#/$defs/identifier" },
+        "provider_id": { "$ref": "#/$defs/identifier" },
+        "rejection_reason": { "type": "string", "enum": ["not-needed", "unavailable", "duplicate-boundary", "budget-limited", "permission-denied", "outside-scope"] }
+      }
+    },
+    "reassessmentPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["after_batch", "allowed_dispositions"],
+      "properties": {
+        "after_batch": { "type": "boolean", "const": true },
+        "allowed_dispositions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "enum": ["deepen", "broaden", "pivot", "validate", "sufficient_for_slot"] }
+        }
+      }
+    }
+  }
+}

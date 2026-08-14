@@ -14,7 +14,8 @@ evidence.
 | permission-profile-v1.json | Read/write/network/execute capability boundary | security/adapters |
 | decision-slot-v1.json | Decision Slot and closure obligations | coordinator |
 | research-action-v1.json | Policy-selected action proposal and score inputs | policy/coordinator |
-| search-portfolio-v1.json | Intent-derived subquestions, query rewrites, method boundaries, and reassessment policy | acquisition/coordinator |
+| search-portfolio-v2.json | Current strict typed subquestions, selected/rejected method boundaries, stable query references, and reassessment policy | acquisition/coordinator |
+| method-registry-v1.json | Registered method/provider capability, failure boundary, availability, and degradation state | acquisition/policy |
 | attempt-lease-v1.json | Work attempt and lease state | coordinator |
 | work-item-v1.json | Executable research assignment | coordinator |
 | source-capture-v1.json | Immutable raw acquisition capture | acquisition/CAS |
