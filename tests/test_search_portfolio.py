@@ -6,15 +6,22 @@ from pathlib import Path
 import pytest
 
 from research_tree import (
+    ACQUISITION_DISPOSITIONS,
+    BATCH_DECISIONS,
+    BatchCoverageAssessment,
     IntentDerivedSearchPortfolioPlanner,
     InvalidSearchPortfolioError,
+    MethodExecutionOutcome,
     MethodRegistration,
     MethodRegistry,
     MethodSelection,
+    PortfolioBatch,
+    SearchPortfolioExecutor,
     ReassessmentPolicy,
     RejectedMethod,
     SearchPortfolio,
     Subquestion,
+    assess_acquisition_batch,
 )
 
 
@@ -357,3 +364,141 @@ def test_intent_derived_planner_reopens_humans_only_for_material_changes(
     )
 
     assert result.human_decision_reopen is expected_reopen
+
+
+def execution_outcome(
+    *,
+    outcome_id: str = "outcome-1",
+    batch_id: str = "batch-1",
+    method_id: str = "web-search",
+    provider_id: str = "provider-a",
+    disposition: str = "captured",
+    coverage: str = "complete",
+    novelty: str = "new",
+    source_quality: str = "high",
+    source_depth: str = "full-source",
+    contradictions: tuple[str, ...] = (),
+    unresolved_decision_risk: str = "low",
+    capture_refs: tuple[str, ...] = ("capture-1",),
+) -> MethodExecutionOutcome:
+    return MethodExecutionOutcome(
+        outcome_id=outcome_id,
+        portfolio_id="portfolio-1",
+        batch_id=batch_id,
+        method_id=method_id,
+        provider_id=provider_id,
+        failure_boundary=f"{provider_id}-boundary",
+        selection_reason="primary-coverage",
+        disposition=disposition,
+        query_refs=("query-1",),
+        capture_refs=capture_refs,
+        coverage=coverage,
+        novelty=novelty,
+        source_quality=source_quality,
+        source_depth=source_depth,
+        contradictions=contradictions,
+        unresolved_decision_risk=unresolved_decision_risk,
+    )
+
+
+def test_execution_preserves_boundaries_and_chooses_typed_alternate_after_failure() -> None:
+    value = portfolio(
+        selected_methods=(
+            selection("web-search", "provider-a", "query-1"),
+            selection("repository-inspection", "provider-b", "query-2"),
+        ),
+        rejected_methods=(),
+    )
+    methods = registry(
+        registration("web-search", "provider-a"),
+        registration("repository-inspection", "provider-b"),
+    )
+
+    result = SearchPortfolioExecutor(methods).execute(
+        value,
+        (PortfolioBatch("batch-1", "portfolio-1", (execution_outcome(disposition="rate-limit", capture_refs=()),)),),
+    )
+
+    assert "rate-limit" in ACQUISITION_DISPOSITIONS
+    assert result.assessments[0].disposition == "switch"
+    assert result.assessments[0].alternate_method_available is True
+    assert result.alternatives[0].method_id == "repository-inspection"
+    assert result.alternatives[0].selection_reason == "fallback"
+
+
+def test_single_provider_execution_reports_degraded_capability_not_independence() -> None:
+    value = portfolio(rejected_methods=())
+    methods = registry(registration("web-search", "provider-a"))
+
+    result = SearchPortfolioExecutor(methods).execute(
+        value,
+        (PortfolioBatch("batch-1", "portfolio-1", (execution_outcome(),)),),
+    )
+
+    assert result.degraded_capability is True
+    assert result.assessments[0].provenance_independence == "single-boundary"
+    assert result.assessments[0].disposition == "stop"
+    assert result.assessments[0].coverage == "complete"
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        ("http-404", "switch"),
+        ("no-result", "rewrite"),
+        ("parser-failure", "switch"),
+        ("rate-limit", "switch"),
+        ("shallow", "deepen"),
+    ],
+)
+def test_typed_failure_dispositions_drive_distinct_batch_decisions(failure: str, expected: str) -> None:
+    outcome = execution_outcome(
+        disposition=failure,
+        coverage="none" if failure != "shallow" else "partial",
+        source_depth="none" if failure != "shallow" else "snippet",
+        capture_refs=(),
+    )
+
+    assessment = assess_acquisition_batch(
+        assessment_id="assessment-1",
+        portfolio_id="portfolio-1",
+        batch_id="batch-1",
+        outcomes=(outcome,),
+        alternate_method_available=failure != "no-result",
+    )
+
+    assert assessment.disposition == expected
+    assert assessment.disposition in BATCH_DECISIONS
+    assert assessment.evidence_disposition == failure
+
+
+def test_batch_assessment_records_all_decision_metrics_and_pivots_on_contradiction() -> None:
+    assessment = assess_acquisition_batch(
+        assessment_id="assessment-pivot",
+        portfolio_id="portfolio-1",
+        batch_id="batch-1",
+        outcomes=(
+            execution_outcome(
+                contradictions=("initial mechanism is false",),
+                unresolved_decision_risk="high",
+            ),
+            execution_outcome(
+                outcome_id="outcome-2",
+                method_id="repository-inspection",
+                provider_id="provider-b",
+                capture_refs=("capture-2",),
+                source_quality="medium",
+            ),
+        ),
+    )
+
+    assert isinstance(assessment, BatchCoverageAssessment)
+    assert assessment.coverage == "complete"
+    assert assessment.novelty == "new"
+    assert assessment.source_quality == "medium"
+    assert assessment.contradictions == ("initial mechanism is false",)
+    assert assessment.unresolved_decision_risk == "high"
+    assert assessment.disposition == "pivot"
+    assert assessment.requires_deeper_work is True
+    assert assessment.to_dict() == BatchCoverageAssessment.from_dict(assessment.to_dict()).to_dict()
+    assert b"private_prompt" not in assessment.canonical_json_bytes()
