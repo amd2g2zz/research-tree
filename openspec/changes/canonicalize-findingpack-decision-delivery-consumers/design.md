@@ -10,9 +10,7 @@ and `CanonicalFindingPackCompiler`.
 
 - Preserve decision, delivery, and strict-delivery assertions on direct ledger
   fixtures.
-- Retain assurance behavior and readiness's pre-#181 behavior on an isolated
-  legacy test fixture.
-- Write registry/receipt evidence only after #175 is reachable.
+- Retain assurance, export, and readiness's pre-#181 behavior on an isolated legacy test fixture; write registry/receipt evidence only after #175 is reachable.
 
 **Non-Goals:**
 
@@ -31,10 +29,9 @@ binds an `EvidenceResolver`, and compiles the Finding Pack without a migrated
 
 ### Isolated Legacy Boundary
 
-Assurance no longer imports the migrated decision fixture and readiness no
-longer imports the migrated delivery fixture. Both use a private fixture only
-for their retained `RunStore` behavior; #181 removes readiness from it. Generic
-immutable sample data stays in the canonical delivery test, not legacy state.
+Assurance, export, and readiness use a private fixture only for their retained
+`RunStore` behavior; #181 removes readiness from it. Generic immutable sample
+data stays in the canonical delivery test, not legacy state.
 
 ### Regression Proof
 

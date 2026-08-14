@@ -40,17 +40,17 @@ and strict delivery evidence-lineage assertions.
 
 ### Requirement: Legacy coverage SHALL retain its explicit boundary
 
-Assurance SHALL remain `RunStore` coverage until #165 replaces or retires it.
-Readiness MAY use the same private test-only fixture until #181. Named canonical
-consumers SHALL not import it, and it SHALL not become a runtime shim, adapter,
-dual store, or weakened assertion.
+Assurance and export SHALL remain `RunStore` coverage until separately migrated
+or retired. Readiness MAY use the same private test-only fixture
+until #181. Named canonical consumers SHALL not import it, and it SHALL not
+become a runtime shim, adapter, dual store, or weakened assertion.
 
 #### Scenario: Canonical consumer fixtures change
 
 - **WHEN** a named fixture becomes canonical
-- **THEN** assurance and retained readiness SHALL keep their legacy setup
+- **THEN** assurance, export, and retained readiness SHALL keep their legacy setup
 
 #### Scenario: Legacy regression runs after canonical migration
 
 - **WHEN** canonical consumers run
-- **THEN** assurance and retained readiness regressions SHALL still pass
+- **THEN** assurance, export, and retained readiness regressions SHALL still pass

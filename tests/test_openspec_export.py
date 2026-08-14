@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from test_deliveries import compile_deliveries, context, decision_kwargs, readiness
+from legacy_runstore_fixture import compile_deliveries, context
+from test_deliveries import decision_kwargs, readiness
 
 
 def complete_package(tmp_path: Path, *, verify_readiness: bool = True):
