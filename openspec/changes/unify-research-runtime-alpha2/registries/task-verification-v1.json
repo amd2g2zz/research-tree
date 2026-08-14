@@ -478,7 +478,20 @@
     },
     {
       "group": 40,
-      "state": "planned"
+      "state": "verified",
+      "evidence_refs": [
+        ".research-tree/verification-runs/issue-153/group-40-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_feedback_rounds.py tests/test_research_run_coordinator.py tests/test_atomic_ledger_content_binding.py tests/test_native_execution_adapter.py && uv run ruff check src/research_tree/coordinator.py tests/test_feedback_rounds.py tests/test_research_run_coordinator.py && uv run ruff format --check src/research_tree/coordinator.py tests/test_feedback_rounds.py tests/test_research_run_coordinator.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "f9d9821adb74b500d59dc720cca5c964157e5b5f35b233cb5d26885fef0e7f7c",
+        "source_revision": "87208803d82f276eac8826e2a7ed7d03c73d25f4",
+        "raw_output_ref": ".research-tree/verification-runs/issue-153/group-40-output.txt",
+        "recorded_at": "2026-08-14T03:40:59.430982+00:00"
+      },
+      "rollback": "revert transitive quarantine in Git and retain immutable correction history"
     },
     {
       "group": 42,

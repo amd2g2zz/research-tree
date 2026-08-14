@@ -358,6 +358,7 @@ def test_alpha2_registry_has_resolvable_ownership_and_noncyclic_boundaries() -> 
         33,
         35,
         39,
+        40,
         42,
         46,
         47,
@@ -374,7 +375,6 @@ def test_alpha2_registry_has_resolvable_ownership_and_noncyclic_boundaries() -> 
             for group in range(6, 33)
             if group not in {6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 20, 23, 25, 26, 28, 29, 31, 32}
         ),
-        40,
     )
 
 
@@ -410,6 +410,7 @@ def test_cli_emits_deterministic_real_registry_report(capsys: pytest.CaptureFixt
         33,
         35,
         39,
+        40,
         42,
         46,
         47,
@@ -426,7 +427,6 @@ def test_cli_emits_deterministic_real_registry_report(capsys: pytest.CaptureFixt
             for group in range(6, 33)
             if group not in {6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 20, 23, 25, 26, 28, 29, 31, 32}
         ),
-        40,
     ]
 
 
