@@ -422,5 +422,5 @@ substitute for local evidence.
   method/provider-boundary value objects without planning or persistence.
 - [x] 48.2 Reject malformed, unknown, duplicate, unavailable, and
   non-independent method selections; serialize stable query references only.
-- [ ] 48.3 Run the focused group-48 acceptance command and record a
+- [x] 48.3 Run the focused group-48 acceptance command and record a
   source-bound receipt before treating this child as verified.
