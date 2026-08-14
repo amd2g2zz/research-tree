@@ -1,14 +1,24 @@
 ## ADDED Requirements
 
-### Requirement: Verified task groups have source-bound receipts
+### Requirement: Verified task groups have an auditable verification contract
 The system SHALL accept a task group as `verified` only when its record contains
 the task group's exact registered acceptance command, a successful exit code,
-source revision, environment and output digests, retained raw-output evidence,
-recorded timestamp, and rollback instruction.
+source revision, environment and output digests, a recorded timestamp, and
+rollback instruction.
+Records may retain source-bound historical raw output, or may use the stable
+`ci://delivery-governance/delivery-gate` locator when generated stdout and
+receipts have been migrated out of Git.
 
 #### Scenario: substituted command
 - **WHEN** a verified group supplies `true` instead of its registered acceptance command
 - **THEN** governance rejects the verification record
+
+#### Scenario: migrated local output
+- **WHEN** a verified historical group uses
+  `ci://delivery-governance/delivery-gate` for its evidence and raw-output
+  locators
+- **THEN** governance accepts the complete historical receipt without requiring
+  a tracked output file
 
 ### Requirement: Receipt generation preserves raw output
 The receipt helper SHALL execute only a registered task-group command and SHALL
