@@ -446,5 +446,5 @@ substitute for local evidence.
 - [x] 75.3 Assess coverage, novelty, contradictions, source quality,
   provenance independence, and unresolved decision risk after each batch, with
   typed stop/rewrite/switch/deepen/experiment/pivot/blocked decisions.
-- [ ] 75.4 Run the exact group-75 acceptance command and record a source-bound
+- [x] 75.4 Run the exact group-75 acceptance command and record a source-bound
   receipt after the source commit.

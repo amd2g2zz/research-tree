@@ -13,5 +13,5 @@
 
 - [x] 4. Add focused red/green tests for independent boundaries, all typed
   failures, alternatives, degraded capability, pivot, and serialization.
-- [ ] 5. Run the exact group-75 acceptance command and record a source-bound
+- [x] 5. Run the exact group-75 acceptance command and record a source-bound
   receipt after the source commit.
