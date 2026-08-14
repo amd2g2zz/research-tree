@@ -113,6 +113,7 @@ def test_group_35_owns_integrated_receipt_and_preserves_historical_future_gap_ev
         57,
         59,
         60,
+        62,
     )
     assert report.unverified_groups == (
         *(
@@ -122,9 +123,7 @@ def test_group_35_owns_integrated_receipt_and_preserves_historical_future_gap_ev
         ),
     )
 
-    verification = json.loads(
-        (REGISTRY_ROOT / "task-verification-v1.json").read_text(encoding="utf-8")
-    )
+    verification = json.loads((REGISTRY_ROOT / "task-verification-v1.json").read_text(encoding="utf-8"))
     group_35 = next(item for item in verification["groups"] if item["group"] == 35)
     receipt = group_35["command_receipt"]
     assert receipt["command"] == "uv run pytest -q tests/test_integrated_evidence_receipt.py"

@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-08-13
+goal: "Current-only deletion of public scheduler exports, callers, active
+  contracts, documentation, and dedicated tests while retaining the unreachable
+  source file for #179."

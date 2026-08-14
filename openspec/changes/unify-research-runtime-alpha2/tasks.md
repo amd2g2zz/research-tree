@@ -163,7 +163,7 @@ substitute for local evidence.
 - [x] 15.7 Implement immutable SourceCapture and AcquisitionReceipt persistence, URL response digests, derivative provenance groups, license/access records, parser versions, and multimodal selector resolvers.
 - [x] 15.8 Implement bounded AnalysisCheckpoint persistence and enforce capture/checkpoint-before-worker-finished ordering with crash recovery and successor resume.
 - [ ] 15.9 Add acquisition fallback tests for no-result search, blocked URLs, parser errors, unsupported media, rate limits, unavailable tools, and changed source digests.
-- [ ] 15.10 Add scheduler-tick/no-progress traces and prove method switch or authority blocking when a P0 obligation survives the registered no-change threshold.
+- [ ] 15.10 Add coordinator-execution-tick/no-progress traces and prove method switch or authority blocking when a P0 obligation survives the registered no-change threshold.
 - [ ] 15.11 Enforce mandatory deep-dive/adversarial/validation phase coverage per consequential Slot; reject landscape-only delivery, missing OracleRun, and same-worker self-review.
 
 ## 16. Insight Synthesis and Policy Calibration (#58, #59)
@@ -382,3 +382,12 @@ substitute for local evidence.
   or minimal digest reader without reading or mutating user-owned data.
 - [x] 60.3 Run the focused strict-reader acceptance command and record a
   source-bound group-60 receipt before treating this child as verified.
+
+## 62. Public RunStore Scheduler Surface Removal (#178)
+
+- [x] 62.1 Register this current-only deletion slice with only the merged
+  group-54 and group-55 dependencies.
+- [x] 62.2 Remove root scheduler publication, active authority claims, and the
+  dedicated scheduler behavior suite while leaving its source file for #179.
+- [ ] 62.3 Run the exact focused acceptance command and record a source-bound
+  group-62 receipt only after the source commit.

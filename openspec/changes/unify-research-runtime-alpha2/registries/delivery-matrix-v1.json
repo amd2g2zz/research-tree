@@ -11,9 +11,9 @@
     { "capability": "content-addressed-artifacts", "source_modules": ["src/research_tree/content_store.py", "src/research_tree/run_ledger.py"], "public_surface": ["run-artifact"], "task_groups": [33], "github_issue": "#98", "owner": "runtime" },
     { "capability": "evidence-verification", "source_modules": ["src/research_tree/evidence.py", "src/research_tree/ledger.py"], "public_surface": ["run ingest"], "task_groups": [3], "github_issue": "#54", "owner": "evidence" },
     { "capability": "oracle-slot-closure", "source_modules": ["src/research_tree/oracles.py", "src/research_tree/closure.py"], "public_surface": ["run verify"], "task_groups": [4], "github_issue": "#56", "owner": "evidence" },
-    { "capability": "adaptive-research-execution", "source_modules": ["src/research_tree/policy.py", "src/research_tree/scheduler.py"], "public_surface": ["run next"], "task_groups": [6, 16], "github_issue": "#58", "owner": "research" },
+    { "capability": "adaptive-research-execution", "source_modules": ["src/research_tree/policy.py"], "public_surface": ["run next"], "task_groups": [6, 16], "github_issue": "#58", "owner": "research" },
     { "capability": "mutual-alignment", "source_modules": ["src/research_tree/alignment.py", "src/research_tree/handoff.py"], "public_surface": ["run init", "run next"], "task_groups": [7], "github_issue": "#59", "owner": "alignment" },
-    { "capability": "worker-orchestration", "source_modules": ["src/research_tree/scheduler.py", "src/research_tree/leases.py", "src/research_tree/checkpoints.py"], "public_surface": ["run next", "run recover"], "task_groups": [15, 25], "github_issue": "#80", "owner": "research" },
+    { "capability": "worker-orchestration", "source_modules": ["src/research_tree/leases.py", "src/research_tree/checkpoints.py"], "public_surface": ["run next", "run recover"], "task_groups": [15, 25], "github_issue": "#80", "owner": "research" },
     { "capability": "research-acquisition", "source_modules": ["src/research_tree/acquisition.py", "src/research_tree/methods.py", "src/research_tree/search_portfolio.py"], "public_surface": ["run ingest", "run plan-search"], "task_groups": [15, 27], "github_issue": "#83", "owner": "research" },
     { "capability": "insight-synthesis", "source_modules": ["src/research_tree/insights.py"], "public_surface": ["run synthesize", "run explain"], "task_groups": [16], "github_issue": "#58", "owner": "research" },
     { "capability": "host-event-protocol", "source_modules": ["src/research_tree/events.py", "scripts/native_execution_adapter.py", "scripts/hermes_execution_adapter.py"], "public_surface": ["run ingest", "run reconcile-host"], "task_groups": [8], "github_issue": "#60", "owner": "host-adapter" },
@@ -46,7 +46,8 @@
     { "capability": "legacy-runstore-import-removal", "source_modules": ["src/research_tree/run_ledger.py", "src/research_tree/__init__.py"], "public_surface": [], "task_groups": [55], "github_issue": "#167", "owner": "runtime" },
     { "capability": "current-only-skill-setup", "source_modules": ["src/research_tree/skill_setup.py"], "public_surface": ["research-tree-setup install", "research-tree-setup status"], "task_groups": [57], "github_issue": "#169", "owner": "host-adapter" },
     { "capability": "current-strategy-projection-reader", "source_modules": ["src/research_tree/strategy_projection.py"], "public_surface": ["StrategyProjection.create", "StrategyProjection.from_dict"], "task_groups": [59], "github_issue": "#173", "owner": "alignment" },
-    { "capability": "current-insight-payload-reader", "source_modules": ["src/research_tree/insights.py"], "public_surface": ["validate_insight_digest"], "task_groups": [60], "github_issue": "#174", "owner": "research" }
+    { "capability": "current-insight-payload-reader", "source_modules": ["src/research_tree/insights.py"], "public_surface": ["validate_insight_digest"], "task_groups": [60], "github_issue": "#174", "owner": "research" },
+    { "capability": "public-runstore-scheduler-surface-removal", "source_modules": ["src/research_tree/__init__.py"], "public_surface": [], "task_groups": [62], "github_issue": "#178", "owner": "runtime" }
   ],
   "release_rule": "A capability row is not evidence of implementation. The generated requirement rows, tests, and immutable release manifest must all resolve before status becomes verified."
 }

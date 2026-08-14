@@ -575,11 +575,10 @@ of low-value details.
 
 The runtime implements this as a **plan-to-execute drain loop**, not as a large
 single worker prompt. `compile_orchestration_plan` expands active Work Items into
-bounded landscape, deep-dive, adversarial, and validation phase tasks.
-`AdaptivePortfolioScheduler.advance_execution` persists completed, failed, and
-blocked phase results as a new portfolio revision, requires a Finding Pack for
-every claimed completion, and releases only the next dependency-ready batch.
-This state survives host turns and process restarts.
+bounded landscape, deep-dive, adversarial, and validation phase tasks. The
+coordinator records completed, failed, and blocked phase results and releases
+only the next dependency-ready batch. This state survives host turns and
+process restarts.
 
 A first implementation may use this explainable heuristic to prioritize a
 ready work item:
@@ -604,7 +603,7 @@ creates a new Intent Model and Working Brief.
 
 ### 10.2 Work Items, Findings, and Decisions
 
-A **Research Track** is only an execution grouping. The scheduler creates
+A **Research Track** is only an execution grouping. The coordinator creates
 small Work Items that each answer one Decision Slot under an explicit boundary:
 
 - decision question, repository scope, dependencies, and expected design
@@ -659,10 +658,7 @@ Input Registry / Context Inventory / Repository Inspector
       Context Facts + Intent Modeler + Blueprint Target Compiler
                          |
                          v
-Intent Model / Working Brief / Strategy / Decision Map / Round Store
-                         |
-                         v
-              Adaptive Portfolio Scheduler
+Intent Model / Working Brief / Strategy / Decision Map
                          |
        +-----------------+------------------+----------------+
        v                 v                  v                v
@@ -682,11 +678,11 @@ Technical Research Package       Human Research Report
              +--> explicit request --> OpenSpec Exporter
 ```
 
-The `Intent Modeler`, `Blueprint Target Compiler`, `Decision Ledger`, `Adaptive
-Portfolio Scheduler`, and `Readiness Verifier` are first-class components. They must not
-be aliases for the retired intent contract, global workspace state, or
-frontier-ranking helper. A source-provenance or high-assurance review adapter is
-strategy-selected when appropriate; it is not the top-level state machine.
+The `Intent Modeler`, `Blueprint Target Compiler`, `Decision Ledger`, and
+`Readiness Verifier` are first-class components. They must not be aliases for
+the retired intent contract, global workspace state, or frontier-ranking helper.
+A source-provenance or high-assurance review adapter is strategy-selected when
+appropriate; it is not the top-level state machine.
 
 ### 10.5 Readiness Verification and Evaluation
 
@@ -752,8 +748,8 @@ Build the new product in this order:
    deterministic structural and traceability validation.
 4. Add a strategy compiler that converts Decision Slots into bounded research
    tracks and work-item contracts.
-5. Add the adaptive portfolio scheduler, batch dependency graph, Finding Pack
-   ingestion, conflict detection, and event-driven replanning.
+5. Add the batch dependency graph, Finding Pack ingestion, conflict detection,
+   and event-driven replanning.
 6. Add a blueprint compiler that renders the two target artifacts from the
    Decision Ledger, including repository change surfaces and validation work.
 7. Add risk-tiered readiness verification and a small real-world evaluation set
