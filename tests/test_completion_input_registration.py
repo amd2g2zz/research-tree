@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from research_tree.domain import ArtifactRef
 from research_tree.run_ledger import LedgerIntegrityError, RunLedger
 
 
@@ -39,3 +40,34 @@ def test_generic_ledger_batch_cannot_create_canonical_completion_authority(tmp_p
 
     assert ledger.get_revision("run-156") == 0
     assert ledger.load_run("run-156").artifacts == ()
+
+
+def test_dedicated_completion_registration_commits_issuer_and_registration_atomically(tmp_path) -> None:
+    ledger = RunLedger(tmp_path)
+    ledger.create_run("run-156")
+    readiness = ledger.append_artifact(
+        "run-156",
+        "readiness-1",
+        "readiness-record",
+        {"status": "ready"},
+        expected_revision=0,
+    )
+
+    issuer, registration = ledger.append_canonical_completion_registration(
+        "run-156",
+        issuer_id="issuer-1",
+        issuer_payload={"role": "readiness", "issuer": "readiness-verifier"},
+        registration_id="completion-input-1",
+        registration_payload={"role": "readiness"},
+        input_ref=ArtifactRef("run-156", readiness.id, readiness.revision),
+        expected_revision=1,
+    )
+
+    assert issuer.kind == "canonical-completion-input-issuer"
+    assert issuer.parent_refs == (ArtifactRef("run-156", readiness.id, readiness.revision),)
+    assert registration.kind == "canonical-completion-input"
+    assert registration.parent_refs == (
+        ArtifactRef("run-156", readiness.id, readiness.revision),
+        ArtifactRef("run-156", issuer.id, issuer.revision),
+    )
+    assert ledger.get_revision("run-156") == 3

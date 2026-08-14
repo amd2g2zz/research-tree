@@ -621,6 +621,56 @@ class RunLedger:
         *,
         expected_revision: int,
     ) -> tuple[ArtifactRevision, ...]:
+        return self._append_artifact_batch(
+            run_id,
+            entries,
+            expected_revision=expected_revision,
+            allow_completion_authority=False,
+        )
+
+    def append_canonical_completion_registration(
+        self,
+        run_id: str,
+        *,
+        issuer_id: str,
+        issuer_payload: Any,
+        registration_id: str,
+        registration_payload: Any,
+        input_ref: ArtifactRef,
+        expected_revision: int,
+    ) -> tuple[ArtifactRevision, ArtifactRevision]:
+        """Append one issuer-bound completion input through the reserved path."""
+
+        run_id = validate_identifier(run_id, "run_id")
+        issuer_id = validate_identifier(issuer_id, "issuer_id")
+        registration_id = validate_identifier(registration_id, "registration_id")
+        if not isinstance(input_ref, ArtifactRef) or input_ref.round_id != run_id:
+            raise LedgerIntegrityError("completion input must reference the target run")
+        issuer_ref = ArtifactRef(run_id, issuer_id, 1)
+        created = self._append_artifact_batch(
+            run_id,
+            (
+                (issuer_id, "canonical-completion-input-issuer", issuer_payload, (input_ref,)),
+                (
+                    registration_id,
+                    "canonical-completion-input",
+                    registration_payload,
+                    (input_ref, issuer_ref),
+                ),
+            ),
+            expected_revision=expected_revision,
+            allow_completion_authority=True,
+        )
+        return created[0], created[1]
+
+    def _append_artifact_batch(
+        self,
+        run_id: str,
+        entries: Iterable[tuple[str, str, Any, Iterable[ArtifactRef]]],
+        *,
+        expected_revision: int,
+        allow_completion_authority: bool,
+    ) -> tuple[ArtifactRevision, ...]:
         """Append an ordered artifact batch under one run revision.
 
         Parents may reference artifacts already in the ledger or an earlier
@@ -649,7 +699,8 @@ class RunLedger:
                         )
                     artifact_id, kind, payload, raw_parent_refs = entry
                     artifact_id = validate_identifier(artifact_id, f"artifact batch entry {index} id")
-                    _require_non_authoritative_completion_kind(kind)
+                    if not allow_completion_authority:
+                        _require_non_authoritative_completion_kind(kind)
                     if not isinstance(raw_parent_refs, Iterable) or isinstance(raw_parent_refs, (str, bytes)):
                         raise LedgerIntegrityError(f"artifact batch entry {index} parent_refs must be iterable")
                     parent_refs = tuple(raw_parent_refs)
