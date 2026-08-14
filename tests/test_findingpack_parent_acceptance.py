@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import subprocess
 
 
@@ -30,7 +31,32 @@ def test_parent_group_binds_reachable_canonical_findingpack_children() -> None:
     parent = _group(execution, 81)
     assert parent["depends_on"] == [79, 80]
     assert parent["outputs"] == ["canonical-findingpack-parent-acceptance", "group-81-receipt"]
-    assert _group(verification, 81)["state"] in {"planned", "verified"}
+    parent_verification = _group(verification, 81)
+    assert parent_verification["state"] == "verified"
+
+    parent_receipt = parent_verification["command_receipt"]
+    assert isinstance(parent_receipt, dict)
+    assert parent_receipt["command"] == parent["acceptance_command"]
+    assert parent_receipt["exit_code"] == 0
+    assert parent_receipt["raw_output_ref"] == ".research-tree/verification-runs/issue-171/group-81-output.txt"
+
+    parent_revision = parent_receipt["source_revision"]
+    environment_digest = parent_receipt["environment_digest"]
+    output_digest = parent_receipt["output_digest"]
+    assert isinstance(parent_revision, str)
+    assert isinstance(environment_digest, str)
+    assert isinstance(output_digest, str)
+    assert re.fullmatch(r"[0-9a-f]{40}", parent_revision)
+    assert re.fullmatch(r"[0-9a-f]{64}", environment_digest)
+    assert re.fullmatch(r"[0-9a-f]{64}", output_digest)
+    assert (
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", parent_revision, "HEAD"],
+            cwd=ROOT,
+            check=False,
+        ).returncode
+        == 0
+    )
 
     for child in (79, 80):
         child_verification = _group(verification, child)

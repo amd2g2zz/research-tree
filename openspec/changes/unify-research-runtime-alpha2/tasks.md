@@ -509,5 +509,5 @@ substitute for local evidence.
   group-80 source-bound receipts.
 - [x] 81.2 Add focused parent evidence for receipt reachability, child lineage
   checks, and exact ownership metadata.
-- [ ] 81.3 Run the exact group-81 acceptance command and record a source-bound
+- [x] 81.3 Run the exact group-81 acceptance command and record a source-bound
   receipt before closing #171.
