@@ -661,7 +661,24 @@
           "raw_output_ref": "ci://delivery-governance/delivery-gate",
           "recorded_at": "2026-08-14T02:47:16.625161+00:00"
         },
-        "rollback": "revert the removal through Git before release; do not restore a scheduler, bridge, alias, adapter, replacement, migration, fallback, or user-data operation"
-      }
+      "rollback": "revert the removal through Git before release; do not restore a scheduler, bridge, alias, adapter, replacement, migration, fallback, or user-data operation"
+    },
+    {
+      "group": 63,
+      "state": "verified",
+      "evidence_refs": [
+        "openspec/changes/reconstruct-semantic-replay/evidence/issue-154-replay.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_replay.py tests/test_debug_trace.py && uv run ruff check src/research_tree/debug_trace.py tests/test_replay.py tests/test_debug_trace.py && uv run ruff format --check src/research_tree/debug_trace.py tests/test_replay.py tests/test_debug_trace.py && uv run python scripts/check_openspec_governance.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "84e904eb8b21484e6d12ccf1c6b43528f0b8444aff9f984d241a9ec5fdd58aa0",
+        "source_revision": "f2997c6c384b0a48d55e298309678eaf9c8dc9e0",
+        "raw_output_ref": "ci://issue-154/replay-focused",
+        "recorded_at": "2026-08-14T12:39:52+08:00"
+      },
+      "rollback": "revert the semantic replay change; retain immutable events and report only chain_intact until replay is restored"
+    }
   ]
 }
