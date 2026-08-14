@@ -460,6 +460,10 @@
       "rollback": "retain merged strict-slice evidence as historical and keep future groups planned"
     },
     {
+      "group": 36,
+      "state": "planned"
+    },
+    {
       "group": 39,
       "state": "verified",
       "evidence_refs": [

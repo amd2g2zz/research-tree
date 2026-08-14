@@ -354,6 +354,13 @@ substitute for local evidence.
 - [x] 39.2 Run the parent acceptance command and record a source-bound
   group-39 receipt before closing #152.
 
+## 36. Canonical Completion Integrity Parent Acceptance (#149)
+
+- [ ] 36.1 Verify groups 43, 44, and 45 have reachable source-bound receipts
+  from the parent acceptance baseline.
+- [ ] 36.2 Run the parent false-completion and reopen acceptance command, then
+  record a source-bound group-36 receipt before closing #149.
+
 ## 40. Transitive Correction Invalidation (#153)
 
 - [ ] 40.1 Replace the static kind allowlist with conservative transitive
