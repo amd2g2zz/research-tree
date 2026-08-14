@@ -52,6 +52,7 @@ from .delivery import (
     validate_technical_package_payload,
 )
 from .acceptance import AcceptanceError, DeliveryAcceptance, validate_semantic_deliveries
+from .completion_inputs import CompletionInputError, CompletionInputRegistrar, delivery_manifest_digest
 from .evaluation import (
     BLUEPRINT_EVALUATION_KIND,
     BlueprintEvaluationSuite,
@@ -448,6 +449,8 @@ __all__ = [
     "CanonicalDeliveryCompiler",
     "CanonicalFindingPackCompiler",
     "CanonicalReadinessVerifier",
+    "CompletionInputError",
+    "CompletionInputRegistrar",
     "DataIntegrityError",
     "DeliveryArtifacts",
     "DeliveryCompiler",
@@ -678,6 +681,7 @@ __all__ = [
     "validate_human_brief_payload",
     "validate_human_research_report_payload",
     "validate_semantic_deliveries",
+    "delivery_manifest_digest",
     "validate_blueprint_evaluation_payload",
     "evaluate_release",
     "validate_readiness_record_payload",

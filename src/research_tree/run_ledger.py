@@ -16,6 +16,7 @@ from .domain import (
     RoundRecord,
     RoundSnapshot,
     canonical_json_bytes,
+    thaw_json,
     validate_identifier,
 )
 from .content_store import ContentAddressedStore, ContentObject
@@ -639,98 +640,186 @@ class RunLedger:
     ) -> ArtifactRevision:
         """Atomically write one validated completion input and its registration."""
 
+        return self.append_completion_input_batch(
+            run_id,
+            (
+                (
+                    artifact_id,
+                    input_role,
+                    kind,
+                    payload,
+                    parent_refs,
+                    issuer,
+                    issuer_evidence,
+                ),
+            ),
+            expected_revision=expected_revision,
+        )[0]
+
+    def append_completion_input_batch(
+        self,
+        run_id: str,
+        entries: Iterable[tuple[str, str, str, Any, Iterable[ArtifactRef], str, dict[str, Any]]],
+        *,
+        expected_revision: int,
+    ) -> tuple[ArtifactRevision, ...]:
+        """Atomically append typed completion inputs and their registrations.
+
+        A matching complete batch is replay-safe.  A partial or conflicting
+        batch is rejected so a delivery pair can never leave one authoritative
+        surface without the other.
+        """
+
         allowed_kinds = {
             "closure": "slot-closure-assessment",
             "insight": "insight-digest",
             "readiness": "readiness-record",
             "evaluation": "blueprint-evaluation",
+            "technical_delivery": "technical-research-package",
+            "human_delivery": "human-research-report",
+            "acceptance": "delivery-acceptance",
+        }
+        required_issuers = {
+            "technical_delivery": "canonical-delivery-compiler-v1",
+            "human_delivery": "canonical-delivery-compiler-v1",
+            "acceptance": "human-delivery-acceptance-v1",
         }
         self.initialize()
         run_id = validate_identifier(run_id, "run_id")
-        artifact_id = validate_identifier(artifact_id, "artifact_id")
-        if allowed_kinds.get(input_role) != kind:
-            raise LedgerIntegrityError("unsupported completion input role or kind")
-        if not isinstance(issuer, str) or not issuer.strip() or not isinstance(issuer_evidence, dict):
-            raise LedgerIntegrityError("completion input issuer evidence is malformed")
-        parent_refs = tuple(parent_refs)
-        if len(set(parent_refs)) != len(parent_refs):
-            raise LedgerIntegrityError("completion input parents must be distinct")
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 0:
+            raise LedgerIntegrityError("expected_revision must be a non-negative integer")
+        normalized = tuple(entries)
+        if not normalized:
+            raise LedgerIntegrityError("completion input batch must contain at least one entry")
+        prepared: list[tuple[str, str, str, Any, tuple[ArtifactRef, ...], str, dict[str, Any]]] = []
+        seen_roles: set[str] = set()
+        seen_ids: set[str] = set()
+        for index, entry in enumerate(normalized):
+            if not isinstance(entry, Sequence) or isinstance(entry, (str, bytes)) or len(entry) != 7:
+                raise LedgerIntegrityError(
+                    f"completion input batch entry {index} must contain id, role, kind, payload, parents, issuer, and evidence"
+                )
+            artifact_id, input_role, kind, payload, raw_parent_refs, issuer, issuer_evidence = entry
+            artifact_id = validate_identifier(artifact_id, f"completion input batch entry {index} id")
+            if allowed_kinds.get(input_role) != kind:
+                raise LedgerIntegrityError("unsupported completion input role or kind")
+            if input_role in seen_roles or artifact_id in seen_ids:
+                raise LedgerIntegrityError("completion input batch roles and artifact ids must be distinct")
+            seen_roles.add(input_role)
+            seen_ids.add(artifact_id)
+            if not isinstance(issuer, str) or not issuer.strip() or not isinstance(issuer_evidence, dict):
+                raise LedgerIntegrityError("completion input issuer evidence is malformed")
+            if input_role in required_issuers and issuer != required_issuers[input_role]:
+                raise LedgerIntegrityError("completion input issuer is not canonical")
+            if not isinstance(raw_parent_refs, Iterable) or isinstance(raw_parent_refs, (str, bytes)):
+                raise LedgerIntegrityError("completion input parents must be iterable")
+            parent_refs = tuple(raw_parent_refs)
+            if any(not isinstance(reference, ArtifactRef) for reference in parent_refs):
+                raise LedgerIntegrityError("completion input parents must be ArtifactRef values")
+            if len(set(parent_refs)) != len(parent_refs):
+                raise LedgerIntegrityError("completion input parents must be distinct")
+            prepared.append((artifact_id, input_role, kind, payload, parent_refs, issuer, issuer_evidence))
 
         with self._connect() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
-                existing = connection.execute(
-                    "SELECT artifact_json FROM completion_input_registrations registration "
-                    "JOIN artifacts artifact ON artifact.run_id = registration.run_id "
-                    "AND artifact.artifact_id = registration.artifact_id "
-                    "AND artifact.revision = registration.artifact_revision "
-                    "WHERE registration.run_id = ? AND registration.input_role = ? "
-                    "AND registration.artifact_id = ? ORDER BY registration.registered_run_revision DESC LIMIT 1",
-                    (run_id, input_role, artifact_id),
-                ).fetchone()
-                if existing is not None:
-                    prior = ArtifactRevision.from_dict(json.loads(existing[0]))
-                    if (
-                        prior.kind == kind
-                        and prior.parent_refs == parent_refs
-                        and _json(prior.payload) == _json(payload)
+                prior_rows = []
+                for artifact_id, input_role, kind, payload, parent_refs, issuer, issuer_evidence in prepared:
+                    existing = connection.execute(
+                        "SELECT artifact_json, issuer, issuer_evidence_json FROM completion_input_registrations registration "
+                        "JOIN artifacts artifact ON artifact.run_id = registration.run_id "
+                        "AND artifact.artifact_id = registration.artifact_id "
+                        "AND artifact.revision = registration.artifact_revision "
+                        "WHERE registration.run_id = ? AND registration.input_role = ? "
+                        "AND registration.artifact_id = ? ORDER BY registration.registered_run_revision DESC LIMIT 1",
+                        (run_id, input_role, artifact_id),
+                    ).fetchone()
+                    prior_rows.append(existing)
+                if any(row is not None for row in prior_rows):
+                    if not all(row is not None for row in prior_rows):
+                        raise LedgerIntegrityError("completion input batch conflicts with a partial registration")
+                    replayed: list[ArtifactRevision] = []
+                    for row, (_, _, kind, payload, parent_refs, issuer, issuer_evidence) in zip(
+                        prior_rows, prepared, strict=True
                     ):
-                        return prior
-                    raise LedgerIntegrityError("completion input id conflicts with an existing registration")
+                        prior = ArtifactRevision.from_dict(json.loads(row[0]))
+                        if not (
+                            prior.kind == kind
+                            and prior.parent_refs == parent_refs
+                            and _json(thaw_json(prior.payload)) == _json(payload)
+                            and row[1] == issuer
+                            and row[2] == _json(issuer_evidence)
+                        ):
+                            raise LedgerIntegrityError("completion input id conflicts with an existing registration")
+                        replayed.append(prior)
+                    return tuple(replayed)
+
                 current = self._require_expected_revision(connection, run_id, expected_revision)
                 quarantined = self._quarantined_refs(connection, run_id)
-                for reference in parent_refs:
-                    if reference.round_id != run_id:
-                        raise LedgerIntegrityError("completion input lineage belongs to another run")
-                    self._require_artifact(connection, reference)
-                    if not self._is_latest_artifact(connection, reference) or reference in quarantined:
-                        raise LedgerIntegrityError("completion input lineage is stale or quarantined")
-                next_revision = self._next_artifact_revision(connection, run_id, artifact_id)
-                artifact = ArtifactRevision.create(
-                    artifact_id=artifact_id,
-                    round_id=run_id,
-                    revision=next_revision,
-                    kind=kind,
-                    payload=payload,
-                    parent_refs=parent_refs,
-                )
-                connection.execute(
-                    "INSERT INTO artifacts(run_id, artifact_id, revision, artifact_json, content_hash) "
-                    "VALUES(?, ?, ?, ?, ?)",
-                    (run_id, artifact.id, artifact.revision, _json(artifact.to_dict()), artifact.content_hash),
-                )
-                for reference in parent_refs:
+                created: set[ArtifactRef] = set()
+                result: list[ArtifactRevision] = []
+                for artifact_id, input_role, kind, payload, parent_refs, issuer, issuer_evidence in prepared:
+                    for reference in parent_refs:
+                        if reference in created:
+                            continue
+                        if reference.round_id != run_id:
+                            raise LedgerIntegrityError("completion input lineage belongs to another run")
+                        self._require_artifact(connection, reference)
+                        if not self._is_latest_artifact(connection, reference) or reference in quarantined:
+                            raise LedgerIntegrityError("completion input lineage is stale or quarantined")
+                    next_revision = self._next_artifact_revision(connection, run_id, artifact_id)
+                    artifact = ArtifactRevision.create(
+                        artifact_id=artifact_id,
+                        round_id=run_id,
+                        revision=next_revision,
+                        kind=kind,
+                        payload=payload,
+                        parent_refs=parent_refs,
+                    )
                     connection.execute(
-                        "INSERT INTO artifact_parents(run_id, artifact_id, revision, parent_run_id, "
-                        "parent_artifact_id, parent_revision) VALUES(?, ?, ?, ?, ?, ?)",
-                        (
-                            run_id,
-                            artifact.id,
-                            artifact.revision,
-                            reference.round_id,
-                            reference.artifact_id,
-                            reference.revision,
+                        "INSERT INTO artifacts(run_id, artifact_id, revision, artifact_json, content_hash) "
+                        "VALUES(?, ?, ?, ?, ?)",
+                        (run_id, artifact.id, artifact.revision, _json(artifact.to_dict()), artifact.content_hash),
+                    )
+                    for reference in parent_refs:
+                        connection.execute(
+                            "INSERT INTO artifact_parents(run_id, artifact_id, revision, parent_run_id, "
+                            "parent_artifact_id, parent_revision) VALUES(?, ?, ?, ?, ?, ?)",
+                            (
+                                run_id,
+                                artifact.id,
+                                artifact.revision,
+                                reference.round_id,
+                                reference.artifact_id,
+                                reference.revision,
+                            ),
+                        )
+                    connection.execute(
+                        "INSERT INTO completion_input_registrations("
+                        "run_id, input_role, artifact_id, artifact_revision, registered_run_revision, issuer, "
+                        "issuer_evidence_json) VALUES(?, ?, ?, ?, ?, ?, ?)",
+                        (run_id, input_role, artifact.id, artifact.revision, current, issuer, _json(issuer_evidence)),
+                    )
+                    artifact_ref = ArtifactRef(run_id, artifact.id, artifact.revision)
+                    self._insert_event(
+                        connection,
+                        LineageEvent.create(
+                            round_id=run_id,
+                            kind="completion-input-registered",
+                            artifact_ref=artifact_ref,
                         ),
                     )
+                    created.add(artifact_ref)
+                    result.append(artifact)
+                    current += 1
                 connection.execute(
-                    "INSERT INTO completion_input_registrations("
-                    "run_id, input_role, artifact_id, artifact_revision, registered_run_revision, issuer, "
-                    "issuer_evidence_json) VALUES(?, ?, ?, ?, ?, ?, ?)",
-                    (run_id, input_role, artifact.id, artifact.revision, current, issuer, _json(issuer_evidence)),
+                    "UPDATE runs SET revision = ? WHERE run_id = ? AND revision = ?",
+                    (current, run_id, expected_revision),
                 )
-                self._insert_event(
-                    connection,
-                    LineageEvent.create(
-                        round_id=run_id,
-                        kind="completion-input-registered",
-                        artifact_ref=ArtifactRef(run_id, artifact.id, artifact.revision),
-                    ),
-                )
-                self._increment_revision(connection, run_id, current)
                 self._before_commit()
             except sqlite3.IntegrityError as error:
                 raise LedgerIntegrityError("completion input registration violated a ledger constraint") from error
-        return artifact
+        return tuple(result)
 
     def list_completion_inputs(self, run_id: str) -> tuple[ArtifactRevision, ...]:
         """Return the newest registered, current completion input for each role."""
@@ -756,6 +845,9 @@ class RunLedger:
                 "insight-digest",
                 "readiness-record",
                 "blueprint-evaluation",
+                "technical-research-package",
+                "human-research-report",
+                "delivery-acceptance",
             }:
                 continue
             if self.is_latest_artifact(reference):
@@ -764,7 +856,12 @@ class RunLedger:
                     "insight-digest": "insight",
                     "readiness-record": "readiness",
                     "blueprint-evaluation": "evaluation",
-                }[artifact.kind]
+                    "technical-research-package": "technical_delivery",
+                    "human-research-report": "human_delivery",
+                    "delivery-acceptance": "acceptance",
+                }.get(artifact.kind)
+                if role is None:
+                    continue
                 selected.setdefault(role, artifact)
         return tuple(selected[role] for role in sorted(selected))
 

@@ -236,7 +236,6 @@ def _fixture(tmp_path: Path):
         "expected_revision": ledger.get_revision(round_record.id),
     }
 def _append_p1_target(fixture):
-    ledger = fixture["ledger"]
     target_payload = thaw_json(fixture["target"].payload)
     p1_slot = thaw_json(target_payload["slots"][0])
     p1_slot.update(

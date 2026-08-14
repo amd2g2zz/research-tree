@@ -240,24 +240,20 @@ class _DeliveryCompilerBase:
             assert isinstance(self._store, RunLedger)
             assert expected_revision is not None
             try:
-                appended = self._store.append_artifact_batch(
-                    round_id,
-                    (
-                        (
-                            technical_package_id,
-                            TECHNICAL_RESEARCH_PACKAGE_KIND,
-                            technical_payload,
-                            package_refs,
-                        ),
-                        (human_brief_id, HUMAN_RESEARCH_REPORT_KIND, human_payload, human_refs),
-                    ),
+                from .completion_inputs import CompletionInputRegistrar
+
+                technical_package, human_brief = CompletionInputRegistrar(self._store).write_delivery_pair(
+                    round_id=round_id,
+                    technical_package_id=technical_package_id,
+                    human_report_id=human_brief_id,
+                    technical_payload=technical_payload,
+                    human_payload=human_payload,
+                    technical_parent_refs=package_refs,
+                    human_parent_refs=human_refs,
                     expected_revision=expected_revision,
                 )
-            except LedgerError as error:
+            except (LedgerError, ValueError) as error:
                 raise InvalidDeliveryError(str(error)) from error
-            if len(appended) != 2:
-                raise InvalidDeliveryError("canonical delivery batch must append two artifacts")
-            technical_package, human_brief = appended
         else:
             technical_package = self._store.append_artifact(
                 round_id,
