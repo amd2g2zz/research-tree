@@ -122,6 +122,18 @@ def test_group_35_owns_integrated_receipt_and_preserves_historical_future_gap_ev
         ),
     )
 
+    verification = json.loads(
+        (REGISTRY_ROOT / "task-verification-v1.json").read_text(encoding="utf-8")
+    )
+    group_35 = next(item for item in verification["groups"] if item["group"] == 35)
+    receipt = group_35["command_receipt"]
+    assert receipt["command"] == "uv run pytest -q tests/test_integrated_evidence_receipt.py"
+    assert receipt["exit_code"] == 0
+    assert re.fullmatch(r"[0-9a-f]{40}", receipt["source_revision"])
+    assert re.fullmatch(r"[0-9a-f]{64}", receipt["output_digest"])
+    assert receipt["output_digest"] != "0" * 64
+    assert receipt["raw_output_ref"] == CI_LOCATOR
+
     issue_map = json.loads((REGISTRY_ROOT / "issue-execution-map-v1.json").read_text(encoding="utf-8"))
     row = next(item for item in issue_map["issues"] if item["issue"] == 112)
     assert row["primary_group"] == 35
