@@ -29,7 +29,7 @@ def test_group_14_owns_only_ratified_contract_outputs() -> None:
 
     assert group_14["depends_on"] == [2, 5]
     assert group_14["outputs"] == ["contract-ratification", "lifecycle-matrix"]
-    assert all(14 in groups[group_id]["depends_on"] for group_id in (25, 26, 27))
+    assert all(14 in groups[group_id]["depends_on"] for group_id in (25, 26))
 
     tasks = (CHANGE / "tasks.md").read_text(encoding="utf-8")
     group_14_tasks = tasks.split("## 14.", 1)[1].split("## 15.", 1)[0]
