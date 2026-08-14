@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from research_tree.acceptance import DeliveryAcceptance, delivery_pair_digest
+from research_tree.completion_inputs import CompletionInputRegistrar, delivery_manifest_digest
 from research_tree.coordinator import (
     COMPLETION_RECORD_KIND,
     IllegalTransitionError,
@@ -144,6 +146,78 @@ def _advance_to_awaiting_acceptance(ledger: RunLedger, coordinator: ResearchRunC
     )
 
 
+def _register_canonical_completion_inputs(ledger: RunLedger, run_id: str, target) -> tuple:
+    target_ref = ArtifactRef(run_id, target.id, target.revision)
+    ledger.append_completion_input(
+        run_id,
+        "closure-1",
+        "closure",
+        "slot-closure-assessment",
+        {"slot_id": "slot-1", "status": "passed", "closure_token": "closure-token"},
+        parent_refs=(target_ref,),
+        issuer="core-evaluator-v1",
+        issuer_evidence={"token": "closure-token"},
+        expected_revision=ledger.get_revision(run_id),
+    )
+    for artifact_id, role, kind, payload in (
+        ("insight-1", "insight", "insight-digest", {"status": "non_blocking"}),
+        ("readiness-1", "readiness", "readiness-record", {"status": "ready"}),
+        ("evaluation-1", "evaluation", "blueprint-evaluation", {"status": "passed"}),
+    ):
+        ledger.append_completion_input(
+            run_id,
+            artifact_id,
+            role,
+            kind,
+            payload,
+            parent_refs=(),
+            issuer=f"test-{role}-writer",
+            issuer_evidence={"source": role},
+            expected_revision=ledger.get_revision(run_id),
+        )
+    registrar = CompletionInputRegistrar(ledger)
+    technical, human = registrar.write_delivery_pair(
+        round_id=run_id,
+        technical_package_id="technical-1",
+        human_report_id="human-1",
+        technical_payload={"document": {"status": "compiled"}, "markdown": "technical"},
+        human_payload={
+            "technical_package_ref": ArtifactRef(run_id, "technical-1", 1).to_dict(),
+            "document": {"status": "compiled"},
+            "markdown": "human",
+        },
+        technical_parent_refs=(),
+        human_parent_refs=(ArtifactRef(run_id, "technical-1", 1),),
+        expected_revision=ledger.get_revision(run_id),
+    )
+    technical_revision = f"{technical.id}@{technical.revision}"
+    human_revision = f"{human.id}@{human.revision}"
+    acceptance = DeliveryAcceptance.create(
+        "acceptance-1",
+        run_id,
+        technical_revision,
+        human_revision,
+        delivery_pair_digest(run_id, technical_revision, human_revision),
+        delivery_manifest_digest(technical, human),
+        [
+            {
+                "feedback_id": "feedback-1",
+                "classification": "presentation",
+                "statement": "I accept the displayed conclusions and trade-offs.",
+                "target_refs": [technical.id, human.id],
+            }
+        ],
+    )
+    registrar.write_delivery_acceptance(
+        round_id=run_id,
+        technical_package=technical,
+        human_research_report=human,
+        acceptance=acceptance,
+        expected_revision=ledger.get_revision(run_id),
+    )
+    return technical, human
+
+
 def test_initialization_requires_exact_lineage_and_is_idempotent(tmp_path) -> None:
     ledger, coordinator, handoff, target = _setup(tmp_path)
     state = coordinator.initialize(
@@ -242,27 +316,7 @@ def test_completion_exposes_all_missing_obligations_and_ignores_worker_finish(tm
 
 def test_completion_requires_all_canonical_obligations_and_is_terminally_idempotent(tmp_path) -> None:
     ledger, coordinator, _, target, _ = _initialize(tmp_path)
-    _append(
-        ledger,
-        "run-57",
-        "closure-1",
-        "slot-closure-assessment",
-        {"slot_id": "slot-1", "status": "passed", "closure_token": "closure-token"},
-        (ArtifactRef("run-57", target.id, target.revision),),
-    )
-    _append(ledger, "run-57", "insight-1", "insight-digest", {"status": "non_blocking"})
-    _append(ledger, "run-57", "readiness-1", "readiness-record", {"status": "ready"})
-    _append(ledger, "run-57", "evaluation-1", "blueprint-evaluation", {"status": "passed"})
-    technical = _append(ledger, "run-57", "technical-1", "technical-research-package", {"status": "compiled"})
-    human = _append(ledger, "run-57", "human-1", "human-research-report", {"status": "compiled"})
-    _append(
-        ledger,
-        "run-57",
-        "acceptance-1",
-        "delivery-acceptance",
-        {"decision": "accepted"},
-        (ArtifactRef("run-57", technical.id, technical.revision), ArtifactRef("run-57", human.id, human.revision)),
-    )
+    _register_canonical_completion_inputs(ledger, "run-57", target)
     _advance_to_awaiting_acceptance(ledger, coordinator)
 
     completed = coordinator.transition(

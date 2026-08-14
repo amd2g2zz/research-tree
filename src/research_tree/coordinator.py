@@ -196,6 +196,21 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
 
 
+def _delivery_revision_value(artifact: ArtifactRevision, field: str) -> str:
+    payload = artifact.payload
+    manifest = payload.get("manifest") if isinstance(payload, Mapping) else None
+    value = manifest.get(field) if isinstance(manifest, Mapping) else None
+    if isinstance(value, str) and value.strip():
+        return value
+    return f"{artifact.id}@{artifact.revision}"
+
+
+def _delivery_pair_digest(run_id: str, technical_revision: str, human_revision: str) -> str:
+    from .acceptance import delivery_pair_digest
+
+    return delivery_pair_digest(run_id, technical_revision, human_revision)
+
+
 def _same_payload(existing: ArtifactRevision, payload: Mapping[str, Any]) -> bool:
     return canonical_json_bytes(thaw_json(existing.payload)) == canonical_json_bytes(payload)
 
@@ -1669,24 +1684,28 @@ class ResearchRunCoordinator:
         return None
 
     def _completion_inputs(self, run_id: str) -> dict[str, ArtifactRevision]:
+        registrations = self.ledger.list_completion_input_registrations(run_id)
         result: dict[str, ArtifactRevision] = {}
-        for key, kind in (
-            ("insight_ref", "insight-digest"),
-            ("readiness_ref", "readiness-record"),
-            ("evaluation_ref", "blueprint-evaluation"),
-            ("technical_delivery_ref", "technical-research-package"),
-            ("human_delivery_ref", "human-research-report"),
-            ("acceptance_ref", "delivery-acceptance"),
+        for key, role in (
+            ("insight_ref", "insight"),
+            ("readiness_ref", "readiness"),
+            ("evaluation_ref", "evaluation"),
+            ("technical_delivery_ref", "technical_delivery"),
+            ("human_delivery_ref", "human_delivery"),
+            ("acceptance_ref", "acceptance"),
         ):
-            item = self._latest_kind(run_id, kind)
-            if item is not None:
-                result[key] = item
+            items = registrations.get(role, ())
+            if len(items) == 1:
+                result[key] = items[0]
         return result
 
-    def _completion_obligations(self, run_id: str) -> tuple[str, ...]:
-        """Evaluate completion from ledger evidence, never host supplied claims."""
+    def _completion_manifold(self, run_id: str) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+        """Resolve completion only from current typed registrations."""
 
-        missing: list[str] = []
+        registrations = self.ledger.list_completion_input_registrations(run_id)
+        diagnostics: dict[str, dict[str, Any]] = {}
+        manifold: dict[str, Any] = {}
+
         target = self._target(run_id)
         p0_slots = (
             {
@@ -1697,40 +1716,188 @@ class ResearchRunCoordinator:
             if target is not None
             else set()
         )
-        assessments = [
-            item
-            for item in self.ledger.load_run(run_id).artifacts
-            if item.kind == "slot-closure-assessment"
-            and self._artifact_ref(item) not in self._quarantined_refs(run_id)
-            and self.ledger.is_latest_artifact(self._artifact_ref(item))
-            and item.payload.get("status") == "passed"
-            and item.payload.get("closure_token")
-            and (target is None or self._artifact_ref(target) in item.parent_refs)
-        ]
-        closed_slots = {str(item.payload.get("slot_id")) for item in assessments}
-        if not p0_slots or not p0_slots <= closed_slots:
-            missing.append("p0_closure_tokens")
+        closure_items = registrations.get("closure", ())
+        closed_by_slot: dict[str, ArtifactRevision] = {}
+        for item in closure_items:
+            slot_id = str(item.payload.get("slot_id", ""))
+            if (
+                item.payload.get("status") == "passed"
+                and item.payload.get("closure_token")
+                and (target is None or self._artifact_ref(target) in item.parent_refs)
+            ):
+                closed_by_slot.setdefault(slot_id, item)
+        missing_slots = sorted(p0_slots - set(closed_by_slot))
+        duplicate_slots = sorted(
+            slot
+            for slot in closed_by_slot
+            if sum(1 for item in closure_items if str(item.payload.get("slot_id", "")) == slot) > 1
+        )
+        if not p0_slots:
+            diagnostics["p0_closure_tokens"] = {"status": "fail", "reason": "no_p0_slots"}
+        elif missing_slots:
+            diagnostics["p0_closure_tokens"] = {
+                "status": "fail",
+                "reason": "missing_slot",
+                "missing_slots": missing_slots,
+            }
+        elif duplicate_slots:
+            diagnostics["p0_closure_tokens"] = {
+                "status": "fail",
+                "reason": "duplicate_slot",
+                "duplicate_slots": duplicate_slots,
+            }
+        else:
+            closure_refs = [self._artifact_ref(closed_by_slot[slot]).to_dict() for slot in sorted(closed_by_slot)]
+            manifold["closure_refs"] = closure_refs
+            diagnostics["p0_closure_tokens"] = {"status": "pass", "refs": closure_refs}
 
-        inputs = self._completion_inputs(run_id)
-        insight = inputs.get("insight_ref")
-        if insight is None or insight.payload.get("status") != "non_blocking":
-            missing.append("insights_non_blocking")
-        readiness = inputs.get("readiness_ref")
-        if readiness is None or readiness.payload.get("status") not in {"ready", "passed"}:
-            missing.append("readiness_ref")
-        evaluation = inputs.get("evaluation_ref")
-        if evaluation is None or evaluation.payload.get("status") not in {"passed", "pass"}:
-            missing.append("evaluation_ref")
-        technical = inputs.get("technical_delivery_ref")
-        if technical is None:
-            missing.append("technical_delivery_ref")
-        human = inputs.get("human_delivery_ref")
-        if human is None:
-            missing.append("human_delivery_ref")
-        acceptance = inputs.get("acceptance_ref")
-        if not self._acceptance_matches(acceptance, technical, human):
-            missing.append("acceptance_ref")
-        return tuple(dict.fromkeys(missing))
+        singleton_specs = (
+            ("insight_ref", "insight", lambda item: item.payload.get("status") == "non_blocking"),
+            ("readiness_ref", "readiness", lambda item: item.payload.get("status") in {"ready", "passed"}),
+            ("evaluation_ref", "evaluation", lambda item: item.payload.get("status") in {"passed", "pass"}),
+        )
+        for field, role, predicate in singleton_specs:
+            items = registrations.get(role, ())
+            if not items:
+                diagnostics[field] = {"status": "fail", "reason": "not_registered"}
+            elif len(items) != 1:
+                diagnostics[field] = {
+                    "status": "fail",
+                    "reason": "ambiguous_registration",
+                    "refs": [self._artifact_ref(item).to_dict() for item in items],
+                }
+            elif not predicate(items[0]):
+                diagnostics[field] = {
+                    "status": "fail",
+                    "reason": "status_not_satisfied",
+                    "ref": self._artifact_ref(items[0]).to_dict(),
+                }
+            else:
+                reference = self._artifact_ref(items[0]).to_dict()
+                manifold[field] = reference
+                diagnostics[field] = {"status": "pass", "ref": reference}
+
+        technical_items = registrations.get("technical_delivery", ())
+        human_items = registrations.get("human_delivery", ())
+        if len(technical_items) != 1:
+            diagnostics["technical_delivery_ref"] = {
+                "status": "fail",
+                "reason": "not_registered" if not technical_items else "ambiguous_registration",
+                "refs": [self._artifact_ref(item).to_dict() for item in technical_items],
+            }
+        elif len(human_items) != 1:
+            diagnostics["technical_delivery_ref"] = {
+                "status": "fail",
+                "reason": "pair_incomplete",
+                "ref": self._artifact_ref(technical_items[0]).to_dict(),
+            }
+            diagnostics["human_delivery_ref"] = {
+                "status": "fail",
+                "reason": "not_registered" if not human_items else "ambiguous_registration",
+                "refs": [self._artifact_ref(item).to_dict() for item in human_items],
+            }
+        else:
+            technical = technical_items[0]
+            human = human_items[0]
+            technical_ref = self._artifact_ref(technical)
+            human_ref = self._artifact_ref(human)
+            human_package_ref = human.payload.get("technical_package_ref")
+            try:
+                parsed_human_package_ref = ArtifactRef.from_dict(human_package_ref)
+            except (RuntimeStoreError, TypeError, ValueError):
+                parsed_human_package_ref = None
+            pair_matches = parsed_human_package_ref == technical_ref and technical_ref in human.parent_refs
+            if not pair_matches:
+                reason = "pair_lineage_mismatch"
+                diagnostics["technical_delivery_ref"] = {
+                    "status": "fail",
+                    "reason": reason,
+                    "ref": technical_ref.to_dict(),
+                }
+                diagnostics["human_delivery_ref"] = {
+                    "status": "fail",
+                    "reason": reason,
+                    "ref": human_ref.to_dict(),
+                }
+            else:
+                technical_value = _delivery_revision_value(technical, "technical_revision")
+                human_value = _delivery_revision_value(human, "human_revision")
+                manifold["technical_delivery_ref"] = technical_ref.to_dict()
+                manifold["human_delivery_ref"] = human_ref.to_dict()
+                diagnostics["technical_delivery_ref"] = {
+                    "status": "pass",
+                    "ref": technical_ref.to_dict(),
+                    "revision": technical_value,
+                }
+                diagnostics["human_delivery_ref"] = {
+                    "status": "pass",
+                    "ref": human_ref.to_dict(),
+                    "revision": human_value,
+                }
+
+                acceptance_items = registrations.get("acceptance", ())
+                if len(acceptance_items) != 1:
+                    diagnostics["acceptance_ref"] = {
+                        "status": "fail",
+                        "reason": "not_registered" if not acceptance_items else "ambiguous_registration",
+                        "refs": [self._artifact_ref(item).to_dict() for item in acceptance_items],
+                    }
+                else:
+                    acceptance = acceptance_items[0]
+                    acceptance_ref = self._artifact_ref(acceptance)
+                    acceptance_payload = acceptance.payload
+                    exact_pair = (
+                        set(acceptance.parent_refs) == {technical_ref, human_ref} and len(acceptance.parent_refs) == 2
+                    )
+                    try:
+                        from .completion_inputs import delivery_manifest_digest
+
+                        expected_manifest_digest = delivery_manifest_digest(technical, human)
+                    except (RuntimeStoreError, TypeError, ValueError):
+                        expected_manifest_digest = None
+                    digest_matches = (
+                        acceptance_payload.get("technical_revision") == technical_value
+                        and acceptance_payload.get("human_revision") == human_value
+                        and acceptance_payload.get("displayed_digest")
+                        == _delivery_pair_digest(run_id, technical_value, human_value)
+                        and acceptance_payload.get("manifest_digest") == expected_manifest_digest
+                    )
+                    accepted = acceptance_payload.get("decision", acceptance_payload.get("status")) in {
+                        "accepted",
+                        "passed",
+                    }
+                    actor = acceptance_payload.get("actor")
+                    actor_allowed = actor == "human" or (isinstance(actor, str) and actor.startswith("human-"))
+                    if not exact_pair or not digest_matches or not accepted or not actor_allowed:
+                        diagnostics["acceptance_ref"] = {
+                            "status": "fail",
+                            "reason": "pair_digest_mismatch" if exact_pair else "pair_lineage_mismatch",
+                            "ref": acceptance_ref.to_dict(),
+                        }
+                    else:
+                        manifold["acceptance_ref"] = acceptance_ref.to_dict()
+                        diagnostics["acceptance_ref"] = {"status": "pass", "ref": acceptance_ref.to_dict()}
+        diagnostics.setdefault(
+            "technical_delivery_ref",
+            {"status": "fail", "reason": "pair_incomplete"},
+        )
+        diagnostics.setdefault(
+            "human_delivery_ref",
+            {"status": "fail", "reason": "pair_incomplete"},
+        )
+        diagnostics.setdefault(
+            "acceptance_ref",
+            {"status": "fail", "reason": "pair_incomplete"},
+        )
+        return manifold, diagnostics
+
+    def _completion_obligations(self, run_id: str) -> tuple[str, ...]:
+        """Evaluate completion from ledger evidence, never host supplied claims."""
+        _, diagnostics = self._completion_manifold(run_id)
+        legacy_names = {"insight_ref": "insights_non_blocking"}
+        return tuple(
+            legacy_names.get(field, field) for field, detail in diagnostics.items() if detail.get("status") != "pass"
+        )
 
     def _acceptance_matches(
         self, acceptance: ArtifactRevision | None, technical: ArtifactRevision | None, human: ArtifactRevision | None
@@ -1754,6 +1921,7 @@ class ResearchRunCoordinator:
             "run_id": run_id,
             "state": current.payload["state"],
             "unmet_obligations": missing,
+            "field_diagnostics": self._completion_manifold(run_id)[1],
             "next_actions": ["resolve:" + item for item in missing],
             "quarantined_paths": self._quarantine_paths(run_id),
             "state_digest": current.payload["state_digest"],
@@ -1770,6 +1938,8 @@ class ResearchRunCoordinator:
             completion_requirements.get("authority_binding"),
         )
         if current.payload["state"] in {"completed", "superseded"}:
+            if current.payload["state"] == "completed" and self._completion_obligations(run_id):
+                raise CompletionBlockedError(self._completion_obligations(run_id))
             return current
         if current.payload["state"] != "awaiting_acceptance":
             raise IllegalTransitionError("illegal_transition")
@@ -1778,11 +1948,17 @@ class ResearchRunCoordinator:
         missing = self._completion_obligations(run_id)
         if missing:
             raise CompletionBlockedError(missing)
-        inputs = self._completion_inputs(run_id)
-        event_key = (
-            "completion:"
-            + _digest({key: self._artifact_ref(item).to_dict() for key, item in sorted(inputs.items())})[:24]
+        manifold, diagnostics = self._completion_manifold(run_id)
+        missing = tuple(
+            {"insight_ref": "insights_non_blocking"}.get(field, field)
+            for field, detail in diagnostics.items()
+            if detail.get("status") != "pass"
         )
+        if missing:
+            raise CompletionBlockedError(missing)
+        manifold_digest = _digest(manifold)
+        inputs = self._completion_inputs(run_id)
+        event_key = "completion:" + manifold_digest[:24]
         existing = self._find_event_key(run_id, event_key)
         if existing is not None:
             return self._latest_state(run_id)
@@ -1798,6 +1974,8 @@ class ResearchRunCoordinator:
         event_ref = ArtifactRef(run_id, event_id, 1)
         completion_payload = {
             "status": "completed",
+            "manifold": manifold,
+            "manifold_digest": manifold_digest,
             "requirements": {key: self._artifact_ref(item).to_dict() for key, item in inputs.items()},
             "source_state_ref": ArtifactRef(run_id, current.id, current.revision).to_dict(),
         }
@@ -1832,6 +2010,7 @@ class ResearchRunCoordinator:
                         (
                             ArtifactRef(run_id, current.id, current.revision),
                             event_ref,
+                            *(ArtifactRef.from_dict(reference) for reference in manifold["closure_refs"]),
                             *(self._artifact_ref(item) for item in inputs.values()),
                         ),
                     ),

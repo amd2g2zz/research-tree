@@ -12,6 +12,7 @@ from research_tree.domain import ArtifactRef, canonical_json_bytes
 from research_tree.run_ledger import RunLedger
 from strategy_support import confirm_strategy
 from test_feedback_rounds import correction_context
+from test_research_run_coordinator import _register_canonical_completion_inputs
 
 
 def _append(ledger: RunLedger, artifact_id: str, kind: str, payload: dict, parents=()):
@@ -118,25 +119,7 @@ def test_replay_reports_illegal_transition_with_a_self_consistent_state_digest(t
 def test_replay_recomputes_a_valid_completion_record(tmp_path) -> None:
     ledger, coordinator = _setup(tmp_path)
     target = next(item for item in ledger.load_run("run-63").artifacts if item.kind == "blueprint-target")
-    _append(
-        ledger,
-        "closure-1",
-        "slot-closure-assessment",
-        {"slot_id": "slot-1", "status": "passed", "closure_token": "closure-token"},
-        (ArtifactRef("run-63", target.id, target.revision),),
-    )
-    _append(ledger, "insight-1", "insight-digest", {"status": "non_blocking"})
-    _append(ledger, "readiness-1", "readiness-record", {"status": "ready"})
-    _append(ledger, "evaluation-1", "blueprint-evaluation", {"status": "passed"})
-    technical = _append(ledger, "technical-1", "technical-research-package", {"status": "compiled"})
-    human = _append(ledger, "human-1", "human-research-report", {"status": "compiled"})
-    _append(
-        ledger,
-        "acceptance-1",
-        "delivery-acceptance",
-        {"decision": "accepted"},
-        (ArtifactRef("run-63", technical.id, technical.revision), ArtifactRef("run-63", human.id, human.revision)),
-    )
+    _register_canonical_completion_inputs(ledger, "run-63", target)
     coordinator.transition("run-63", "batch_checkpoint", "coordinator", expected_revision=ledger.get_revision("run-63"))
     coordinator.transition("run-63", "all_slots_closed", "coordinator", expected_revision=ledger.get_revision("run-63"))
     coordinator.transition("run-63", "readiness_passed", "coordinator", expected_revision=ledger.get_revision("run-63"))

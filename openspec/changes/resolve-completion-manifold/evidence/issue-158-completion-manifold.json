@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "issue": 158,
+  "group": 45,
+  "status": "verified",
+  "source_revision": "87f607160942fcd4e2997a01a80bae2f81d46061",
+  "checks": [
+    {
+      "name": "completion-manifold-focused-suite",
+      "command": "uv run pytest -q tests/test_completion_manifold.py tests/test_completion_input_registration.py tests/test_completion_delivery_registration.py tests/test_research_run_coordinator.py tests/test_replay.py tests/test_debug_trace.py tests/test_feedback_rounds.py && uv run ruff check src/research_tree/coordinator.py src/research_tree/run_ledger.py tests/test_completion_manifold.py tests/test_research_run_coordinator.py tests/test_replay.py && uv run ruff format --check src/research_tree/coordinator.py src/research_tree/run_ledger.py tests/test_completion_manifold.py tests/test_research_run_coordinator.py tests/test_replay.py",
+      "exit_code": 0,
+      "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+      "output_digest": "930ee8ae9b460cf6a28c506f66740a1e8bc84790f278947c7d5553bd5f03026d",
+      "raw_output_ref": "ci://issue-158/group-45-focused",
+      "recorded_at": "2026-08-14T14:00:00+08:00"
+    }
+  ],
+  "rollback": "revert the completion-manifold slice; retain immutable completion history and block unregistered current inputs"
+}

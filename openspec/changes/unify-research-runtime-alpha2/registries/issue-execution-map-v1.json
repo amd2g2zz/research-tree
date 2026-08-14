@@ -44,6 +44,7 @@
     { "issue": 155, "primary_group": 42, "supporting_groups": [], "capabilities": ["isolated-hermes-executable-bundle"], "openspec_change": "make-isolated-hermes-bundle-executable" },
     { "issue": 156, "primary_group": 43, "supporting_groups": [], "capabilities": ["canonical-completion-input-registration"], "openspec_change": "register-canonical-completion-inputs" },
     { "issue": 157, "primary_group": 44, "supporting_groups": [], "capabilities": ["typed-dual-delivery-registration", "ledger-backed-delivery-acceptance"], "openspec_change": "register-canonical-delivery-acceptance" },
+    { "issue": 158, "primary_group": 45, "supporting_groups": [], "capabilities": ["registered-completion-manifold", "field-level-completion-diagnostics"], "openspec_change": "resolve-completion-manifold" },
     { "issue": 152, "primary_group": 39, "supporting_groups": [46, 47], "capabilities": ["evidence-graph-closure-quality-acceptance"], "openspec_change": "accept-evidence-graph-closure-quality" },
     { "issue": 153, "primary_group": 40, "supporting_groups": [39], "capabilities": ["transitive-correction-invalidation"], "openspec_change": "compute-transitive-correction-invalidation" },
     { "issue": 154, "primary_group": 63, "supporting_groups": [5, 8, 11, 61, 62], "capabilities": ["semantic-replay-reconstruction", "runtime-observability"], "openspec_change": "reconstruct-semantic-replay" },
