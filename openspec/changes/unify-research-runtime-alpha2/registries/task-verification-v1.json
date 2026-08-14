@@ -900,6 +900,23 @@
         "recorded_at": "2026-08-14T18:04:24.021080+00:00"
       },
       "rollback": "revert the canonical readiness test-fixture migration in Git; do not restore a RunStore bridge, runtime adapter, dual store, compatibility migration, or weakened canonical test"
+    },
+    {
+      "group": 81,
+      "state": "verified",
+      "evidence_refs": [
+        "local://.research-tree/verification-runs/issue-171/group-81-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_findingpack_parent_acceptance.py tests/test_strict_delivery_lineage.py tests/test_readiness_findingpack_lineage.py tests/test_openspec_execution_governance.py tests/test_integrated_evidence_receipt.py && uv run ruff check tests/test_findingpack_parent_acceptance.py tests/test_strict_delivery_lineage.py tests/test_readiness_findingpack_lineage.py tests/test_openspec_execution_governance.py tests/test_integrated_evidence_receipt.py && uv run ruff format --check tests/test_findingpack_parent_acceptance.py tests/test_strict_delivery_lineage.py tests/test_readiness_findingpack_lineage.py tests/test_openspec_execution_governance.py tests/test_integrated_evidence_receipt.py && openspec validate accept-canonical-findingpack-parent-acceptance --strict && uv run python scripts/check_openspec_governance.py && uv run python scripts/check_docs.py && uv run python scripts/build_skill_packages.py --check",
+        "exit_code": 0,
+        "environment_digest": "d7376b615db9b16aa41392640c306aa22d65d89dc56f24df6f3e602ad2b0e560",
+        "output_digest": "250b6e9d3e836a0aa48b60e2f5ee32eb26e8d488c1ca98711adacb93e1fae4d6",
+        "source_revision": "22ae922a7ad3004d71fbd6c357641cb1074dbd7f",
+        "raw_output_ref": ".research-tree/verification-runs/issue-171/group-81-output.txt",
+        "recorded_at": "2026-08-14T18:31:13.547223+00:00"
+      },
+      "rollback": "revert the parent acceptance metadata in Git; retain immutable child evidence and do not delete the retired compiler or restore a runtime adapter, bridge, fallback parser, alias, dual store, or exported compatibility helper"
     }
   ]
 }

@@ -502,3 +502,12 @@ substitute for local evidence.
   legacy fixture without a runtime bridge.
 - [x] 80.3 Run the exact group-80 acceptance command and record a source-bound
   receipt before closing #181.
+
+## 81. Canonical Finding Pack Parent Acceptance (#171)
+
+- [x] 81.1 Bind the parent-only acceptance boundary to the merged group-79 and
+  group-80 source-bound receipts.
+- [x] 81.2 Add focused parent evidence for receipt reachability, child lineage
+  checks, and exact ownership metadata.
+- [x] 81.3 Run the exact group-81 acceptance command and record a source-bound
+  receipt before closing #171.
