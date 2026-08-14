@@ -354,6 +354,13 @@ substitute for local evidence.
 - [x] 39.2 Run the parent acceptance command and record a source-bound
   group-39 receipt before closing #152.
 
+## 40. Transitive Correction Invalidation (#153)
+
+- [ ] 40.1 Replace the static kind allowlist with conservative transitive
+  descendant traversal and preserve independent branches.
+- [ ] 40.2 Reject stale descendants at dispatch, ingestion, recovery, and
+  completion boundaries; record a source-bound group-40 receipt.
+
 ## 54. Legacy CLI Surface Removal (#164)
 
 - [x] 54.1 Remove every published legacy round, tree, and profile command

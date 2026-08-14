@@ -571,6 +571,72 @@ def test_material_correction_atomically_preserves_and_supersedes_exact_state(tmp
         coordinator.apply_correction(changed, expected_revision=0)
 
 
+def test_correction_quarantines_descendant_behind_unknown_intermediate_kind(tmp_path: Path) -> None:
+    from research_tree import ResearchRunCoordinator
+    from research_tree.domain import ArtifactRef
+
+    ledger, coordinator, predecessor, _, event = correction_context(tmp_path)
+    intermediate = ledger.append_artifact(
+        event.run_id,
+        "unclassified-intermediate",
+        "future-canonical-artifact",
+        {"status": "current"},
+        parent_refs=(ArtifactRef(predecessor.round_id, predecessor.id, predecessor.revision),),
+        expected_revision=ledger.get_revision(event.run_id),
+    )
+    descendant = ledger.append_artifact(
+        event.run_id,
+        "descendant-behind-unknown",
+        "attempt-lease",
+        {"attempt_id": "descendant-behind-unknown", "status": "active"},
+        parent_refs=(ArtifactRef(intermediate.round_id, intermediate.id, intermediate.revision),),
+        expected_revision=ledger.get_revision(event.run_id),
+    )
+    independent_root = ledger.append_artifact(
+        event.run_id,
+        "independent-root",
+        "future-canonical-artifact",
+        {"status": "current"},
+        expected_revision=ledger.get_revision(event.run_id),
+    )
+    independent_descendant = ledger.append_artifact(
+        event.run_id,
+        "independent-descendant",
+        "attempt-lease",
+        {"attempt_id": "independent-descendant", "status": "active"},
+        parent_refs=(ArtifactRef(independent_root.round_id, independent_root.id, independent_root.revision),),
+        expected_revision=ledger.get_revision(event.run_id),
+    )
+
+    coordinator.apply_correction(event, expected_revision=ledger.get_revision(event.run_id))
+
+    quarantined = coordinator._quarantined_refs(event.run_id)
+    assert ArtifactRef(descendant.round_id, descendant.id, descendant.revision) in quarantined
+    assert (
+        ArtifactRef(independent_descendant.round_id, independent_descendant.id, independent_descendant.revision)
+        not in quarantined
+    )
+    restarted = ResearchRunCoordinator(ledger)
+    paths = restarted.why_not_complete(event.run_id)["quarantined_paths"]
+    descendant_path = next(
+        item
+        for item in paths
+        if item["artifact_ref"] == ArtifactRef(descendant.round_id, descendant.id, descendant.revision).to_dict()
+    )
+    assert descendant_path == {
+        "correction_event_id": event.event_id,
+        "artifact_ref": ArtifactRef(descendant.round_id, descendant.id, descendant.revision).to_dict(),
+        "path": [
+            ArtifactRef(predecessor.round_id, predecessor.id, predecessor.revision).to_dict(),
+            ArtifactRef(intermediate.round_id, intermediate.id, intermediate.revision).to_dict(),
+            ArtifactRef(descendant.round_id, descendant.id, descendant.revision).to_dict(),
+        ],
+    }
+    recovery = restarted.recover(event.run_id)
+    assert recovery["reconciled_attempts"] == ["independent-descendant"]
+    assert recovery["quarantined_attempts"] == ["descendant-behind-unknown"]
+
+
 def test_invalid_correction_binding_and_fault_leave_no_partial_prefix(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
