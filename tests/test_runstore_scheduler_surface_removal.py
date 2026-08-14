@@ -20,14 +20,12 @@ def test_runstore_scheduler_symbols_are_not_published_from_root_package() -> Non
     assert all(symbol not in research_tree.__all__ for symbol in retired_symbols)
 
 
-def test_scheduler_source_remains_private_without_runtime_callers() -> None:
+def test_scheduler_source_is_absent_without_runtime_imports() -> None:
     root = Path(__file__).resolve().parents[1]
     runtime_sources = (root / "src" / "research_tree").glob("*.py")
 
-    assert (root / "src" / "research_tree" / "scheduler.py").is_file()
+    assert not (root / "src" / "research_tree" / "scheduler.py").exists()
     for source in runtime_sources:
-        if source.name == "scheduler.py":
-            continue
         imports = [
             node
             for node in ast.walk(ast.parse(source.read_text(encoding="utf-8")))
@@ -98,3 +96,58 @@ def test_active_authority_does_not_advertise_the_retired_scheduler() -> None:
     assert issue["primary_group"] == 62
     assert issue["capabilities"] == ["public-runstore-scheduler-surface-removal"]
     assert not (root / "tests" / "test_scheduler.py").exists()
+    assert not (root / "docs" / "specs" / "RT-010.md").exists()
+
+
+def test_generated_packages_do_not_advertise_the_retired_scheduler() -> None:
+    root = Path(__file__).resolve().parents[1]
+    package_text = "\n".join(
+        path.read_text(encoding="utf-8", errors="ignore") for path in (root / "packages").rglob("*") if path.is_file()
+    )
+
+    retired_claims = (
+        "AdaptivePortfolioScheduler",
+        "InvalidPortfolioError",
+        "PortfolioError",
+        "WORK_PORTFOLIO_KIND",
+        "validate_portfolio_payload",
+        "research_tree.scheduler",
+        "scheduler.py",
+        "work-portfolio",
+    )
+
+    assert all(claim not in package_text for claim in retired_claims)
+
+
+def test_scheduler_source_purge_has_its_own_verified_group() -> None:
+    root = Path(__file__).resolve().parents[1]
+    registry_root = root / "openspec" / "changes" / "unify-research-runtime-alpha2" / "registries"
+    execution = json.loads((registry_root / "task-execution-v1.json").read_text(encoding="utf-8"))
+    verification = json.loads((registry_root / "task-verification-v1.json").read_text(encoding="utf-8"))
+    issue_map = json.loads((registry_root / "issue-execution-map-v1.json").read_text(encoding="utf-8"))
+    matrix = json.loads((registry_root / "delivery-matrix-v1.json").read_text(encoding="utf-8"))
+
+    group = next(item for item in execution["groups"] if item["group"] == 76)
+    verification_record = next(item for item in verification["groups"] if item["group"] == 76)
+    issue = next(item for item in issue_map["issues"] if item["issue"] == 179)
+    capability = next(
+        item
+        for item in matrix["capability_rows"]
+        if item["capability"] == "unreachable-runstore-scheduler-source-removal"
+    )
+
+    assert group["depends_on"] == [62]
+    assert group["outputs"] == ["unreachable-runstore-scheduler-source-removal", "group-76-receipt"]
+    assert verification_record["state"] == "verified"
+    assert verification_record["command_receipt"]["source_revision"] == "4f6711284cb5fab3cd05e7aed6542fcec804a19b"
+    assert verification_record["command_receipt"]["raw_output_ref"] == (
+        ".research-tree/verification-runs/issue-179/group-76-output.txt"
+    )
+    assert issue == {
+        "issue": 179,
+        "primary_group": 76,
+        "supporting_groups": [62],
+        "capabilities": ["unreachable-runstore-scheduler-source-removal"],
+        "openspec_change": "purge-unreachable-runstore-scheduler-source",
+    }
+    assert capability["task_groups"] == [76]
