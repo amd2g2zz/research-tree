@@ -1,4 +1,0 @@
-focused: 55 passed in 3.91s
-ruff check: All checks passed!
-ruff format --check: 3 files already formatted
-native: codex unavailable surface:app-server-stdio; claude failed TimeoutExpired; hermes unavailable executable:hermes
