@@ -512,7 +512,21 @@
     },
     {
       "group": 43,
-      "state": "planned"
+      "state": "verified",
+      "evidence_refs": [
+        ".research-tree/verification-runs/issue-156/group-43-output.txt",
+        ".research-tree/verification-runs/issue-156/group-43-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_completion_input_registration.py tests/test_research_run_coordinator.py tests/test_oracle_slot_closure.py tests/test_readiness.py tests/test_evaluation_suite.py tests/test_strict_evidence_decision_boundary.py && uv run ruff check src/research_tree/__init__.py src/research_tree/closure.py src/research_tree/completion_inputs.py src/research_tree/evaluation.py src/research_tree/insights.py src/research_tree/readiness.py src/research_tree/run_ledger.py tests/test_completion_input_registration.py tests/test_research_run_coordinator.py tests/test_strict_evidence_decision_boundary.py && uv run ruff format --check src/research_tree/completion_inputs.py tests/test_completion_input_registration.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "c07cb67a471cb12be19289b808c80d6fac9e281aa810be999cc7846c3535007b",
+        "source_revision": "a5fe024bdd1c7cd7fea68c2e85ed32fcd8b26880",
+        "raw_output_ref": ".research-tree/verification-runs/issue-156/group-43-output.txt",
+        "recorded_at": "2026-08-14T05:20:53.428513+00:00"
+      },
+      "rollback": "revert typed canonical completion-input registration in Git; do not restore generic completion authority"
     },
     {
       "group": 46,

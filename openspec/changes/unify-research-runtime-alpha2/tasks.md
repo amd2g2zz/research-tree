@@ -330,11 +330,11 @@ substitute for local evidence.
 
 ## 43. Typed Canonical Completion Inputs (#156)
 
-- [ ] 43.1 Add issuer-bound, typed, transactional registration for current
+- [x] 43.1 Add issuer-bound, typed, transactional registration for current
   closure, insight, readiness, and evaluation completion inputs.
-- [ ] 43.2 Reject generic, stale, foreign, quarantined, malformed, mixed-lineage,
+- [x] 43.2 Reject generic, stale, foreign, quarantined, malformed, mixed-lineage,
   and replacement-issuer artifacts without a partial registration.
-- [ ] 43.3 Run the exact focused acceptance command and record a source-bound
+- [x] 43.3 Run the exact focused acceptance command and record a source-bound
   group-43 receipt before treating this child as verified.
 
 ## 46. Closure Evidence Content Binding (#160)

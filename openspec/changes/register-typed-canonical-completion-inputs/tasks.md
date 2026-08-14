@@ -27,5 +27,5 @@
 
 - [x] 4.1 Run the focused TDD command, Ruff, strict issue and umbrella OpenSpec
   validation, governance, package check, full regression, and diff check.
-- [ ] 4.2 Record the source-bound group-43 receipt and mark only this child
+- [x] 4.2 Record the source-bound group-43 receipt and mark only this child
   verified after its implementation commit.
