@@ -1,9 +1,0 @@
-{
-  "command": "uv run pytest -q tests/test_debug_trace.py tests/test_replay.py tests/test_research_run_coordinator.py && uv run ruff check src/research_tree/debug_trace.py tests/test_debug_trace.py tests/test_replay.py && uv run ruff format --check src/research_tree/debug_trace.py tests/test_debug_trace.py tests/test_replay.py",
-  "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
-  "exit_code": 0,
-  "output_digest": "e2078f71a99ade09d6b5291a6d221e93313514f64e0564746990d734d13790e1",
-  "raw_output_ref": "openspec/changes/add-causal-observability/evidence/group-11-output.txt",
-  "recorded_at": "2026-08-11T15:21:42.097987+00:00",
-  "source_revision": "73b8ae77bd710e1238e33461608a7e32d3b729dd"
-}

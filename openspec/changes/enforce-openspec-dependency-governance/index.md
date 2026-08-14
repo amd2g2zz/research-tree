@@ -4,7 +4,6 @@
 - [Design](design.md)
 - [Normative specification](specs/openspec-execution-governance/spec.md)
 - [Implementation tasks](tasks.md)
-- [Verification evidence](evidence/verification-2026-08-06.md)
 
 The implementation validates the Alpha2 source registries under
 `openspec/changes/unify-research-runtime-alpha2/registries/`. Those registries
