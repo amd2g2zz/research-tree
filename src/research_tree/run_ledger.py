@@ -33,6 +33,9 @@ class LedgerIntegrityError(LedgerError, DataIntegrityError):
     """Raised when a persisted row or lineage reference is invalid."""
 
 
+CANONICAL_COMPLETION_AUTHORITY_KINDS = frozenset({"canonical-completion-input", "canonical-completion-input-issuer"})
+
+
 class RunLedger:
     """Own canonical run lineage in a workspace-scoped SQLite database."""
 
@@ -562,6 +565,7 @@ class RunLedger:
     ) -> ArtifactRevision:
         self.initialize()
         run_id = validate_identifier(run_id, "run_id")
+        _require_non_authoritative_completion_kind(kind)
         parent_refs = tuple(parent_refs)
         with self._connect() as connection:
             try:
@@ -645,6 +649,7 @@ class RunLedger:
                         )
                     artifact_id, kind, payload, raw_parent_refs = entry
                     artifact_id = validate_identifier(artifact_id, f"artifact batch entry {index} id")
+                    _require_non_authoritative_completion_kind(kind)
                     if not isinstance(raw_parent_refs, Iterable) or isinstance(raw_parent_refs, (str, bytes)):
                         raise LedgerIntegrityError(f"artifact batch entry {index} parent_refs must be iterable")
                     parent_refs = tuple(raw_parent_refs)
@@ -951,6 +956,11 @@ class RunLedger:
     def _require_artifact(cls, connection: sqlite3.Connection, reference: ArtifactRef) -> None:
         if not isinstance(reference, ArtifactRef) or not cls._artifact_exists(connection, reference):
             raise LedgerIntegrityError(f"artifact parent does not exist: {reference}")
+
+
+def _require_non_authoritative_completion_kind(kind: Any) -> None:
+    if kind in CANONICAL_COMPLETION_AUTHORITY_KINDS:
+        raise LedgerIntegrityError(f"reserved canonical completion kind: {kind}")
 
 
 def _json(value: Any) -> str:
