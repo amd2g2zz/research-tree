@@ -92,7 +92,9 @@ def test_active_authority_does_not_advertise_the_retired_scheduler() -> None:
 
     assert group["depends_on"] == [54, 55]
     assert group["outputs"] == ["public-runstore-scheduler-surface-removal"]
-    assert verification["state"] == "planned"
+    assert verification["state"] == "verified"
+    assert verification["command_receipt"]["source_revision"] == "c647ef52901cbf30d04fecc6080c78854dc822fd"
+    assert verification["command_receipt"]["raw_output_ref"] == "ci://delivery-governance/delivery-gate"
     assert issue["primary_group"] == 62
     assert issue["capabilities"] == ["public-runstore-scheduler-surface-removal"]
     assert not (root / "tests" / "test_scheduler.py").exists()
