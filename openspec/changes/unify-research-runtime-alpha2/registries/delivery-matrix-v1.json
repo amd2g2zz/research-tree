@@ -58,7 +58,8 @@
     { "capability": "intent-derived-search-portfolio-planning", "source_modules": ["src/research_tree/search_portfolio.py"], "public_surface": ["IntentDerivedSearchPortfolioPlanner", "derive_search_portfolio"], "task_groups": [74], "github_issue": "#185", "owner": "research" },
     { "capability": "multi-method-portfolio-execution", "source_modules": ["src/research_tree/search_portfolio.py", "tests/test_search_portfolio.py", "tests/test_acquisition.py"], "public_surface": ["SearchPortfolioExecutor", "MethodExecutionOutcome", "BatchCoverageAssessment", "assess_acquisition_batch"], "task_groups": [75], "github_issue": "#186", "owner": "research" },
     { "capability": "registered-completion-manifold", "source_modules": ["src/research_tree/coordinator.py", "src/research_tree/run_ledger.py", "tests/test_completion_manifold.py"], "public_surface": ["ResearchRunCoordinator.complete", "ResearchRunCoordinator.why_not_complete"], "task_groups": [45], "github_issue": "#158", "owner": "runtime" },
-    { "capability": "unreachable-runstore-scheduler-source-removal", "source_modules": ["tests/test_runstore_scheduler_surface_removal.py"], "public_surface": [], "task_groups": [76], "github_issue": "#179", "owner": "runtime" }
+    { "capability": "unreachable-runstore-scheduler-source-removal", "source_modules": ["tests/test_runstore_scheduler_surface_removal.py"], "public_surface": [], "task_groups": [76], "github_issue": "#179", "owner": "runtime" },
+    { "capability": "canonical-search-portfolio-lineage", "source_modules": ["src/research_tree/coordinator.py", "tests/test_search_portfolio_lineage.py"], "public_surface": ["ResearchRunCoordinator.persist_search_portfolio_lineage"], "task_groups": [77], "github_issue": "#187", "owner": "runtime" }
   ],
   "release_rule": "A capability row is not evidence of implementation. The generated requirement rows, tests, and immutable release manifest must all resolve before status becomes verified."
 }

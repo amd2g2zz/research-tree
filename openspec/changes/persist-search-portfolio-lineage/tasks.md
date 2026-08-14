@@ -16,7 +16,7 @@
 
 ## 3. Governance and verification
 
-- [ ] 3.1 Register planned group 77, issue map, delivery capability, and
+- [x] 3.1 Register planned group 77, issue map, delivery capability, and
   execution tasks after the source contract is established.
 - [ ] 3.2 Run the group-77 acceptance and record a local-only source-bound
   receipt after the source commit.
