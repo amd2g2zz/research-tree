@@ -33,6 +33,7 @@ from .source_capture import ACQUISITION_RECEIPT_KIND, SOURCE_CAPTURE_KIND, Acqui
 ASSESSMENT_KIND = "slot-closure-assessment"
 FINDING_PACK_KIND = "finding-pack"
 ADJUDICATION_KIND = "closure-adjudication"
+ADJUDICATION_KINDS = frozenset({ADJUDICATION_KIND, "adjudication"})
 
 
 class ClosureAssessmentError(InvalidOracleError):
@@ -420,6 +421,7 @@ class SlotClosureAssessor:
                 or capture.method_id != receipt.method_id
                 or capture.provider_id != receipt.provider_id
                 or evidence.acquisition_method != capture.method_id
+                or evidence.provenance_group != capture.provenance_group
             ):
                 raise ClosureAssessmentError("evidence receipt and source capture are not exact")
             self._capture_origin_is_bound(capture_ref, capture, round_id)
@@ -516,10 +518,12 @@ class SlotClosureAssessor:
                 parent = self.ledger.get_artifact(reference)
             except RuntimeStoreError as error:
                 raise ClosureAssessmentError("decision has an unresolved adjudication parent") from error
-            if parent.kind == ADJUDICATION_KIND:
-                candidates[reference] = self._current_artifact(reference, ADJUDICATION_KIND)
+            if parent.kind in ADJUDICATION_KINDS:
+                candidates[reference] = self._current_artifact(reference, parent.kind)
         for revision in supplied:
-            reference = self._resolve(revision, ADJUDICATION_KIND, round_id)
+            if not isinstance(revision, ArtifactRevision) or revision.kind not in ADJUDICATION_KINDS:
+                raise ClosureAssessmentError("adjudications must be canonical adjudication artifacts")
+            reference = self._resolve(revision, revision.kind, round_id)
             candidates[reference] = revision
         facts: list[dict[str, Any]] = []
         expected_findings = set(finding_refs)
@@ -867,7 +871,7 @@ class SlotClosureAssessor:
                     finding_refs.append(parent_ref)
                 elif parent.kind == ORACLE_RUN_KIND:
                     run_refs.append(parent_ref)
-                elif parent.kind == ADJUDICATION_KIND:
+                elif parent.kind in ADJUDICATION_KINDS:
                     adjudication_refs.append(parent_ref)
             if len(target_refs) != 1 or len(decision_refs) != 1:
                 return False
