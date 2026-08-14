@@ -33,7 +33,7 @@
     { "issue": 73, "primary_group": 23, "supporting_groups": [], "capabilities": ["transactional-correction-invalidation"], "openspec_change": "invalidate-stale-alignment-state" },
     { "issue": 80, "primary_group": 25, "supporting_groups": [15], "capabilities": ["durable-source-capture", "worker-orchestration"], "openspec_change": "enforce-durable-source-capture" },
     { "issue": 82, "primary_group": 26, "supporting_groups": [], "capabilities": ["host-native-orchestration"], "openspec_change": "integrate-host-native-dynamic-workflows" },
-    { "issue": 83, "primary_group": 27, "supporting_groups": [15], "capabilities": ["research-acquisition", "search-portfolios"], "openspec_change": "add-intent-derived-search-portfolios" },
+    { "issue": 83, "primary_group": 27, "supporting_groups": [15, 74, 75, 77], "capabilities": ["research-acquisition", "search-portfolios", "search-portfolio-aggregate-acceptance"], "openspec_change": "accept-intent-derived-search-portfolios" },
     { "issue": 84, "primary_group": 30, "supporting_groups": [], "capabilities": ["paired-alpha-benchmark"], "openspec_change": "benchmark-alpha1-alpha2-pairs" },
     { "issue": 85, "primary_group": 28, "supporting_groups": [], "capabilities": ["strategy-projection-handoff"], "openspec_change": "add-four-stage-strategy-handoff" },
     { "issue": 86, "primary_group": 29, "supporting_groups": [], "capabilities": ["project-user-preference-profile"], "openspec_change": "archive/2026-08-13-add-project-user-preference-profile" },

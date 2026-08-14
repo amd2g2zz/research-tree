@@ -100,6 +100,7 @@ def test_group_35_owns_integrated_receipt_and_preserves_historical_future_gap_ev
         23,
         25,
         26,
+        27,
         28,
         29,
         31,
@@ -133,7 +134,7 @@ def test_group_35_owns_integrated_receipt_and_preserves_historical_future_gap_ev
         *(
             group
             for group in range(6, 33)
-            if group not in {6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 20, 23, 25, 26, 28, 29, 31, 32}
+            if group not in {6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 20, 23, 25, 26, 27, 28, 29, 31, 32}
         ),
     )
 
