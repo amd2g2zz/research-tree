@@ -19,8 +19,8 @@ presence and `RT-010` public contract falsely imply an available API.
 
 - A replacement scheduler, compatibility namespace, alias, bridge, adapter,
   migration, fallback reader, or user-data operation.
-- Changes to the shared Alpha2 group registry, receipt state, or parent #175
-  closure.
+- Changes to group 62 or parent #175 closure beyond the dedicated group-76
+  child receipt.
 - Removing generic uses of the word "scheduler" unrelated to the retired
   RunStore implementation.
 
@@ -53,5 +53,5 @@ testing an API that must no longer exist.
 - [Historical OpenSpec text contains scheduler terms] -> The regression limits
   its active-contract check to current sources and leaves merged delivery
   records immutable.
-- [No group is allocated for #179] -> Do not alter the shared registry in this
-  branch; request the release-train owner to allocate the receipt separately.
+- [The group-76 receipt is mistaken for #178 evidence] -> Keep group 62
+  immutable and bind #179 only to its separate group-76 source revision.

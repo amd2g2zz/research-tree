@@ -1,7 +1,7 @@
 ## 1. Deletion Contract
 
-- [x] 1.1 Define the current-only scheduler source-removal contract and
-  explicitly exclude shared registry and parent-tracker changes.
+- [x] 1.1 Define the current-only scheduler source-removal contract and limit
+  governance work to the dedicated group-76 receipt without parent-tracker changes.
 - [x] 1.2 Add a failing structural regression for absent source, imports,
   obsolete contract, and generated-package references.
 
@@ -15,5 +15,5 @@
 ## 3. Verification
 
 - [x] 3.1 Run focused deletion, packaging, OpenSpec, lint, and format checks.
-- [x] 3.2 Run the full test suite and record the unallocated #179 receipt
-  conflict for the release-train owner without modifying shared registries.
+- [x] 3.2 Run the full test suite and bind the registered group-76 local
+  source-bound receipt without modifying group 62 or parent #175.

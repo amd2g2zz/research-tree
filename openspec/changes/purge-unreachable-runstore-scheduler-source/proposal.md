@@ -28,5 +28,5 @@ None.
 ## Impact
 
 `src/research_tree/scheduler.py`, `docs/specs/RT-010.md`, and the focused
-retirement regression change. This does not modify the shared Alpha2 registry
-allocation or close parent #175.
+retirement regression change. Group 76 records this child receipt without
+changing group 62 or closing parent #175.
