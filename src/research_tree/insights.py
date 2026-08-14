@@ -11,7 +11,9 @@ import hashlib
 import json
 from typing import Any, Mapping, Sequence
 
+from .domain import ArtifactRef, ArtifactRevision
 from .evidence_delta import EvidenceBaseline, measure_realized_delta
+from .run_ledger import RunLedger
 
 INSIGHT_SCHEMA_VERSION = 1
 INSIGHT_PRODUCER_VERSION = "insight-v1"
@@ -291,6 +293,45 @@ def validate_insight_digest(value: Mapping[str, Any]) -> None:
         raise ValueError("insight digest realized_delta must be a mapping")
 
 
+class CanonicalInsightWriter:
+    """Persist a synthesized Insight Digest through the completion boundary."""
+
+    def __init__(self, ledger: RunLedger) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise ValueError("canonical insight writer requires a RunLedger")
+        self.ledger = ledger
+
+    def write(
+        self,
+        *,
+        round_id: str,
+        insight_id: str,
+        finding_packs: Sequence[Any],
+        active_slot_ids: Sequence[str],
+        expected_revision: int,
+        previous_digest: Mapping[str, Any] | None = None,
+    ) -> ArtifactRevision:
+        payload = synthesize_insights(
+            finding_packs,
+            active_slot_ids=active_slot_ids,
+            previous_digest=previous_digest,
+        )
+        parents = tuple(
+            ArtifactRef(item.round_id, item.id, item.revision)
+            for item in finding_packs
+            if isinstance(item, ArtifactRevision)
+        )
+        from .completion_inputs import CompletionInputRegistrar
+
+        return CompletionInputRegistrar(self.ledger).write_insight(
+            round_id=round_id,
+            insight_id=insight_id,
+            payload=payload,
+            parent_refs=parents,
+            expected_revision=expected_revision,
+        )
+
+
 def _validate_and_normalize_finding_packs(
     finding_packs: Sequence[Any],
     active_slots: Sequence[str],
@@ -349,6 +390,7 @@ def _digest(value: Any) -> str:
 __all__ = [
     "INSIGHT_PRODUCER_VERSION",
     "INSIGHT_SCHEMA_VERSION",
+    "CanonicalInsightWriter",
     "synthesize_insights",
     "validate_insight_digest",
 ]

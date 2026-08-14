@@ -178,11 +178,21 @@ class ReadinessVerifier:
         )
         if isinstance(self._store, RunLedger):
             assert expected_revision is not None
-            return self._store.append_artifact(
-                round_id,
-                readiness_id,
-                READINESS_RECORD_KIND,
-                payload,
+            if not all(self._store.is_latest_artifact(reference) for reference in parent_refs):
+                return self._store.append_artifact(
+                    round_id,
+                    readiness_id,
+                    READINESS_RECORD_KIND,
+                    payload,
+                    parent_refs=parent_refs,
+                    expected_revision=expected_revision,
+                )
+            from .completion_inputs import CompletionInputRegistrar
+
+            return CompletionInputRegistrar(self._store).write_readiness(
+                round_id=round_id,
+                readiness_id=readiness_id,
+                payload=payload,
                 parent_refs=parent_refs,
                 expected_revision=expected_revision,
             )
