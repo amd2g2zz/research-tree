@@ -3,16 +3,16 @@
   "issue": 187,
   "group": 76,
   "status": "verified",
-  "source_revision": "a87cf956ae60a94439b3cf5a38dace508a69c0e6",
+  "source_revision": "8938c3bb5e77d56ff3507194e27c836b0f003c62",
   "checks": [
     {
       "name": "portfolio-lineage-focused-suite",
       "command": "uv run pytest -q tests/test_search_portfolio.py tests/test_worker_orchestration.py tests/test_research_run_coordinator.py && uv run ruff check src/research_tree/search_portfolio.py src/research_tree/coordinator.py src/research_tree/policy.py src/research_tree/source_capture.py src/research_tree/__init__.py tests/test_search_portfolio.py tests/test_worker_orchestration.py tests/test_research_run_coordinator.py && uv run ruff format --check src/research_tree/search_portfolio.py src/research_tree/coordinator.py src/research_tree/policy.py src/research_tree/source_capture.py src/research_tree/__init__.py tests/test_search_portfolio.py tests/test_worker_orchestration.py tests/test_research_run_coordinator.py && uv run python scripts/check_openspec_governance.py",
       "exit_code": 0,
       "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
-      "output_digest": "eb8e9aa42594c7b325dbde3f203c3234045caafb2978d74c704d9742a3837517",
+      "output_digest": "0a4e32775c35487391835f5299635973d1a49a28b65cb6196a80d9fe00499402",
       "raw_output_ref": "ci://issue-187/group-76-focused",
-      "recorded_at": "2026-08-14T15:38:53+08:00"
+      "recorded_at": "2026-08-14T15:59:52+08:00"
     }
   ],
   "rollback": "quarantine incomplete portfolio attempts and revert the integration; do not restore a legacy acquisition fallback or second persistence plane"
