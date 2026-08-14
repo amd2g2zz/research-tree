@@ -349,9 +349,9 @@ substitute for local evidence.
 
 ## 39. Evidence-Graph Closure Quality Parent Acceptance (#152)
 
-- [ ] 39.1 Verify the merged group-46 and group-47 source-bound receipts are
+- [x] 39.1 Verify the merged group-46 and group-47 source-bound receipts are
   reachable from the parent acceptance baseline.
-- [ ] 39.2 Run the parent acceptance command and record a source-bound
+- [x] 39.2 Run the parent acceptance command and record a source-bound
   group-39 receipt before closing #152.
 
 ## 54. Legacy CLI Surface Removal (#164)

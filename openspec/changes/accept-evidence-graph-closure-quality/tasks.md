@@ -7,7 +7,7 @@
 
 ## 2. Verification
 
-- [ ] 2.1 Run focused parent governance tests, full regression, strict
+- [x] 2.1 Run focused parent governance tests, full regression, strict
   OpenSpec, package, governance, delivery, and diff checks.
-- [ ] 2.2 Record a source-bound group-39 receipt, mark parent tasks complete,
+- [x] 2.2 Record a source-bound group-39 receipt, mark parent tasks complete,
   and close only #152 after the PR merges.

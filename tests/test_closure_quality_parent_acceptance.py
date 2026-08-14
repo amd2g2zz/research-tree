@@ -30,6 +30,9 @@ def test_parent_group_binds_reachable_evidence_children() -> None:
     parent = _group(execution, 39)
     assert parent["depends_on"] == [46, 47]
     assert parent["outputs"] == ["evidence-graph-closure-quality-acceptance"]
+    parent_receipt = _group(verification, 39)
+    assert parent_receipt["state"] == "verified"
+    assert parent_receipt["command_receipt"]["source_revision"] == "6cc7bed7ed5ac21f58b420a2cf2097feb5d388a4"
 
     for child in (46, 47):
         receipt = _group(verification, child)["command_receipt"]

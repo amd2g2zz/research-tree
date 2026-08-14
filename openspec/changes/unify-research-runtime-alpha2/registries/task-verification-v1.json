@@ -461,7 +461,20 @@
     },
     {
       "group": 39,
-      "state": "planned"
+      "state": "verified",
+      "evidence_refs": [
+        "ci://delivery-governance/delivery-gate"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_closure_quality_parent_acceptance.py tests/test_openspec_execution_governance.py tests/test_integrated_evidence_receipt.py && uv run ruff check tests/test_closure_quality_parent_acceptance.py tests/test_openspec_execution_governance.py tests/test_integrated_evidence_receipt.py && uv run ruff format --check tests/test_closure_quality_parent_acceptance.py tests/test_openspec_execution_governance.py tests/test_integrated_evidence_receipt.py && uv run python scripts/check_openspec_governance.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "4e637a1ee5b80166cb17d62cfcf58c33192320de64edebfa675f90dd4caf4acd",
+        "source_revision": "6cc7bed7ed5ac21f58b420a2cf2097feb5d388a4",
+        "raw_output_ref": "ci://delivery-governance/delivery-gate",
+        "recorded_at": "2026-08-14T03:06:17.690942+00:00"
+      },
+      "rollback": "revert the parent acceptance in Git and retain child evidence as immutable history"
     },
     {
       "group": 42,
