@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+import research_tree
 
 from canonical_finding_fixture import canonical_context
 from test_deliveries import (
@@ -25,9 +26,7 @@ from research_tree import (
     EvidenceRepository,
     EvidenceResolver,
     EvidenceValidationError,
-    FindingPackCompiler,
     InvalidDecisionLedgerError,
-    InvalidFindingPackError,
     InvalidReadinessError,
     ReadinessVerifier,
     RunLedger,
@@ -426,11 +425,11 @@ def test_strict_readiness_rejects_empty_finding_and_unlinked_selected_decision(t
     assert any("support for its selected option" in item["summary"] for item in diagnostics)
 
 
-def test_legacy_compiler_cannot_claim_strict_evidence_or_enter_canonical_decision(tmp_path: Path) -> None:
+def test_legacy_compilers_are_not_exported_and_evidence_cannot_enter_canonical_decision(tmp_path: Path) -> None:
     ledger, _store, target, _work, _content, _evidence, _reference, _resolver = _environment(tmp_path)
 
-    with pytest.raises(InvalidFindingPackError, match="CanonicalFindingPackCompiler"):
-        FindingPackCompiler(object(), strict_evidence=True)
+    assert not hasattr(research_tree, "FindingPackCompiler")
+    assert not hasattr(research_tree, "DecisionLedgerCompiler")
 
     legacy = ledger.append_artifact(
         "run-strict",

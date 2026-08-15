@@ -16,7 +16,7 @@
 
 ## J. Canonical Delivery and Evaluation
 
-- [ ] J.1 Eliminate legacy Finding Pack and Decision Ledger compiler consumers.
+- [x] J.1 Eliminate legacy Finding Pack and Decision Ledger compiler consumers.
 - [ ] J.2 Retire legacy delivery/readiness branches after their canonical paths pass.
 - [x] J.3 Split evaluation to a canonical-only ledger implementation.
 

@@ -54,4 +54,4 @@ def test_readiness_consumers_have_no_legacy_fixture_or_state_copy_path() -> None
         for node in ast.walk(strict_tree)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "FindingPackCompiler"
     ]
-    assert len(legacy_compiler_calls) == 1
+    assert not legacy_compiler_calls
