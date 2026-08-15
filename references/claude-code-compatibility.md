@@ -88,14 +88,13 @@ is distinct from permission prompts for dangerous tool calls.
 
 ## Optional project hooks
 
-The repository template `hooks/claude-code.settings.template.json` contains
-`SessionStart`, `SessionEnd`, `PreCompact`, `SubagentStop`, and `Stop` command
-hooks. Merge only its `hooks` object into an
-existing `.claude/settings.json`. The hooks are not installed with the Skill,
-are not required for research, and must not be enabled without requester
-consent. They invoke `uv run --locked research-tree-hook` from the source
-checkout and write sanitized records under the ignored
-`.research-tree-hooks/events/` directory.
+Native adapter initialization installs run-bound command hooks into the
+project's `.claude/settings.json`, preserving unrelated user entries. The
+installed commands point to a dependency-free launcher in
+`.research-tree/projects/<project-id>/runs/<run-id>/hooks/` and write sanitized
+records only under that run's `events/` directory. The static template remains
+an opt-in reference; without an explicit project/run binding it does not write
+local lifecycle state.
 
 ## Development verification
 

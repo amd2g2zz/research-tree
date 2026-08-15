@@ -22,14 +22,23 @@ def project(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def project_run(root: Path) -> None:
+    manifest = root / ".research-tree" / "projects" / "topic-1" / "runs" / "run-1" / "manifest.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"project_id":"topic-1","run_id":"run-1"}\n', encoding="utf-8")
+
+
 def test_observe_records_only_sanitized_metadata(tmp_path: Path) -> None:
     root = project(tmp_path)
+    project_run(root)
     payload = {
         "cwd": str(root),
         "hook_event_name": "SessionStart",
         "session_id": "session-1",
         "prompt": "must not be persisted",
         "tool_input": {"secret": "must not be persisted"},
+        "project_id": "topic-1",
+        "run_id": "run-1",
     }
 
     result = observe(
@@ -96,8 +105,9 @@ def test_reentrant_stop_is_not_recorded(tmp_path: Path, host: str) -> None:
 
 def test_hermes_session_event_and_response(tmp_path: Path) -> None:
     root = project(tmp_path)
+    project_run(root)
     result = observe(
-        {"cwd": str(root), "hook_event_name": "on_session_start"},
+        {"cwd": str(root), "hook_event_name": "on_session_start", "project_id": "topic-1", "run_id": "run-1"},
         host="hermes",
         event="on_session_start",
         project_root=root,
@@ -108,10 +118,26 @@ def test_hermes_session_event_and_response(tmp_path: Path) -> None:
     assert host_response("codex") == {"continue": True}
 
 
-def test_debug_hook_emits_a_sanitized_trace_without_changing_response(tmp_path: Path) -> None:
+def test_unbound_hook_is_non_persistent(tmp_path: Path) -> None:
     root = project(tmp_path)
+
     result = observe(
         {"cwd": str(root), "hook_event_name": "SessionStart"},
+        host="codex",
+        event="SessionStart",
+        project_root=root,
+        process_cwd=root,
+    )
+
+    assert result["status"] == "unbound"
+    assert not (root / ".research-tree-hooks").exists()
+
+
+def test_debug_hook_emits_a_sanitized_trace_without_changing_response(tmp_path: Path) -> None:
+    root = project(tmp_path)
+    project_run(root)
+    result = observe(
+        {"cwd": str(root), "hook_event_name": "SessionStart", "project_id": "topic-1", "run_id": "run-1"},
         host="codex",
         event="SessionStart",
         project_root=root,

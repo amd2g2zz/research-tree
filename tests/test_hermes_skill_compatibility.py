@@ -271,6 +271,9 @@ def test_render_hooks_uses_absolute_package_paths() -> None:
 
 
 def test_runtime_hook_records_metadata_without_task_content(tmp_path: Path) -> None:
+    run_root = tmp_path / ".research-tree" / "projects" / "topic-1" / "runs" / "run-1"
+    run_root.mkdir(parents=True)
+    (run_root / "manifest.json").write_text("{}", encoding="utf-8")
     payload = {
         "hook_event_name": "post_tool_call",
         "tool_name": "delegate_task",
@@ -295,11 +298,12 @@ def test_runtime_hook_records_metadata_without_task_content(tmp_path: Path) -> N
         capture_output=True,
         check=False,
         cwd=tmp_path,
+        env={**os.environ, "RESEARCH_TREE_PROJECT_ID": "topic-1", "RESEARCH_TREE_RUN_ID": "run-1"},
     )
 
     assert completed.returncode == 0
     assert json.loads(completed.stdout) == {}
-    event_file = tmp_path / ".research-tree-hermes" / "events.jsonl"
+    event_file = next((run_root / "events").glob("*.json"))
     record = json.loads(event_file.read_text(encoding="utf-8"))
     assert record["event"] == "post_tool_call"
     assert record["task_count"] == 2
@@ -326,7 +330,7 @@ def test_runtime_hook_ignores_unrelated_tool_calls(tmp_path: Path) -> None:
     )
 
     assert completed.returncode == 0
-    assert not (tmp_path / ".research-tree-hermes" / "events.jsonl").exists()
+    assert not (tmp_path / ".research-tree-hermes").exists()
 
 
 def test_doctor_classifies_context_failure_without_leaking_log(tmp_path: Path) -> None:

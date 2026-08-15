@@ -187,6 +187,8 @@ def test_controller_requires_explicit_handoff_confirmation(tmp_path: Path) -> No
             str(ROOT / "scripts" / "alignment_controller.py"),
             "--workspace",
             str(tmp_path),
+            "--project-id",
+            "alignment-handoff-run",
             "compile",
             "--run-id",
             "handoff-run",
@@ -200,6 +202,15 @@ def test_controller_requires_explicit_handoff_confirmation(tmp_path: Path) -> No
     assert completed.returncode == 0, completed.stderr
     assert not output.read_bytes().startswith(b"\xef\xbb\xbf")
     assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "alignment-handoff"
+
+
+def test_alignment_database_uses_project_run_authority(tmp_path: Path) -> None:
+    module = controller()
+
+    database = module.database_path(tmp_path, "run-1", "topic-1")
+
+    assert database == tmp_path / ".research-tree" / "projects" / "topic-1" / "runs" / "run-1" / "alignment" / "alignment.db"
+    assert not (tmp_path / ".research-tree-alignment").exists()
 
 
 def test_handoff_preserves_indirect_evidence_paths(tmp_path: Path) -> None:

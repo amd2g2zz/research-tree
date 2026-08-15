@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import sys
 from typing import Any
 
 from hermes_event_adapter import (
@@ -15,6 +16,26 @@ from hermes_event_adapter import (
     project_hermes_action,
     recovery_events,
 )
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE_ROOT = ROOT / "src"
+if SOURCE_ROOT.is_dir() and str(SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SOURCE_ROOT))
+
+try:
+    from research_tree.project_workspace import (
+        ProjectWorkspaceError,
+        initialize_project_run,
+        install_project_hooks,
+        probe_lifecycle_hook,
+    )
+except ImportError:
+    from project_workspace_contract import (
+        ProjectWorkspaceError,
+        initialize_project_run,
+        install_project_hooks,
+        probe_lifecycle_hook,
+    )
 
 try:
     from research_tree.host_capabilities import (
@@ -70,13 +91,24 @@ def _relative_paths(workspace: Path, paths: list[Path]) -> list[str]:
     ]
 
 
-def initialize_projection(workspace: Path, run_id: str, handoff_path: Path) -> dict[str, Any]:
+def initialize_projection(workspace: Path, project_id: str, run_id: str, handoff_path: Path) -> dict[str, Any]:
+    try:
+        project_workspace = initialize_project_run(
+            workspace, project_id=project_id, run_id=run_id, host="hermes"
+        )
+        installation = install_project_hooks(workspace, project_workspace)
+        hook_probe = probe_lifecycle_hook(project_workspace, launcher=Path(installation["launcher"]))
+    except ProjectWorkspaceError as error:
+        raise HermesExecutionError(str(error)) from error
     handoff = _read_json(workspace, handoff_path, "alignment handoff")
     if handoff.get("schema") != 1 or handoff.get("kind") != "alignment-handoff":
         raise HermesExecutionError("handoff must be a schema-1 alignment-handoff artifact")
     resolved = _inside(workspace, handoff_path if handoff_path.is_absolute() else workspace / handoff_path, "handoff")
     return {
         "run_id": run_id,
+        "project_id": project_workspace.project_id,
+        "project_run_root": str(project_workspace.run_root),
+        "lifecycle_hooks": hook_probe.status,
         "status": "observed",
         "authoritative": False,
         "completion_authority": "coordinator_only",
@@ -123,6 +155,7 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
 
     init = commands.add_parser("init")
+    init.add_argument("--project-id", required=True)
     init.add_argument("--run-id", required=True)
     init.add_argument("--handoff", type=Path, required=True)
 
@@ -200,7 +233,7 @@ def main() -> int:
         elif args.command == "resume-workflow":
             result = resume_workflow(_read_json(workspace, args.request, "workflow resume request"), "hermes")
         elif args.command == "init":
-            result = initialize_projection(workspace, args.run_id, args.handoff)
+            result = initialize_projection(workspace, args.project_id, args.run_id, args.handoff)
         elif args.command == "record-batch":
             result = batch_observation(
                 workspace, args.run_id, args.batch_id, args.status, args.delegation_id, args.finding
