@@ -11,23 +11,19 @@ def intake_api():
     from research_tree import (
         ArtifactRef,
         CanonicalInputIntakeService,
-        InputIntakeService,
         InvalidContextBundleError,
         RepositoryInspector,
         RepositorySafetyPolicy,
         RunLedger,
-        RunStore,
     )
 
     return {
         "ArtifactRef": ArtifactRef,
         "CanonicalInputIntakeService": CanonicalInputIntakeService,
-        "InputIntakeService": InputIntakeService,
         "InvalidContextBundleError": InvalidContextBundleError,
         "RepositoryInspector": RepositoryInspector,
         "RepositorySafetyPolicy": RepositorySafetyPolicy,
         "RunLedger": RunLedger,
-        "RunStore": RunStore,
     }
 
 
@@ -289,15 +285,17 @@ def test_repository_intake_records_resolvable_git_baseline_without_running_repos
     )
     before_status = git(repository, "status", "--porcelain")
 
-    store = api["RunStore"](tmp_path / "store")
-    round_record = store.create_round("round-repository")
-    intake = api["InputIntakeService"](store)
+    ledger = api["RunLedger"](tmp_path / "ledger")
+    ledger.initialize()
+    round_record = ledger.create_run("round-repository")
+    intake = api["CanonicalInputIntakeService"](ledger)
     artifact = intake.ingest_repository(
         round_id=round_record.id,
         input_id="input-repository",
         repository_root=repository,
         origin_type="workspace",
         role="baseline",
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
     payload = artifact.payload
@@ -327,9 +325,10 @@ def test_context_bundle_can_join_text_material_and_repository_without_flattening
 ) -> None:
     api = intake_api()
     repository = create_repository_fixture(tmp_path)
-    store = api["RunStore"](tmp_path / "store")
-    round_record = store.create_round("round-heterogeneous-bundle")
-    intake = api["InputIntakeService"](store)
+    ledger = api["RunLedger"](tmp_path / "ledger")
+    ledger.initialize()
+    round_record = ledger.create_run("round-heterogeneous-bundle")
+    intake = api["CanonicalInputIntakeService"](ledger)
     intake.ingest_text(
         round_id=round_record.id,
         input_id="input-brief",
@@ -338,6 +337,7 @@ def test_context_bundle_can_join_text_material_and_repository_without_flattening
         origin_type="user",
         origin_locator="conversation:1",
         role="signal",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     intake.ingest_text(
         round_id=round_record.id,
@@ -347,6 +347,7 @@ def test_context_bundle_can_join_text_material_and_repository_without_flattening
         origin_type="url",
         origin_locator="https://example.test/technique",
         role="evidence",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     intake.ingest_repository(
         round_id=round_record.id,
@@ -354,6 +355,7 @@ def test_context_bundle_can_join_text_material_and_repository_without_flattening
         repository_root=repository,
         origin_type="workspace",
         role="baseline",
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
     bundle = intake.create_context_bundle(
@@ -363,6 +365,7 @@ def test_context_bundle_can_join_text_material_and_repository_without_flattening
         origin_type="user",
         origin_locator="conversation:1",
         role="baseline",
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
     assert bundle.payload["member_input_ids"] == (
@@ -382,9 +385,10 @@ def test_context_bundle_can_join_text_material_and_repository_without_flattening
 def test_repository_reingestion_preserves_prior_baseline_revision(tmp_path: Path) -> None:
     api = intake_api()
     repository = create_repository_fixture(tmp_path)
-    store = api["RunStore"](tmp_path / "store")
-    round_record = store.create_round("round-repository-revisions")
-    intake = api["InputIntakeService"](store)
+    ledger = api["RunLedger"](tmp_path / "ledger")
+    ledger.initialize()
+    round_record = ledger.create_run("round-repository-revisions")
+    intake = api["CanonicalInputIntakeService"](ledger)
 
     first = intake.ingest_repository(
         round_id=round_record.id,
@@ -392,6 +396,7 @@ def test_repository_reingestion_preserves_prior_baseline_revision(tmp_path: Path
         repository_root=repository,
         origin_type="workspace",
         role="baseline",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     write_file(repository, "src/app.py", "def main() -> str:\n    return 'changed'\n")
     git(repository, "add", "src/app.py")
@@ -402,11 +407,12 @@ def test_repository_reingestion_preserves_prior_baseline_revision(tmp_path: Path
         repository_root=repository,
         origin_type="workspace",
         role="baseline",
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
     revisions = [
         artifact
-        for artifact in store.load_round(round_record.id).artifacts
+        for artifact in ledger.load_run(round_record.id).artifacts
         if artifact.id == "input-repository"
     ]
     assert [artifact.revision for artifact in revisions] == [1, 2]
@@ -442,10 +448,11 @@ def test_repository_boundary_controls_record_unsafe_material_without_aborting_sa
             == "external_symlink"
         )
 
-    store = api["RunStore"](tmp_path / "store")
-    round_record = store.create_round("round-boundaries")
+    ledger = api["RunLedger"](tmp_path / "ledger")
+    ledger.initialize()
+    round_record = ledger.create_run("round-boundaries")
     policy = api["RepositorySafetyPolicy"](max_file_bytes=64, max_total_bytes=512)
-    intake = api["InputIntakeService"](store, policy=policy)
+    intake = api["CanonicalInputIntakeService"](ledger, policy=policy)
     artifact = intake.ingest_repository(
         round_id=round_record.id,
         input_id="input-repository",
@@ -453,6 +460,7 @@ def test_repository_boundary_controls_record_unsafe_material_without_aborting_sa
         origin_type="workspace",
         role="baseline",
         include_paths=(".", "../outside"),
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
     baseline = artifact.payload["repository_baseline"]
