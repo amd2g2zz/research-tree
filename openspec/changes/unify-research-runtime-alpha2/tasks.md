@@ -530,5 +530,5 @@ substitute for local evidence.
 - [x] 83.2 Preserve `FindingPackCompiler` and the #165 fixture while making its
   typed evidence parser reject legacy anchors and retaining canonical evidence
   coverage.
-- [ ] 83.3 Run the exact group-83 acceptance command and record a source-bound
+- [x] 83.3 Run the exact group-83 acceptance command and record a source-bound
   receipt after the strict-admission commit.

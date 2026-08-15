@@ -23,9 +23,9 @@
 
 ## 4. Verification And Handoff
 
-- [ ] 4.1 Run group-83 focused, lint, formatting, OpenSpec, governance,
+- [x] 4.1 Run group-83 focused, lint, formatting, OpenSpec, governance,
   documentation, package, and full regression checks.
-- [ ] 4.2 Inspect and commit the green source cutover before recording any
+- [x] 4.2 Inspect and commit the green source cutover before recording any
   source-bound receipt; keep raw output local and ignored.
-- [ ] 4.3 Record the source-bound group-83 receipt, mark verification complete,
+- [x] 4.3 Record the source-bound group-83 receipt, mark verification complete,
   and rerun final checks.
