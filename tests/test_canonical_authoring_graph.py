@@ -31,15 +31,25 @@ def test_canonical_input_intake_service_is_public() -> None:
 
 def test_legacy_authoring_services_are_not_published() -> None:
     import research_tree
+    import research_tree.decision_map as decision_map
     import research_tree.intake as intake
     import research_tree.intent as intent
+    import research_tree.work_items as work_items
 
+    assert not hasattr(research_tree, "BlueprintTargetCompiler")
     assert not hasattr(research_tree, "InputIntakeService")
     assert not hasattr(research_tree, "IntentModelCompiler")
     assert not hasattr(research_tree, "WorkingBriefCompiler")
+    assert not hasattr(research_tree, "WorkItemCompiler")
+    assert not hasattr(research_tree, "WorkItemPlanner")
+    assert not hasattr(research_tree, "WorkItemStatusService")
+    assert not hasattr(decision_map, "BlueprintTargetCompiler")
     assert not hasattr(intake, "InputIntakeService")
     assert not hasattr(intent, "IntentModelCompiler")
     assert not hasattr(intent, "WorkingBriefCompiler")
+    assert not hasattr(work_items, "WorkItemCompiler")
+    assert not hasattr(work_items, "WorkItemPlanner")
+    assert not hasattr(work_items, "WorkItemStatusService")
 
 
 def test_canonical_work_item_compiler_requires_current_revision(tmp_path) -> None:

@@ -10,9 +10,9 @@
 
 ## I. Canonical Authoring Graph
 
-- [ ] I.1 Replace direct RunStore intake, intent, blueprint, and work-item writers.
-- [ ] I.2 Migrate their direct tests without a compatibility fixture or store.
-- [ ] I.3 Retire legacy authoring exports only after all direct consumers move.
+- [x] I.1 Replace direct RunStore intake, intent, blueprint, and work-item writers.
+- [x] I.2 Migrate their direct tests without a compatibility fixture or store.
+- [x] I.3 Retire legacy authoring exports only after all direct consumers move.
 
 ## J. Canonical Delivery and Evaluation
 

@@ -15,7 +15,6 @@ from .domain import (
 from .intake import INPUT_LEDGER_ARTIFACT_KIND
 from .intent import INTENT_MODEL_KIND, WORKING_BRIEF_KIND
 from .run_ledger import RunLedger
-from .storage import RunStore
 
 
 BLUEPRINT_TARGET_KIND = "blueprint-target"
@@ -43,91 +42,6 @@ class BlueprintTargetError(RuntimeStoreError):
 
 class InvalidBlueprintTargetError(BlueprintTargetError):
     """Raised before a Decision Map contract violation can be persisted."""
-
-
-class BlueprintTargetCompiler:
-    """Persist immutable decision maps with explicit revision-change records."""
-
-    def __init__(self, store: RunStore) -> None:
-        self._store = store
-
-    def compile(
-        self,
-        *,
-        round_id: str,
-        target_id: str,
-        working_brief: ArtifactRevision,
-        slots: Sequence[Mapping[str, Any]],
-        change: Mapping[str, Any],
-    ) -> ArtifactRevision:
-        """Validate a bounded map before atomically appending a target revision."""
-
-        try:
-            snapshot = self._store.load_round(round_id)
-            validate_identifier(target_id, "target_id")
-            foreign_kinds = {
-                artifact.kind
-                for artifact in snapshot.artifacts
-                if artifact.id == target_id and artifact.kind != BLUEPRINT_TARGET_KIND
-            }
-            if foreign_kinds:
-                raise InvalidBlueprintTargetError(
-                    f"target_id {target_id!r} is already used by artifact kinds: {sorted(foreign_kinds)}"
-                )
-            brief = _resolve_exact_artifact(snapshot.artifacts, working_brief)
-            if brief.kind != WORKING_BRIEF_KIND:
-                raise InvalidBlueprintTargetError("working_brief must be a working-brief artifact")
-            if brief.round_id != round_id:
-                raise InvalidBlueprintTargetError("working_brief must belong to target round")
-
-            model = _resolve_brief_model(snapshot.artifacts, brief)
-            brief_inputs = _resolve_brief_inputs(snapshot.artifacts, brief)
-            repository_anchors = _repository_anchors(brief_inputs)
-            visible_hypotheses = _brief_hypothesis_ids(brief, model)
-            normalized_slots = _normalize_slots(
-                slots,
-                visible_hypotheses=visible_hypotheses,
-                selected_input_ids=_brief_selected_input_ids(brief),
-                repository_anchors=repository_anchors,
-            )
-            _validate_dependencies(normalized_slots)
-
-            previous_target = _latest_target(snapshot.artifacts, target_id)
-            if previous_target is not None and not _shares_exact_brief_model_lineage(
-                previous_target,
-                brief,
-                model,
-            ):
-                raise InvalidBlueprintTargetError(
-                    "later Blueprint Target revisions must retain the prior Brief and Intent Model lineage"
-                )
-            normalized_change = _normalize_change(change)
-            _validate_change(previous_target, normalized_slots, normalized_change)
-        except (InvalidIdentifierError, TypeError, ValueError) as error:
-            raise InvalidBlueprintTargetError(str(error)) from error
-
-        payload = {
-            "id": target_id,
-            "round_id": round_id,
-            "brief_id": brief.id,
-            "intent_model_id": model.id,
-            "slots": normalized_slots,
-            "change": normalized_change,
-        }
-        brief_ref = ArtifactRef(round_id, brief.id, brief.revision)
-        model_ref = ArtifactRef(round_id, model.id, model.revision)
-        if previous_target is None:
-            parent_refs = (brief_ref, model_ref)
-        else:
-            previous_ref = ArtifactRef(round_id, previous_target.id, previous_target.revision)
-            parent_refs = (previous_ref, brief_ref, model_ref)
-        return self._store.append_artifact(
-            round_id,
-            target_id,
-            BLUEPRINT_TARGET_KIND,
-            payload,
-            parent_refs=parent_refs,
-        )
 
 
 class CanonicalBlueprintTargetCompiler:
