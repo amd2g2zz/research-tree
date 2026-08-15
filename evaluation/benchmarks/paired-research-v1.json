@@ -48,5 +48,28 @@
     "host_pooling": "forbidden",
     "integrity_failure": "hard-fail",
     "provider_usage": "record actual cache-hit, cache-miss, and output token totals"
+  },
+  "execution_contract": {
+    "isolation_profile": "docker-internal-network-v1",
+    "raw_artifact_root": ".research-tree/evaluation-runs/<run-id>/",
+    "tool_recording_mode": "captured",
+    "live_web_variation_policy": "report-as-environmental-variation"
+  },
+  "metric_contract": {
+    "quality_aggregation": "host-specific-paired-task-mean",
+    "missing_data_rule": "retain-failure-and-exclude-no-cell",
+    "confidence_interval_method": "stratified-bootstrap-and-sign-flip",
+    "integrity_separate": true
+  },
+  "review_contract": {
+    "protocol": "blinded-independent-review-v1",
+    "disagreement_retention": "retain-and-report-inter-rater-agreement"
+  },
+  "budget_contract": {
+    "currency": "CNY",
+    "failure_treatment": "report-without-exclusion"
+  },
+  "corpus_contract": {
+    "dynamic_sampling_policy": "stratified-after-deterministic"
   }
 }

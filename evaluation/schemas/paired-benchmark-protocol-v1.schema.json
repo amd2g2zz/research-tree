@@ -12,7 +12,12 @@
     "sample_design",
     "synthetic_user",
     "anti_leakage",
-    "result_policy"
+    "result_policy",
+    "execution_contract",
+    "metric_contract",
+    "review_contract",
+    "budget_contract",
+    "corpus_contract"
   ],
   "properties": {
     "schema_version": {"const": 1},
@@ -50,6 +55,26 @@
         "review_blinding": {"const": "arm-and-host-hidden"},
         "scoring_separation": {"const": "synthetic-user-cannot-score"}
       }
+    },
+    "execution_contract": {
+      "type": "object",
+      "required": ["isolation_profile", "raw_artifact_root", "tool_recording_mode", "live_web_variation_policy"]
+    },
+    "metric_contract": {
+      "type": "object",
+      "required": ["quality_aggregation", "missing_data_rule", "confidence_interval_method", "integrity_separate"]
+    },
+    "review_contract": {
+      "type": "object",
+      "required": ["protocol", "disagreement_retention"]
+    },
+    "budget_contract": {
+      "type": "object",
+      "required": ["currency", "failure_treatment"]
+    },
+    "corpus_contract": {
+      "type": "object",
+      "required": ["dynamic_sampling_policy"]
     }
   },
   "additionalProperties": true

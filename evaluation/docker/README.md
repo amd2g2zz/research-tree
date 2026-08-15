@@ -144,3 +144,19 @@ against a hostile daemon, a privileged host user, or an untrusted orchestrator.
 The orchestrator owns lifecycle cleanup, public episode input delivery, result
 collection, and any provider billing or rate policy. It must keep request and
 result logs redacted and must not record credentials.
+
+## Sealed Episode Execution
+
+The evaluator first writes the sealed manifest, the journal HMAC key, and one
+public runner-input JSON file per episode under an ignored
+`.research-tree/evaluation-runs/<run-id>/` directory. Each cell's frozen host
+command contains exactly one `{episode_input_path}` and
+`{episode_output_path}` placeholder. The evaluator then invokes
+`evaluation/harness/run_sealed_episodes.py`; it verifies every command and
+input digest before launch, records stdout/stderr and the host result only in
+that ignored run directory, and checkpoints the HMAC-linked journal.
+
+An interrupted or failed cell invalidates its full task/repeat/role group
+across all six host/condition arms. Resume always starts fresh containers for
+the full group; it never resumes an agent process in place or mixes stale and
+fresh cells in a paired comparison.

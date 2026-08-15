@@ -84,3 +84,31 @@ def test_journal_rejects_stale_runtime_and_tampered_event_chain(tmp_path: Path) 
     with pytest.raises(JOURNAL.EpisodeJournalError, match="attestation"):
         wrong_key.verify(run_id)
     wrong_key.close()
+
+
+def test_terminal_failure_invalidates_the_entire_paired_group(tmp_path: Path) -> None:
+    journal = JOURNAL.EpisodeJournal(tmp_path, attestation_key=KEY)
+    manifest = FIXTURES.sealed_manifest()
+    run_id = journal.initialize(manifest, harness_revision="test-revision")
+    episode_id = manifest["episode_plan"][0]["episode_id"]
+    attempt_id = journal.reserve(run_id, episode_id)
+    contract = journal._contract(run_id, episode_id)
+    journal.start(run_id, episode_id, attempt_id, {name: contract[name] for name in JOURNAL._OBSERVED_FIELDS})
+    journal.checkpoint(
+        run_id,
+        episode_id,
+        attempt_id,
+        status="failed",
+        result_digest=FIXTURES.digest("1"),
+        source_capture_set_digest=FIXTURES.digest("2"),
+        transcript_digest=FIXTURES.digest("3"),
+        synthetic_session_receipt_digest=FIXTURES.digest("4"),
+        token_usage={"cache_hit_input_tokens": 0, "cache_miss_input_tokens": 0, "output_tokens": 0},
+        integrity={"runner_failure": True},
+    )
+
+    invalidated = journal.invalidate_group(run_id, episode_id, reason_code="host_command_failed")
+
+    assert len(invalidated) == 6
+    assert set(invalidated).issubset(journal.pending(run_id))
+    journal.close()

@@ -206,8 +206,34 @@ class EpisodeJournal:
             for episode_id, event in latest.items()
             if event["kind"] == "episode.started"
         }
+        return self._invalidate_groups(
+            run_id, contracts, latest, interrupted_groups, reason_code="paired_recovery_after_start"
+        )
+
+    def invalidate_group(self, run_id: str, episode_id: str, *, reason_code: str) -> tuple[str, ...]:
+        """Invalidate all paired cells after a terminal command failure."""
+
+        contracts = self._contracts_for_run(run_id)
+        contract = self._contract(run_id, episode_id)
+        return self._invalidate_groups(
+            run_id,
+            contracts,
+            self._latest_events(run_id),
+            {contract["pair_group_id"]},
+            reason_code=reason_code,
+        )
+
+    def _invalidate_groups(
+        self,
+        run_id: str,
+        contracts: Mapping[str, Mapping[str, str]],
+        latest: Mapping[str, Mapping[str, Any]],
+        group_ids: set[str],
+        *,
+        reason_code: str,
+    ) -> tuple[str, ...]:
         invalidated = [
-            episode_id for episode_id, contract in contracts.items() if contract["pair_group_id"] in interrupted_groups
+            episode_id for episode_id, contract in contracts.items() if contract["pair_group_id"] in group_ids
         ]
         for episode_id in sorted(invalidated):
             event = latest.get(episode_id)
@@ -220,7 +246,7 @@ class EpisodeJournal:
                     {
                         "pair_group_id": contracts[episode_id]["pair_group_id"],
                         "previous_kind": event["kind"] if event else "unstarted",
-                        "reason_code": "paired_recovery_after_start",
+                        "reason_code": reason_code,
                     },
                 )
         return tuple(sorted(invalidated))

@@ -86,6 +86,11 @@ def validate_sealed_manifest(raw: Mapping[str, object]) -> dict[str, Any]:
         "task_plan_digest",
         "task_budget",
         "randomization",
+        "corpus",
+        "execution_envelope",
+        "metrics",
+        "review",
+        "budget",
         "source_access",
         "synthetic_user",
         "human_evidence_status",
@@ -107,6 +112,11 @@ def validate_sealed_manifest(raw: Mapping[str, object]) -> dict[str, Any]:
     task_budget = _validate_task_budget(payload["task_budget"])
     _validate_plan_budget(plan, task_budget, phase)
     _validate_randomization(payload["randomization"])
+    corpus = _validate_corpus(payload["corpus"])
+    execution_envelope = _validate_execution_envelope(payload["execution_envelope"])
+    metrics = _validate_metrics(payload["metrics"])
+    review = _validate_review(payload["review"])
+    budget = _validate_budget(payload["budget"])
     _validate_source_access(payload["source_access"])
     policy = _validate_synthetic_policy(payload["synthetic_user"])
 
@@ -120,6 +130,11 @@ def validate_sealed_manifest(raw: Mapping[str, object]) -> dict[str, Any]:
         "task_plan_digest": _digest(payload["task_plan_digest"], "task_plan_digest"),
         "task_budget": task_budget,
         "randomization": {"seed_commitment": payload["randomization"]["seed_commitment"]},
+        "corpus": corpus,
+        "execution_envelope": execution_envelope,
+        "metrics": metrics,
+        "review": review,
+        "budget": budget,
         "source_access": {"mode": "live-capture-proxy", "replay_mode": "after-live-only"},
         "synthetic_user": {
             "evidence_kind": policy.evidence_kind,
@@ -277,6 +292,12 @@ def _validate_cells(raw: object) -> tuple[dict[str, str], ...]:
                 "intervention_digest",
                 "host_binding_digest",
                 "guest_rootfs_digest",
+                "host_package_digest",
+                "host_settings_digest",
+                "host_hooks_digest",
+                "environment_digest",
+                "host_command",
+                "host_command_digest",
             },
             "benchmark cell",
         )
@@ -292,6 +313,16 @@ def _validate_cells(raw: object) -> tuple[dict[str, str], ...]:
         intervention_digest = _digest(cell["intervention_digest"], "intervention_digest")
         host_binding_digest = _digest(cell["host_binding_digest"], "host_binding_digest")
         guest_rootfs_digest = _digest(cell["guest_rootfs_digest"], "guest_rootfs_digest")
+        host_package_digest = _digest(cell["host_package_digest"], "host_package_digest")
+        host_settings_digest = _digest(cell["host_settings_digest"], "host_settings_digest")
+        host_hooks_digest = _digest(cell["host_hooks_digest"], "host_hooks_digest")
+        environment_digest = _digest(cell["environment_digest"], "environment_digest")
+        host_command = _text(cell["host_command"], "host_command", maximum=4_096)
+        if host_command.count("{episode_input_path}") != 1 or host_command.count("{episode_output_path}") != 1:
+            raise PairedBenchmarkError("host command must bind exactly one episode input and output path")
+        host_command_digest = _digest(cell["host_command_digest"], "host_command_digest")
+        if host_command_digest != _digest_text(host_command):
+            raise PairedBenchmarkError("host command digest does not match the frozen command")
         condition_interventions[condition].add(intervention_digest)
         host_runtimes[host].add(runtime_digest)
         cells.append(
@@ -302,6 +333,12 @@ def _validate_cells(raw: object) -> tuple[dict[str, str], ...]:
                 "intervention_digest": intervention_digest,
                 "host_binding_digest": host_binding_digest,
                 "guest_rootfs_digest": guest_rootfs_digest,
+                "host_package_digest": host_package_digest,
+                "host_settings_digest": host_settings_digest,
+                "host_hooks_digest": host_hooks_digest,
+                "environment_digest": environment_digest,
+                "host_command": host_command,
+                "host_command_digest": host_command_digest,
             }
         )
     if seen_pairs != expected_pairs:
@@ -432,6 +469,111 @@ def _validate_randomization(raw: object) -> None:
     _digest(value["seed_commitment"], "seed_commitment")
     if value["unblind_after"] != "all-episodes-complete":
         raise PairedBenchmarkError("benchmark unblinding must wait for all episodes")
+
+
+def _validate_corpus(raw: object) -> dict[str, str]:
+    value = _mapping(raw, "benchmark corpus")
+    _require_exact_fields(
+        value,
+        {"revision", "sampling_seed", "strata_digest", "deterministic_case_set_digest", "dynamic_sampling_policy"},
+        "benchmark corpus",
+    )
+    if value["dynamic_sampling_policy"] != "stratified-after-deterministic":
+        raise PairedBenchmarkError("benchmark corpus must run deterministic cases before stratified dynamic sampling")
+    return {
+        "revision": _text(value["revision"], "corpus revision", maximum=256),
+        "sampling_seed": _text(value["sampling_seed"], "sampling seed", maximum=256),
+        "strata_digest": _digest(value["strata_digest"], "strata_digest"),
+        "deterministic_case_set_digest": _digest(
+            value["deterministic_case_set_digest"], "deterministic_case_set_digest"
+        ),
+        "dynamic_sampling_policy": "stratified-after-deterministic",
+    }
+
+
+def _validate_execution_envelope(raw: object) -> dict[str, str]:
+    value = _mapping(raw, "execution envelope")
+    _require_exact_fields(
+        value,
+        {"isolation_profile", "raw_artifact_root", "tool_recording_mode", "live_web_variation_policy"},
+        "execution envelope",
+    )
+    if value["isolation_profile"] != "docker-internal-network-v1":
+        raise PairedBenchmarkError("benchmark must use the sealed Docker execution envelope")
+    if value["tool_recording_mode"] != "captured":
+        raise PairedBenchmarkError("benchmark tools must retain captured evidence")
+    if value["live_web_variation_policy"] != "report-as-environmental-variation":
+        raise PairedBenchmarkError("live-web differences must be reported as environmental variation")
+    root = _text(value["raw_artifact_root"], "raw artifact root", maximum=512)
+    if not root.startswith(".research-tree/evaluation-runs/"):
+        raise PairedBenchmarkError("raw benchmark artifacts must remain in disposable evaluation runs")
+    return {
+        "isolation_profile": "docker-internal-network-v1",
+        "raw_artifact_root": root,
+        "tool_recording_mode": "captured",
+        "live_web_variation_policy": "report-as-environmental-variation",
+    }
+
+
+def _validate_metrics(raw: object) -> dict[str, str]:
+    value = _mapping(raw, "benchmark metrics")
+    _require_exact_fields(
+        value,
+        {
+            "metric_catalog_digest",
+            "quality_aggregation",
+            "missing_data_rule",
+            "confidence_interval_method",
+            "integrity_separate",
+        },
+        "benchmark metrics",
+    )
+    if value["quality_aggregation"] != "host-specific-paired-task-mean":
+        raise PairedBenchmarkError("benchmark metric aggregation must remain host-specific and paired")
+    if value["missing_data_rule"] != "retain-failure-and-exclude-no-cell":
+        raise PairedBenchmarkError("benchmark missing-data rule must retain failures")
+    if value["confidence_interval_method"] != "stratified-bootstrap-and-sign-flip":
+        raise PairedBenchmarkError("benchmark confidence-interval method is unsupported")
+    if value["integrity_separate"] is not True:
+        raise PairedBenchmarkError("benchmark integrity gates must remain separate from quality metrics")
+    return {
+        "metric_catalog_digest": _digest(value["metric_catalog_digest"], "metric_catalog_digest"),
+        "quality_aggregation": "host-specific-paired-task-mean",
+        "missing_data_rule": "retain-failure-and-exclude-no-cell",
+        "confidence_interval_method": "stratified-bootstrap-and-sign-flip",
+    }
+
+
+def _validate_review(raw: object) -> dict[str, str]:
+    value = _mapping(raw, "benchmark review")
+    _require_exact_fields(
+        value, {"protocol", "reviewer_assignment_digest", "disagreement_retention"}, "benchmark review"
+    )
+    if value["protocol"] != "blinded-independent-review-v1":
+        raise PairedBenchmarkError("benchmark review must remain blinded and independent")
+    if value["disagreement_retention"] != "retain-and-report-inter-rater-agreement":
+        raise PairedBenchmarkError("benchmark review must retain disagreement and inter-rater agreement")
+    return {
+        "protocol": "blinded-independent-review-v1",
+        "reviewer_assignment_digest": _digest(value["reviewer_assignment_digest"], "reviewer_assignment_digest"),
+        "disagreement_retention": "retain-and-report-inter-rater-agreement",
+    }
+
+
+def _validate_budget(raw: object) -> dict[str, object]:
+    value = _mapping(raw, "benchmark budget")
+    _require_exact_fields(value, {"currency", "maximum_cost", "failure_treatment"}, "benchmark budget")
+    maximum_cost = value["maximum_cost"]
+    if (
+        not isinstance(maximum_cost, Real)
+        or isinstance(maximum_cost, bool)
+        or not isfinite(maximum_cost)
+        or maximum_cost <= 0
+    ):
+        raise PairedBenchmarkError("benchmark budget maximum_cost must be a positive finite number")
+    if value["currency"] != "CNY" or value["failure_treatment"] != "report-without-exclusion":
+        raise PairedBenchmarkError("benchmark budget must retain failures and use declared CNY cost")
+    return {"currency": "CNY", "maximum_cost": float(maximum_cost), "failure_treatment": "report-without-exclusion"}
 
 
 def _validate_source_access(raw: object) -> None:
@@ -691,6 +833,10 @@ def _digest(value: object, label: str) -> str:
     if not _DIGEST_PATTERN.fullmatch(digest):
         raise PairedBenchmarkError(f"{label} must be a SHA-256 digest")
     return digest
+
+
+def _digest_text(value: str) -> str:
+    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _review_attestation(value: object) -> str:

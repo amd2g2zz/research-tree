@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -33,12 +34,19 @@ def digest(character: str) -> str:
     return "sha256:" + character * 64
 
 
+def text_digest(value: str) -> str:
+    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
 def sealed_manifest(*, phase: str = "calibration") -> dict[str, object]:
     cells = []
     episode_plan = []
     for host, runtime_character in (("claude_code", "b"), ("hermes_agent", "c")):
         for condition, artifact_character in (("baseline", "d"), ("alpha1", "e"), ("alpha2", "f")):
             episode_id = f"{host}-{condition}-task-1-repeat-1"
+            host_command = (
+                f"docker run --rm {host} --condition {condition} {{episode_input_path}} {{episode_output_path}}"
+            )
             cells.append(
                 {
                     "host": host,
@@ -47,6 +55,12 @@ def sealed_manifest(*, phase: str = "calibration") -> dict[str, object]:
                     "intervention_digest": digest(artifact_character),
                     "host_binding_digest": digest(f"{runtime_character}{artifact_character}"[0]),
                     "guest_rootfs_digest": digest(f"{artifact_character}{runtime_character}"[0]),
+                    "host_package_digest": digest("8" if host == "claude_code" else "9"),
+                    "host_settings_digest": digest("a" if host == "claude_code" else "b"),
+                    "host_hooks_digest": digest("c" if host == "claude_code" else "d"),
+                    "environment_digest": digest("e" if host == "claude_code" else "f"),
+                    "host_command": host_command,
+                    "host_command_digest": text_digest(host_command),
                 }
             )
             episode_plan.append(
@@ -77,6 +91,32 @@ def sealed_manifest(*, phase: str = "calibration") -> dict[str, object]:
             "integrity_repeats": 0,
         },
         "randomization": {"seed_commitment": digest("3"), "unblind_after": "all-episodes-complete"},
+        "corpus": {
+            "revision": "corpus-test-v1",
+            "sampling_seed": "seed-test-v1",
+            "strata_digest": digest("a"),
+            "deterministic_case_set_digest": digest("b"),
+            "dynamic_sampling_policy": "stratified-after-deterministic",
+        },
+        "execution_envelope": {
+            "isolation_profile": "docker-internal-network-v1",
+            "raw_artifact_root": ".research-tree/evaluation-runs/test",
+            "tool_recording_mode": "captured",
+            "live_web_variation_policy": "report-as-environmental-variation",
+        },
+        "metrics": {
+            "metric_catalog_digest": digest("c"),
+            "quality_aggregation": "host-specific-paired-task-mean",
+            "missing_data_rule": "retain-failure-and-exclude-no-cell",
+            "confidence_interval_method": "stratified-bootstrap-and-sign-flip",
+            "integrity_separate": True,
+        },
+        "review": {
+            "protocol": "blinded-independent-review-v1",
+            "reviewer_assignment_digest": digest("d"),
+            "disagreement_retention": "retain-and-report-inter-rater-agreement",
+        },
+        "budget": {"currency": "CNY", "maximum_cost": 50.0, "failure_treatment": "report-without-exclusion"},
         "source_access": {
             "mode": "live-capture-proxy",
             "replay_mode": "after-live-only",
@@ -204,6 +244,16 @@ def test_manifest_rejects_private_prompts_and_unpaired_cells() -> None:
     mismatched_runtime["cells"][0]["runtime_digest"] = digest("d")
     with pytest.raises(PairedBenchmarkError, match="frozen runtime"):
         validate_sealed_manifest(mismatched_runtime)
+
+    tampered_command = sealed_manifest()
+    tampered_command["cells"][0]["host_command"] = "tampered {episode_input_path} {episode_output_path}"
+    with pytest.raises(PairedBenchmarkError, match="command digest"):
+        validate_sealed_manifest(tampered_command)
+
+    direct_egress = sealed_manifest()
+    direct_egress["execution_envelope"]["raw_artifact_root"] = "evaluation/results"
+    with pytest.raises(PairedBenchmarkError, match="disposable evaluation runs"):
+        validate_sealed_manifest(direct_egress)
 
 
 def test_results_reject_runner_supplied_arm_identity_and_integrity_failure() -> None:
