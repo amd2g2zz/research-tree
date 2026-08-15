@@ -50,6 +50,8 @@ def write_reports(workspace: Path) -> tuple[Path, Path]:
 
 
 def run_adapter(workspace: Path, host: str, command: str, *args: str) -> subprocess.CompletedProcess[str]:
+    if command == "init" and "--project-id" not in args:
+        args = ("--project-id", f"project-{host}", *args)
     return subprocess.run(
         [
             sys.executable,
@@ -97,8 +99,7 @@ def finding(task_id: str, slot: str, phase: str, attempt_id: str) -> dict[str, o
 def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -> None:
     run_id = f"{host}-run"
     technical, human = write_reports(tmp_path)
-    assert (
-        run_adapter(
+    initialized = run_adapter(
             tmp_path,
             host,
             "init",
@@ -106,9 +107,11 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
             run_id,
             "--handoff",
             str(write_handoff(tmp_path)),
-        ).returncode
-        == 0
-    )
+        )
+    assert initialized.returncode == 0, initialized.stderr
+    assert not (tmp_path / ".research-tree-native" / run_id).exists()
+    assert (tmp_path / ".research-tree" / "projects" / f"project-{host}" / "runs" / run_id / "state.json").is_file()
+    assert json.loads(initialized.stdout)["lifecycle_hooks"] == "available"
     first = run_adapter(
         tmp_path,
         host,

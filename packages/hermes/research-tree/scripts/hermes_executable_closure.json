@@ -8,6 +8,7 @@
     "scripts/hermes_skill_adapter.py",
     "scripts/host_event_protocol.py",
     "scripts/native_workflow_contract.py",
+    "scripts/project_workspace_contract.py",
     "scripts/skill_activation.py"
   ],
   "entrypoints": [
@@ -18,6 +19,7 @@
     {"path": "scripts/hermes_skill_adapter.py", "arguments": ["--help"]},
     {"path": "scripts/host_event_protocol.py", "arguments": []},
     {"path": "scripts/native_workflow_contract.py", "arguments": []},
+    {"path": "scripts/project_workspace_contract.py", "arguments": []},
     {"path": "scripts/skill_activation.py", "arguments": []}
   ]
 }

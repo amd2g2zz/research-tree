@@ -6,7 +6,7 @@ it does not create or display a Research Tree during alignment.
 
 ## Storage model
 
-One run owns `.research-tree-alignment/<run-id>/alignment.db`. SQLite uses WAL,
+One run owns `.research-tree/projects/<project-id>/runs/<run-id>/alignment/alignment.db`. SQLite uses WAL,
 foreign keys, full transaction synchronization, and a busy timeout. The schema
 contains:
 
@@ -84,18 +84,18 @@ boundaries.
 ```bash
 python scripts/alignment_controller.py --workspace . schema \
   --output alignment-update.example.json
-python scripts/alignment_controller.py --workspace . init --run-id r1
+python scripts/alignment_controller.py --workspace . --project-id <project-id> init --run-id r1
 python scripts/alignment_controller.py --workspace . plan \
-  --run-id r1 --graph-file alignment-update.json
+  --project-id <project-id> --run-id r1 --graph-file alignment-update.json
 python scripts/alignment_controller.py --workspace . record \
-  --run-id r1 --node-id intended-use --outcome answered \
+  --project-id <project-id> --run-id r1 --node-id intended-use --outcome answered \
   --fingerprint compact-model-state-v2
 python scripts/alignment_controller.py --workspace . confirm \
-  --run-id r1 --expected-digest <displayed-digest> \
+  --project-id <project-id> --run-id r1 --expected-digest <displayed-digest> \
   --confirmation "I accept this strategy and authorize autonomous research."
-python scripts/alignment_controller.py --workspace . compile --run-id r1 \
-  --output .research-tree-alignment/r1/handoff.json
-python scripts/alignment_controller.py --workspace . rebuild --run-id r1
+python scripts/alignment_controller.py --workspace . --project-id <project-id> compile --run-id r1 \
+  --output .research-tree/projects/<project-id>/runs/r1/alignment/handoff.json
+python scripts/alignment_controller.py --workspace . --project-id <project-id> rebuild --run-id r1
 ```
 
 Use `schema --output` on Windows PowerShell 5 instead of `Set-Content -Encoding

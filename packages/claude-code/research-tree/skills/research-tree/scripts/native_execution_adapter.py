@@ -17,6 +17,26 @@ from uuid import uuid4
 
 from host_event_protocol import build_host_event
 
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE_ROOT = ROOT / "src"
+if SOURCE_ROOT.is_dir() and str(SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SOURCE_ROOT))
+
+try:
+    from research_tree.project_workspace import (
+        ProjectWorkspaceError,
+        initialize_project_run,
+        install_project_hooks,
+        probe_lifecycle_hook,
+    )
+except ImportError:
+    from project_workspace_contract import (
+        ProjectWorkspaceError,
+        initialize_project_run,
+        install_project_hooks,
+        probe_lifecycle_hook,
+    )
+
 try:
     from research_tree.host_capabilities import (
         WorkflowContractError,
@@ -76,11 +96,11 @@ def _inside(workspace: Path, candidate: Path, label: str) -> Path:
 
 
 def _run_dir(workspace: Path, run_id: str) -> Path:
-    return _inside(
-        workspace,
-        workspace / ".research-tree-native" / _identifier(run_id, "run id"),
-        "run directory",
-    )
+    run_id = _identifier(run_id, "run id")
+    candidates = tuple((workspace / ".research-tree" / "projects").glob(f"*/runs/{run_id}"))
+    if len(candidates) != 1:
+        raise AdapterError("run must resolve to exactly one project workspace")
+    return _inside(workspace, candidates[0], "run directory")
 
 
 def _state_path(workspace: Path, run_id: str) -> Path:
@@ -149,15 +169,31 @@ def _load_handoff(workspace: Path, path: Path) -> tuple[dict[str, Any], Path]:
     return handoff, resolved
 
 
-def init_run(workspace: Path, run_id: str, host: str, handoff_path: Path) -> dict[str, Any]:
+def init_run(workspace: Path, project_id: str, run_id: str, host: str, handoff_path: Path) -> dict[str, Any]:
     workspace = workspace.resolve()
+    _identifier(project_id, "project id")
+    _identifier(run_id, "run id")
+    handoff, resolved_handoff = _load_handoff(workspace, handoff_path)
+    requested_state = workspace / ".research-tree" / "projects" / project_id / "runs" / run_id / "state.json"
+    if requested_state.exists():
+        raise AdapterError(f"run already exists: {run_id}")
+    try:
+        project_workspace = initialize_project_run(
+            workspace, project_id=project_id, run_id=run_id, host=host
+        )
+        installation = install_project_hooks(workspace, project_workspace)
+        hook_probe = probe_lifecycle_hook(project_workspace, launcher=Path(installation["launcher"]))
+    except ProjectWorkspaceError as error:
+        raise AdapterError(str(error)) from error
     path = _state_path(workspace, run_id)
     if path.exists():
         raise AdapterError(f"run already exists: {run_id}")
-    handoff, resolved_handoff = _load_handoff(workspace, handoff_path)
     state: dict[str, Any] = {
         "schema": SCHEMA,
         "host": host,
+        "project_id": project_workspace.project_id,
+        "project_run_root": str(project_workspace.run_root),
+        "lifecycle_hooks": hook_probe.status,
         "run_id": run_id,
         "status": "aligned",
         "revision": 0,
@@ -598,6 +634,7 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init_parser = subparsers.add_parser("init")
+    init_parser.add_argument("--project-id", required=True)
     init_parser.add_argument("--run-id", required=True)
     init_parser.add_argument(
         "--handoff",
@@ -708,7 +745,7 @@ def main() -> int:
             )
         elif args.command == "init":
             handoff = args.handoff if args.handoff.is_absolute() else workspace / args.handoff
-            result = init_run(workspace, args.run_id, args.host, handoff)
+            result = init_run(workspace, args.project_id, args.run_id, args.host, handoff)
         elif args.command == "add-task":
             artifact = args.artifact
             if not artifact.is_absolute():

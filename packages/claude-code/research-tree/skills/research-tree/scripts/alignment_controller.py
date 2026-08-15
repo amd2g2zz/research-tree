@@ -134,9 +134,11 @@ def _atomic_write_json(path: Path, value: Mapping[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def _run_dir(workspace: Path, run_id: str) -> Path:
+def _run_dir(workspace: Path, run_id: str, project_id: str | None = None) -> Path:
     root = workspace.resolve()
-    target = (root / ".research-tree-alignment" / _identifier(run_id, "run id")).resolve()
+    run_id = _identifier(run_id, "run id")
+    resolved_project = _identifier(project_id or f"alignment-{run_id}", "project id")
+    target = (root / ".research-tree" / "projects" / resolved_project / "runs" / run_id / "alignment").resolve()
     try:
         target.relative_to(root)
     except ValueError as exc:
@@ -144,8 +146,9 @@ def _run_dir(workspace: Path, run_id: str) -> Path:
     return target
 
 
-def database_path(workspace: Path, run_id: str) -> Path:
-    return _run_dir(workspace, run_id) / "alignment.db"
+def database_path(workspace: Path, run_id: str, project_id: str | None = None) -> Path:
+    """Resolve one alignment database under the sole project/run authority."""
+    return _run_dir(workspace, run_id, project_id) / "alignment.db"
 
 
 class AlignmentGraphStore:
@@ -973,18 +976,18 @@ def _load_update(path: Path) -> Mapping[str, Any]:
     return value
 
 
-def init(workspace: Path, run_id: str) -> dict[str, Any]:
-    return AlignmentGraphStore(database_path(workspace, run_id)).initialize(run_id)
+def init(workspace: Path, run_id: str, *, project_id: str | None = None) -> dict[str, Any]:
+    return AlignmentGraphStore(database_path(workspace, run_id, project_id)).initialize(run_id)
 
 
-def plan(workspace: Path, run_id: str, update_file: Path) -> dict[str, Any]:
-    return AlignmentGraphStore(database_path(workspace, run_id)).plan(_load_update(update_file))
+def plan(workspace: Path, run_id: str, update_file: Path, *, project_id: str | None = None) -> dict[str, Any]:
+    return AlignmentGraphStore(database_path(workspace, run_id, project_id)).plan(_load_update(update_file))
 
 
 def record(
-    workspace: Path, run_id: str, node_id: str, outcome: str, fingerprint: str
+    workspace: Path, run_id: str, node_id: str, outcome: str, fingerprint: str, *, project_id: str | None = None
 ) -> dict[str, Any]:
-    return AlignmentGraphStore(database_path(workspace, run_id)).record(
+    return AlignmentGraphStore(database_path(workspace, run_id, project_id)).record(
         node_id, outcome, fingerprint
     )
 
@@ -994,8 +997,10 @@ def confirm(
     run_id: str,
     confirmation: str,
     expected_digest: str | None = None,
+    *,
+    project_id: str | None = None,
 ) -> dict[str, Any]:
-    return AlignmentGraphStore(database_path(workspace, run_id)).confirm(
+    return AlignmentGraphStore(database_path(workspace, run_id, project_id)).confirm(
         confirmation, expected_digest
     )
 
@@ -1003,6 +1008,7 @@ def confirm(
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
+    parser.add_argument("--project-id")
     commands = parser.add_subparsers(dest="command", required=True)
     initialize = commands.add_parser("init")
     initialize.add_argument("--run-id", required=True)
@@ -1053,7 +1059,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 result = {**result, "persisted_path": str(output)}
             print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
             return 0
-        store = AlignmentGraphStore(database_path(workspace, args.run_id))
+        if not args.project_id:
+            raise AlignmentGraphError("--project-id is required for a project-scoped alignment run")
+        store = AlignmentGraphStore(database_path(workspace, args.run_id, args.project_id))
         if args.command == "init":
             result = store.initialize(args.run_id)
         elif args.command == "plan":

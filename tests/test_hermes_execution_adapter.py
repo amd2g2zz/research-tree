@@ -11,6 +11,8 @@ ADAPTER = ROOT / "scripts" / "hermes_execution_adapter.py"
 
 
 def run_adapter(workspace: Path, command: str, *args: str) -> subprocess.CompletedProcess[str]:
+    if command == "init" and "--project-id" not in args:
+        args = ("--project-id", "project-hermes", *args)
     return subprocess.run(
         [sys.executable, str(ADAPTER), "--workspace", str(workspace), command, *args],
         cwd=workspace,
@@ -50,6 +52,9 @@ def test_legacy_commands_are_non_authoritative_observations(tmp_path: Path) -> N
     assert initialized.returncode == 0, initialized.stdout + initialized.stderr
     init_result = json.loads(initialized.stdout)
     assert init_result["status"] == "observed"
+    assert init_result["project_id"] == "project-hermes"
+    assert init_result["lifecycle_hooks"] == "available"
+    assert (tmp_path / ".research-tree" / "projects" / "project-hermes" / "runs" / run_id).is_dir()
     assert init_result["authoritative"] is False
     assert init_result["completion_authority"] == "coordinator_only"
 

@@ -92,9 +92,11 @@ persists state before exit. A cron session must not create another cron job.
 ## Observability
 
 The package's `scripts/hermes_runtime_hook.py` records sanitized session,
-delegation, and subagent lifecycle metadata in
-`.research-tree-hermes/events.jsonl`. Generate an absolute-path hook snippet
-with:
+delegation, and subagent lifecycle metadata only when
+`RESEARCH_TREE_PROJECT_ID` and `RESEARCH_TREE_RUN_ID` bind it to an initialized
+run. Records then go to
+`.research-tree/projects/<project-id>/runs/<run-id>/events/`. Generate an
+absolute-path hook snippet with:
 
 ```bash
 python scripts/hermes_skill_adapter.py render-hooks
@@ -109,7 +111,7 @@ After alignment, use the Hermes adapter as a translator over canonical state:
 
 ```bash
 python scripts/hermes_execution_adapter.py --workspace . init \
-  --run-id <run-id> --handoff .research-tree-alignment/<alignment-run>/handoff.json
+  --project-id <project-id> --run-id <run-id> --handoff .research-tree/projects/<project-id>/runs/<alignment-run>/alignment/handoff.json
 python scripts/hermes_execution_adapter.py --workspace . emit-event \
   --event-id <event-id> --kind provider_failure --run-id <run-id> \
   --attempt-id <attempt-id> --expected-revision <revision> --sequence <sequence> \

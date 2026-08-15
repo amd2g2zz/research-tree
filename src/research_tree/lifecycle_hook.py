@@ -9,12 +9,13 @@ import os
 from pathlib import Path
 import secrets
 import sys
+import re
 from typing import Any, BinaryIO, Sequence
 
 
 MAX_INPUT_BYTES = 64 * 1024
 MAX_IDENTIFIER_LENGTH = 256
-EVENT_DIRECTORY = Path(".research-tree-hooks") / "events"
+PROJECT_IDENTIFIER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 HOST_EVENTS = {
     "codex": frozenset(
         {
@@ -120,8 +121,8 @@ def _optional_identifier(payload: dict[str, Any], key: str) -> str | None:
     return value
 
 
-def _write_record(root: Path, record: dict[str, Any]) -> Path:
-    event_dir = _inside(root, root / EVENT_DIRECTORY, "hook event directory")
+def _write_record(root: Path, record: dict[str, Any], event_dir: Path) -> Path:
+    event_dir = _inside(root, event_dir, "hook event directory")
     event_dir.mkdir(parents=True, exist_ok=True)
     encoded = json.dumps(
         record, ensure_ascii=True, separators=(",", ":")
@@ -175,7 +176,23 @@ def observe(
         value = _optional_identifier(payload, key)
         if value is not None:
             record[key] = value
-    path = _write_record(root, record)
+    project_id = payload.get("project_id")
+    run_id = payload.get("run_id")
+    if project_id is None and run_id is None:
+        return {"status": "unbound", "host": host, "event": event}
+    if (
+        not isinstance(project_id, str)
+        or not isinstance(run_id, str)
+        or not PROJECT_IDENTIFIER_RE.fullmatch(project_id)
+        or not PROJECT_IDENTIFIER_RE.fullmatch(run_id)
+    ):
+        raise LifecycleHookError("project_id and run_id must be opaque identifiers")
+    run_root = root / ".research-tree" / "projects" / project_id / "runs" / run_id
+    if not (run_root / "manifest.json").is_file():
+        raise LifecycleHookError("project run is not initialized")
+    record["project_id"] = project_id
+    record["run_id"] = run_id
+    path = _write_record(root, record, run_root / "events")
     if debug:
         try:
             from .debug_trace import emit_trace
@@ -213,6 +230,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", choices=tuple(HOST_EVENTS), required=True)
     parser.add_argument("--event", required=True)
     parser.add_argument("--project-root", type=Path)
+    parser.add_argument("--project-id")
+    parser.add_argument("--run-id")
+    parser.add_argument("--session-id")
     parser.add_argument("--debug", action="store_true")
     return parser
 
@@ -221,8 +241,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
     try:
+        payload = read_payload()
+        for key in ("project_id", "run_id", "session_id"):
+            value = getattr(arguments, key)
+            if value is not None:
+                payload[key] = value
         observe(
-            read_payload(),
+            payload,
             host=arguments.host,
             event=arguments.event,
             project_root=arguments.project_root,

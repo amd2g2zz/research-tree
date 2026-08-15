@@ -58,7 +58,7 @@ agreement. The agent does not flatten conflicting entries into a single source.
 ## Alignment Graph and Handoff
 
 Before autonomous research, persist a temporal heterogeneous multigraph in
-`.research-tree-alignment/<run-id>/alignment.db`. Nodes represent typed human
+`.research-tree/projects/<project-id>/runs/<run-id>/alignment/alignment.db`. Nodes represent typed human
 or agent beliefs, intent hypotheses, constraints, evidence, disagreements,
 strategy, and closure oracles. Directed edges have independent IDs so the same
 nodes may retain multiple relations with different provenance, time, and
