@@ -4,8 +4,79 @@ from pathlib import Path
 
 import pytest
 
-from test_intent_and_brief import compile_model, context
 from test_alignment_protocol import candidate
+
+
+def legacy_api():
+    from research_tree import (
+        InputIntakeService,
+        IntentModelCompiler,
+        RunStore,
+        WorkingBriefCompiler,
+    )
+
+    return {
+        "InputIntakeService": InputIntakeService,
+        "IntentModelCompiler": IntentModelCompiler,
+        "RunStore": RunStore,
+        "WorkingBriefCompiler": WorkingBriefCompiler,
+    }
+
+
+def context(tmp_path: Path):
+    modules = legacy_api()
+    store = modules["RunStore"](tmp_path / "store")
+    round_record = store.create_round("round-intent")
+    intake = modules["InputIntakeService"](store)
+    for input_id, kind, content, role in (
+        ("input-brief", "brief", "Build an autonomous reverse-engineering agent.", "signal"),
+        ("input-local", "note", "The first demo must run locally.", "constraint"),
+        ("input-cloud", "note", "The first demo must be cloud-hosted.", "constraint"),
+    ):
+        intake.ingest_text(
+            round_id=round_record.id,
+            input_id=input_id,
+            kind=kind,
+            content=content,
+            origin_type="user",
+            origin_locator="conversation:1",
+            role=role,
+        )
+    intake.create_context_bundle(
+        round_id=round_record.id,
+        input_id="input-context",
+        member_input_ids=("input-brief", "input-local", "input-cloud"),
+        origin_type="user",
+        origin_locator="conversation:1",
+        role="baseline",
+    )
+    return modules, store, round_record
+
+
+def compile_model(modules, store, round_record):
+    return modules["IntentModelCompiler"](store).compile(
+        round_id=round_record.id,
+        intent_id="intent-model",
+        context_bundle_ids=("input-context",),
+        input_ids=("input-brief", "input-local", "input-cloud"),
+        analysis={
+            "signals": [
+                {"input_id": "input-brief", "observation": "Requester wants a reverse-engineering agent.", "kind": "stated_goal", "authority_boundary": "Does not choose a deployment mode."},
+                {"input_id": "input-local", "observation": "One supplied note requires local execution.", "kind": "constraint", "authority_boundary": "Conflicts with the cloud note."},
+                {"input_id": "input-cloud", "observation": "One supplied note requires cloud hosting.", "kind": "constraint", "authority_boundary": "Conflicts with the local note."},
+            ],
+            "hypotheses": [
+                {"id": "intent-local", "interpretation": "Enable a local-first reverse-engineering demo.", "status": "leading", "signal_refs": ["input-brief", "input-local"], "confidence": "medium", "decision_consequence": "Favors local isolation and offline prototype work.", "validation": "repository_inspection"},
+                {"id": "intent-cloud", "interpretation": "Enable a cloud-hosted reverse-engineering demo.", "status": "viable", "signal_refs": ["input-brief", "input-cloud"], "confidence": "low", "decision_consequence": "Changes identity, deployment, and data-boundary research.", "validation": "alignment_research"},
+            ],
+            "desired_outcomes": ["implementation-ready technical blueprint"],
+            "success_signals": ["implementation agent can begin without rediscovery"],
+            "decision_drivers": [{"dimension": "technical", "statement": "The first delivery must be safe to inspect and implement.", "signal_refs": ["input-brief"]}],
+            "hard_constraints": ["Do not execute untrusted binaries during intake."],
+            "non_goals": ["Do not force a user questionnaire."],
+            "unresolved_interpretations": [],
+        },
+    )
 
 
 def api():
