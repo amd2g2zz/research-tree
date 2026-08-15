@@ -5,58 +5,52 @@ from pathlib import Path
 
 import pytest
 
-from legacy_runstore_fixture import compile_finding, context, decision_kwargs, finding_payload
+from canonical_finding_fixture import canonical_context
+
+
+_RESOLVERS = {}
 
 
 def api():
     from research_tree import (
         ArtifactRef,
-        AssuranceAdapterRunner,
         AssuranceAdapterSet,
-        AssuranceStrategySelector,
-        DecisionLedgerCompiler,
+        CanonicalAssuranceAdapterRunner,
+        CanonicalAssuranceStrategySelector,
         InvalidAssuranceError,
     )
 
     return {
         "ArtifactRef": ArtifactRef,
-        "AssuranceAdapterRunner": AssuranceAdapterRunner,
         "AssuranceAdapterSet": AssuranceAdapterSet,
-        "AssuranceStrategySelector": AssuranceStrategySelector,
-        "DecisionLedgerCompiler": DecisionLedgerCompiler,
+        "CanonicalAssuranceAdapterRunner": CanonicalAssuranceAdapterRunner,
+        "CanonicalAssuranceStrategySelector": CanonicalAssuranceStrategySelector,
         "InvalidAssuranceError": InvalidAssuranceError,
     }
 
 
 def decision_context(tmp_path: Path):
-    modules, store, round_record, _model, _brief, target, _seed_finding, _seed_decision = context(
-        tmp_path,
-        include_decision=False,
-    )
-    work = next(artifact for artifact in store.load_round(round_record.id).artifacts if artifact.id == "work-isolation")
-    finding = compile_finding(
-        modules,
-        store,
+    (
+        ledger,
+        resolver,
         round_record,
+        _model,
+        _brief,
+        target,
         work,
-        "finding-assurance",
-        **finding_payload(
-            "isolated-worker",
-            "supports",
-            "The worker boundary keeps the initial inspection path isolated.",
-        ),
-    )
-    decision = modules["DecisionLedgerCompiler"](store).converge(
-        round_id=round_record.id,
-        decision_id="decision-isolation",
-        **decision_kwargs(target, finding),
-    )
-    return modules, store, round_record, target, work, finding, decision
+        finding,
+        decision,
+        _evidence,
+        _anchor,
+    ) = canonical_context(tmp_path)
+    modules = api()
+    _RESOLVERS[ledger] = resolver
+    return modules, ledger, round_record, target, work, finding, decision
 
 
 def strategy_for(api_modules, store, round_record, target):
     artifact_ref = api_modules["ArtifactRef"]
-    snapshot = store.load_round(round_record.id)
+    snapshot = store.load_run(round_record.id)
     by_key = {(item.id, item.revision): item for item in snapshot.artifacts}
     brief_ref = next(ref for ref in target.parent_refs if ref.artifact_id == target.payload["brief_id"])
     model_ref = next(ref for ref in target.parent_refs if ref.artifact_id == target.payload["intent_model_id"])
@@ -67,6 +61,7 @@ def strategy_for(api_modules, store, round_record, target):
         "feedback-lineage",
         "feedback-lineage",
         {"summary": "A persisted strategy source for assurance selection tests."},
+        expected_revision=store.get_revision(round_record.id),
     )
     return store.append_artifact(
         round_record.id,
@@ -91,16 +86,18 @@ def strategy_for(api_modules, store, round_record, target):
             artifact_ref(brief.round_id, brief.id, brief.revision),
             artifact_ref(lineage.round_id, lineage.id, lineage.revision),
         ),
+        expected_revision=store.get_revision(round_record.id),
     )
 
 
 def select(api_modules, store, round_record, target, strategy, policies):
-    return api_modules["AssuranceStrategySelector"](store).select(
+    return api_modules["CanonicalAssuranceStrategySelector"](store).select(
         round_id=round_record.id,
         selection_id="assurance-selection",
         strategy=strategy,
         blueprint_target=target,
         policies=policies,
+        expected_revision=store.get_revision(round_record.id),
     )
 
 
@@ -173,13 +170,14 @@ def high_assurance_adapters(api_modules, *, review=None, integrity=None):
 
 
 def run(api_modules, store, round_record, selection, decision, *, adapters, evidence_id="assurance-evidence"):
-    return api_modules["AssuranceAdapterRunner"](store).run(
+    return api_modules["CanonicalAssuranceAdapterRunner"](store, _RESOLVERS[store]).run(
         round_id=round_record.id,
         evidence_id=evidence_id,
         selection=selection,
         decision=decision,
         source=source(),
         adapters=adapters,
+        expected_revision=store.get_revision(round_record.id),
     )
 
 
@@ -205,7 +203,7 @@ def test_ordinary_strategy_selects_no_adapters_and_keeps_the_p0_path_optional(
     assert result.evidence.payload["status"] == "passed"
     assert result.follow_up is None
     assert result.blocked_decision is None
-    assert decision.payload["status"] == "conditional"
+    assert decision.payload["status"] == "selected"
 
 
 def test_high_assurance_adapters_persist_versioned_provenance_with_exact_decision_lineage(
@@ -271,7 +269,7 @@ def test_high_assurance_adapters_persist_versioned_provenance_with_exact_decisio
     assert result.follow_up is None
     assert result.blocked_decision is None
     assert finding.to_dict() == before_finding
-    rehydrated = type(store)(store.root).load_round(round_record.id)
+    rehydrated = store.load_run(round_record.id)
     assert result.evidence in rehydrated.artifacts
 
 
@@ -312,7 +310,7 @@ def test_failed_integrity_creates_targeted_follow_up_without_mutating_prior_find
     assert result.blocked_decision is None
     assert result.resolution.payload["status"] == "follow_up"
     assert finding.to_dict() == before_finding
-    assert decision.payload["status"] == "conditional"
+    assert decision.payload["status"] == "selected"
 
 
 def test_failed_high_assurance_review_appends_a_blocked_decision_revision(
@@ -382,7 +380,7 @@ def test_missing_selected_adapter_rejects_before_persisting_partial_evidence(tmp
             adapters=api_modules["AssuranceAdapterSet"](),
         )
 
-    assert not [item for item in store.load_round(round_record.id).artifacts if item.kind == "assurance-evidence"]
+    assert not [item for item in store.load_run(round_record.id).artifacts if item.kind == "assurance-evidence"]
 
 
 def test_selection_rejects_a_strategy_that_does_not_share_the_target_brief(
@@ -400,6 +398,7 @@ def test_selection_rejects_a_strategy_that_does_not_share_the_target_brief(
         "research-strategy",
         incompatible_payload,
         parent_refs=strategy.parent_refs,
+        expected_revision=store.get_revision(round_record.id),
     )
 
     with pytest.raises(api_modules["InvalidAssuranceError"], match="share the exact Working Brief"):
@@ -413,5 +412,5 @@ def test_selection_rejects_a_strategy_that_does_not_share_the_target_brief(
         )
 
     assert not [
-        item for item in store.load_round(round_record.id).artifacts if item.kind == "assurance-adapter-selection"
+        item for item in store.load_run(round_record.id).artifacts if item.kind == "assurance-adapter-selection"
     ]
