@@ -58,3 +58,10 @@ def test_legacy_feedback_service_is_not_published() -> None:
 
     assert not hasattr(research_tree, "FeedbackRoundService")
     assert not hasattr(feedback, "FeedbackRoundService")
+
+
+def test_legacy_runstore_is_not_importable_or_published() -> None:
+    import research_tree
+
+    assert not hasattr(research_tree, "RunStore")
+    assert importlib.util.find_spec("research_tree.storage") is None

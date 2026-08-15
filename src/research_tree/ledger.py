@@ -322,7 +322,7 @@ def _resolve_exact(
             if stored.kind != expected_kind:
                 raise error_type(f"{label} must be a {expected_kind} artifact")
             return stored
-    raise error_type(f"{label} has not been persisted in this RunStore")
+    raise error_type(f"{label} has not been persisted in the active run ledger")
 
 
 def _work_target(

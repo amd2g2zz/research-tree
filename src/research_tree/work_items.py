@@ -335,7 +335,7 @@ def _resolve_exact_target(
             if stored.kind != BLUEPRINT_TARGET_KIND:
                 raise InvalidWorkItemError("blueprint_target must be a blueprint-target artifact")
             return stored
-    raise InvalidWorkItemError("blueprint_target has not been persisted in this RunStore")
+    raise InvalidWorkItemError("blueprint_target has not been persisted in the active run ledger")
 
 
 def _resolve_exact_work_item(
@@ -350,7 +350,7 @@ def _resolve_exact_work_item(
             if stored.kind != WORK_ITEM_KIND:
                 raise InvalidWorkItemError("work_item must be a work-item artifact")
             return stored
-    raise InvalidWorkItemError("work_item has not been persisted in this RunStore")
+    raise InvalidWorkItemError("work_item has not been persisted in the active run ledger")
 
 
 def _target_slots(target: ArtifactRevision) -> list[Mapping[str, Any]]:

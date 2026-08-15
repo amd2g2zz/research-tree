@@ -136,7 +136,7 @@ def _resolve_exact_artifact(
             if stored != artifact:
                 raise InvalidBlueprintTargetError("working_brief does not match its stored revision")
             return stored
-    raise InvalidBlueprintTargetError("working_brief has not been persisted in this RunStore")
+    raise InvalidBlueprintTargetError("working_brief has not been persisted in the active run ledger")
 
 
 def _resolve_brief_model(

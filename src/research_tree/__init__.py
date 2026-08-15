@@ -265,7 +265,6 @@ from .alignment_handoff import (
     ALIGNMENT_HANDOFF_KIND,
     initialize_research_from_alignment,
 )
-from .storage import RunStore
 from .run_ledger import LedgerConflictError, LedgerError, LedgerIntegrityError, RunLedger
 from .oracles import (
     ORACLE_ATTEMPT_KIND,
@@ -531,7 +530,6 @@ __all__ = [
     "ReleaseManifest",
     "RESEARCH_STRATEGY_KIND",
     "ROUND_SUPERSESSION_KIND",
-    "RunStore",
     "RunLedger",
     "ContentAddressedStore",
     "ContentIntegrityError",
