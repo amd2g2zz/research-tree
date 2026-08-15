@@ -23,9 +23,9 @@
 
 ## 4. Verification And Handoff
 
-- [ ] 4.1 Run the group-82 focused command, strict OpenSpec validation,
+- [x] 4.1 Run the group-82 focused command, strict OpenSpec validation,
   governance, documentation, package, Ruff, and full regression checks.
-- [ ] 4.2 Inspect the diff and commit the green source-removal boundary before
+- [x] 4.2 Inspect the diff and commit the green source-removal boundary before
   recording any source-bound receipt. Keep raw output local and ignored.
-- [ ] 4.3 Record the local-only source-bound group-82 receipt, mark the
+- [x] 4.3 Record the local-only source-bound group-82 receipt, mark the
   registry verified, and rerun the final checks.

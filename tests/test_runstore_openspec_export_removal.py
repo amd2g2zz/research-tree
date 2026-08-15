@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import re
+import subprocess
 from pathlib import Path
 
 import research_tree
@@ -101,7 +103,30 @@ def test_active_authority_registers_only_the_removal_slice() -> None:
     assert all(claim not in active_text for claim in retired_claims)
     assert group["depends_on"] == [81]
     assert group["outputs"] == ["runstore-openspec-export-removal"]
-    assert verification_record == {"group": 82, "state": "planned"}
+    assert verification_record["state"] == "verified"
+    assert verification_record["evidence_refs"] == [
+        "local://.research-tree/verification-runs/issue-176/group-82-receipt.json"
+    ]
+    receipt = verification_record["command_receipt"]
+    assert isinstance(receipt, dict)
+    assert receipt["command"] == group["acceptance_command"]
+    assert receipt["exit_code"] == 0
+    assert receipt["raw_output_ref"] == ".research-tree/verification-runs/issue-176/group-82-output.txt"
+    for digest in (receipt["environment_digest"], receipt["output_digest"]):
+        assert isinstance(digest, str)
+        assert re.fullmatch(r"[0-9a-f]{64}", digest)
+    source_revision = receipt["source_revision"]
+    assert isinstance(source_revision, str)
+    assert re.fullmatch(r"[0-9a-f]{40}", source_revision)
+    assert (
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", source_revision, "HEAD"],
+            cwd=ROOT,
+            check=False,
+        ).returncode
+        == 0
+    )
+    assert verification_record["rollback"] == group["rollback"]
     assert issue == {
         "issue": 176,
         "primary_group": 82,

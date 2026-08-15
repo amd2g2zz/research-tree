@@ -519,5 +519,5 @@ substitute for local evidence.
 - [x] 82.2 Prove no runtime import, active authority, or generated package
   advertises the retired projection boundary while canonical runtime interfaces
   remain available.
-- [ ] 82.3 Run the exact group-82 acceptance command and record a source-bound
+- [x] 82.3 Run the exact group-82 acceptance command and record a source-bound
   receipt after the source-removal commit.
