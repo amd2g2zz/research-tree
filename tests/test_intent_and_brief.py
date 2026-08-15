@@ -367,9 +367,9 @@ def test_unresolved_question_candidates_require_active_alternatives(
 
 
 def test_working_brief_rejects_newer_or_unmodeled_input_revisions(tmp_path: Path) -> None:
-    modules, store, round_record = context(tmp_path)
-    model = compile_model(modules, store, round_record)
-    intake = modules["InputIntakeService"](store)
+    modules, ledger, round_record = canonical_context(tmp_path)
+    model = compile_canonical_model(modules, ledger, round_record)
+    intake = modules["CanonicalInputIntakeService"](ledger)
     intake.ingest_text(
         round_id=round_record.id,
         input_id="input-brief",
@@ -378,6 +378,7 @@ def test_working_brief_rejects_newer_or_unmodeled_input_revisions(tmp_path: Path
         origin_type="user",
         origin_locator="conversation:2",
         role="signal",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     intake.ingest_text(
         round_id=round_record.id,
@@ -387,8 +388,9 @@ def test_working_brief_rejects_newer_or_unmodeled_input_revisions(tmp_path: Path
         origin_type="user",
         origin_locator="conversation:2",
         role="constraint",
+        expected_revision=ledger.get_revision(round_record.id),
     )
-    compiler = modules["WorkingBriefCompiler"](store)
+    compiler = modules["CanonicalWorkingBriefCompiler"](ledger)
     common = {
         "round_id": round_record.id,
         "brief_id": "working-brief",
@@ -406,32 +408,33 @@ def test_working_brief_rejects_newer_or_unmodeled_input_revisions(tmp_path: Path
         "technical_outcome": "Produce a technical blueprint.",
     }
     with pytest.raises(modules["InvalidWorkingBriefError"]):
-        compiler.compile(**common)
+        compiler.compile(**common, expected_revision=ledger.get_revision(round_record.id))
 
-    refreshed_model = compile_model(modules, store, round_record)
+    refreshed_model = compile_canonical_model(modules, ledger, round_record)
     common["intent_model"] = refreshed_model
     common["selected_input_ids"] = ("input-brief", "input-local", "input-cloud", "input-extra")
     common["input_roles"] = {**common["input_roles"], "input-extra": "constraint"}
     with pytest.raises(modules["InvalidWorkingBriefError"]):
-        compiler.compile(**common)
+        compiler.compile(**common, expected_revision=ledger.get_revision(round_record.id))
 
-    assert [artifact for artifact in store.load_round(round_record.id).artifacts if artifact.kind == "working-brief"] == []
+    assert [artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "working-brief"] == []
 
 
 def test_working_brief_rejects_a_newer_context_bundle_revision(tmp_path: Path) -> None:
-    modules, store, round_record = context(tmp_path)
-    model = compile_model(modules, store, round_record)
-    modules["InputIntakeService"](store).create_context_bundle(
+    modules, ledger, round_record = canonical_context(tmp_path)
+    model = compile_canonical_model(modules, ledger, round_record)
+    modules["CanonicalInputIntakeService"](ledger).create_context_bundle(
         round_id=round_record.id,
         input_id="input-context",
         member_input_ids=("input-brief", "input-local", "input-cloud"),
         origin_type="user",
         origin_locator="conversation:2",
         role="baseline",
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
     with pytest.raises(modules["InvalidWorkingBriefError"]):
-        modules["WorkingBriefCompiler"](store).compile(
+        modules["CanonicalWorkingBriefCompiler"](ledger).compile(
             round_id=round_record.id,
             brief_id="working-brief",
             intent_model=model,
@@ -446,13 +449,14 @@ def test_working_brief_rejects_a_newer_context_bundle_revision(tmp_path: Path) -
             material_conflicts=[],
             working_interpretation="Local-first is the leading interpretation.",
             technical_outcome="Produce a technical blueprint.",
+            expected_revision=ledger.get_revision(round_record.id),
         )
 
 
 def test_rehydrated_brief_preserves_exact_intent_and_input_references(tmp_path: Path) -> None:
-    modules, store, round_record = context(tmp_path)
-    model = compile_model(modules, store, round_record)
-    brief = modules["WorkingBriefCompiler"](store).compile(
+    modules, ledger, round_record = canonical_context(tmp_path)
+    model = compile_canonical_model(modules, ledger, round_record)
+    brief = modules["CanonicalWorkingBriefCompiler"](ledger).compile(
         round_id=round_record.id,
         brief_id="working-brief",
         intent_model=model,
@@ -467,9 +471,10 @@ def test_rehydrated_brief_preserves_exact_intent_and_input_references(tmp_path: 
         material_conflicts=[],
         working_interpretation="Local-first is the leading interpretation.",
         technical_outcome="Produce a technical blueprint.",
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
-    rehydrated = modules["RunStore"](store.root).load_round(round_record.id)
+    rehydrated = modules["RunLedger"](ledger.workspace).load_run(round_record.id)
     stored_brief = next(artifact for artifact in rehydrated.artifacts if artifact == brief)
     assert stored_brief.parent_refs[0].to_dict() == {
         "round_id": round_record.id,
@@ -486,9 +491,9 @@ def test_rehydrated_brief_preserves_exact_intent_and_input_references(tmp_path: 
 def test_recompilation_appends_intent_and_brief_revisions_without_mutating_history(
     tmp_path: Path,
 ) -> None:
-    modules, store, round_record = context(tmp_path)
-    first_model = compile_model(modules, store, round_record)
-    compiler = modules["WorkingBriefCompiler"](store)
+    modules, ledger, round_record = canonical_context(tmp_path)
+    first_model = compile_canonical_model(modules, ledger, round_record)
+    compiler = modules["CanonicalWorkingBriefCompiler"](ledger)
     first_brief = compiler.compile(
         round_id=round_record.id,
         brief_id="working-brief",
@@ -504,10 +509,11 @@ def test_recompilation_appends_intent_and_brief_revisions_without_mutating_histo
         material_conflicts=[],
         working_interpretation="Local-first is the leading interpretation.",
         technical_outcome="Produce a technical blueprint.",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     second_payload = analysis()
     second_payload["desired_outcomes"] = ["a revised implementation-ready technical blueprint"]
-    second_model = compile_model(modules, store, round_record, second_payload)
+    second_model = compile_canonical_model(modules, ledger, round_record, second_payload)
     second_brief = compiler.compile(
         round_id=round_record.id,
         brief_id="working-brief",
@@ -523,9 +529,10 @@ def test_recompilation_appends_intent_and_brief_revisions_without_mutating_histo
         material_conflicts=[],
         working_interpretation="Local-first remains the leading interpretation.",
         technical_outcome="Produce a technical blueprint.",
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
-    artifacts = modules["RunStore"](store.root).load_round(round_record.id).artifacts
+    artifacts = modules["RunLedger"](ledger.workspace).load_run(round_record.id).artifacts
     first_stored_model = next(
         artifact
         for artifact in artifacts
