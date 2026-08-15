@@ -23,7 +23,7 @@
 ## K. Feedback and Tree State
 
 - [x] K.1a Define and test the restricted cross-run successor transaction.
-- [ ] K.1 Replace feedback successor-copy behavior with direct ledger artifacts.
+- [x] K.1 Replace feedback successor-copy behavior with direct ledger artifacts.
 - [x] K.2 Replace tree-state persistence and migrate recursive-search consumers.
 - [x] K.3 Rewrite alignment handoff after canonical tree state exists.
 

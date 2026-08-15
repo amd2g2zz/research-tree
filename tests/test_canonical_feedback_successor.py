@@ -4,7 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from research_tree import ArtifactRef, CandidateContext, CanonicalFeedbackRoundService, InvalidIntentModelError
+from research_tree import (
+    ArtifactRef,
+    CandidateContext,
+    CanonicalFeedbackRoundService,
+    InvalidFeedbackError,
+    InvalidIntentModelError,
+    InvalidWorkingBriefError,
+)
 from research_tree.run_ledger import LedgerConflictError, LedgerIntegrityError
 from canonical_finding_fixture import RUN_ID, canonical_context
 
@@ -180,3 +187,92 @@ def test_canonical_successor_rejects_invalid_plan_or_stale_predecessor_without_w
     assert ledger.load_run(RUN_ID) == prior_before
     with pytest.raises(LedgerIntegrityError, match="run does not exist: round-successor"):
         ledger.load_run("round-successor")
+
+
+@pytest.mark.parametrize(
+    ("overrides", "error_type"),
+    (
+        ({"candidates": lambda ledger: _candidates(ledger)[:-1]}, InvalidFeedbackError),
+        ({"input_roles": {"input-feedback": "primary"}}, InvalidWorkingBriefError),
+        (
+            {"material_conflicts": ({"input_ids": ["input-brief"], "status": "open", "note": "Malformed."},)},
+            InvalidWorkingBriefError,
+        ),
+        (
+            {
+                "delivery_targets": {
+                    "technical_research_package": "yes",
+                    "human_brief": True,
+                    "openspec": False,
+                }
+            },
+            InvalidWorkingBriefError,
+        ),
+    ),
+    ids=("missing-candidate", "input-roles", "material-conflicts", "delivery-targets"),
+)
+def test_canonical_successor_rejects_invalid_requests_without_writes(
+    tmp_path: Path,
+    overrides: dict[str, object],
+    error_type: type[Exception],
+) -> None:
+    ledger, *_ = canonical_context(tmp_path)
+    service = CanonicalFeedbackRoundService(ledger)
+    prior_before = ledger.load_run(RUN_ID)
+    resolved_overrides = {key: value(ledger) if callable(value) else value for key, value in overrides.items()}
+
+    with pytest.raises(error_type):
+        _start_successor(service, ledger, **resolved_overrides)
+
+    assert ledger.load_run(RUN_ID) == prior_before
+    with pytest.raises(LedgerIntegrityError, match="run does not exist: round-successor"):
+        ledger.load_run("round-successor")
+
+
+def test_canonical_successor_supersedes_exact_active_work_item(tmp_path: Path) -> None:
+    ledger, *_ = canonical_context(tmp_path)
+    active_work = ledger.append_artifact(
+        RUN_ID,
+        "work-active",
+        "work-item",
+        {"status": "running"},
+        expected_revision=ledger.get_revision(RUN_ID),
+    )
+
+    result = _start_successor(CanonicalFeedbackRoundService(ledger), ledger)
+
+    assert result.supersession.parent_refs[-1] == ArtifactRef(
+        RUN_ID,
+        active_work.id,
+        active_work.revision,
+    )
+    assert result.supersession.payload["active_work"] == (
+        {
+            "work_item_ref": ArtifactRef(RUN_ID, active_work.id, active_work.revision).to_dict(),
+            "status_at_checkpoint": "running",
+            "disposition": "superseded",
+        },
+    )
+
+
+def test_canonical_same_round_replan_batches_feedback_and_replan(tmp_path: Path) -> None:
+    from research_tree import RunLedger
+
+    ledger = RunLedger(tmp_path / "canonical-feedback")
+    ledger.create_run("round-feedback")
+
+    replan = CanonicalFeedbackRoundService(ledger).record_same_round_replan(
+        round_id="round-feedback",
+        replan_id="replan-budget",
+        feedback_input_id="input-budget-feedback",
+        feedback_text="Keep the target but redirect the remaining budget.",
+        feedback_origin_locator="conversation:2",
+        reason="Only the work allocation changes.",
+        expected_revision=ledger.get_revision("round-feedback"),
+    )
+
+    snapshot = ledger.load_run("round-feedback")
+    feedback = next(item for item in snapshot.artifacts if item.id == "input-budget-feedback")
+    assert replan.kind == "same-round-replan"
+    assert feedback.payload["kind"] == "feedback"
+    assert replan.parent_refs == (ArtifactRef("round-feedback", feedback.id, feedback.revision),)

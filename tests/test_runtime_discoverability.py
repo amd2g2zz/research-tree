@@ -50,3 +50,11 @@ def test_readme_and_cli_help_do_not_advertise_retired_runtime_scope() -> None:
 
 def test_legacy_application_facade_is_not_importable() -> None:
     assert importlib.util.find_spec("research_tree.application") is None
+
+
+def test_legacy_feedback_service_is_not_published() -> None:
+    import research_tree
+    import research_tree.feedback as feedback
+
+    assert not hasattr(research_tree, "FeedbackRoundService")
+    assert not hasattr(feedback, "FeedbackRoundService")
