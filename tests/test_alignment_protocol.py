@@ -161,6 +161,63 @@ def test_feedback_classifies_material_change_as_successor_and_method_change_as_r
     assert replan["classification"] == "same_round_replan"
 
 
+def test_alignment_protocol_reduces_feedback_without_owning_lifecycle(tmp_path: Path) -> None:
+    from research_tree.interaction_state import InteractionEvent, InteractionState
+
+    service = protocol(tmp_path)
+    initial = service.reduce_interaction(
+        InteractionState.initial("run-59"),
+        InteractionEvent.user_message(
+            event_id="initial-objective",
+            text="Format the README headings.",
+            outcome="format README headings",
+            consequence="low",
+            reversible=True,
+        ),
+    ).state
+    feedback = service.reduce_interaction(
+        initial,
+        InteractionEvent.correction(
+            event_id="correct-objective",
+            target_id="initial-objective",
+            replacement="Do not change the README; inspect it only.",
+        ),
+    )
+
+    assert feedback.disposition.kind == "repair"
+    assert "initial-objective" in feedback.state.superseded_ids
+
+
+def test_interaction_bridge_remains_reducible_after_delivery(tmp_path: Path) -> None:
+    from research_tree.interaction_state import InteractionEvent, InteractionState
+
+    service = protocol(tmp_path)
+    active = service.reduce_interaction(
+        InteractionState.initial("run-59"),
+        InteractionEvent.user_message(
+            event_id="inspect-parser",
+            text="Inspect the parser.",
+            outcome="inspect parser",
+            consequence="low",
+            reversible=True,
+        ),
+    ).state
+    delivered = service.reduce_interaction(
+        active, InteractionEvent.delivery(event_id="delivery", delivery_id="parser-report")
+    ).state
+    reopened = service.reduce_interaction(
+        delivered,
+        InteractionEvent.correction(
+            event_id="post-delivery-correction",
+            target_id="parser-report",
+            replacement="Include parser recovery risks.",
+        ),
+    )
+
+    assert delivered.agent.next_move == "await_feedback"
+    assert reopened.disposition.kind == "repair"
+
+
 @pytest.mark.parametrize(
     ("scenario", "kind", "human_exclusive", "researchable"),
     [
