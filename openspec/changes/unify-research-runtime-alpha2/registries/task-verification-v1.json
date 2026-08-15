@@ -951,6 +951,10 @@
         "recorded_at": "2026-08-15T03:37:18.508966+00:00"
       },
       "rollback": "revert the strict evidence-admission cutover in Git; do not restore a legacy parser, artifact map, provenance helper, adapter, alias, fallback, migration, or dual evidence state"
+    },
+    {
+      "group": 84,
+      "state": "planned"
     }
   ]
 }
