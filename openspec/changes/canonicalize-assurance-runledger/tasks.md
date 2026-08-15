@@ -29,12 +29,12 @@
 
 ## L. Active Contracts and Generated Hosts
 
-- [ ] L.1 Remove active RunStore claims from exports, README, references, ADRs, and registries.
-- [ ] L.2 Regenerate host packages from their authoritative sources.
-- [ ] L.3 Preserve historical specs, archived changes, and source-bound receipts.
+- [x] L.1 Remove active RunStore claims from exports, README, references, ADRs, and registries.
+- [x] L.2 Regenerate host packages from their authoritative sources.
+- [x] L.3 Preserve historical specs, archived changes, and source-bound receipts.
 
 ## M. Final Absence Proof
 
-- [ ] M.1 Add a RED structural absence test across runtime, tests, active docs, schemas, CLI, and packages.
-- [ ] M.2 Delete remaining legacy source, exports, fixtures, and tests without aliases.
-- [ ] M.3 Run the full #165 gate, record ignored local evidence, and verify the diff with GitNexus.
+- [x] M.1 Add a RED structural absence test across runtime, tests, active docs, schemas, CLI, and packages.
+- [x] M.2 Delete remaining legacy source, exports, fixtures, and tests without aliases.
+- [x] M.3 Run the full #165 gate, record ignored local evidence, and verify the diff with GitNexus.

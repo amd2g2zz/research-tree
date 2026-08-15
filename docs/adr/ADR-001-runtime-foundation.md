@@ -1,9 +1,9 @@
-# ADR-001: Run-Scoped Local Runtime
+# ADR-001: Run-Scoped SQLite Runtime
 
 ## Decision
 
-Adopt the RT-001 design recorded in [方案设计](../方案设计.md): Python 3.11+,
-an explicit `RunStore` root, versioned JSON artifact envelopes, append-only
+Adopt the current runtime design: Python 3.11+, a `RunLedger` rooted in an
+explicit SQLite database, content-addressed artifact envelopes, append-only
 lineage events, and `pytest` exercised through a locked `uv` environment.
 
 ## Rationale
