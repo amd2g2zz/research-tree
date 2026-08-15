@@ -15,6 +15,7 @@ from .domain import (
     validate_identifier,
 )
 from .feedback import CORRECTION_EVENT_KIND, STALE_STATE_QUARANTINE_KIND
+from .interaction_state import InteractionEvent, InteractionReducer, InteractionReduction, InteractionState
 from .run_ledger import LedgerConflictError, RunLedger
 
 
@@ -352,6 +353,21 @@ class AlignmentProtocol:
             }
         ]
         return _digest(records)
+
+    def reduce_interaction(self, state: InteractionState, event: InteractionEvent) -> InteractionReduction:
+        """Reduce a live interaction event without mutating lifecycle authority.
+
+        Alignment remains an append-only evidence surface.  The caller owns
+        persistence and lifecycle delivery of the resulting state; this narrow
+        bridge ensures alignment and feedback use the same semantic reducer.
+        """
+
+        if state.run_id != self.run_id:
+            raise AlignmentProtocolError("interaction state must belong to this run")
+        try:
+            return InteractionReducer().reduce(state, event)
+        except RuntimeStoreError as error:
+            raise AlignmentProtocolError(str(error)) from error
 
     def record_belief(
         self,
