@@ -10,59 +10,21 @@ def api():
         CanonicalInputIntakeService,
         CanonicalIntentModelCompiler,
         CanonicalWorkingBriefCompiler,
-        InputIntakeService,
-        IntentModelCompiler,
         InvalidIntentModelError,
         InvalidWorkingBriefError,
         QuestionPolicy,
         RunLedger,
-        RunStore,
-        WorkingBriefCompiler,
     )
 
     return {
         "CanonicalInputIntakeService": CanonicalInputIntakeService,
         "CanonicalIntentModelCompiler": CanonicalIntentModelCompiler,
         "CanonicalWorkingBriefCompiler": CanonicalWorkingBriefCompiler,
-        "InputIntakeService": InputIntakeService,
-        "IntentModelCompiler": IntentModelCompiler,
         "InvalidIntentModelError": InvalidIntentModelError,
         "InvalidWorkingBriefError": InvalidWorkingBriefError,
         "QuestionPolicy": QuestionPolicy,
         "RunLedger": RunLedger,
-        "RunStore": RunStore,
-        "WorkingBriefCompiler": WorkingBriefCompiler,
     }
-
-
-def context(tmp_path: Path):
-    modules = api()
-    store = modules["RunStore"](tmp_path / "store")
-    round_record = store.create_round("round-intent")
-    intake = modules["InputIntakeService"](store)
-    for input_id, kind, content, role in (
-        ("input-brief", "brief", "Build an autonomous reverse-engineering agent.", "signal"),
-        ("input-local", "note", "The first demo must run locally.", "constraint"),
-        ("input-cloud", "note", "The first demo must be cloud-hosted.", "constraint"),
-    ):
-        intake.ingest_text(
-            round_id=round_record.id,
-            input_id=input_id,
-            kind=kind,
-            content=content,
-            origin_type="user",
-            origin_locator="conversation:1",
-            role=role,
-        )
-    intake.create_context_bundle(
-        round_id=round_record.id,
-        input_id="input-context",
-        member_input_ids=("input-brief", "input-local", "input-cloud"),
-        origin_type="user",
-        origin_locator="conversation:1",
-        role="baseline",
-    )
-    return modules, store, round_record
 
 
 def canonical_context(tmp_path: Path):
@@ -155,16 +117,6 @@ def analysis(*, unresolved: list[dict[str, object]] | None = None) -> dict[str, 
     }
 
 
-def compile_model(modules, store, round_record, payload: dict[str, object] | None = None):
-    return modules["IntentModelCompiler"](store).compile(
-        round_id=round_record.id,
-        intent_id="intent-model",
-        context_bundle_ids=("input-context",),
-        input_ids=("input-brief", "input-local", "input-cloud"),
-        analysis=payload or analysis(),
-    )
-
-
 def compile_canonical_model(modules, ledger, round_record, payload: dict[str, object] | None = None):
     return modules["CanonicalIntentModelCompiler"](ledger).compile(
         round_id=round_record.id,
@@ -196,9 +148,10 @@ def test_conflicting_context_compiles_traceable_leading_and_viable_intent(tmp_pa
 
 def test_independent_input_does_not_require_a_context_bundle(tmp_path: Path) -> None:
     modules = api()
-    store = modules["RunStore"](tmp_path / "store")
-    round_record = store.create_round("round-independent")
-    modules["InputIntakeService"](store).ingest_text(
+    ledger = modules["RunLedger"](tmp_path / "ledger")
+    ledger.initialize()
+    round_record = ledger.create_run("round-independent")
+    modules["CanonicalInputIntakeService"](ledger).ingest_text(
         round_id=round_record.id,
         input_id="input-brief",
         kind="brief",
@@ -206,18 +159,20 @@ def test_independent_input_does_not_require_a_context_bundle(tmp_path: Path) -> 
         origin_type="user",
         origin_locator="conversation:1",
         role="signal",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     payload = analysis()
     payload["signals"] = [payload["signals"][0]]
     payload["hypotheses"] = [payload["hypotheses"][0]]
     payload["hypotheses"][0]["signal_refs"] = ["input-brief"]
     payload["decision_drivers"][0]["signal_refs"] = ["input-brief"]
-    model = modules["IntentModelCompiler"](store).compile(
+    model = modules["CanonicalIntentModelCompiler"](ledger).compile(
         round_id=round_record.id,
         intent_id="intent-model",
         context_bundle_ids=(),
         input_ids=("input-brief",),
         analysis=payload,
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
     assert model.payload["context_bundle_ids"] == ()
