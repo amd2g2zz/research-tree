@@ -14,12 +14,11 @@ This repository contains two related products:
 1. **An installable Agent Skill** for Codex, Claude Code, and Hermes Agent.
    The host agent performs the actual research using its available web,
    repository, execution, and delegation capabilities.
-2. **A Python artifact runtime** for persisting research rounds and recursive
-   tree revisions, selecting the active frontier, replaying unconsumed Finding
-   Packs, compiling decisions, and checking readiness.
+2. **A Python API for composed workflow services** and the canonical SQLite
+   research-run coordinator used by supported agent hosts.
 
 The Python CLI is not a standalone autonomous research agent. It manages
-persisted rounds and research-tree state; source acquisition and agent
+only the coordinator operations documented below; source acquisition and agent
 execution remain host-owned.
 
 Contributors should read the [development workflow](docs/development-workflow.md).
@@ -473,10 +472,25 @@ need persisted and validated research artifacts. Its public API includes:
 - Technical Research Package and Human Research Report delivery;
 - feedback rounds.
 
-The `research-tree` console entrypoint is reserved for the canonical runtime
-and currently registers no operational commands. Use the `research_tree`
-Python API for composed workflow services; no legacy round, tree, profile, or
-migration command is published.
+The `research-tree` console entrypoint exposes only four current SQLite
+coordinator operations. Every command requires the workspace that contains the
+canonical `.research-tree/run-ledger.sqlite3` database and emits one JSON
+result.
+
+```bash
+research-tree run --workspace /path/to/workspace ingest --event host-event.json
+research-tree run --workspace /path/to/workspace recover --run-id run-id
+research-tree run --workspace /path/to/workspace why-not-complete --run-id run-id
+research-tree run --workspace /path/to/workspace complete \
+  --run-id run-id --actor human --expected-revision 42
+```
+
+`ingest` accepts one versioned HostEvent envelope and preserves its explicit
+ledger revision. `recover`, `why-not-complete`, and `complete` call their
+matching `ResearchRunCoordinator` operation directly. No legacy round, tree,
+profile, migration, alias, delivery, acceptance, reconciliation, or generic
+lifecycle command is published; use the `research_tree` Python API only when a
+composed workflow is required.
 
 See [`src/research_tree/__init__.py`](src/research_tree/__init__.py) for the
 public API.

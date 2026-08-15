@@ -2,14 +2,14 @@
 
 The module deliberately models the execution boundary only.  It does not run
 commands or own lifecycle state; callers persist the canonical payloads through
-``RunStore`` and use the lineage validators before treating a run as evidence.
+``RunLedger`` and use the lineage validators before treating a run as evidence.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from math import isfinite
 from types import MappingProxyType
-from typing import Any, ClassVar, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, ClassVar, Mapping, Sequence
 
 from .domain import (
     ArtifactRef,
@@ -18,6 +18,15 @@ from .domain import (
     RuntimeStoreError,
     validate_identifier,
 )
+
+if TYPE_CHECKING:
+    from .closure import (
+        ASSESSMENT_KIND,
+        ClosureAssessmentError,
+        OracleService,
+        SlotClosureAssessment,
+        SlotClosureAssessor,
+    )
 
 
 ORACLE_SPEC_KIND = "oracle-spec"

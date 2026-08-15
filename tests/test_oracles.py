@@ -19,6 +19,23 @@ from research_tree.oracles import (
 ZERO_DIGEST = "0" * 64
 
 
+def test_oracles_lazily_reexports_canonical_closure_api() -> None:
+    import research_tree.oracles as oracle_module
+    from research_tree.closure import (
+        ASSESSMENT_KIND,
+        ClosureAssessmentError,
+        OracleService,
+        SlotClosureAssessment,
+        SlotClosureAssessor,
+    )
+
+    assert oracle_module.ASSESSMENT_KIND == ASSESSMENT_KIND
+    assert oracle_module.ClosureAssessmentError is ClosureAssessmentError
+    assert oracle_module.OracleService is OracleService
+    assert oracle_module.SlotClosureAssessment is SlotClosureAssessment
+    assert oracle_module.SlotClosureAssessor is SlotClosureAssessor
+
+
 def _spec() -> OracleSpec:
     return OracleSpec(
         oracle_spec_id="oracle-check",
