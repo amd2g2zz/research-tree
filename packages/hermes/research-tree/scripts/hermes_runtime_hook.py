@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import json
+import os
+import re
+import secrets
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +33,7 @@ SAFE_EXTRA_KEYS = (
     "status",
     "duration_ms",
 )
+IDENTIFIER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 
 
 def _bounded_payload() -> dict[str, Any]:
@@ -85,16 +89,34 @@ def _workspace(payload: dict[str, Any]) -> Path:
     return Path(raw).resolve() if isinstance(raw, str) and raw else Path.cwd().resolve()
 
 
+def _event_directory(payload: dict[str, Any]) -> Path | None:
+    project_id = os.environ.get("RESEARCH_TREE_PROJECT_ID")
+    run_id = os.environ.get("RESEARCH_TREE_RUN_ID")
+    if not project_id or not run_id or not IDENTIFIER_RE.fullmatch(project_id) or not IDENTIFIER_RE.fullmatch(run_id):
+        return None
+    run_root = _workspace(payload) / ".research-tree" / "projects" / project_id / "runs" / run_id
+    if not (run_root / "manifest.json").is_file():
+        return None
+    return run_root / "events"
+
+
 def main() -> int:
     try:
         payload = _bounded_payload()
         record = _event_record(payload)
-        if record is not None:
-            target = _workspace(payload) / ".research-tree-hermes" / "events.jsonl"
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with target.open("a", encoding="utf-8", newline="\n") as stream:
-                stream.write(json.dumps(record, ensure_ascii=True, separators=(",", ":")))
-                stream.write("\n")
+        event_directory = _event_directory(payload)
+        if record is not None and event_directory is not None:
+            record["schema"] = 1
+            record["source"] = "research-tree-hermes-hook"
+            event_directory.mkdir(parents=True, exist_ok=True)
+            target = event_directory / (
+                datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+                + "-"
+                + secrets.token_hex(8)
+                + ".json"
+            )
+            with target.open("x", encoding="utf-8", newline="\n") as stream:
+                json.dump(record, stream, ensure_ascii=True, separators=(",", ":"))
     except Exception as exc:  # Hooks are observational and must never block Hermes.
         print(f"research-tree Hermes hook ignored error: {exc}", file=sys.stderr)
     print("{}")

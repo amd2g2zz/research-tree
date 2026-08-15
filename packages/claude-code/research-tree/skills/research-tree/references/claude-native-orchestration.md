@@ -67,7 +67,7 @@ After strategy handoff, initialize and advance durable state with the bundled
 adapter:
 
 ```bash
-python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . init --run-id <run-id> --handoff .research-tree-alignment/<alignment-run>/handoff.json
+python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . init --project-id <project-id> --run-id <run-id> --handoff .research-tree/projects/<project-id>/runs/<alignment-run>/alignment/handoff.json
 python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . add-task --run-id <run-id> --task-id <task-id> --decision-slot <slot> --phase landscape --artifact <finding.json>
 python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . start --run-id <run-id> --task-id <task-id> --worker-id <agent-id>
 python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . finish --run-id <run-id> --task-id <task-id> --result submitted
