@@ -8,10 +8,18 @@ import pytest
 def api():
     from research_tree import (
         BlueprintTargetCompiler,
+        CanonicalBlueprintTargetCompiler,
+        CanonicalInputIntakeService,
+        CanonicalIntentModelCompiler,
+        CanonicalWorkItemCompiler,
+        CanonicalWorkItemPlanner,
+        CanonicalWorkItemStatusService,
+        CanonicalWorkingBriefCompiler,
         InputIntakeService,
         IntentModelCompiler,
         InvalidWorkItemError,
         RunStore,
+        RunLedger,
         WorkItemCompiler,
         WorkItemPlanner,
         WorkItemStatusService,
@@ -20,10 +28,18 @@ def api():
 
     return {
         "BlueprintTargetCompiler": BlueprintTargetCompiler,
+        "CanonicalBlueprintTargetCompiler": CanonicalBlueprintTargetCompiler,
+        "CanonicalInputIntakeService": CanonicalInputIntakeService,
+        "CanonicalIntentModelCompiler": CanonicalIntentModelCompiler,
+        "CanonicalWorkItemCompiler": CanonicalWorkItemCompiler,
+        "CanonicalWorkItemPlanner": CanonicalWorkItemPlanner,
+        "CanonicalWorkItemStatusService": CanonicalWorkItemStatusService,
+        "CanonicalWorkingBriefCompiler": CanonicalWorkingBriefCompiler,
         "InputIntakeService": InputIntakeService,
         "IntentModelCompiler": IntentModelCompiler,
         "InvalidWorkItemError": InvalidWorkItemError,
         "RunStore": RunStore,
+        "RunLedger": RunLedger,
         "WorkItemCompiler": WorkItemCompiler,
         "WorkItemPlanner": WorkItemPlanner,
         "WorkItemStatusService": WorkItemStatusService,
@@ -149,6 +165,87 @@ def context_target(tmp_path: Path):
     return modules, store, round_record, target
 
 
+def canonical_context_target(tmp_path: Path):
+    modules = api()
+    ledger = modules["RunLedger"](tmp_path / "ledger")
+    ledger.initialize()
+    round_record = ledger.create_run("round-work")
+    intake = modules["CanonicalInputIntakeService"](ledger)
+    intake.ingest_text(
+        round_id=round_record.id,
+        input_id="input-brief",
+        kind="brief",
+        content="Build an implementation-ready autonomous reverse-engineering agent.",
+        origin_type="user",
+        origin_locator="conversation:1",
+        role="signal",
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    intake.ingest_repository(
+        round_id=round_record.id,
+        input_id="input-repository",
+        repository_root=repository(tmp_path / "repository"),
+        origin_type="workspace",
+        role="baseline",
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    input_ids = ("input-brief", "input-repository")
+    intake.create_context_bundle(
+        round_id=round_record.id,
+        input_id="input-context",
+        member_input_ids=input_ids,
+        origin_type="user",
+        origin_locator="conversation:1",
+        role="baseline",
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    model = modules["CanonicalIntentModelCompiler"](ledger).compile(
+        round_id=round_record.id,
+        intent_id="intent-model",
+        context_bundle_ids=("input-context",),
+        input_ids=input_ids,
+        analysis={
+            "signals": [
+                {"input_id": "input-brief", "observation": "The requester needs an autonomous agent.", "kind": "stated_goal", "authority_boundary": "It does not select the implementation architecture."},
+                {"input_id": "input-repository", "observation": "The repository has a src/agent.py run boundary.", "kind": "repository_fact", "authority_boundary": "It describes current code, not a recommendation."},
+            ],
+            "hypotheses": [{"id": "intent-agent", "interpretation": "Deliver a safe implementation-ready agent path.", "status": "leading", "signal_refs": ["input-brief", "input-repository"], "confidence": "medium", "decision_consequence": "Architecture and safety boundaries need research.", "validation": "repository_inspection"}],
+            "desired_outcomes": ["implementation-ready technical blueprint"],
+            "success_signals": ["an implementation agent can start without rediscovery"],
+            "decision_drivers": [{"dimension": "technical", "statement": "The first implementation must be safely isolated.", "signal_refs": ["input-brief"]}],
+            "hard_constraints": ["Do not execute untrusted binaries during intake."],
+            "non_goals": ["Do not require a user questionnaire."],
+            "unresolved_interpretations": [],
+        },
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    brief = modules["CanonicalWorkingBriefCompiler"](ledger).compile(
+        round_id=round_record.id,
+        brief_id="working-brief",
+        intent_model=model,
+        triggers=[{"kind": "initial_request", "text": "Start", "input_ids": ["input-brief"]}],
+        context_bundle_ids=("input-context",),
+        selected_input_ids=input_ids,
+        input_roles={"input-brief": "primary", "input-repository": "baseline"},
+        material_conflicts=[],
+        working_interpretation="A safe implementation-ready agent path is leading.",
+        technical_outcome="Choose the first agent architecture and integration boundary.",
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    architecture = slot("slot-architecture", priority="P0")
+    security = slot("slot-security", priority="P1")
+    security["depends_on"] = ["slot-architecture"]
+    target = modules["CanonicalBlueprintTargetCompiler"](ledger).compile(
+        round_id=round_record.id,
+        target_id="blueprint-target",
+        working_brief=brief,
+        slots=[security, architecture],
+        change={"kind": "initial", "reason": "Map the open architecture and security decisions.", "from_slot_ids": [], "to_slot_ids": ["slot-security", "slot-architecture"]},
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    return modules, ledger, round_record, target
+
+
 def slot(slot_id: str, *, priority: str) -> dict[str, object]:
     return {
         "id": slot_id,
@@ -180,8 +277,8 @@ def slot(slot_id: str, *, priority: str) -> dict[str, object]:
 
 
 def test_dependency_respecting_planner_emits_deterministic_bounded_work(tmp_path: Path) -> None:
-    modules, store, round_record, target = context_target(tmp_path)
-    items = modules["WorkItemPlanner"](store).plan(
+    modules, ledger, round_record, target = canonical_context_target(tmp_path)
+    items = modules["CanonicalWorkItemPlanner"](ledger).plan(
         round_id=round_record.id,
         blueprint_target=target,
         work_item_ids={
@@ -202,7 +299,7 @@ def test_dependency_respecting_planner_emits_deterministic_bounded_work(tmp_path
         "artifact_id": target.id,
         "revision": target.revision,
     }
-    rerun = modules["WorkItemPlanner"](store).plan(
+    rerun = modules["CanonicalWorkItemPlanner"](ledger).plan(
         round_id=round_record.id,
         blueprint_target=target,
         work_item_ids={
