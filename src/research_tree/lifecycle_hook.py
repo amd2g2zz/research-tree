@@ -28,9 +28,7 @@ HOST_EVENTS = {
             "Stop",
         }
     ),
-    "claude": frozenset(
-        {"SessionStart", "SessionEnd", "PreCompact", "SubagentStop", "Stop"}
-    ),
+    "claude": frozenset({"SessionStart", "SessionEnd", "PreCompact", "SubagentStop", "Stop"}),
     "hermes": frozenset({"on_session_start", "on_session_end"}),
 }
 
@@ -84,11 +82,7 @@ def validate_workspace(
 ) -> tuple[Path, Path]:
     """Validate both the process and host-reported working directories."""
     actual_cwd = (process_cwd or Path.cwd()).resolve(strict=False)
-    root = (
-        project_root.resolve(strict=False)
-        if project_root is not None
-        else find_project_root(actual_cwd)
-    )
+    root = project_root.resolve(strict=False) if project_root is not None else find_project_root(actual_cwd)
     _inside(root, actual_cwd, "process cwd")
 
     raw_cwd = payload.get("cwd")
@@ -124,9 +118,7 @@ def _optional_identifier(payload: dict[str, Any], key: str) -> str | None:
 def _write_record(root: Path, record: dict[str, Any], event_dir: Path) -> Path:
     event_dir = _inside(root, event_dir, "hook event directory")
     event_dir.mkdir(parents=True, exist_ok=True)
-    encoded = json.dumps(
-        record, ensure_ascii=True, separators=(",", ":")
-    ).encode("utf-8")
+    encoded = json.dumps(record, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
     prefix = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     for _ in range(3):
         path = _inside(
@@ -161,9 +153,7 @@ def observe(
     if event == "Stop" and payload.get("stop_hook_active") is True:
         return {"status": "skipped_reentrant_stop", "host": host, "event": event}
 
-    root, workspace = validate_workspace(
-        payload, project_root=project_root, process_cwd=process_cwd
-    )
+    root, workspace = validate_workspace(payload, project_root=project_root, process_cwd=process_cwd)
     record: dict[str, Any] = {
         "schema": 1,
         "source": "research-tree-lifecycle-hook",
@@ -193,6 +183,13 @@ def observe(
     record["project_id"] = project_id
     record["run_id"] = run_id
     path = _write_record(root, record, run_root / "events")
+    try:
+        from .durable_interaction_state import DurableInteractionController
+
+        controller = DurableInteractionController.initialize(root, project_id=project_id, run_id=run_id, host=host)
+        controller.consume_recorded_lifecycle_event(record)
+    except (OSError, ValueError):
+        pass
     if debug:
         try:
             from .debug_trace import emit_trace
