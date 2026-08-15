@@ -387,6 +387,29 @@ def test_same_round_replanning_records_feedback_without_creating_successor_artif
         store.load_round("round-successor")
 
 
+def test_canonical_same_round_replan_batches_feedback_and_replan(tmp_path: Path) -> None:
+    from research_tree import ArtifactRef, CanonicalFeedbackRoundService, RunLedger
+
+    ledger = RunLedger(tmp_path / "canonical-feedback")
+    ledger.create_run("round-feedback")
+
+    replan = CanonicalFeedbackRoundService(ledger).record_same_round_replan(
+        round_id="round-feedback",
+        replan_id="replan-budget",
+        feedback_input_id="input-budget-feedback",
+        feedback_text="Keep the target but redirect the remaining budget.",
+        feedback_origin_locator="conversation:2",
+        reason="Only the work allocation changes.",
+        expected_revision=ledger.get_revision("round-feedback"),
+    )
+
+    snapshot = ledger.load_run("round-feedback")
+    feedback = next(item for item in snapshot.artifacts if item.id == "input-budget-feedback")
+    assert replan.kind == "same-round-replan"
+    assert feedback.payload["kind"] == "feedback"
+    assert replan.parent_refs == (ArtifactRef("round-feedback", feedback.id, feedback.revision),)
+
+
 def test_missing_candidate_disposition_rejects_before_creating_successor_round(tmp_path: Path) -> None:
     api_modules = api()
     modules, store, prior_round, *_ = predecessor(tmp_path)

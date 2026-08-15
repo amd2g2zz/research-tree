@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 import shutil
 import tempfile
@@ -17,11 +18,13 @@ from .domain import (
     RoundRecord,
     RuntimeStoreError,
     thaw_json,
+    utc_now,
     validate_identifier,
 )
 from .intake import INPUT_LEDGER_ARTIFACT_KIND, InputIntakeService
 from .intent import IntentModelCompiler, WorkingBriefCompiler
 from .ledger import DECISION_LEDGER_KIND, FINDING_PACK_KIND
+from .run_ledger import RunLedger
 from .storage import RunStore
 from .work_items import WORK_ITEM_KIND
 
@@ -265,6 +268,90 @@ class _PreparedSuccessor:
     selected_input_ids: tuple[str, ...]
     strategy_focus: tuple[str, ...]
     strategy_summary: str
+
+
+class CanonicalFeedbackRoundService:
+    """Record same-round replans directly in one canonical RunLedger."""
+
+    def __init__(self, ledger: RunLedger) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidFeedbackError("canonical feedback requires a RunLedger")
+        self._ledger = ledger
+
+    def record_same_round_replan(
+        self,
+        *,
+        round_id: str,
+        replan_id: str,
+        feedback_input_id: str,
+        feedback_text: str,
+        feedback_origin_locator: str,
+        reason: str,
+        expected_revision: int,
+        affected_work_items: Sequence[ArtifactRevision] = (),
+    ) -> ArtifactRevision:
+        """Atomically append feedback material and its bounded replan."""
+
+        try:
+            snapshot = self._ledger.load_run(round_id)
+            validate_identifier(replan_id, "replan_id")
+            if replan_id == feedback_input_id:
+                raise InvalidFeedbackError("replan_id and feedback_input_id must differ")
+            _ensure_artifact_id_compatibility(snapshot.artifacts, replan_id, SAME_ROUND_REPLAN_KIND)
+            validate_identifier(feedback_input_id, "feedback_input_id")
+            _ensure_feedback_id_is_available(snapshot.artifacts, feedback_input_id)
+            normalized_reason = _nonempty_string(reason, "reason")
+            feedback_content = _nonempty_string(feedback_text, "feedback_text")
+            feedback_locator = _nonempty_string(feedback_origin_locator, "feedback_origin_locator")
+            works = _resolve_affected_work_items(snapshot.artifacts, affected_work_items, round_id)
+        except (InvalidIdentifierError, TypeError, ValueError) as error:
+            raise InvalidFeedbackError(str(error)) from error
+
+        feedback_revision = max(
+            (artifact.revision for artifact in snapshot.artifacts if artifact.id == feedback_input_id),
+            default=0,
+        ) + 1
+        feedback_ref = ArtifactRef(round_id, feedback_input_id, feedback_revision)
+        feedback_payload = {
+            "id": feedback_input_id,
+            "kind": "feedback",
+            "origin": {"type": "user", "locator": feedback_locator},
+            "revision": {
+                "branch": None,
+                "commit": None,
+                "sha256": sha256(feedback_content.encode("utf-8")).hexdigest(),
+                "observed_at": utc_now(),
+            },
+            "read_scope": "full text",
+            "role": "signal",
+            "member_input_ids": [],
+            "grouping": "none",
+            "used_by_rounds": [round_id],
+            "material": {"kind": "inline-text", "content": feedback_content},
+        }
+        payload = {
+            "id": replan_id,
+            "round_id": round_id,
+            "classification": "same_round_replan",
+            "feedback_input_id": feedback_input_id,
+            "reason": normalized_reason,
+            "affected_work_refs": [ArtifactRef(work.round_id, work.id, work.revision).to_dict() for work in works],
+        }
+        validate_same_round_replan_payload(payload)
+        _, replan = self._ledger.append_artifact_batch(
+            round_id,
+            (
+                (feedback_input_id, INPUT_LEDGER_ARTIFACT_KIND, feedback_payload, ()),
+                (
+                    replan_id,
+                    SAME_ROUND_REPLAN_KIND,
+                    payload,
+                    (feedback_ref, *(ArtifactRef(work.round_id, work.id, work.revision) for work in works)),
+                ),
+            ),
+            expected_revision=expected_revision,
+        )
+        return replan
 
 
 class FeedbackRoundService:
