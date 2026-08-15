@@ -10,19 +10,23 @@ import pytest
 def intake_api():
     from research_tree import (
         ArtifactRef,
+        CanonicalInputIntakeService,
         InputIntakeService,
         InvalidContextBundleError,
         RepositoryInspector,
         RepositorySafetyPolicy,
+        RunLedger,
         RunStore,
     )
 
     return {
         "ArtifactRef": ArtifactRef,
+        "CanonicalInputIntakeService": CanonicalInputIntakeService,
         "InputIntakeService": InputIntakeService,
         "InvalidContextBundleError": InvalidContextBundleError,
         "RepositoryInspector": RepositoryInspector,
         "RepositorySafetyPolicy": RepositorySafetyPolicy,
+        "RunLedger": RunLedger,
         "RunStore": RunStore,
     }
 
@@ -72,9 +76,10 @@ def test_text_inputs_are_independent_and_reingestion_preserves_prior_revision(
     tmp_path: Path,
 ) -> None:
     api = intake_api()
-    store = api["RunStore"](tmp_path / "store")
-    round_record = store.create_round("round-intake")
-    intake = api["InputIntakeService"](store)
+    ledger = api["RunLedger"](tmp_path / "ledger")
+    ledger.initialize()
+    round_record = ledger.create_run("round-intake")
+    intake = api["CanonicalInputIntakeService"](ledger)
 
     brief = intake.ingest_text(
         round_id=round_record.id,
@@ -84,6 +89,7 @@ def test_text_inputs_are_independent_and_reingestion_preserves_prior_revision(
         origin_type="user",
         origin_locator="conversation:1",
         role="signal",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     article = intake.ingest_text(
         round_id=round_record.id,
@@ -93,6 +99,7 @@ def test_text_inputs_are_independent_and_reingestion_preserves_prior_revision(
         origin_type="url",
         origin_locator="https://example.test/article",
         role="evidence",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     first_note = intake.ingest_text(
         round_id=round_record.id,
@@ -102,6 +109,7 @@ def test_text_inputs_are_independent_and_reingestion_preserves_prior_revision(
         origin_type="user",
         origin_locator="conversation:1",
         role="constraint",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     second_note = intake.ingest_text(
         round_id=round_record.id,
@@ -111,6 +119,7 @@ def test_text_inputs_are_independent_and_reingestion_preserves_prior_revision(
         origin_type="user",
         origin_locator="conversation:2",
         role="constraint",
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
     assert [brief.id, article.id, first_note.id] == [
@@ -130,7 +139,7 @@ def test_text_inputs_are_independent_and_reingestion_preserves_prior_revision(
 
     note_revisions = [
         artifact
-        for artifact in store.load_round(round_record.id).artifacts
+        for artifact in ledger.load_run(round_record.id).artifacts
         if artifact.id == "input-note"
     ]
     assert [artifact.revision for artifact in note_revisions] == [1, 2]
@@ -142,9 +151,10 @@ def test_context_bundle_preserves_conflicting_member_revisions_and_lineage(
     tmp_path: Path,
 ) -> None:
     api = intake_api()
-    store = api["RunStore"](tmp_path / "store")
-    round_record = store.create_round("round-bundle")
-    intake = api["InputIntakeService"](store)
+    ledger = api["RunLedger"](tmp_path / "ledger")
+    ledger.initialize()
+    round_record = ledger.create_run("round-bundle")
+    intake = api["CanonicalInputIntakeService"](ledger)
     first_note = intake.ingest_text(
         round_id=round_record.id,
         input_id="input-local",
@@ -153,6 +163,7 @@ def test_context_bundle_preserves_conflicting_member_revisions_and_lineage(
         origin_type="user",
         origin_locator="conversation:1",
         role="constraint",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     second_note = intake.ingest_text(
         round_id=round_record.id,
@@ -162,6 +173,7 @@ def test_context_bundle_preserves_conflicting_member_revisions_and_lineage(
         origin_type="user",
         origin_locator="conversation:1",
         role="constraint",
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
     bundle = intake.create_context_bundle(
@@ -171,6 +183,7 @@ def test_context_bundle_preserves_conflicting_member_revisions_and_lineage(
         origin_type="user",
         origin_locator="conversation:1",
         role="baseline",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     intake.ingest_text(
         round_id=round_record.id,
@@ -180,6 +193,7 @@ def test_context_bundle_preserves_conflicting_member_revisions_and_lineage(
         origin_type="user",
         origin_locator="conversation:2",
         role="constraint",
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
     assert bundle.payload["kind"] == "context_bundle"
@@ -201,9 +215,10 @@ def test_context_bundle_rejects_unknown_duplicate_and_nested_members_without_wri
     tmp_path: Path,
 ) -> None:
     api = intake_api()
-    store = api["RunStore"](tmp_path / "store")
-    round_record = store.create_round("round-bundle-invalid")
-    intake = api["InputIntakeService"](store)
+    ledger = api["RunLedger"](tmp_path / "ledger")
+    ledger.initialize()
+    round_record = ledger.create_run("round-bundle-invalid")
+    intake = api["CanonicalInputIntakeService"](ledger)
     intake.ingest_text(
         round_id=round_record.id,
         input_id="input-note",
@@ -212,6 +227,7 @@ def test_context_bundle_rejects_unknown_duplicate_and_nested_members_without_wri
         origin_type="user",
         origin_locator="conversation:1",
         role="signal",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     existing_bundle = intake.create_context_bundle(
         round_id=round_record.id,
@@ -220,6 +236,7 @@ def test_context_bundle_rejects_unknown_duplicate_and_nested_members_without_wri
         origin_type="user",
         origin_locator="conversation:1",
         role="baseline",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     updated_bundle = intake.create_context_bundle(
         round_id=round_record.id,
@@ -228,6 +245,7 @@ def test_context_bundle_rejects_unknown_duplicate_and_nested_members_without_wri
         origin_type="user",
         origin_locator="conversation:2",
         role="baseline",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     assert updated_bundle.revision == 2
 
@@ -245,11 +263,12 @@ def test_context_bundle_rejects_unknown_duplicate_and_nested_members_without_wri
                 origin_type="user",
                 origin_locator="conversation:1",
                 role="baseline",
+                expected_revision=ledger.get_revision(round_record.id),
             )
 
     artifact_revisions = [
         (artifact.id, artifact.revision)
-        for artifact in store.load_round(round_record.id).artifacts
+        for artifact in ledger.load_run(round_record.id).artifacts
     ]
     assert artifact_revisions == [
         ("input-existing-bundle", 1),
