@@ -280,8 +280,6 @@ Input Registry / Repository Inspector
         +--------+--------+
         v                 v
 Technical Research Package  Human Brief
-        |
-        +--> explicit request --> OpenSpec exporter
 ```
 
 The product maintains two deliberately different graph-like views:

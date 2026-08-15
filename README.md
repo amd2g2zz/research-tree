@@ -471,7 +471,7 @@ need persisted and validated research artifacts. Its public API includes:
 - persisted recursive-tree selection, ingestion, and crash recovery;
 - readiness, assurance, verification, and evaluation contracts;
 - Technical Research Package and Human Research Report delivery;
-- feedback rounds and opt-in OpenSpec export.
+- feedback rounds.
 
 The `research-tree` console entrypoint is reserved for the canonical runtime
 and currently registers no operational commands. Use the `research_tree`
@@ -479,8 +479,7 @@ Python API for composed workflow services; no legacy round, tree, profile, or
 migration command is published.
 
 See [`src/research_tree/__init__.py`](src/research_tree/__init__.py) for the
-public API and [`tests/test_e2e_blueprint.py`](tests/test_e2e_blueprint.py) for
-the composed delivery path.
+public API.
 
 ## Development
 

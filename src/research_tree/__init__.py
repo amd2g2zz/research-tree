@@ -168,12 +168,6 @@ from .preferences import (
     PreferenceValidationError,
     UserPreferenceProfile,
 )
-from .openspec import (
-    InvalidOpenSpecExportError,
-    OpenSpecExport,
-    OpenSpecExporter,
-    OpenSpecExportError,
-)
 from .ports import (
     EvidenceReviewPort,
     PrimarySourceValidationPort,
@@ -515,7 +509,6 @@ __all__ = [
     "InvalidBlueprintTargetError",
     "InvalidIntentModelError",
     "InvalidInputError",
-    "InvalidOpenSpecExportError",
     "InvalidPayloadError",
     "InvalidReadinessError",
     "InvalidVerificationError",
@@ -690,9 +683,6 @@ __all__ = [
     "TimeSplitCase",
     "QuestionPolicy",
     "QuestionRecommendation",
-    "OpenSpecExport",
-    "OpenSpecExporter",
-    "OpenSpecExportError",
     "PrimarySourceValidationPort",
     "ProvenanceIntegrityPort",
     "WorkingBriefCompiler",

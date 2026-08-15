@@ -65,6 +65,7 @@
     { "issue": 175, "primary_group": 78, "supporting_groups": [62, 76], "capabilities": ["runstore-scheduler-retirement-acceptance"], "openspec_change": "accept-runstore-scheduler-retirement" },
     { "issue": 180, "primary_group": 79, "supporting_groups": [78], "capabilities": ["canonical-findingpack-test-fixtures"], "openspec_change": "canonicalize-findingpack-decision-delivery-consumers" },
     { "issue": 181, "primary_group": 80, "supporting_groups": [79], "capabilities": ["canonical-readiness-test-fixtures"], "openspec_change": "canonicalize-readiness-findingpack-consumers" },
-    { "issue": 171, "primary_group": 81, "supporting_groups": [79, 80], "capabilities": ["canonical-findingpack-parent-acceptance"], "openspec_change": "accept-canonical-findingpack-parent-acceptance" }
+    { "issue": 171, "primary_group": 81, "supporting_groups": [79, 80], "capabilities": ["canonical-findingpack-parent-acceptance"], "openspec_change": "accept-canonical-findingpack-parent-acceptance" },
+    { "issue": 176, "primary_group": 82, "supporting_groups": [81], "capabilities": ["runstore-openspec-export-removal"], "openspec_change": "remove-runstore-openspec-exporter" }
   ]
 }

@@ -674,8 +674,6 @@ Intent Model / Working Brief / Strategy / Decision Map
              +-----------+-----------+
              v                       v
 Technical Research Package       Human Research Report
-             |
-             +--> explicit request --> OpenSpec Exporter
 ```
 
 The `Intent Modeler`, `Blueprint Target Compiler`, `Decision Ledger`, and
@@ -754,6 +752,5 @@ Build the new product in this order:
    Decision Ledger, including repository change surfaces and validation work.
 7. Add risk-tiered readiness verification and a small real-world evaluation set
    that compares the adaptive loop with simpler baselines.
-8. Add an explicit OpenSpec export adapter that produces repository deltas.
-9. Add source acquisition, provenance integrity, or high-assurance review only
+8. Add source acquisition, provenance integrity, or high-assurance review only
    when a strategy explicitly selects them.

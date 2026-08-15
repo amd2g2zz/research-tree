@@ -67,8 +67,10 @@ uv run python scripts/check_delivery_workflow.py check-pr \
 
 More than 25 non-generated files or 800 changed non-generated lines requires a
 split-review rationale. More than 50 files or 1,500 lines fails unless a
-maintainer-approved exception is explicitly recorded. Generated host packages
-must be reproducible from canonical source and isolated in their own commit.
+maintainer applies the exact `delivery:oversized-approved` pull-request label.
+PR body text and similar labels do not grant the exception. Generated host
+packages must be reproducible from canonical source and isolated in their own
+commit.
 
 ## Promote A Release
 
