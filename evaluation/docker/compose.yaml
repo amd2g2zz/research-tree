@@ -9,10 +9,11 @@ services:
     working_dir: /workspace
     command: ["python", "-B", "-I", "-c", "import os; assert os.geteuid() != 0"]
     environment:
-      HOME: /nonexistent
+      HOME: /home/runner
       MODEL_BROKER_URL: http://evaluation-broker:8080
       ANTHROPIC_BASE_URL: http://evaluation-broker:8080/anthropic
       ANTHROPIC_API_KEY: broker-managed-placeholder
+      SOURCE_BROKER_URL: http://source-broker:8081
     read_only: true
     privileged: false
     cap_drop:
@@ -24,10 +25,12 @@ services:
     cpus: 1.0
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
+      - /home/runner:rw,noexec,nosuid,size=64m,uid=65532,gid=65532
     init: true
     restart: "no"
     networks:
       - runner-broker
+      - source-broker
 
   broker:
     build:
@@ -73,10 +76,57 @@ services:
       - runner-broker
       - broker-egress
 
+  source-broker:
+    build:
+      context: .
+      dockerfile: Dockerfile.source-broker
+      args:
+        SOURCE_BROKER_BASE_IMAGE: "${EVALUATION_SOURCE_BROKER_IMAGE:-python:3.12-slim@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}"
+    user: "65532:65532"
+    environment:
+      HOME: /nonexistent
+    read_only: true
+    privileged: false
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    init: true
+    restart: "no"
+    expose:
+      - "8081"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -B
+        - -c
+        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:8081/healthz', timeout=1).read()"
+      interval: 2s
+      timeout: 1s
+      retries: 10
+      start_period: 1s
+    volumes:
+      - source-capture-metadata:/var/lib/research-tree/source-captures
+    networks:
+      - source-broker
+      - source-egress
+
 networks:
   runner-broker:
     internal: true
   broker-egress:
+  source-broker:
+    internal: true
+  source-egress:
+
+volumes:
+  source-capture-metadata:
 
 secrets:
   deepseek_api_key:

@@ -4,7 +4,7 @@ FROM ${RUNNER_BASE_IMAGE}
 
 ARG RUNNER_UID=65532
 RUN groupadd --gid "${RUNNER_UID}" runner \
-    && useradd --no-log-init --uid "${RUNNER_UID}" --gid runner --home-dir /nonexistent --no-create-home \
+    && useradd --no-log-init --uid "${RUNNER_UID}" --gid runner --home-dir /home/runner --create-home \
         --shell /usr/sbin/nologin runner
 
 WORKDIR /workspace

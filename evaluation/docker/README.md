@@ -15,7 +15,7 @@ for an episode, and tears the broker down when the evaluation scope ends.
 
 ```sh
 export DEEPSEEK_API_KEY_FILE=/trusted/path/outside/the/repository
-docker compose --project-directory evaluation/docker --file evaluation/docker/compose.yaml up --detach broker
+docker compose --project-directory evaluation/docker --file evaluation/docker/compose.yaml up --detach broker source-broker
 evaluation/docker/run-episode.sh python -m evaluator.run_episode --input -
 docker compose --project-directory evaluation/docker --file evaluation/docker/compose.yaml down
 ```
@@ -23,16 +23,17 @@ docker compose --project-directory evaluation/docker --file evaluation/docker/co
 `run-episode.sh` uses `docker compose run --rm --no-deps runner`, so every
 episode receives a new runner container and the container is removed when its
 command exits. The script intentionally does not start dependencies; the
-orchestrator must have started the broker and may add its own readiness wait.
-No runner should be started with `docker compose up`.
+orchestrator must have started the model broker and source-broker and may add
+its own readiness wait. No runner should be started with `docker compose up`.
 
 ## Provider-Free Smoke
 
 The following smoke uses an empty temporary Docker secret file, starts the
 broker in its fail-closed unconfigured mode, and runs the Claude Code version
 command. It makes no provider request and does not persist or use a credential.
-The two image variables must name organization-approved runner and broker
-images by immutable digest; the runner image must include the `claude` CLI.
+The three image variables must name organization-approved runner, model-broker,
+and source-broker images by immutable digest; the runner image must include the
+`claude` CLI.
 
 ```sh
 empty_secret_file=$(mktemp)
@@ -40,7 +41,8 @@ trap 'rm -f "$empty_secret_file"' EXIT
 export DEEPSEEK_API_KEY_FILE="$empty_secret_file"
 export EVALUATION_RUNNER_IMAGE='registry.example/claude-code-runner@sha256:REPLACE_WITH_64_HEX_DIGEST'
 export EVALUATION_BROKER_IMAGE='registry.example/evaluation-broker@sha256:REPLACE_WITH_64_HEX_DIGEST'
-docker compose --project-directory evaluation/docker --file evaluation/docker/compose.yaml up --build --wait broker
+export EVALUATION_SOURCE_BROKER_IMAGE='registry.example/source-broker@sha256:REPLACE_WITH_64_HEX_DIGEST'
+docker compose --project-directory evaluation/docker --file evaluation/docker/compose.yaml up --build --wait broker source-broker
 evaluation/docker/run-episode.sh claude --version
 docker compose --project-directory evaluation/docker --file evaluation/docker/compose.yaml down
 ```
@@ -51,11 +53,12 @@ exercises the runner-to-broker path without allowing a provider call. A real
 cost pilot still needs separately authorized, redacted operator runbooks; this
 envelope deliberately does not invoke a model by itself.
 
-Before use, the trusted image build pipeline must replace the two placeholder
-image digests through `EVALUATION_RUNNER_IMAGE` and `EVALUATION_BROKER_IMAGE`.
-Each replacement must be an immutable image reference containing `@sha256:`.
-The checked-in placeholders are syntactically fixed digest values, not image
-names that resolve to a mutable tag during evaluation.
+Before use, the trusted image build pipeline must replace the three placeholder
+image digests through `EVALUATION_RUNNER_IMAGE`, `EVALUATION_BROKER_IMAGE`, and
+`EVALUATION_SOURCE_BROKER_IMAGE`. Each replacement must be an immutable image
+reference containing `@sha256:`. The checked-in placeholders are syntactically
+fixed digest values, not image names that resolve to a mutable tag during
+evaluation.
 
 ## Boundary
 
@@ -63,8 +66,11 @@ The runner is non-root, has a read-only root filesystem, drops every Linux
 capability, enables `no-new-privileges`, uses a small writable `/tmp`, and has
 CPU, memory, and process limits. No Docker socket, volume mount, host home,
 oracle material, or provider key is available to it. Its only configured
-endpoint is the broker on the internal `runner-broker` network. That network is Docker
-`internal`, so the runner has no direct external route.
+model endpoint is the broker on the internal `runner-broker` network. Its only
+research endpoint is source-broker on the internal `source-broker` network.
+Both networks are Docker `internal`, so the runner has no direct external
+route. `/home/runner` is a small writable tmpfs rather than a host home or a
+persisted volume.
 
 For Claude Code, the runner uses the non-secret
 `ANTHROPIC_BASE_URL=http://evaluation-broker:8080/anthropic` and an explicitly
@@ -81,6 +87,30 @@ the runner, ignores runner-supplied authorization headers, and forwards only to
 streamed to the runner with HTTP chunked encoding. It does not log the secret
 file, the credential, or request headers. The broker has a separate egress
 network; the runner does not.
+
+## Public Source Capture
+
+Live research uses `GET` or `HEAD` against
+`http://source-broker:8081/capture?url=<percent-encoded-public-https-url>`.
+The source-broker is the only service connected to `source-egress`; it allows
+only public HTTPS URLs on port 443. It rejects localhost, private, link-local,
+metadata, multicast, reserved, and other non-global addresses. Each DNS result
+is validated and the HTTPS connection is pinned to that resolved address with
+TLS hostname verification, preventing a DNS rebind between validation and
+connect.
+
+Redirects are followed manually with the same URL and DNS validation at every
+hop. Captures are bounded to four redirects, one MiB, ten seconds, four
+concurrent requests, and 64 requests per source-broker lifecycle. The broker
+never forwards runner cookies, authorization, or arbitrary request headers.
+
+Only the source-broker mounts the evaluator-owned `source-capture-metadata`
+Docker volume. It records capture metadata only: timestamp, final URL, status,
+byte count, and a SHA-256 content hash. It does not persist raw research
+content, redacts sensitive query values from the persisted final URL, does not
+expose a metadata endpoint to the runner, and does not mount or reveal another
+evaluation arm or oracle. The named Docker volume is outside the Git worktree,
+so no secret or raw research content is tracked in Git.
 
 Docker daemon is not a trust boundary. Anyone able to control the Docker daemon
 or the trusted host orchestrator can inspect or replace containers, images,

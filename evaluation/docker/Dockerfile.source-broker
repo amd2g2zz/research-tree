@@ -1,0 +1,16 @@
+# syntax=docker/dockerfile:1.7
+ARG SOURCE_BROKER_BASE_IMAGE=python:3.12-slim@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+FROM ${SOURCE_BROKER_BASE_IMAGE}
+
+ARG RUNNER_UID=65532
+RUN groupadd --gid "${RUNNER_UID}" sourcebroker \
+    && useradd --no-log-init --uid "${RUNNER_UID}" --gid sourcebroker --home-dir /nonexistent --no-create-home \
+        --shell /usr/sbin/nologin sourcebroker \
+    && install --directory --owner="${RUNNER_UID}" --group="${RUNNER_UID}" --mode=0700 \
+        /var/lib/research-tree/source-captures
+
+WORKDIR /app
+COPY --chown=65532:65532 source_broker.py /app/source_broker.py
+USER 65532:65532
+
+ENTRYPOINT ["python", "-B", "-I", "/app/source_broker.py"]
