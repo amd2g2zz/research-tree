@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import subprocess
 import sys
@@ -45,3 +46,7 @@ def test_readme_and_cli_help_do_not_advertise_retired_runtime_scope() -> None:
     assert help_output.returncode == 0, help_output.stderr
     assert "canonical" in help_output.stdout.lower()
     assert "tree-recover" not in help_output.stdout
+
+
+def test_legacy_application_facade_is_not_importable() -> None:
+    assert importlib.util.find_spec("research_tree.application") is None
