@@ -9,9 +9,11 @@ import pytest
 from research_tree.lifecycle_hook import (
     LifecycleHookError,
     host_response,
+    main,
     observe,
     read_payload,
 )
+from research_tree.skill_setup import initialize_project_workspace
 
 
 def project(tmp_path: Path) -> Path:
@@ -47,6 +49,46 @@ def test_observe_records_only_sanitized_metadata(tmp_path: Path) -> None:
     assert record["workspace"] == "."
     assert "prompt" not in record
     assert "tool_input" not in record
+
+
+def test_observe_routes_workspace_descriptor_to_the_declared_run(tmp_path: Path) -> None:
+    root = project(tmp_path)
+    first = initialize_project_workspace(root, project_id="topic-one", run_id="run-1")
+    second = initialize_project_workspace(root, project_id="topic-two", run_id="run-2")
+
+    first_result = observe(
+        {
+            "cwd": str(root),
+            "hook_event_name": "SessionStart",
+            "project_id": "topic-one",
+            "run_id": "run-1",
+            "session_id": "s1",
+        },
+        host="codex",
+        event="SessionStart",
+        project_root=root,
+        process_cwd=root,
+    )
+    second_result = observe(
+        {
+            "cwd": str(root),
+            "hook_event_name": "SessionStart",
+            "project_id": "topic-two",
+            "run_id": "run-2",
+            "session_id": "s2",
+        },
+        host="codex",
+        event="SessionStart",
+        project_root=root,
+        process_cwd=root,
+    )
+
+    first_path = root / first_result["path"]
+    second_path = root / second_result["path"]
+    assert first_path.is_relative_to(Path(first["run_root"]) / "events")
+    assert second_path.is_relative_to(Path(second["run_root"]) / "events")
+    assert json.loads(first_path.read_text(encoding="utf-8"))["project_id"] == "topic-one"
+    assert json.loads(second_path.read_text(encoding="utf-8"))["run_id"] == "run-2"
 
 
 def test_observe_rejects_reported_workspace_outside_project(tmp_path: Path) -> None:
@@ -132,19 +174,44 @@ def test_read_payload_is_bounded_and_requires_an_object() -> None:
         read_payload(BytesIO(b"[]"))
 
 
+def test_cli_workspace_arguments_bind_hook_event_to_a_project_run(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = project(tmp_path)
+    initialize_project_workspace(root, project_id="topic-one", run_id="run-1")
+    monkeypatch.chdir(root)
+
+    monkeypatch.setattr(
+        "research_tree.lifecycle_hook.read_payload",
+        lambda: {"cwd": str(root), "hook_event_name": "SessionStart"},
+    )
+    assert (
+        main(
+            [
+                "--host",
+                "codex",
+                "--event",
+                "SessionStart",
+                "--project-root",
+                str(root),
+                "--project-id",
+                "topic-one",
+                "--run-id",
+                "run-1",
+            ]
+        )
+        == 0
+    )
+
+    assert json.loads(capsys.readouterr().out) == {"continue": True}
+    assert list((root / ".research-tree" / "projects" / "topic-one" / "runs" / "run-1" / "events").glob("*.json"))
+
+
 def test_host_templates_use_native_wrappers_and_isolated_hermes_hook() -> None:
     root = Path(__file__).resolve().parents[1]
-    codex = json.loads(
-        (root / "hooks" / "codex.hooks.template.json").read_text(encoding="utf-8")
-    )
-    claude = json.loads(
-        (root / "hooks" / "claude-code.settings.template.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    hermes = (root / "hooks" / "hermes.config.template.yaml").read_text(
-        encoding="utf-8"
-    )
+    codex = json.loads((root / "hooks" / "codex.hooks.template.json").read_text(encoding="utf-8"))
+    claude = json.loads((root / "hooks" / "claude-code.settings.template.json").read_text(encoding="utf-8"))
+    hermes = (root / "hooks" / "hermes.config.template.yaml").read_text(encoding="utf-8")
 
     assert set(codex["hooks"]) == {
         "SessionStart",
