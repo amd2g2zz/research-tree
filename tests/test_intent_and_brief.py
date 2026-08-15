@@ -7,21 +7,29 @@ import pytest
 
 def api():
     from research_tree import (
+        CanonicalInputIntakeService,
+        CanonicalIntentModelCompiler,
+        CanonicalWorkingBriefCompiler,
         InputIntakeService,
         IntentModelCompiler,
         InvalidIntentModelError,
         InvalidWorkingBriefError,
         QuestionPolicy,
+        RunLedger,
         RunStore,
         WorkingBriefCompiler,
     )
 
     return {
+        "CanonicalInputIntakeService": CanonicalInputIntakeService,
+        "CanonicalIntentModelCompiler": CanonicalIntentModelCompiler,
+        "CanonicalWorkingBriefCompiler": CanonicalWorkingBriefCompiler,
         "InputIntakeService": InputIntakeService,
         "IntentModelCompiler": IntentModelCompiler,
         "InvalidIntentModelError": InvalidIntentModelError,
         "InvalidWorkingBriefError": InvalidWorkingBriefError,
         "QuestionPolicy": QuestionPolicy,
+        "RunLedger": RunLedger,
         "RunStore": RunStore,
         "WorkingBriefCompiler": WorkingBriefCompiler,
     }
@@ -55,6 +63,39 @@ def context(tmp_path: Path):
         role="baseline",
     )
     return modules, store, round_record
+
+
+def canonical_context(tmp_path: Path):
+    modules = api()
+    ledger = modules["RunLedger"](tmp_path / "ledger")
+    ledger.initialize()
+    round_record = ledger.create_run("round-intent")
+    intake = modules["CanonicalInputIntakeService"](ledger)
+    for input_id, kind, content, role in (
+        ("input-brief", "brief", "Build an autonomous reverse-engineering agent.", "signal"),
+        ("input-local", "note", "The first demo must run locally.", "constraint"),
+        ("input-cloud", "note", "The first demo must be cloud-hosted.", "constraint"),
+    ):
+        intake.ingest_text(
+            round_id=round_record.id,
+            input_id=input_id,
+            kind=kind,
+            content=content,
+            origin_type="user",
+            origin_locator="conversation:1",
+            role=role,
+            expected_revision=ledger.get_revision(round_record.id),
+        )
+    intake.create_context_bundle(
+        round_id=round_record.id,
+        input_id="input-context",
+        member_input_ids=("input-brief", "input-local", "input-cloud"),
+        origin_type="user",
+        origin_locator="conversation:1",
+        role="baseline",
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    return modules, ledger, round_record
 
 
 def analysis(*, unresolved: list[dict[str, object]] | None = None) -> dict[str, object]:
@@ -124,9 +165,20 @@ def compile_model(modules, store, round_record, payload: dict[str, object] | Non
     )
 
 
+def compile_canonical_model(modules, ledger, round_record, payload: dict[str, object] | None = None):
+    return modules["CanonicalIntentModelCompiler"](ledger).compile(
+        round_id=round_record.id,
+        intent_id="intent-model",
+        context_bundle_ids=("input-context",),
+        input_ids=("input-brief", "input-local", "input-cloud"),
+        analysis=payload or analysis(),
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+
+
 def test_conflicting_context_compiles_traceable_leading_and_viable_intent(tmp_path: Path) -> None:
-    modules, store, round_record = context(tmp_path)
-    model = compile_model(modules, store, round_record)
+    modules, ledger, round_record = canonical_context(tmp_path)
+    model = compile_canonical_model(modules, ledger, round_record)
 
     assert model.kind == "intent-model"
     assert model.payload["input_ids"] == ("input-brief", "input-local", "input-cloud")
@@ -172,32 +224,32 @@ def test_independent_input_does_not_require_a_context_bundle(tmp_path: Path) -> 
 
 
 def test_invalid_signal_anchor_is_rejected_without_artifact(tmp_path: Path) -> None:
-    modules, store, round_record = context(tmp_path)
+    modules, ledger, round_record = canonical_context(tmp_path)
     invalid = analysis()
     invalid["signals"][0]["input_id"] = "input-unknown"
 
     with pytest.raises(modules["InvalidIntentModelError"]):
-        compile_model(modules, store, round_record, invalid)
+        compile_canonical_model(modules, ledger, round_record, invalid)
 
-    assert [artifact for artifact in store.load_round(round_record.id).artifacts if artifact.kind == "intent-model"] == []
+    assert [artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "intent-model"] == []
 
 
 def test_invalid_hypothesis_anchor_is_rejected_without_artifact(tmp_path: Path) -> None:
-    modules, store, round_record = context(tmp_path)
+    modules, ledger, round_record = canonical_context(tmp_path)
     invalid = analysis()
     invalid["hypotheses"][0]["signal_refs"] = ["input-unknown"]
 
     with pytest.raises(modules["InvalidIntentModelError"]):
-        compile_model(modules, store, round_record, invalid)
+        compile_canonical_model(modules, ledger, round_record, invalid)
 
-    assert [artifact for artifact in store.load_round(round_record.id).artifacts if artifact.kind == "intent-model"] == []
+    assert [artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "intent-model"] == []
 
 
 def test_partial_ambiguity_generates_nonblocking_question_and_brief(tmp_path: Path) -> None:
-    modules, store, round_record = context(tmp_path)
-    model = compile_model(
+    modules, ledger, round_record = canonical_context(tmp_path)
+    model = compile_canonical_model(
         modules,
-        store,
+        ledger,
         round_record,
         analysis(
             unresolved=[
@@ -215,7 +267,7 @@ def test_partial_ambiguity_generates_nonblocking_question_and_brief(tmp_path: Pa
     assert recommendation is not None
     assert recommendation.question.startswith("Should the initial demo")
 
-    brief = modules["WorkingBriefCompiler"](store).compile(
+    brief = modules["CanonicalWorkingBriefCompiler"](ledger).compile(
         round_id=round_record.id,
         brief_id="working-brief",
         intent_model=model,
@@ -237,6 +289,7 @@ def test_partial_ambiguity_generates_nonblocking_question_and_brief(tmp_path: Pa
         working_interpretation="Local-first is leading while cloud hosting remains viable.",
         technical_outcome="Choose an implementation-ready safe reverse-engineering path.",
         assumptions=["Proceed with local-first research until evidence ranks alternatives."],
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
     assert brief.payload["intent_model_id"] == model.id
@@ -250,10 +303,10 @@ def test_partial_ambiguity_generates_nonblocking_question_and_brief(tmp_path: Pa
 
 
 def test_question_policy_stays_silent_when_evidence_can_rank_ambiguity(tmp_path: Path) -> None:
-    modules, store, round_record = context(tmp_path)
-    model = compile_model(
+    modules, ledger, round_record = canonical_context(tmp_path)
+    model = compile_canonical_model(
         modules,
-        store,
+        ledger,
         round_record,
         analysis(
             unresolved=[
@@ -305,12 +358,12 @@ def test_unresolved_question_candidates_require_active_alternatives(
     unresolved: list[dict[str, object]],
     status: str,
 ) -> None:
-    modules, store, round_record = context(tmp_path)
+    modules, ledger, round_record = canonical_context(tmp_path)
     payload = analysis(unresolved=unresolved)
     payload["hypotheses"][1]["status"] = status
 
     with pytest.raises(modules["InvalidIntentModelError"]):
-        compile_model(modules, store, round_record, payload)
+        compile_canonical_model(modules, ledger, round_record, payload)
 
 
 def test_working_brief_rejects_newer_or_unmodeled_input_revisions(tmp_path: Path) -> None:
