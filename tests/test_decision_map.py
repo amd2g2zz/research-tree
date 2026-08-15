@@ -9,19 +9,29 @@ import pytest
 def api():
     from research_tree import (
         BlueprintTargetCompiler,
+        CanonicalBlueprintTargetCompiler,
+        CanonicalInputIntakeService,
+        CanonicalIntentModelCompiler,
+        CanonicalWorkingBriefCompiler,
         InputIntakeService,
         IntentModelCompiler,
         InvalidBlueprintTargetError,
         RunStore,
+        RunLedger,
         WorkingBriefCompiler,
     )
 
     return {
         "BlueprintTargetCompiler": BlueprintTargetCompiler,
+        "CanonicalBlueprintTargetCompiler": CanonicalBlueprintTargetCompiler,
+        "CanonicalInputIntakeService": CanonicalInputIntakeService,
+        "CanonicalIntentModelCompiler": CanonicalIntentModelCompiler,
+        "CanonicalWorkingBriefCompiler": CanonicalWorkingBriefCompiler,
         "InputIntakeService": InputIntakeService,
         "IntentModelCompiler": IntentModelCompiler,
         "InvalidBlueprintTargetError": InvalidBlueprintTargetError,
         "RunStore": RunStore,
+        "RunLedger": RunLedger,
         "WorkingBriefCompiler": WorkingBriefCompiler,
     }
 
@@ -148,6 +158,69 @@ def context(tmp_path: Path, *, with_repository: bool = True):
     return modules, store, round_record, brief
 
 
+def canonical_context(tmp_path: Path, *, with_repository: bool = True):
+    modules = api()
+    ledger = modules["RunLedger"](tmp_path / "ledger")
+    ledger.initialize()
+    round_record = ledger.create_run("round-map")
+    intake = modules["CanonicalInputIntakeService"](ledger)
+    intake.ingest_text(
+        round_id=round_record.id,
+        input_id="input-brief",
+        kind="brief",
+        content="Build an implementation-ready autonomous reverse-engineering agent.",
+        origin_type="user",
+        origin_locator="conversation:1",
+        role="signal",
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    input_ids = ("input-brief",)
+    if with_repository:
+        intake.ingest_repository(
+            round_id=round_record.id,
+            input_id="input-repository",
+            repository_root=repository(tmp_path / "repository"),
+            origin_type="workspace",
+            role="baseline",
+            expected_revision=ledger.get_revision(round_record.id),
+        )
+        input_ids = ("input-brief", "input-repository")
+    intake.create_context_bundle(
+        round_id=round_record.id,
+        input_id="input-context",
+        member_input_ids=input_ids,
+        origin_type="user",
+        origin_locator="conversation:1",
+        role="baseline",
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    model = modules["CanonicalIntentModelCompiler"](ledger).compile(
+        round_id=round_record.id,
+        intent_id="intent-model",
+        context_bundle_ids=("input-context",),
+        input_ids=input_ids,
+        analysis=intent_analysis(input_ids),
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    roles = {"input-brief": "primary"}
+    if with_repository:
+        roles["input-repository"] = "baseline"
+    brief = modules["CanonicalWorkingBriefCompiler"](ledger).compile(
+        round_id=round_record.id,
+        brief_id="working-brief",
+        intent_model=model,
+        triggers=[{"kind": "initial_request", "text": "Start", "input_ids": ["input-brief"]}],
+        context_bundle_ids=("input-context",),
+        selected_input_ids=input_ids,
+        input_roles=roles,
+        material_conflicts=[],
+        working_interpretation="A safe implementation-ready agent path is the leading intent.",
+        technical_outcome="Choose the architecture and integration boundary for the first agent.",
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+    return modules, ledger, round_record, brief
+
+
 def slot(slot_id: str, *, priority: str = "P0", with_repository: bool = True) -> dict[str, object]:
     return {
         "id": slot_id,
@@ -199,11 +272,22 @@ def compile_target(modules, store, round_record, brief, slots, change):
     )
 
 
+def compile_canonical_target(modules, ledger, round_record, brief, slots, change):
+    return modules["CanonicalBlueprintTargetCompiler"](ledger).compile(
+        round_id=round_record.id,
+        target_id="blueprint-target",
+        working_brief=brief,
+        slots=slots,
+        change=change,
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+
+
 def test_repository_backed_target_preserves_brief_model_and_anchor_lineage(tmp_path: Path) -> None:
-    modules, store, round_record, brief = context(tmp_path)
-    target = compile_target(
+    modules, ledger, round_record, brief = canonical_context(tmp_path)
+    target = compile_canonical_target(
         modules,
-        store,
+        ledger,
         round_record,
         brief,
         [slot("slot-architecture")],
@@ -217,7 +301,7 @@ def test_repository_backed_target_preserves_brief_model_and_anchor_lineage(tmp_p
         {"path": "src/agent.py", "symbol": "run"},
     )
     assert target.parent_refs[0].artifact_id == brief.id
-    rehydrated = modules["RunStore"](store.root).load_round(round_record.id)
+    rehydrated = modules["RunLedger"](ledger.workspace).load_run(round_record.id)
     assert target in rehydrated.artifacts
 
 
@@ -238,31 +322,31 @@ def test_p0_slot_requires_owned_bounded_and_reversible_closure(
     field: str,
     value: object,
 ) -> None:
-    modules, store, round_record, brief = context(tmp_path)
+    modules, ledger, round_record, brief = canonical_context(tmp_path)
     invalid = slot("slot-architecture")
     invalid[field] = value
 
     with pytest.raises(modules["InvalidBlueprintTargetError"]):
-        compile_target(
+        compile_canonical_target(
             modules,
-            store,
+            ledger,
             round_record,
             brief,
             [invalid],
             initial_change("slot-architecture"),
         )
 
-    assert [artifact for artifact in store.load_round(round_record.id).artifacts if artifact.kind == "blueprint-target"] == []
+    assert [artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "blueprint-target"] == []
 
 
 def test_anchor_greenfield_and_dependency_failures_are_rejected_before_append(tmp_path: Path) -> None:
-    modules, store, round_record, brief = context(tmp_path)
+    modules, ledger, round_record, brief = canonical_context(tmp_path)
     invalid_anchor = slot("slot-architecture")
     invalid_anchor["repository_touchpoints"] = [{"path": "src/missing.py", "symbol": "run"}]
     with pytest.raises(modules["InvalidBlueprintTargetError"]):
-        compile_target(
+        compile_canonical_target(
             modules,
-            store,
+            ledger,
             round_record,
             brief,
             [invalid_anchor],
@@ -274,24 +358,24 @@ def test_anchor_greenfield_and_dependency_failures_are_rejected_before_append(tm
     first["depends_on"] = ["slot-two"]
     second["depends_on"] = ["slot-one"]
     with pytest.raises(modules["InvalidBlueprintTargetError"]):
-        compile_target(
+        compile_canonical_target(
             modules,
-            store,
+            ledger,
             round_record,
             brief,
             [first, second],
             initial_change("slot-one", "slot-two"),
         )
 
-    no_repo_modules, no_repo_store, no_repo_round, no_repo_brief = context(
+    no_repo_modules, no_repo_ledger, no_repo_round, no_repo_brief = canonical_context(
         tmp_path / "greenfield", with_repository=False
     )
     missing_assumption = slot("slot-greenfield", with_repository=False)
     missing_assumption["greenfield_assumptions"] = []
     with pytest.raises(no_repo_modules["InvalidBlueprintTargetError"]):
-        compile_target(
+        compile_canonical_target(
             no_repo_modules,
-            no_repo_store,
+            no_repo_ledger,
             no_repo_round,
             no_repo_brief,
             [missing_assumption],
