@@ -48,6 +48,10 @@ pytestdebug.log
 # Rebuildable code-intelligence state
 .gitnexus/
 
+# GitNexus-generated local agent context
+/AGENTS.md
+/CLAUDE.md
+
 # IDE and editor-local state
 .idea/
 .vscode-test/

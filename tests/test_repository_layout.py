@@ -121,6 +121,8 @@ def test_repository_ignores_generated_verification_and_local_tooling_artifacts()
         ".ropeproject/",
         ".history/",
         ".gitnexus/",
+        "/AGENTS.md",
+        "/CLAUDE.md",
         "*.prof",
         "*.pstats",
         "*.swp",
@@ -174,6 +176,8 @@ def test_repository_ignores_generated_verification_and_local_tooling_artifacts()
         ".ropeproject/config.py",
         ".history/session.json",
         ".gitnexus/index.db",
+        "AGENTS.md",
+        "CLAUDE.md",
         "session.prof",
         "session.pstats",
         "session.swp",
@@ -333,6 +337,28 @@ def test_checker_inventories_cache_roots_and_glob_ignores(tmp_path: Path) -> Non
     )
     assert valid["errors"] == []
     assert valid["protected_local_paths"] == []
+
+
+def test_checker_skips_ignored_untracked_checkout_roots(tmp_path: Path) -> None:
+    (tmp_path / ".gitignore").write_text("/AGENTS.md\n", encoding="utf-8")
+
+    ignored = report(
+        tmp_path,
+        [entry("src/")],
+        tracked_paths={"src/module.py"},
+        checkout_roots={"src", "AGENTS.md"},
+    )
+    assert ignored["errors"] == []
+
+    tracked = report(
+        tmp_path,
+        [entry("src/")],
+        tracked_paths={"src/module.py", "AGENTS.md"},
+        checkout_roots={"src", "AGENTS.md"},
+    )
+    assert tracked["errors"] == [
+        error("unregistered-tracked-root", "AGENTS.md", "add a registry entry for this checkout root")
+    ]
 
 
 def test_checker_enforces_generated_and_installed_boundaries(tmp_path: Path) -> None:
