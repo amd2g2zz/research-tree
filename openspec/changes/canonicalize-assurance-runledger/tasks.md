@@ -18,7 +18,7 @@
 
 - [ ] J.1 Eliminate legacy Finding Pack and Decision Ledger compiler consumers.
 - [ ] J.2 Retire legacy delivery/readiness branches after their canonical paths pass.
-- [ ] J.3 Split evaluation to a canonical-only ledger implementation.
+- [x] J.3 Split evaluation to a canonical-only ledger implementation.
 
 ## K. Feedback and Tree State
 

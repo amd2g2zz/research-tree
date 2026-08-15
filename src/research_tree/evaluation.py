@@ -17,7 +17,6 @@ from .domain import (
 )
 from .readiness import READINESS_RECORD_KIND, validate_readiness_record_payload
 from .run_ledger import RunLedger
-from .storage import RunStore
 
 
 BLUEPRINT_EVALUATION_KIND = "blueprint-evaluation"
@@ -184,8 +183,10 @@ class IndependentImplementationRunner(Protocol):
 class BlueprintEvaluationSuite:
     """Persist versioned, diagnosable blueprint-evaluation artifacts."""
 
-    def __init__(self, store: RunStore | RunLedger) -> None:
-        self._store = store
+    def __init__(self, ledger: RunLedger) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidEvaluationError("canonical evaluation requires a RunLedger")
+        self._ledger = ledger
 
     def evaluate(
         self,
@@ -199,19 +200,12 @@ class BlueprintEvaluationSuite:
         clarification_burden: Mapping[str, Any],
         implementation_runner: IndependentImplementationRunner,
         baseline_result: SimplerBaselineResult,
-        expected_revision: int | None = None,
+        expected_revision: int,
     ) -> ArtifactRevision:
         """Evaluate one exact package without exposing evaluator-owned material."""
 
         try:
-            if isinstance(self._store, RunLedger):
-                if expected_revision is None:
-                    raise InvalidEvaluationError("canonical evaluation requires expected_revision")
-                snapshot = self._store.load_run(round_id)
-            else:
-                if expected_revision is not None:
-                    raise InvalidEvaluationError("RunStore evaluation does not accept expected_revision")
-                snapshot = self._store.load_round(round_id)
+            snapshot = self._ledger.load_run(round_id)
             evaluation_identifier = _identifier(evaluation_id, "evaluation_id")
             _ensure_id_compatibility(snapshot.artifacts, evaluation_identifier)
             if not isinstance(case, TimeSplitCase):
@@ -259,23 +253,14 @@ class BlueprintEvaluationSuite:
             ArtifactRef(round_id, package.id, package.revision),
             ArtifactRef(round_id, readiness.id, readiness.revision),
         )
-        if isinstance(self._store, RunLedger):
-            from .completion_inputs import CompletionInputRegistrar
+        from .completion_inputs import CompletionInputRegistrar
 
-            assert expected_revision is not None
-            return CompletionInputRegistrar(self._store).write_evaluation(
-                round_id=round_id,
-                evaluation_id=evaluation_identifier,
-                payload=payload,
-                parent_refs=parents,
-                expected_revision=expected_revision,
-            )
-        return self._store.append_artifact(
-            round_id,
-            evaluation_identifier,
-            BLUEPRINT_EVALUATION_KIND,
-            payload,
+        return CompletionInputRegistrar(self._ledger).write_evaluation(
+            round_id=round_id,
+            evaluation_id=evaluation_identifier,
+            payload=payload,
             parent_refs=parents,
+            expected_revision=expected_revision,
         )
 
 
