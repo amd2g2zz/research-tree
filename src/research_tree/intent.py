@@ -13,6 +13,7 @@ from .domain import (
     validate_identifier,
 )
 from .intake import INPUT_LEDGER_ARTIFACT_KIND
+from .run_ledger import RunLedger
 from .storage import RunStore
 
 
@@ -136,6 +137,70 @@ class IntentModelCompiler:
             INTENT_MODEL_KIND,
             _json_ready(payload),
             parent_refs=parent_refs,
+        )
+
+
+class CanonicalIntentModelCompiler:
+    """Validate and persist an Intent Model directly in the canonical ledger."""
+
+    def __init__(self, ledger: RunLedger) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidIntentModelError("canonical Intent Model compiler requires a RunLedger")
+        self._ledger = ledger
+
+    def compile(
+        self,
+        *,
+        round_id: str,
+        intent_id: str,
+        context_bundle_ids: Sequence[str],
+        input_ids: Sequence[str],
+        analysis: Mapping[str, Any],
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        try:
+            snapshot = self._ledger.load_run(round_id)
+            validate_identifier(intent_id, "intent_id")
+            normalized_input_ids = _identifier_tuple(input_ids, "input_ids", error_type=InvalidIntentModelError)
+            normalized_bundle_ids = _identifier_tuple(
+                context_bundle_ids,
+                "context_bundle_ids",
+                error_type=InvalidIntentModelError,
+                allow_empty=True,
+            )
+            input_artifacts = _resolve_ledger_input_artifacts(
+                snapshot.artifacts,
+                normalized_input_ids,
+                expect_bundle=False,
+                error_type=InvalidIntentModelError,
+            )
+            bundle_artifacts = _resolve_ledger_input_artifacts(
+                snapshot.artifacts,
+                normalized_bundle_ids,
+                expect_bundle=True,
+                error_type=InvalidIntentModelError,
+            )
+            payload = _normalize_intent_analysis(
+                intent_id=intent_id,
+                round_id=round_id,
+                context_bundle_ids=normalized_bundle_ids,
+                input_ids=normalized_input_ids,
+                analysis=analysis,
+            )
+        except (InvalidIdentifierError, TypeError, ValueError) as error:
+            raise InvalidIntentModelError(str(error)) from error
+
+        parent_refs = tuple(
+            ArtifactRef(round_id, artifact.id, artifact.revision)
+            for artifact in (*bundle_artifacts, *input_artifacts)
+        )
+        return self._ledger.append_artifact(
+            round_id,
+            intent_id,
+            INTENT_MODEL_KIND,
+            _json_ready(payload),
+            parent_refs=parent_refs,
+            expected_revision=expected_revision,
         )
 
 
@@ -280,6 +345,90 @@ class WorkingBriefCompiler:
             WORKING_BRIEF_KIND,
             _json_ready(payload),
             parent_refs=parent_refs,
+        )
+
+
+class CanonicalWorkingBriefCompiler:
+    """Compile a lineage-bound Working Brief in the canonical ledger."""
+
+    def __init__(self, ledger: RunLedger) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidWorkingBriefError("canonical Working Brief compiler requires a RunLedger")
+        self._ledger = ledger
+
+    def compile(
+        self,
+        *,
+        round_id: str,
+        brief_id: str,
+        intent_model: ArtifactRevision,
+        triggers: Sequence[Mapping[str, Any]],
+        context_bundle_ids: Sequence[str],
+        selected_input_ids: Sequence[str],
+        input_roles: Mapping[str, str],
+        material_conflicts: Sequence[Mapping[str, Any]],
+        working_interpretation: str,
+        technical_outcome: str,
+        expected_revision: int,
+        assumptions: Sequence[str] = (),
+        prior_material_disposition: Mapping[str, str] | None = None,
+        delivery_targets: Mapping[str, bool] | None = None,
+    ) -> ArtifactRevision:
+        try:
+            snapshot = self._ledger.load_run(round_id)
+            validate_identifier(brief_id, "brief_id")
+            stored_model = _resolve_ledger_exact_artifact(snapshot.artifacts, intent_model)
+            if stored_model.kind != INTENT_MODEL_KIND or stored_model.round_id != round_id:
+                raise InvalidWorkingBriefError("intent_model must be an intent-model artifact in the Working Brief run")
+            input_ids = _identifier_tuple(selected_input_ids, "selected_input_ids", error_type=InvalidWorkingBriefError)
+            bundle_ids = _identifier_tuple(
+                context_bundle_ids, "context_bundle_ids", error_type=InvalidWorkingBriefError, allow_empty=True
+            )
+            input_artifacts = _resolve_ledger_input_artifacts(
+                snapshot.artifacts, input_ids, expect_bundle=False, error_type=InvalidWorkingBriefError
+            )
+            bundle_artifacts = _resolve_ledger_input_artifacts(
+                snapshot.artifacts, bundle_ids, expect_bundle=True, error_type=InvalidWorkingBriefError
+            )
+            _ensure_brief_context_is_modeled(stored_model, input_ids, bundle_ids, input_artifacts, bundle_artifacts)
+            hypotheses = _mapping_sequence(
+                stored_model.payload.get("hypotheses"), "intent_model hypotheses", error_type=InvalidWorkingBriefError
+            )
+            leading_ids = tuple(item["id"] for item in hypotheses if item.get("status") == "leading" and isinstance(item.get("id"), str))
+            viable_ids = tuple(
+                item["id"]
+                for item in hypotheses
+                if item.get("status") in {"viable", "needs_user_input"} and isinstance(item.get("id"), str)
+            )
+            if len(leading_ids) != 1:
+                raise InvalidWorkingBriefError("intent_model must contain exactly one leading hypothesis")
+            payload = {
+                "id": brief_id,
+                "round_id": round_id,
+                "triggers": _normalize_triggers(triggers, input_ids),
+                "context_bundle_ids": bundle_ids,
+                "selected_input_ids": input_ids,
+                "intent_model_id": stored_model.id,
+                "intent_hypothesis_ids": leading_ids,
+                "viable_intent_hypothesis_ids": viable_ids,
+                "input_roles": _normalize_input_roles(input_roles, input_ids),
+                "working_interpretation": _nonempty_string(working_interpretation, "working_interpretation", error_type=InvalidWorkingBriefError),
+                "material_conflicts": _normalize_conflicts(material_conflicts, input_ids),
+                "technical_outcome": _nonempty_string(technical_outcome, "technical_outcome", error_type=InvalidWorkingBriefError),
+                "non_goals": stored_model.payload.get("non_goals", ()),
+                "retained_hard_constraints": stored_model.payload.get("hard_constraints", ()),
+                "assumptions": _string_tuple(assumptions, "assumptions", error_type=InvalidWorkingBriefError),
+                "prior_material_disposition": _normalize_disposition(prior_material_disposition),
+                "delivery_targets": _normalize_delivery_targets(delivery_targets),
+            }
+        except (InvalidIdentifierError, TypeError, ValueError) as error:
+            raise InvalidWorkingBriefError(str(error)) from error
+        parent_refs = (
+            ArtifactRef(round_id, stored_model.id, stored_model.revision),
+            *(ArtifactRef(round_id, item.id, item.revision) for item in (*bundle_artifacts, *input_artifacts)),
+        )
+        return self._ledger.append_artifact(
+            round_id, brief_id, WORKING_BRIEF_KIND, _json_ready(payload), parent_refs=parent_refs, expected_revision=expected_revision
         )
 
 
@@ -780,6 +929,44 @@ def _resolve_input_artifacts(
             raise error_type(f"selected input {input_id} must resolve to {expected}")
         artifacts.append(artifact)
     return tuple(artifacts)
+
+
+def _resolve_ledger_input_artifacts(
+    artifacts: Sequence[ArtifactRevision],
+    input_ids: tuple[str, ...],
+    *,
+    expect_bundle: bool,
+    error_type: type[IntentError],
+) -> tuple[ArtifactRevision, ...]:
+    resolved: list[ArtifactRevision] = []
+    for input_id in input_ids:
+        matches = [
+            artifact
+            for artifact in artifacts
+            if artifact.id == input_id and artifact.kind == INPUT_LEDGER_ARTIFACT_KIND
+        ]
+        artifact = max(matches, key=lambda item: item.revision, default=None)
+        if artifact is None:
+            raise error_type(f"selected input does not resolve to an Input Ledger entry: {input_id}")
+        is_bundle = artifact.payload.get("kind") == "context_bundle"
+        if is_bundle != expect_bundle:
+            expected = "a Context Bundle" if expect_bundle else "a non-bundle input"
+            raise error_type(f"selected input {input_id} must resolve to {expected}")
+        resolved.append(artifact)
+    return tuple(resolved)
+
+
+def _resolve_ledger_exact_artifact(
+    artifacts: Sequence[ArtifactRevision], artifact: ArtifactRevision
+) -> ArtifactRevision:
+    if not isinstance(artifact, ArtifactRevision):
+        raise InvalidWorkingBriefError("intent_model must be an ArtifactRevision")
+    for stored in artifacts:
+        if stored.id == artifact.id and stored.revision == artifact.revision:
+            if stored != artifact:
+                raise InvalidWorkingBriefError("intent_model does not match its stored revision")
+            return stored
+    raise InvalidWorkingBriefError("intent_model has not been persisted in this RunLedger")
 
 
 def _resolve_exact_artifact(store: RunStore, artifact: ArtifactRevision) -> ArtifactRevision:

@@ -135,6 +135,8 @@ from .feedback import (
     validate_same_round_replan_payload,
 )
 from .intent import (
+    CanonicalIntentModelCompiler,
+    CanonicalWorkingBriefCompiler,
     IntentError,
     IntentModelCompiler,
     InvalidIntentModelError,
@@ -492,6 +494,8 @@ __all__ = [
     "FAILURE_CATEGORIES",
     "FAILURE_CATEGORY_GATES",
     "InputIntakeService",
+    "CanonicalIntentModelCompiler",
+    "CanonicalWorkingBriefCompiler",
     "IntentError",
     "IntentModelCompiler",
     "IntakeError",
