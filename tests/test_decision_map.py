@@ -8,31 +8,21 @@ import pytest
 
 def api():
     from research_tree import (
-        BlueprintTargetCompiler,
         CanonicalBlueprintTargetCompiler,
         CanonicalInputIntakeService,
         CanonicalIntentModelCompiler,
         CanonicalWorkingBriefCompiler,
-        InputIntakeService,
-        IntentModelCompiler,
         InvalidBlueprintTargetError,
-        RunStore,
         RunLedger,
-        WorkingBriefCompiler,
     )
 
     return {
-        "BlueprintTargetCompiler": BlueprintTargetCompiler,
         "CanonicalBlueprintTargetCompiler": CanonicalBlueprintTargetCompiler,
         "CanonicalInputIntakeService": CanonicalInputIntakeService,
         "CanonicalIntentModelCompiler": CanonicalIntentModelCompiler,
         "CanonicalWorkingBriefCompiler": CanonicalWorkingBriefCompiler,
-        "InputIntakeService": InputIntakeService,
-        "IntentModelCompiler": IntentModelCompiler,
         "InvalidBlueprintTargetError": InvalidBlueprintTargetError,
-        "RunStore": RunStore,
         "RunLedger": RunLedger,
-        "WorkingBriefCompiler": WorkingBriefCompiler,
     }
 
 
@@ -99,63 +89,6 @@ def intent_analysis(input_ids: tuple[str, ...]) -> dict[str, object]:
         "non_goals": ["Do not require a user questionnaire."],
         "unresolved_interpretations": [],
     }
-
-
-def context(tmp_path: Path, *, with_repository: bool = True):
-    modules = api()
-    store = modules["RunStore"](tmp_path / "store")
-    round_record = store.create_round("round-map")
-    intake = modules["InputIntakeService"](store)
-    intake.ingest_text(
-        round_id=round_record.id,
-        input_id="input-brief",
-        kind="brief",
-        content="Build an implementation-ready autonomous reverse-engineering agent.",
-        origin_type="user",
-        origin_locator="conversation:1",
-        role="signal",
-    )
-    input_ids = ("input-brief",)
-    if with_repository:
-        intake.ingest_repository(
-            round_id=round_record.id,
-            input_id="input-repository",
-            repository_root=repository(tmp_path / "repository"),
-            origin_type="workspace",
-            role="baseline",
-        )
-        input_ids = ("input-brief", "input-repository")
-    intake.create_context_bundle(
-        round_id=round_record.id,
-        input_id="input-context",
-        member_input_ids=input_ids,
-        origin_type="user",
-        origin_locator="conversation:1",
-        role="baseline",
-    )
-    model = modules["IntentModelCompiler"](store).compile(
-        round_id=round_record.id,
-        intent_id="intent-model",
-        context_bundle_ids=("input-context",),
-        input_ids=input_ids,
-        analysis=intent_analysis(input_ids),
-    )
-    roles = {"input-brief": "primary"}
-    if with_repository:
-        roles["input-repository"] = "baseline"
-    brief = modules["WorkingBriefCompiler"](store).compile(
-        round_id=round_record.id,
-        brief_id="working-brief",
-        intent_model=model,
-        triggers=[{"kind": "initial_request", "text": "Start", "input_ids": ["input-brief"]}],
-        context_bundle_ids=("input-context",),
-        selected_input_ids=input_ids,
-        input_roles=roles,
-        material_conflicts=[],
-        working_interpretation="A safe implementation-ready agent path is the leading intent.",
-        technical_outcome="Choose the architecture and integration boundary for the first agent.",
-    )
-    return modules, store, round_record, brief
 
 
 def canonical_context(tmp_path: Path, *, with_repository: bool = True):
@@ -260,16 +193,6 @@ def initial_change(*slot_ids: str) -> dict[str, object]:
         "from_slot_ids": [],
         "to_slot_ids": list(slot_ids),
     }
-
-
-def compile_target(modules, store, round_record, brief, slots, change):
-    return modules["BlueprintTargetCompiler"](store).compile(
-        round_id=round_record.id,
-        target_id="blueprint-target",
-        working_brief=brief,
-        slots=slots,
-        change=change,
-    )
 
 
 def compile_canonical_target(modules, ledger, round_record, brief, slots, change):
@@ -384,23 +307,19 @@ def test_anchor_greenfield_and_dependency_failures_are_rejected_before_append(tm
 
 
 def test_controlled_add_split_merge_reprioritize_and_remove_append_revisions(tmp_path: Path) -> None:
-    modules, store, round_record, brief = context(tmp_path)
+    modules, ledger, round_record, brief = canonical_context(tmp_path)
     architecture = slot("slot-architecture", priority="P1")
-    operations = modules["BlueprintTargetCompiler"](store)
-    first = operations.compile(
-        round_id=round_record.id,
-        target_id="blueprint-target",
-        working_brief=brief,
-        slots=[architecture],
-        change=initial_change("slot-architecture"),
+    first = compile_canonical_target(
+        modules, ledger, round_record, brief, [architecture], initial_change("slot-architecture")
     )
     security = slot("slot-security")
-    added = operations.compile(
-        round_id=round_record.id,
-        target_id="blueprint-target",
-        working_brief=brief,
-        slots=[architecture, security],
-        change={
+    added = compile_canonical_target(
+        modules,
+        ledger,
+        round_record,
+        brief,
+        [architecture, security],
+        {
             "kind": "add",
             "reason": "Repository inspection exposed a security boundary.",
             "from_slot_ids": [],
@@ -409,12 +328,13 @@ def test_controlled_add_split_merge_reprioritize_and_remove_append_revisions(tmp
     )
     storage = slot("slot-storage")
     interface = slot("slot-interface")
-    split = operations.compile(
-        round_id=round_record.id,
-        target_id="blueprint-target",
-        working_brief=brief,
-        slots=[architecture, storage, interface],
-        change={
+    split = compile_canonical_target(
+        modules,
+        ledger,
+        round_record,
+        brief,
+        [architecture, storage, interface],
+        {
             "kind": "split",
             "reason": "Security work separates state and interface decisions.",
             "from_slot_ids": ["slot-security"],
@@ -422,12 +342,13 @@ def test_controlled_add_split_merge_reprioritize_and_remove_append_revisions(tmp
         },
     )
     runtime = slot("slot-runtime")
-    merged = operations.compile(
-        round_id=round_record.id,
-        target_id="blueprint-target",
-        working_brief=brief,
-        slots=[architecture, runtime],
-        change={
+    merged = compile_canonical_target(
+        modules,
+        ledger,
+        round_record,
+        brief,
+        [architecture, runtime],
+        {
             "kind": "merge",
             "reason": "The two decisions converge on one runtime boundary.",
             "from_slot_ids": ["slot-storage", "slot-interface"],
@@ -436,24 +357,26 @@ def test_controlled_add_split_merge_reprioritize_and_remove_append_revisions(tmp
     )
     reprioritized_architecture = deepcopy(architecture)
     reprioritized_architecture["priority"] = "P0"
-    reprioritized = operations.compile(
-        round_id=round_record.id,
-        target_id="blueprint-target",
-        working_brief=brief,
-        slots=[reprioritized_architecture, runtime],
-        change={
+    reprioritized = compile_canonical_target(
+        modules,
+        ledger,
+        round_record,
+        brief,
+        [reprioritized_architecture, runtime],
+        {
             "kind": "reprioritize",
             "reason": "The architecture boundary blocks all remaining work.",
             "from_slot_ids": ["slot-architecture"],
             "to_slot_ids": ["slot-architecture"],
         },
     )
-    removed = operations.compile(
-        round_id=round_record.id,
-        target_id="blueprint-target",
-        working_brief=brief,
-        slots=[reprioritized_architecture],
-        change={
+    removed = compile_canonical_target(
+        modules,
+        ledger,
+        round_record,
+        brief,
+        [reprioritized_architecture],
+        {
             "kind": "remove",
             "reason": "Runtime work is no longer needed in this round.",
             "from_slot_ids": ["slot-runtime"],
@@ -468,19 +391,19 @@ def test_controlled_add_split_merge_reprioritize_and_remove_append_revisions(tmp
 
 
 def test_invalid_revision_change_is_rejected_without_a_new_target_revision(tmp_path: Path) -> None:
-    modules, store, round_record, brief = context(tmp_path)
-    first = compile_target(
+    modules, ledger, round_record, brief = canonical_context(tmp_path)
+    first = compile_canonical_target(
         modules,
-        store,
+        ledger,
         round_record,
         brief,
         [slot("slot-architecture")],
         initial_change("slot-architecture"),
     )
     with pytest.raises(modules["InvalidBlueprintTargetError"]):
-        compile_target(
+        compile_canonical_target(
             modules,
-            store,
+            ledger,
             round_record,
             brief,
             [slot("slot-architecture")],
@@ -492,28 +415,29 @@ def test_invalid_revision_change_is_rejected_without_a_new_target_revision(tmp_p
             },
         )
 
-    targets = [artifact for artifact in store.load_round(round_record.id).artifacts if artifact.kind == "blueprint-target"]
+    targets = [artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "blueprint-target"]
     assert targets == [first]
 
 
 def test_target_id_cannot_reuse_an_input_artifact_id(tmp_path: Path) -> None:
-    modules, store, round_record, brief = context(tmp_path)
+    modules, ledger, round_record, brief = canonical_context(tmp_path)
 
     with pytest.raises(modules["InvalidBlueprintTargetError"]):
-        modules["BlueprintTargetCompiler"](store).compile(
+        modules["CanonicalBlueprintTargetCompiler"](ledger).compile(
             round_id=round_record.id,
             target_id="input-brief",
             working_brief=brief,
             slots=[slot("slot-architecture")],
             change=initial_change("slot-architecture"),
+            expected_revision=ledger.get_revision(round_record.id),
         )
 
 
 def test_target_revision_cannot_switch_to_a_new_working_brief_revision(tmp_path: Path) -> None:
-    modules, store, round_record, brief = context(tmp_path)
-    first = compile_target(
+    modules, ledger, round_record, brief = canonical_context(tmp_path)
+    first = compile_canonical_target(
         modules,
-        store,
+        ledger,
         round_record,
         brief,
         [slot("slot-architecture")],
@@ -521,10 +445,10 @@ def test_target_revision_cannot_switch_to_a_new_working_brief_revision(tmp_path:
     )
     model = next(
         artifact
-        for artifact in store.load_round(round_record.id).artifacts
+        for artifact in ledger.load_run(round_record.id).artifacts
         if artifact.id == "intent-model"
     )
-    newer_brief = modules["WorkingBriefCompiler"](store).compile(
+    newer_brief = modules["CanonicalWorkingBriefCompiler"](ledger).compile(
         round_id=round_record.id,
         brief_id="working-brief",
         intent_model=model,
@@ -535,12 +459,13 @@ def test_target_revision_cannot_switch_to_a_new_working_brief_revision(tmp_path:
         material_conflicts=[],
         working_interpretation="The same technical outcome remains leading.",
         technical_outcome="Choose the architecture and integration boundary for the first agent.",
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
     with pytest.raises(modules["InvalidBlueprintTargetError"]):
-        compile_target(
+        compile_canonical_target(
             modules,
-            store,
+            ledger,
             round_record,
             newer_brief,
             [slot("slot-architecture"), slot("slot-security")],
@@ -552,5 +477,5 @@ def test_target_revision_cannot_switch_to_a_new_working_brief_revision(tmp_path:
             },
         )
 
-    targets = [artifact for artifact in store.load_round(round_record.id).artifacts if artifact.kind == "blueprint-target"]
+    targets = [artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "blueprint-target"]
     assert targets == [first]
