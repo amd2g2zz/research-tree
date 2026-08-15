@@ -27,8 +27,6 @@ from research_tree import (
     EvidenceResolver,
     EvidenceValidationError,
     InvalidDecisionLedgerError,
-    InvalidReadinessError,
-    ReadinessVerifier,
     RunLedger,
 )
 from research_tree.work_items import WORK_ITEM_KIND
@@ -450,11 +448,8 @@ def test_legacy_compilers_are_not_exported_and_evidence_cannot_enter_canonical_d
         )
 
 
-def test_canonical_ledger_cannot_use_non_strict_readiness_verifier(tmp_path: Path) -> None:
-    ledger, _store, _target, _work, _content, _evidence, _reference, _resolver = _environment(tmp_path)
-
-    with pytest.raises(InvalidReadinessError, match="matching ledger-backed"):
-        ReadinessVerifier(ledger)
+def test_legacy_readiness_verifier_is_not_exported() -> None:
+    assert not hasattr(research_tree, "ReadinessVerifier")
 
 
 def _canonical_readiness_package(tmp_path: Path):
