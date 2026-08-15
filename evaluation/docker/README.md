@@ -1,0 +1,93 @@
+# Sealed Evaluation Container Envelope
+
+This directory is a Compose contract for a trusted evaluation orchestrator. It
+contains no episode input, oracle body, reference patch, provider transcript,
+or credential. Building the images, running `docker compose config`, and
+starting the broker do not issue a model request. The broker contacts DeepSeek
+only after a runner sends a request to its one supported local route.
+
+## Invocation
+
+The trusted orchestrator supplies a Docker-host secret file path without
+placing that file in this repository or in an environment variable containing
+the credential. It first starts the broker, invokes exactly one fresh runner
+for an episode, and tears the broker down when the evaluation scope ends.
+
+```sh
+export DEEPSEEK_API_KEY_FILE=/trusted/path/outside/the/repository
+docker compose --project-directory evaluation/docker --file evaluation/docker/compose.yaml up --detach broker
+evaluation/docker/run-episode.sh python -m evaluator.run_episode --input -
+docker compose --project-directory evaluation/docker --file evaluation/docker/compose.yaml down
+```
+
+`run-episode.sh` uses `docker compose run --rm --no-deps runner`, so every
+episode receives a new runner container and the container is removed when its
+command exits. The script intentionally does not start dependencies; the
+orchestrator must have started the broker and may add its own readiness wait.
+No runner should be started with `docker compose up`.
+
+## Provider-Free Smoke
+
+The following smoke uses an empty temporary Docker secret file, starts the
+broker in its fail-closed unconfigured mode, and runs the Claude Code version
+command. It makes no provider request and does not persist or use a credential.
+The two image variables must name organization-approved runner and broker
+images by immutable digest; the runner image must include the `claude` CLI.
+
+```sh
+empty_secret_file=$(mktemp)
+trap 'rm -f "$empty_secret_file"' EXIT
+export DEEPSEEK_API_KEY_FILE="$empty_secret_file"
+export EVALUATION_RUNNER_IMAGE='registry.example/claude-code-runner@sha256:REPLACE_WITH_64_HEX_DIGEST'
+export EVALUATION_BROKER_IMAGE='registry.example/evaluation-broker@sha256:REPLACE_WITH_64_HEX_DIGEST'
+docker compose --project-directory evaluation/docker --file evaluation/docker/compose.yaml up --build --wait broker
+evaluation/docker/run-episode.sh claude --version
+docker compose --project-directory evaluation/docker --file evaluation/docker/compose.yaml down
+```
+
+An empty secret makes every `POST /v1/chat/completions` return `503` before any
+outbound request. The same is true for `POST /anthropic/v1/messages`. This
+exercises the runner-to-broker path without allowing a provider call. A real
+cost pilot still needs separately authorized, redacted operator runbooks; this
+envelope deliberately does not invoke a model by itself.
+
+Before use, the trusted image build pipeline must replace the two placeholder
+image digests through `EVALUATION_RUNNER_IMAGE` and `EVALUATION_BROKER_IMAGE`.
+Each replacement must be an immutable image reference containing `@sha256:`.
+The checked-in placeholders are syntactically fixed digest values, not image
+names that resolve to a mutable tag during evaluation.
+
+## Boundary
+
+The runner is non-root, has a read-only root filesystem, drops every Linux
+capability, enables `no-new-privileges`, uses a small writable `/tmp`, and has
+CPU, memory, and process limits. No Docker socket, volume mount, host home,
+oracle material, or provider key is available to it. Its only configured
+endpoint is the broker on the internal `runner-broker` network. That network is Docker
+`internal`, so the runner has no direct external route.
+
+For Claude Code, the runner uses the non-secret
+`ANTHROPIC_BASE_URL=http://evaluation-broker:8080/anthropic` and an explicitly
+non-sensitive `ANTHROPIC_API_KEY` placeholder. The broker replaces that
+runner-supplied authentication with its own secret only for the fixed DeepSeek
+Anthropic-compatible route.
+
+Only the broker receives the Docker secret file at
+`/run/secrets/deepseek_api_key`. The broker reads it without printing it,
+accepts only `POST /v1/chat/completions` and `POST /anthropic/v1/messages` from
+the runner, ignores runner-supplied authorization headers, and forwards only to
+`https://api.deepseek.com/chat/completions` or
+`https://api.deepseek.com/anthropic/v1/messages`. Anthropic SSE responses are
+streamed to the runner with HTTP chunked encoding. It does not log the secret
+file, the credential, or request headers. The broker has a separate egress
+network; the runner does not.
+
+Docker daemon is not a trust boundary. Anyone able to control the Docker daemon
+or the trusted host orchestrator can inspect or replace containers, images,
+networks, and secret mounts. This envelope protects a runner from ordinary
+container-level escape paths and accidental host exposure; it does not protect
+against a hostile daemon, a privileged host user, or an untrusted orchestrator.
+
+The orchestrator owns lifecycle cleanup, public episode input delivery, result
+collection, and any provider billing or rate policy. It must keep request and
+result logs redacted and must not record credentials.

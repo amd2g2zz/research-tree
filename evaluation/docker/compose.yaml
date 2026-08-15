@@ -1,0 +1,83 @@
+services:
+  runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+      args:
+        RUNNER_BASE_IMAGE: "${EVALUATION_RUNNER_IMAGE:-python:3.12-slim@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}"
+    user: "65532:65532"
+    working_dir: /workspace
+    command: ["python", "-B", "-I", "-c", "import os; assert os.geteuid() != 0"]
+    environment:
+      HOME: /nonexistent
+      MODEL_BROKER_URL: http://evaluation-broker:8080
+      ANTHROPIC_BASE_URL: http://evaluation-broker:8080/anthropic
+      ANTHROPIC_API_KEY: broker-managed-placeholder
+    read_only: true
+    privileged: false
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    init: true
+    restart: "no"
+    networks:
+      - runner-broker
+
+  broker:
+    build:
+      context: .
+      dockerfile: Dockerfile.broker
+      args:
+        BROKER_BASE_IMAGE: "${EVALUATION_BROKER_IMAGE:-python:3.12-slim@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}"
+    user: "65532:65532"
+    environment:
+      HOME: /nonexistent
+      DEEPSEEK_API_KEY_FILE: /run/secrets/deepseek_api_key
+    secrets:
+      - source: deepseek_api_key
+        target: deepseek_api_key
+        mode: 0444
+    read_only: true
+    privileged: false
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    init: true
+    restart: "no"
+    expose:
+      - "8080"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -B
+        - -c
+        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:8080/healthz', timeout=1).read()"
+      interval: 2s
+      timeout: 1s
+      retries: 10
+      start_period: 1s
+    networks:
+      - runner-broker
+      - broker-egress
+
+networks:
+  runner-broker:
+    internal: true
+  broker-egress:
+
+secrets:
+  deepseek_api_key:
+    file: ${DEEPSEEK_API_KEY_FILE:-/run/research-tree-no-secret-file}

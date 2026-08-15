@@ -1,0 +1,14 @@
+# syntax=docker/dockerfile:1.7
+ARG BROKER_BASE_IMAGE=python:3.12-slim@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+FROM ${BROKER_BASE_IMAGE}
+
+ARG RUNNER_UID=65532
+RUN groupadd --gid "${RUNNER_UID}" broker \
+    && useradd --no-log-init --uid "${RUNNER_UID}" --gid broker --home-dir /nonexistent --no-create-home \
+        --shell /usr/sbin/nologin broker
+
+WORKDIR /app
+COPY --chown=65532:65532 broker.py /app/broker.py
+USER 65532:65532
+
+ENTRYPOINT ["python", "-B", "-I", "/app/broker.py"]
