@@ -665,39 +665,42 @@ def test_tree_state_persists_and_replays_unconsumed_finding_after_restart(
     tmp_path: Path,
 ) -> None:
     from research_tree import (
+        CanonicalResearchTreeStateService,
         ResearchTreeStateError,
-        ResearchTreeStateService,
-        RunStore,
+        RunLedger,
         apply_research_results,
         initialize_research_state,
     )
 
-    root = tmp_path / "run-store"
-    store = RunStore(root)
-    round_record = store.create_round("round-recursive")
+    root = tmp_path / "run-ledger"
+    ledger = RunLedger(root)
+    ledger.create_run("round-recursive")
+    round_id = "round-recursive"
     baseline_payload = finding(
         "finding-baseline",
         anchor="source:baseline",
         uncertainty="The independent replay experiment is missing.",
     )
-    baseline = store.append_artifact(
-        round_record.id,
+    baseline = ledger.append_artifact(
+        round_id,
         "finding-baseline",
         "finding-pack",
         baseline_payload,
+        expected_revision=ledger.get_revision(round_id),
     )
     initial_state = initialize_research_state(
-        round_id=round_record.id,
+        round_id=round_id,
         tree_id="research-tree",
         decision_slots=slots(),
         baseline_findings=(baseline,),
     )
-    service = ResearchTreeStateService(store)
+    service = CanonicalResearchTreeStateService(ledger)
     first = service.initialize(
-        round_id=round_record.id,
+        round_id=round_id,
         tree_id="research-tree",
         state=initial_state,
         baseline_findings=(baseline,),
+        expected_revision=ledger.get_revision(round_id),
     )
 
     pending_payload = finding(
@@ -709,16 +712,18 @@ def test_tree_state_persists_and_replays_unconsumed_finding_after_restart(
             "evidence_ref": "runs/restart-replay/result.json",
         },
     )
-    pending = store.append_artifact(
-        round_record.id,
+    pending = ledger.append_artifact(
+        round_id,
         "finding-pending",
         "finding-pack",
         pending_payload,
+        expected_revision=ledger.get_revision(round_id),
     )
 
-    rehydrated_service = ResearchTreeStateService(RunStore(root))
+    rehydrated_ledger = RunLedger(root)
+    rehydrated_service = CanonicalResearchTreeStateService(rehydrated_ledger)
     checkpoint, unconsumed = rehydrated_service.recover_unconsumed(
-        round_id=round_record.id,
+        round_id=round_id,
         tree_id="research-tree",
     )
     assert checkpoint == first
@@ -726,13 +731,14 @@ def test_tree_state_persists_and_replays_unconsumed_finding_after_restart(
 
     next_state = apply_research_results(checkpoint.payload, unconsumed)
     second = rehydrated_service.transition(
-        round_id=round_record.id,
+        round_id=round_id,
         previous=checkpoint,
         state=next_state,
         consumed_findings=unconsumed,
+        expected_revision=rehydrated_ledger.get_revision(round_id),
     )
-    latest, remaining = ResearchTreeStateService(RunStore(root)).recover_unconsumed(
-        round_id=round_record.id,
+    latest, remaining = CanonicalResearchTreeStateService(RunLedger(root)).recover_unconsumed(
+        round_id=round_id,
         tree_id="research-tree",
     )
     assert latest == second
@@ -745,29 +751,32 @@ def test_tree_state_persists_and_replays_unconsumed_finding_after_restart(
 
     with pytest.raises(ResearchTreeStateError, match="stale"):
         rehydrated_service.transition(
-            round_id=round_record.id,
+            round_id=round_id,
             previous=first,
             state=next_state,
             consumed_findings=unconsumed,
+            expected_revision=rehydrated_ledger.get_revision(round_id),
         )
 
 
 def test_persisted_coordinator_exposes_successor_actions_across_processes(
     tmp_path: Path,
 ) -> None:
-    from research_tree import RecursiveResearchCoordinator, RunStore
+    from research_tree import CanonicalRecursiveResearchCoordinator, RunLedger
 
-    root = tmp_path / "run-store"
-    store = RunStore(root)
-    round_record = store.create_round("round-coordinator")
-    coordinator = RecursiveResearchCoordinator(store)
+    root = tmp_path / "run-ledger"
+    ledger = RunLedger(root)
+    ledger.create_run("round-coordinator")
+    round_id = "round-coordinator"
+    coordinator = CanonicalRecursiveResearchCoordinator(ledger)
     coordinator.initialize(
-        round_id=round_record.id,
+        round_id=round_id,
         tree_id="research-tree",
         decision_slots=slots(),
+        expected_revision=ledger.get_revision(round_id),
     )
     first_action = coordinator.next_actions(
-        round_id=round_record.id,
+        round_id=round_id,
         tree_id="research-tree",
         max_parallelism=1,
     )[0]
@@ -775,8 +784,8 @@ def test_persisted_coordinator_exposes_successor_actions_across_processes(
         "restart and replay preserves the active frontier"
     )
     assert first_action["execution_context"] == {}
-    persisted_finding = store.append_artifact(
-        round_record.id,
+    persisted_finding = ledger.append_artifact(
+        round_id,
         "finding-coordinator",
         "finding-pack",
         finding(
@@ -785,15 +794,18 @@ def test_persisted_coordinator_exposes_successor_actions_across_processes(
             node_id=first_action["id"],
             uncertainty="An independent execution check is still required.",
         ),
+        expected_revision=ledger.get_revision(round_id),
     )
-    RecursiveResearchCoordinator(RunStore(root)).ingest(
-        round_id=round_record.id,
+    rehydrated_ledger = RunLedger(root)
+    CanonicalRecursiveResearchCoordinator(rehydrated_ledger).ingest(
+        round_id=round_id,
         tree_id="research-tree",
         finding_packs=(persisted_finding,),
+        expected_revision=rehydrated_ledger.get_revision(round_id),
     )
 
-    actions_after_restart = RecursiveResearchCoordinator(RunStore(root)).next_actions(
-        round_id=round_record.id,
+    actions_after_restart = CanonicalRecursiveResearchCoordinator(RunLedger(root)).next_actions(
+        round_id=round_id,
         tree_id="research-tree",
         max_parallelism=2,
     )

@@ -234,6 +234,7 @@ from .policy import (
     VerifiedEvidence,
 )
 from .recursive_search import (
+    CanonicalRecursiveResearchCoordinator,
     RecursiveResearchCoordinator,
     RecursiveSearchConfig,
     apply_research_results,
@@ -245,6 +246,7 @@ from .recursive_search import (
     select_research_actions,
 )
 from .tree_state import (
+    CanonicalResearchTreeStateService,
     RESEARCH_TREE_STATE_KIND,
     ResearchTreeStateError,
     ResearchTreeStateService,
@@ -426,6 +428,7 @@ __all__ = [
     "PolicyDisposition",
     "PolicyProposal",
     "VerifiedEvidence",
+    "CanonicalRecursiveResearchCoordinator",
     "RecursiveSearchConfig",
     "RecursiveResearchCoordinator",
     "initialize_research_state",
@@ -436,6 +439,7 @@ __all__ = [
     "evaluate_research_stop",
     "finalize_research_delivery",
     "RESEARCH_TREE_STATE_KIND",
+    "CanonicalResearchTreeStateService",
     "ResearchTreeStateError",
     "ResearchTreeStateService",
     "validate_tree_state_payload",
