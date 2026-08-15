@@ -27,10 +27,18 @@ HOST_EVENTS = {
             "Stop",
         }
     ),
-    "claude": frozenset(
-        {"SessionStart", "SessionEnd", "PreCompact", "SubagentStop", "Stop"}
+    "claude": frozenset({"SessionStart", "SessionEnd", "PreCompact", "SubagentStop", "Stop"}),
+    "hermes": frozenset(
+        {
+            "on_session_start",
+            "on_session_end",
+            "on_session_finalize",
+            "on_session_reset",
+            "subagent_start",
+            "subagent_stop",
+            "post_tool_call",
+        }
     ),
-    "hermes": frozenset({"on_session_start", "on_session_end"}),
 }
 
 
@@ -83,11 +91,7 @@ def validate_workspace(
 ) -> tuple[Path, Path]:
     """Validate both the process and host-reported working directories."""
     actual_cwd = (process_cwd or Path.cwd()).resolve(strict=False)
-    root = (
-        project_root.resolve(strict=False)
-        if project_root is not None
-        else find_project_root(actual_cwd)
-    )
+    root = project_root.resolve(strict=False) if project_root is not None else find_project_root(actual_cwd)
     _inside(root, actual_cwd, "process cwd")
 
     raw_cwd = payload.get("cwd")
@@ -120,12 +124,10 @@ def _optional_identifier(payload: dict[str, Any], key: str) -> str | None:
     return value
 
 
-def _write_record(root: Path, record: dict[str, Any]) -> Path:
-    event_dir = _inside(root, root / EVENT_DIRECTORY, "hook event directory")
+def _write_record(root: Path, record: dict[str, Any], *, event_dir: Path | None = None) -> Path:
+    event_dir = _inside(root, event_dir if event_dir is not None else root / EVENT_DIRECTORY, "hook event directory")
     event_dir.mkdir(parents=True, exist_ok=True)
-    encoded = json.dumps(
-        record, ensure_ascii=True, separators=(",", ":")
-    ).encode("utf-8")
+    encoded = json.dumps(record, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
     prefix = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     for _ in range(3):
         path = _inside(
@@ -160,9 +162,7 @@ def observe(
     if event == "Stop" and payload.get("stop_hook_active") is True:
         return {"status": "skipped_reentrant_stop", "host": host, "event": event}
 
-    root, workspace = validate_workspace(
-        payload, project_root=project_root, process_cwd=process_cwd
-    )
+    root, workspace = validate_workspace(payload, project_root=project_root, process_cwd=process_cwd)
     record: dict[str, Any] = {
         "schema": 1,
         "source": "research-tree-lifecycle-hook",
@@ -175,7 +175,28 @@ def observe(
         value = _optional_identifier(payload, key)
         if value is not None:
             record[key] = value
-    path = _write_record(root, record)
+    project_id = _optional_identifier(payload, "project_id")
+    run_id = _optional_identifier(payload, "run_id")
+    if (project_id is None) != (run_id is None):
+        raise LifecycleHookError("project_id and run_id must be supplied together")
+    event_dir = None
+    if project_id is not None and run_id is not None:
+        try:
+            from .skill_setup import SkillSetupError, workspace_paths
+
+            workspace_descriptor = workspace_paths(
+                root,
+                project_id=project_id,
+                run_id=run_id,
+                session_id=record.get("session_id"),
+                require_initialized=True,
+            )
+        except SkillSetupError as exc:
+            raise LifecycleHookError(str(exc)) from exc
+        event_dir = Path(workspace_descriptor["run_root"]) / "events"
+        record["project_id"] = project_id
+        record["run_id"] = run_id
+    path = _write_record(root, record, event_dir=event_dir)
     if debug:
         try:
             from .debug_trace import emit_trace
@@ -213,6 +234,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", choices=tuple(HOST_EVENTS), required=True)
     parser.add_argument("--event", required=True)
     parser.add_argument("--project-root", type=Path)
+    parser.add_argument("--project-id")
+    parser.add_argument("--run-id")
+    parser.add_argument("--session-id")
     parser.add_argument("--debug", action="store_true")
     return parser
 
@@ -221,8 +245,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
     try:
+        payload = read_payload()
+        for key in ("project_id", "run_id", "session_id"):
+            value = getattr(arguments, key)
+            if value is not None:
+                payload[key] = value
         observe(
-            read_payload(),
+            payload,
             host=arguments.host,
             event=arguments.event,
             project_root=arguments.project_root,

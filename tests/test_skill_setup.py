@@ -3,13 +3,18 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
+import shlex
 import shutil
+import subprocess
 
 import pytest
 
 from research_tree.skill_setup import (
     SkillSetupError,
     _create_link,
+    bootstrap_project_hooks,
+    initialize_project_workspace,
     install_skill,
     main,
     resolve_package,
@@ -20,6 +25,103 @@ from research_tree.skill_setup import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_project_workspace_is_stable_and_owns_one_run_tree(tmp_path: Path) -> None:
+    first = initialize_project_workspace(tmp_path, project_id="topic-42", run_id="run-7", session_id="session-a")
+    second = initialize_project_workspace(tmp_path, project_id="topic-42", run_id="run-7", session_id="session-b")
+
+    assert first["project_root"] == second["project_root"]
+    assert first["run_root"] == second["run_root"]
+    assert Path(first["project_root"]) == tmp_path / ".research-tree" / "projects" / "topic-42"
+    assert (Path(first["run_root"]) / "manifest.json").is_file()
+    assert Path(first["session_root"]).name == "session-a"
+    assert Path(second["session_root"]).name == "session-b"
+
+
+def test_project_hook_bootstrap_merges_configs_and_keeps_hermes_local(tmp_path: Path) -> None:
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex" / "hooks.json").write_text(
+        json.dumps({"custom": True, "hooks": {"SessionStart": [{"command": "keep"}]}}),
+        encoding="utf-8",
+    )
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "settings.json").write_text(
+        json.dumps({"model": "custom", "hooks": {"Stop": [{"command": "keep"}]}}),
+        encoding="utf-8",
+    )
+    workspace = initialize_project_workspace(tmp_path, project_id="topic-42", run_id="run-7")
+
+    first = bootstrap_project_hooks(tmp_path, workspace)
+    second = bootstrap_project_hooks(tmp_path, workspace)
+
+    codex = json.loads((tmp_path / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+    claude = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    assert codex["custom"] is True
+    assert codex["hooks"]["SessionStart"][0]["command"] == "keep"
+    assert sum("research-tree-hook" in json.dumps(item) for item in codex["hooks"]["SessionStart"]) == 1
+    assert claude["model"] == "custom"
+    assert claude["hooks"]["Stop"][0]["command"] == "keep"
+    assert sum("research-tree-hook" in json.dumps(item) for item in claude["hooks"]["Stop"]) == 1
+    assert first["status"] == "configured"
+    assert second["status"] == "configured"
+    hermes_config = Path(first["hermes"]["config"])
+    assert hermes_config.is_file()
+    assert hermes_config.is_relative_to(Path(workspace["run_root"]))
+    assert first["hermes"]["environment"] == {"HERMES_HOME": str(hermes_config.parent)}
+
+
+def test_project_hook_bootstrap_rolls_back_all_configs_on_partial_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = initialize_project_workspace(tmp_path, project_id="topic-42", run_id="run-7")
+    codex_config = tmp_path / ".codex" / "hooks.json"
+    codex_config.parent.mkdir()
+    codex_config.write_text('{"custom":true}', encoding="utf-8")
+
+    from research_tree import skill_setup
+
+    original = skill_setup._atomic_write_text
+    calls = 0
+
+    def fail_second_write(path: Path, text: str) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("interrupted write")
+        original(path, text)
+
+    monkeypatch.setattr(skill_setup, "_atomic_write_text", fail_second_write)
+
+    with pytest.raises(SkillSetupError, match="interrupted write"):
+        bootstrap_project_hooks(tmp_path, workspace)
+
+    assert codex_config.read_text(encoding="utf-8") == '{"custom":true}'
+    assert not (tmp_path / ".claude" / "settings.json").exists()
+
+
+def test_rendered_hermes_hook_command_parses_and_records_its_declared_event(tmp_path: Path) -> None:
+    workspace = initialize_project_workspace(tmp_path, project_id="topic-42", run_id="run-7")
+    hermes_config = Path(bootstrap_project_hooks(tmp_path, workspace)["hermes"]["config"])
+    rendered = hermes_config.read_text(encoding="utf-8")
+    command = re.search(r"on_session_start:\n\s+- command: (.+)", rendered)
+
+    assert command is not None
+    arguments = shlex.split(json.loads(command.group(1)))
+    assert "--event" in arguments
+    assert arguments[arguments.index("--event") + 1] == "on_session_start"
+    completed = subprocess.run(
+        arguments,
+        cwd=tmp_path,
+        input=json.dumps({"cwd": str(tmp_path), "hook_event_name": "on_session_start"}),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == {}
+    assert list((Path(workspace["run_root"]) / "events").glob("*.json"))
 
 
 def test_host_specific_user_and_project_targets(tmp_path: Path) -> None:
