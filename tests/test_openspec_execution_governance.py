@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -198,6 +199,145 @@ def test_verified_group_requires_repository_relative_python_entrypoint(
     assert "missing_acceptance_entrypoint" in codes(report)
 
 
+def test_verified_group_allows_a_retired_entrypoint_preserved_at_source_revision(
+    tmp_path: Path,
+) -> None:
+    script = tmp_path / "scripts" / "retired.py"
+    script.parent.mkdir()
+    script.write_text("print('retired')\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "scripts/retired.py"], cwd=tmp_path, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Research Tree Test",
+            "-c",
+            "user.email=research-tree@example.invalid",
+            "commit",
+            "-qm",
+            "record retired entrypoint",
+        ],
+        cwd=tmp_path,
+        check=True,
+    )
+    source_revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    script.unlink()
+
+    definition = group(1)
+    definition["acceptance_command"] = "uv run python scripts/retired.py"
+    receipt = verified_record(1)
+    receipt["command_receipt"] = {
+        **receipt["command_receipt"],  # type: ignore[index]
+        "command": definition["acceptance_command"],
+        "source_revision": source_revision,
+    }
+
+    report = validate_governance(
+        load_governance_inputs(
+            *inputs(
+                tmp_path,
+                groups=[definition],
+                verification=[receipt],
+                issues=[issue(53, 1, "ledger")],
+                capabilities=[capability("ledger", 53, [1])],
+            )
+        ),
+        repository=tmp_path,
+    )
+
+    assert report.valid is True
+    assert "missing_acceptance_entrypoint" not in codes(report)
+
+
+def test_verified_group_rejects_entrypoint_from_nonancestor_source_revision(
+    tmp_path: Path,
+) -> None:
+    readme = tmp_path / "README.md"
+    readme.write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "README.md"], cwd=tmp_path, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Research Tree Test",
+            "-c",
+            "user.email=research-tree@example.invalid",
+            "commit",
+            "-qm",
+            "record base",
+        ],
+        cwd=tmp_path,
+        check=True,
+    )
+    base_branch = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    subprocess.run(["git", "switch", "-qc", "retired"], cwd=tmp_path, check=True)
+    script = tmp_path / "scripts" / "retired.py"
+    script.parent.mkdir()
+    script.write_text("print('retired')\n", encoding="utf-8")
+    subprocess.run(["git", "add", "scripts/retired.py"], cwd=tmp_path, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Research Tree Test",
+            "-c",
+            "user.email=research-tree@example.invalid",
+            "commit",
+            "-qm",
+            "record unrelated retired entrypoint",
+        ],
+        cwd=tmp_path,
+        check=True,
+    )
+    source_revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    subprocess.run(["git", "switch", "-q", base_branch], cwd=tmp_path, check=True)
+
+    definition = group(1)
+    definition["acceptance_command"] = "uv run python scripts/retired.py"
+    receipt = verified_record(1)
+    receipt["command_receipt"] = {
+        **receipt["command_receipt"],  # type: ignore[index]
+        "command": definition["acceptance_command"],
+        "source_revision": source_revision,
+    }
+
+    report = validate_governance(
+        load_governance_inputs(
+            *inputs(
+                tmp_path,
+                groups=[definition],
+                verification=[receipt],
+                issues=[issue(53, 1, "ledger")],
+                capabilities=[capability("ledger", 53, [1])],
+            )
+        ),
+        repository=tmp_path,
+    )
+
+    assert report.valid is False
+    assert "missing_acceptance_entrypoint" in codes(report)
+
+
 def test_planned_group_allows_future_acceptance_entrypoint(tmp_path: Path) -> None:
     definition = group(1)
     definition["acceptance_command"] = "uv run python scripts/future.py"
@@ -391,6 +531,7 @@ def test_alpha2_registry_has_resolvable_ownership_and_noncyclic_boundaries() -> 
             for group in range(6, 33)
             if group not in {6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 20, 23, 25, 26, 27, 28, 29, 31, 32}
         ),
+        82,
     )
 
 
@@ -459,6 +600,7 @@ def test_cli_emits_deterministic_real_registry_report(capsys: pytest.CaptureFixt
             for group in range(6, 33)
             if group not in {6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 20, 23, 25, 26, 27, 28, 29, 31, 32}
         ),
+        82,
     ]
 
 

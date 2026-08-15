@@ -917,6 +917,10 @@
         "recorded_at": "2026-08-14T18:31:13.547223+00:00"
       },
       "rollback": "revert the parent acceptance metadata in Git; retain immutable child evidence and do not delete the retired compiler or restore a runtime adapter, bridge, fallback parser, alias, dual store, or exported compatibility helper"
+    },
+    {
+      "group": 82,
+      "state": "planned"
     }
   ]
 }

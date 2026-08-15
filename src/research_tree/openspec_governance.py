@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import json
 import argparse
+import json
 import re
 import shlex
+import subprocess
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -312,7 +313,39 @@ def _verification_is_complete(record: VerificationRecord, definition: GroupDefin
     )
 
 
-def _missing_acceptance_entrypoints(command: str, repository: Path) -> tuple[str, ...]:
+def _entrypoint_exists_at_source_revision(repository: Path, source_revision: str, entrypoint: str) -> bool:
+    try:
+        completed = subprocess.run(
+            ["git", "cat-file", "-e", f"{source_revision}:{entrypoint}"],
+            cwd=repository,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return False
+    return completed.returncode == 0
+
+
+def _source_revision_is_ancestor(repository: Path, source_revision: str) -> bool:
+    try:
+        completed = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", source_revision, "HEAD"],
+            cwd=repository,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return False
+    return completed.returncode == 0
+
+
+def _missing_acceptance_entrypoints(
+    command: str,
+    repository: Path,
+    source_revision: str | None,
+) -> tuple[str, ...]:
     tokens = shlex.split(command, posix=False)
     missing: list[str] = []
     for raw_token in tokens:
@@ -320,8 +353,19 @@ def _missing_acceptance_entrypoints(command: str, repository: Path) -> tuple[str
         candidate = Path(token)
         if candidate.suffix != ".py" or candidate.is_absolute():
             continue
-        if not (repository / candidate).is_file():
-            missing.append(candidate.as_posix())
+        if (repository / candidate).is_file():
+            continue
+        if (
+            source_revision is not None
+            and _source_revision_is_ancestor(repository, source_revision)
+            and _entrypoint_exists_at_source_revision(
+                repository,
+                source_revision,
+                candidate.as_posix(),
+            )
+        ):
+            continue
+        missing.append(candidate.as_posix())
     return tuple(sorted(set(missing)))
 
 
@@ -422,7 +466,13 @@ def validate_governance(inputs: GovernanceInputs, *, repository: Path | None = N
                 )
             )
         if repository is not None and record.state == "verified":
-            for entrypoint in _missing_acceptance_entrypoints(groups[group_id].acceptance_command, repository):
+            receipt = record.command_receipt
+            source_revision = receipt.get("source_revision") if isinstance(receipt, Mapping) else None
+            for entrypoint in _missing_acceptance_entrypoints(
+                groups[group_id].acceptance_command,
+                repository,
+                source_revision if isinstance(source_revision, str) else None,
+            ):
                 violations.append(
                     GovernanceViolation(
                         code="missing_acceptance_entrypoint",

@@ -498,8 +498,8 @@ substitute for local evidence.
 
 - [x] 80.1 Move readiness and strict-evidence Finding Pack tests to direct
   canonical ledger fixtures.
-- [x] 80.2 Preserve assurance and exporter coverage on the isolated test-only
-  legacy fixture without a runtime bridge.
+- [x] 80.2 Preserve assurance coverage on the isolated test-only legacy fixture
+  without a runtime bridge.
 - [x] 80.3 Run the exact group-80 acceptance command and record a source-bound
   receipt before closing #181.
 
@@ -511,3 +511,13 @@ substitute for local evidence.
   checks, and exact ownership metadata.
 - [x] 81.3 Run the exact group-81 acceptance command and record a source-bound
   receipt before closing #171.
+
+## 82. RunStore OpenSpec Projection Boundary Removal (#176)
+
+- [x] 82.1 Remove the isolated RunStore projection writer, root exports,
+  dedicated behavior suite, and E2E-only consumer after group 81.
+- [x] 82.2 Prove no runtime import, active authority, or generated package
+  advertises the retired projection boundary while canonical runtime interfaces
+  remain available.
+- [ ] 82.3 Run the exact group-82 acceptance command and record a source-bound
+  receipt after the source-removal commit.
