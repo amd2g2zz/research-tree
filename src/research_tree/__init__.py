@@ -36,6 +36,7 @@ from .ledger import (
 from .decision_map import (
     BlueprintTargetCompiler,
     BlueprintTargetError,
+    CanonicalBlueprintTargetCompiler,
     InvalidBlueprintTargetError,
 )
 from .delivery import (
@@ -459,6 +460,7 @@ __all__ = [
     "BlueprintEvaluationSuite",
     "BlueprintTargetCompiler",
     "BlueprintTargetError",
+    "CanonicalBlueprintTargetCompiler",
     "CANDIDATE_DISPOSITIONS",
     "CandidateContext",
     "CanonicalDecisionLedgerCompiler",

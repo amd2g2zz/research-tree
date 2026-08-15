@@ -14,6 +14,7 @@ from .domain import (
 )
 from .intake import INPUT_LEDGER_ARTIFACT_KIND
 from .intent import INTENT_MODEL_KIND, WORKING_BRIEF_KIND
+from .run_ledger import RunLedger
 from .storage import RunStore
 
 
@@ -126,6 +127,88 @@ class BlueprintTargetCompiler:
             BLUEPRINT_TARGET_KIND,
             payload,
             parent_refs=parent_refs,
+        )
+
+
+class CanonicalBlueprintTargetCompiler:
+    """Persist immutable Blueprint Targets directly in the canonical ledger."""
+
+    def __init__(self, ledger: RunLedger) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidBlueprintTargetError("canonical Blueprint Target compiler requires a RunLedger")
+        self._ledger = ledger
+
+    def compile(
+        self,
+        *,
+        round_id: str,
+        target_id: str,
+        working_brief: ArtifactRevision,
+        slots: Sequence[Mapping[str, Any]],
+        change: Mapping[str, Any],
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        """Append one lineage-bound target revision with an explicit precondition."""
+
+        try:
+            snapshot = self._ledger.load_run(round_id)
+            validate_identifier(target_id, "target_id")
+            foreign_kinds = {
+                artifact.kind
+                for artifact in snapshot.artifacts
+                if artifact.id == target_id and artifact.kind != BLUEPRINT_TARGET_KIND
+            }
+            if foreign_kinds:
+                raise InvalidBlueprintTargetError(
+                    f"target_id {target_id!r} is already used by artifact kinds: {sorted(foreign_kinds)}"
+                )
+            brief = _resolve_exact_artifact(snapshot.artifacts, working_brief)
+            if brief.kind != WORKING_BRIEF_KIND:
+                raise InvalidBlueprintTargetError("working_brief must be a working-brief artifact")
+            if brief.round_id != round_id:
+                raise InvalidBlueprintTargetError("working_brief must belong to target round")
+
+            model = _resolve_brief_model(snapshot.artifacts, brief)
+            brief_inputs = _resolve_brief_inputs(snapshot.artifacts, brief)
+            normalized_slots = _normalize_slots(
+                slots,
+                visible_hypotheses=_brief_hypothesis_ids(brief, model),
+                selected_input_ids=_brief_selected_input_ids(brief),
+                repository_anchors=_repository_anchors(brief_inputs),
+            )
+            _validate_dependencies(normalized_slots)
+            previous_target = _latest_target(snapshot.artifacts, target_id)
+            if previous_target is not None and not _shares_exact_brief_model_lineage(previous_target, brief, model):
+                raise InvalidBlueprintTargetError(
+                    "later Blueprint Target revisions must retain the prior Brief and Intent Model lineage"
+                )
+            normalized_change = _normalize_change(change)
+            _validate_change(previous_target, normalized_slots, normalized_change)
+        except (InvalidIdentifierError, TypeError, ValueError) as error:
+            raise InvalidBlueprintTargetError(str(error)) from error
+
+        payload = {
+            "id": target_id,
+            "round_id": round_id,
+            "brief_id": brief.id,
+            "intent_model_id": model.id,
+            "slots": normalized_slots,
+            "change": normalized_change,
+        }
+        brief_ref = ArtifactRef(round_id, brief.id, brief.revision)
+        model_ref = ArtifactRef(round_id, model.id, model.revision)
+        parent_refs = (
+            (brief_ref, model_ref)
+            if previous_target is None
+            else (ArtifactRef(round_id, previous_target.id, previous_target.revision), brief_ref, model_ref)
+        )
+        return self._ledger.append_artifact(
+            round_id,
+            target_id,
+            BLUEPRINT_TARGET_KIND,
+            payload,
+            parent_refs=parent_refs,
+            expected_revision=expected_revision,
         )
 
 
