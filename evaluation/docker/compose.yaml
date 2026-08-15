@@ -14,6 +14,7 @@ services:
       ANTHROPIC_BASE_URL: http://evaluation-broker:8080/anthropic
       ANTHROPIC_API_KEY: broker-managed-placeholder
       SOURCE_BROKER_URL: http://source-broker:8081
+      SYNTHETIC_USER_URL: http://user-simulator:8082
     read_only: true
     privileged: false
     cap_drop:
@@ -31,6 +32,7 @@ services:
     networks:
       - runner-broker
       - source-broker
+      - runner-simulator
 
   broker:
     build:
@@ -69,12 +71,17 @@ services:
         - -c
         - "from urllib.request import urlopen; urlopen('http://127.0.0.1:8080/healthz', timeout=1).read()"
       interval: 2s
-      timeout: 1s
+      timeout: 3s
       retries: 10
       start_period: 1s
     networks:
-      - runner-broker
-      - broker-egress
+      runner-broker:
+        aliases:
+          - evaluation-broker
+      broker-egress: {}
+      simulator-model:
+        aliases:
+          - evaluation-broker
 
   source-broker:
     build:
@@ -108,14 +115,58 @@ services:
         - -c
         - "from urllib.request import urlopen; urlopen('http://127.0.0.1:8081/healthz', timeout=1).read()"
       interval: 2s
-      timeout: 1s
+      timeout: 3s
       retries: 10
       start_period: 1s
     volumes:
-      - source-capture-metadata:/var/lib/research-tree/source-captures
+      - source-captures:/var/lib/research-tree/source-captures
     networks:
       - source-broker
       - source-egress
+
+  user-simulator:
+    profiles: ["synthetic-user"]
+    build:
+      context: .
+      dockerfile: Dockerfile.user-simulator
+      args:
+        USER_SIMULATOR_BASE_IMAGE: "${EVALUATION_USER_SIMULATOR_IMAGE:-python:3.12-slim@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}"
+    user: "65532:65532"
+    environment:
+      HOME: /nonexistent
+    secrets:
+      - source: synthetic_user_bundle
+        target: synthetic_user_bundle
+        mode: 0444
+    read_only: true
+    privileged: false
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    init: true
+    restart: "no"
+    expose:
+      - "8082"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -B
+        - -c
+        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:8082/healthz', timeout=1).read()"
+      interval: 2s
+      timeout: 3s
+      retries: 10
+      start_period: 1s
+    networks:
+      - runner-simulator
+      - simulator-model
 
 networks:
   runner-broker:
@@ -124,10 +175,16 @@ networks:
   source-broker:
     internal: true
   source-egress:
+  runner-simulator:
+    internal: true
+  simulator-model:
+    internal: true
 
 volumes:
-  source-capture-metadata:
+  source-captures:
 
 secrets:
   deepseek_api_key:
     file: ${DEEPSEEK_API_KEY_FILE:-/run/research-tree-no-secret-file}
+  synthetic_user_bundle:
+    file: ${SYNTHETIC_USER_BUNDLE_FILE:-/run/research-tree-no-synthetic-user-bundle}

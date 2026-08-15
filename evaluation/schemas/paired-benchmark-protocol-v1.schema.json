@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/evaluation/schemas/paired-benchmark-protocol-v1.schema.json",
+  "title": "Paired Research Benchmark Public Protocol",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "model",
+    "host_cells",
+    "live_source_policy",
+    "sample_design",
+    "synthetic_user",
+    "anti_leakage",
+    "result_policy"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"const": "paired-research-v1"},
+    "host_cells": {
+      "type": "array",
+      "const": [
+        "claude_code:baseline",
+        "claude_code:alpha1",
+        "claude_code:alpha2",
+        "hermes_agent:baseline",
+        "hermes_agent:alpha1",
+        "hermes_agent:alpha2"
+      ]
+    },
+    "synthetic_user": {
+      "type": "object",
+      "required": [
+        "evidence_kind",
+        "human_experience_status",
+        "prompt_task_binding",
+        "holdout_policy",
+        "assignment_visibility",
+        "simulator_model",
+        "review_blinding",
+        "scoring_separation"
+      ],
+      "properties": {
+        "evidence_kind": {"const": "synthetic-user-proxy"},
+        "human_experience_status": {"const": "unavailable"},
+        "prompt_task_binding": {"const": "task-agnostic"},
+        "holdout_policy": {"const": "tasks-held-out-from-harness-development"},
+        "assignment_visibility": {"const": "evaluator-only-until-unblind"},
+        "simulator_model": {"const": "deepseek-v4-flash"},
+        "review_blinding": {"const": "arm-and-host-hidden"},
+        "scoring_separation": {"const": "synthetic-user-cannot-score"}
+      }
+    }
+  },
+  "additionalProperties": true
+}

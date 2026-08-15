@@ -104,13 +104,36 @@ hop. Captures are bounded to four redirects, one MiB, ten seconds, four
 concurrent requests, and 64 requests per source-broker lifecycle. The broker
 never forwards runner cookies, authorization, or arbitrary request headers.
 
-Only the source-broker mounts the evaluator-owned `source-capture-metadata`
-Docker volume. It records capture metadata only: timestamp, final URL, status,
-byte count, and a SHA-256 content hash. It does not persist raw research
-content, redacts sensitive query values from the persisted final URL, does not
-expose a metadata endpoint to the runner, and does not mount or reveal another
-evaluation arm or oracle. The named Docker volume is outside the Git worktree,
-so no secret or raw research content is tracked in Git.
+Only the source-broker mounts the evaluator-owned `source-captures` Docker
+volume. It records capture metadata in a redacted receipt (timestamp, final
+URL, status, byte count, content hash, and content reference) and the raw
+response body under a content-addressed filename. This supports post-live
+replay and audit without preloading the runner. The broker never exposes the
+receipt or volume back to the runner, redacts sensitive query values from
+persisted URLs, and does not mount or reveal another evaluation arm or oracle.
+The named Docker volume is outside the Git worktree, so no source capture is
+tracked in Git.
+
+## Synthetic User Proxy
+
+When an episode needs adaptive user interaction, the trusted evaluator starts
+the optional `synthetic-user` Compose profile. It mounts an evaluator-owned
+synthetic-user bundle as a Docker secret in `user-simulator`; the bundle has
+only task-agnostic persona system prompts, opaque conversation identifiers,
+assignment commitments, and leak canaries. It contains no task context,
+reference answer, scorer rubric, host, arm, or condition. It is not mounted
+into the runner, source-broker, model broker, host, or Git worktree.
+
+The runner can call only `POST http://user-simulator:8082/turn` with an opaque
+conversation ID, sequential turn number, and its own most recent message. The
+simulator receives no host, arm, candidate revision, scorer result, reference
+answer, task context, or source capture. It calls DeepSeek V4 Flash through the
+internal model broker and returns only a validated JSON user message and
+disposition. Each opaque conversation accepts a single strictly sequential turn
+stream; a failed or repeated turn cannot be sampled again. Any canary-bearing
+or non-JSON turn is rejected. This is a synthetic-user proxy, not
+human-experience evidence. A separate blinded reviewer, not the simulator,
+assigns any quality score.
 
 Docker daemon is not a trust boundary. Anyone able to control the Docker daemon
 or the trusted host orchestrator can inspect or replace containers, images,

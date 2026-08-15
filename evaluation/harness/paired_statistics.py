@@ -118,9 +118,7 @@ def paired_task_differences(
         comparison_tasks = grid[host][comparison]
         for task in sorted(baseline_tasks):
             repeat_identifiers = sorted(baseline_tasks[task], key=_repeat_sort_key)
-            baseline_mean = fmean(
-                [baseline_tasks[task][repeat_identifier] for repeat_identifier in repeat_identifiers]
-            )
+            baseline_mean = fmean([baseline_tasks[task][repeat_identifier] for repeat_identifier in repeat_identifiers])
             comparison_mean = fmean(
                 [comparison_tasks[task][repeat_identifier] for repeat_identifier in repeat_identifiers]
             )
@@ -164,10 +162,7 @@ def stratified_paired_bootstrap(
         bootstrap_means: list[float] = []
         for bootstrap_index in range(samples):
             bootstrap_means.append(
-                fmean(
-                    difference_values[random_generator.randrange(task_count)]
-                    for draw_index in range(task_count)
-                )
+                fmean(difference_values[random_generator.randrange(task_count)] for draw_index in range(task_count))
             )
         bootstrap_means.sort()
         intervals[host] = BootstrapConfidenceInterval(
@@ -255,9 +250,7 @@ def analyze_paired_rows(
     """
 
     baseline, comparison = _comparison_conditions(baseline_condition, comparison_condition)
-    task_differences = paired_task_differences(
-        rows, baseline_condition=baseline, comparison_condition=comparison
-    )
+    task_differences = paired_task_differences(rows, baseline_condition=baseline, comparison_condition=comparison)
     grouped_differences = _group_task_differences(task_differences)
     bootstrap_intervals = stratified_paired_bootstrap(
         task_differences,
@@ -313,8 +306,7 @@ def _balanced_grid(
         for condition in selected_conditions[1:]:
             if set(host_grid[condition]) != reference_tasks:
                 raise PairedStatisticsError(
-                    f"host {host!r} has imbalanced task rows between "
-                    f"{reference_condition!r} and {condition!r}"
+                    f"host {host!r} has imbalanced task rows between {reference_condition!r} and {condition!r}"
                 )
         for task in sorted(reference_tasks):
             reference_repeats = set(host_grid[reference_condition][task])
@@ -383,9 +375,7 @@ def _normalize_conditions(
     else:
         if isinstance(conditions, str) or not isinstance(conditions, Sequence):
             raise PairedStatisticsError("conditions must be a sequence of condition names")
-        selected_conditions = tuple(
-            _require_identifier(condition, "condition name") for condition in conditions
-        )
+        selected_conditions = tuple(_require_identifier(condition, "condition name") for condition in conditions)
     if len(selected_conditions) < 2:
         raise PairedStatisticsError("at least two conditions are required for paired analysis")
     if len(set(selected_conditions)) != len(selected_conditions):
@@ -393,7 +383,9 @@ def _normalize_conditions(
     available_conditions = {observation.condition for observation in observations}
     missing_conditions = sorted(set(selected_conditions).difference(available_conditions))
     if missing_conditions:
-        raise PairedStatisticsError(f"requested conditions are absent: {', '.join(repr(item) for item in missing_conditions)}")
+        raise PairedStatisticsError(
+            f"requested conditions are absent: {', '.join(repr(item) for item in missing_conditions)}"
+        )
     return selected_conditions
 
 
@@ -438,8 +430,12 @@ def _group_task_differences(
             comparison_mean=_require_finite_real(
                 raw_difference.comparison_mean, f"task difference {difference_index} comparison_mean"
             ),
-            difference=_require_finite_real(raw_difference.difference, f"task difference {difference_index} difference"),
-            repeat_count=_require_positive_int(raw_difference.repeat_count, f"task difference {difference_index} repeat_count"),
+            difference=_require_finite_real(
+                raw_difference.difference, f"task difference {difference_index} difference"
+            ),
+            repeat_count=_require_positive_int(
+                raw_difference.repeat_count, f"task difference {difference_index} repeat_count"
+            ),
         )
         difference_key = (normalized_difference.host, normalized_difference.task)
         if difference_key in seen_keys:

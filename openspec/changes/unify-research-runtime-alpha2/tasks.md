@@ -302,9 +302,9 @@ substitute for local evidence.
 
 ## 30. Paired Alpha Benchmark (#84)
 
-- [ ] 30.1 Define a frozen paired benchmark manifest for alpha1, alpha2, and simpler-prompt executions.
-- [ ] 30.2 Implement stratified sampling, metric polarity, missing-data rules, paired uncertainty, and hard integrity gates.
-- [ ] 30.3 Retain raw artifacts, blinded review outcomes, budget diagnostics, regressions, and environmental variation evidence.
+- [x] 30.1 Define a frozen paired benchmark manifest for alpha1, alpha2, and simpler-prompt executions.
+- [x] 30.2 Implement stratified sampling, metric polarity, missing-data rules, paired uncertainty, and hard integrity gates.
+- [x] 30.3 Retain raw artifacts, blinded review outcomes, budget diagnostics, regressions, and environmental variation evidence.
 - [ ] 30.4 Publish a reproducible comparison report only after the #64 candidate harness is verified.
 
 ## 31. DecisionFrame Before Strategy (#87)

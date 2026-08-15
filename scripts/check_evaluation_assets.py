@@ -132,7 +132,7 @@ def validate_repository(repository: Path, registry_path: Path) -> dict[str, Any]
             if path.suffix.lower() == ".json":
                 data = _load_json(path, errors, relative)
                 if data is not None:
-                    if entry.get("class") in {"versioned-case", "public-fixture"}:
+                    if entry.get("class") in {"versioned-case", "public-fixture", "benchmark-protocol"}:
                         _validate_case(relative, data, errors, forbidden)
                     if entry.get("class") in {"redacted-release-evidence", "registered-baseline", "blinded-review"}:
                         leak = _contains_forbidden(data, forbidden)

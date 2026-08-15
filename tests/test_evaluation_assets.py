@@ -9,6 +9,7 @@ import pytest
 
 ROOT = Path(__file__).parents[1]
 REGISTRY = ROOT / "openspec/changes/unify-research-runtime-alpha2/registries/evaluation-paths-v1.json"
+PAIRED_PROTOCOL = ROOT / "evaluation/benchmarks/paired-research-v1.json"
 
 
 def checker():
@@ -61,6 +62,7 @@ def test_registry_defines_one_canonical_root_and_non_overlapping_classes() -> No
         "cross_host",
         "expert_review",
         "claude_glm_regression",
+        "paired_benchmark",
     }
 
 
@@ -78,11 +80,33 @@ def test_repository_assets_and_public_baseline_are_deterministic() -> None:
     assert first["manifest_digest"].startswith("sha256:")
 
 
+def test_public_paired_protocol_commits_to_heldout_blinded_synthetic_users() -> None:
+    protocol = json.loads(PAIRED_PROTOCOL.read_text(encoding="utf-8"))
+
+    assert protocol["synthetic_user"] == {
+        "evidence_kind": "synthetic-user-proxy",
+        "human_experience_status": "unavailable",
+        "prompt_location": "evaluator-owned",
+        "prompt_task_binding": "task-agnostic",
+        "holdout_policy": "tasks-held-out-from-harness-development",
+        "assignment_visibility": "evaluator-only-until-unblind",
+        "simulator_boundary": "separate-network-service",
+        "simulator_model": "deepseek-v4-flash",
+        "review_blinding": "arm-and-host-hidden",
+        "scoring_separation": "synthetic-user-cannot-score",
+    }
+    assert protocol["anti_leakage"]["paired_cells_share"] == [
+        "runner_input_digest",
+        "synthetic_user_assignment_digest",
+    ]
+
+
 @pytest.mark.parametrize(
     ("relative_path", "payload", "code"),
     [
         ("evals/result.json", {"id": "ambiguous"}, "misplaced-path"),
         ("evaluation/results/raw.json", {**retained_asset(), "provider_transcript": "private"}, "hidden-material"),
+        ("evaluation/benchmarks/protocol.json", {"id": "protocol", "system_prompt": "private"}, "hidden-material"),
         ("evaluation/results/dangling.json", retained_asset(case_id="missing-case"), "dangling-reference"),
     ],
 )

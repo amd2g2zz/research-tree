@@ -3,9 +3,11 @@ ARG RUNNER_BASE_IMAGE=python:3.12-slim@sha256:0123456789abcdef0123456789abcdef01
 FROM ${RUNNER_BASE_IMAGE}
 
 ARG RUNNER_UID=65532
-RUN groupadd --gid "${RUNNER_UID}" runner \
-    && useradd --no-log-init --uid "${RUNNER_UID}" --gid runner --home-dir /home/runner --create-home \
-        --shell /usr/sbin/nologin runner
+RUN if ! getent group runner >/dev/null; then groupadd --gid "${RUNNER_UID}" runner; fi \
+    && if ! id -u runner >/dev/null 2>&1; then \
+        useradd --no-log-init --uid "${RUNNER_UID}" --gid runner --home-dir /home/runner --create-home \
+            --shell /usr/sbin/nologin runner; \
+    fi
 
 WORKDIR /workspace
 USER 65532:65532

@@ -11,9 +11,7 @@ ROOT = Path(__file__).parents[1]
 
 
 def statistics_module():
-    spec = importlib.util.spec_from_file_location(
-        "paired_statistics", ROOT / "evaluation/harness/paired_statistics.py"
-    )
+    spec = importlib.util.spec_from_file_location("paired_statistics", ROOT / "evaluation/harness/paired_statistics.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -77,9 +75,7 @@ def fixed_effect_rows() -> list[dict[str, object]]:
 
 def test_repeat_aggregation_produces_sorted_per_task_differences() -> None:
     validated = validate_balanced_rows(balanced_rows(), conditions=("baseline", "candidate"))
-    differences = paired_task_differences(
-        validated, baseline_condition="baseline", comparison_condition="candidate"
-    )
+    differences = paired_task_differences(validated, baseline_condition="baseline", comparison_condition="candidate")
 
     assert [(item.host, item.task, item.repeat_count) for item in differences] == [
         ("alpha", "task-1", 2),
@@ -113,7 +109,12 @@ def test_validation_rejects_missing_fields_duplicate_rows_and_imbalanced_pairs()
 
     mismatched_repeats = balanced_rows()
     for item in mismatched_repeats:
-        if item["host"] == "beta" and item["task"] == "task-1" and item["condition"] == "candidate" and item["repeat"] == 2:
+        if (
+            item["host"] == "beta"
+            and item["task"] == "task-1"
+            and item["condition"] == "candidate"
+            and item["repeat"] == 2
+        ):
             item["repeat"] = 3
     with pytest.raises(PairedStatisticsError, match="imbalanced repeat rows"):
         validate_balanced_rows(mismatched_repeats, conditions=("baseline", "candidate"))
@@ -143,12 +144,8 @@ def test_seeded_bootstrap_and_sign_flip_are_reproducible_per_host() -> None:
         balanced_rows(), baseline_condition="baseline", comparison_condition="candidate"
     )
 
-    first_intervals = stratified_paired_bootstrap(
-        differences, bootstrap_samples=257, confidence_level=0.9, seed=42
-    )
-    second_intervals = stratified_paired_bootstrap(
-        differences, bootstrap_samples=257, confidence_level=0.9, seed=42
-    )
+    first_intervals = stratified_paired_bootstrap(differences, bootstrap_samples=257, confidence_level=0.9, seed=42)
+    second_intervals = stratified_paired_bootstrap(differences, bootstrap_samples=257, confidence_level=0.9, seed=42)
     first_p_values = sign_flip_permutation_p_values(differences, permutations=257, seed=42)
     second_p_values = sign_flip_permutation_p_values(differences, permutations=257, seed=42)
 

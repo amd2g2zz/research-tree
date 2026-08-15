@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "id": "paired-research-v1",
+  "purpose": "Host-specific paired evaluation of baseline, Alpha1, and Alpha2 research behavior.",
+  "model": {
+    "id": "deepseek-v4-flash",
+    "version_policy": "freeze the exact provider revision before unsealing final tasks"
+  },
+  "host_cells": [
+    "claude_code:baseline",
+    "claude_code:alpha1",
+    "claude_code:alpha2",
+    "hermes_agent:baseline",
+    "hermes_agent:alpha1",
+    "hermes_agent:alpha2"
+  ],
+  "live_source_policy": {
+    "mode": "live-capture-proxy",
+    "direct_runner_egress": false,
+    "replay": "after-live-only"
+  },
+  "sample_design": {
+    "primary_task_clusters_minimum": 80,
+    "reliability_panel_task_clusters_minimum": 20,
+    "reliability_repeats_per_cell_minimum": 5,
+    "integrity_task_clusters_minimum": 12,
+    "integrity_repeats_per_cell_minimum": 5
+  },
+  "synthetic_user": {
+    "evidence_kind": "synthetic-user-proxy",
+    "human_experience_status": "unavailable",
+    "prompt_location": "evaluator-owned",
+    "prompt_task_binding": "task-agnostic",
+    "holdout_policy": "tasks-held-out-from-harness-development",
+    "assignment_visibility": "evaluator-only-until-unblind",
+    "simulator_boundary": "separate-network-service",
+    "simulator_model": "deepseek-v4-flash",
+    "review_blinding": "arm-and-host-hidden",
+    "scoring_separation": "synthetic-user-cannot-score"
+  },
+  "anti_leakage": {
+    "runner_sees": ["current_user_turn", "model_proxy", "source_capture_proxy"],
+    "runner_never_sees": ["host_or_arm_identity", "persona_instruction", "expected_answer", "reference_patch", "scoring_outcome"],
+    "paired_cells_share": ["runner_input_digest", "synthetic_user_assignment_digest"],
+    "unblind_after": "all-episodes-complete"
+  },
+  "result_policy": {
+    "host_pooling": "forbidden",
+    "integrity_failure": "hard-fail",
+    "provider_usage": "record actual cache-hit, cache-miss, and output token totals"
+  }
+}

@@ -17,12 +17,14 @@
     "black_box": "uv run python evaluation/harness/run_release_gates.py",
     "cross_host": "uv run python evaluation/harness/run_release_gates.py --class cross-host",
     "expert_review": "uv run python evaluation/harness/run_release_gates.py --class expert-review",
-    "claude_glm_regression": "uv run python evaluation/harness/run_claude_glm_regression.py --expect-status unavailable"
+    "claude_glm_regression": "uv run python evaluation/harness/run_claude_glm_regression.py --expect-status unavailable",
+    "paired_benchmark": "uv run python evaluation/harness/run_paired_benchmark.py --expect-status unavailable"
   },
   "entries": [
     { "path": "evaluation/cases/", "class": "versioned-case", "tracked": true, "mutable": "append-new-version", "retention": "indefinite", "schema": "evaluation/schemas/public-case-v1.schema.json", "id_fields": ["id"] },
     { "path": "evaluation/schemas/", "class": "evaluation-schema", "tracked": true, "mutable": "versioned", "retention": "indefinite", "id_fields": ["$id"] },
     { "path": "evaluation/harness/", "class": "evaluator-code", "tracked": true, "mutable": "source", "retention": "indefinite", "id_fields": [] },
+    { "path": "evaluation/benchmarks/", "class": "benchmark-protocol", "tracked": true, "mutable": "versioned", "retention": "indefinite", "schema": "evaluation/schemas/paired-benchmark-protocol-v1.schema.json", "id_fields": ["id"] },
     { "path": "evaluation/fixtures/", "class": "public-fixture", "tracked": true, "mutable": "append-new-version", "retention": "indefinite", "id_fields": ["id"] },
     { "path": "evaluation/baselines/", "class": "registered-baseline", "tracked": true, "mutable": "immutable-by-digest", "retention": "indefinite", "schema": "evaluation/schemas/retained-evidence-v1.schema.json", "id_fields": ["id"], "max_bytes": 65536 },
     { "path": "evaluation/results/", "class": "redacted-release-evidence", "tracked": true, "mutable": "append-only", "retention": "release-plus-audit", "schema": "evaluation/schemas/retained-evidence-v1.schema.json", "id_fields": ["id"], "max_bytes": 65536 },
@@ -33,5 +35,5 @@
   ],
   "hidden_oracle_policy": "oracle bodies and reference patches remain evaluator-owned and outside worker-visible requests",
   "provenance_required": ["schema_version", "id", "case_id", "source_revision", "environment", "producer", "recorded_at", "artifact_refs", "limitations", "content_digest"],
-  "forbidden_public_keys": ["hidden_oracle", "oracle_body", "reference_patch", "expected_patch", "private_prompt", "provider_transcript", "credential", "secret"]
+  "forbidden_public_keys": ["hidden_oracle", "oracle_body", "reference_patch", "expected_patch", "private_prompt", "persona_prompt", "system_prompt", "reference_answer", "expected_answer", "scoring_rubric", "provider_transcript", "credential", "secret"]
 }

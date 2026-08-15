@@ -24,8 +24,8 @@ ALLOWED_METHODS = frozenset({"GET", "HEAD"})
 REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
 FORBIDDEN_HOSTNAMES = frozenset({"localhost", "localhost.localdomain", "metadata", "metadata.google.internal"})
 SENSITIVE_QUERY_MARKERS = ("auth", "credential", "key", "password", "secret", "sig", "signature", "token")
-SOURCE_CAPTURE_METADATA_DIR = Path("/var/lib/research-tree/source-captures")
-CAPTURE_METADATA_KEYS = ("captured_at", "final_url", "content_sha256", "status", "bytes")
+SOURCE_CAPTURE_DIR = Path("/var/lib/research-tree/source-captures")
+CAPTURE_METADATA_KEYS = ("captured_at", "final_url", "content_sha256", "content_ref", "status", "bytes")
 MAX_URL_LENGTH = 4096
 MAX_REDIRECTS = 4
 MAX_CAPTURE_BYTES = 1 * 1024 * 1024
@@ -89,22 +89,38 @@ class PinnedHTTPSConnection(HTTPSConnection):
 
 
 class CaptureMetadataStore:
-    """Persist evaluator-only hashes and capture facts, never response content."""
+    """Persist evaluator-only source bytes plus a redacted, content-addressed receipt."""
 
     def __init__(self, root: Path) -> None:
         self._root = root
 
-    def record(self, metadata: dict[str, object]) -> None:
-        self._root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        filtered = {key: metadata[key] for key in CAPTURE_METADATA_KEYS}
-        metadata_path = self._root / f"capture-{uuid4().hex}.json"
-        temporary_path = self._root / f".{metadata_path.name}.tmp"
+    def record(self, metadata: dict[str, object], body: bytes) -> None:
+        content_digest = f"sha256:{sha256(body).hexdigest()}"
+        if metadata.get("content_sha256") != content_digest:
+            raise OSError("capture content digest does not match body")
+        content_root = self._root / "content"
+        metadata_root = self._root / "metadata"
+        content_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        metadata_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        content_name = f"{content_digest.removeprefix('sha256:')}.body"
+        content_path = content_root / content_name
+        if not content_path.exists():
+            self._atomic_write(content_path, body)
+        filtered = {**metadata, "content_ref": f"content/{content_name}"}
+        filtered = {key: filtered[key] for key in CAPTURE_METADATA_KEYS}
+        self._atomic_write(
+            metadata_root / f"capture-{uuid4().hex}.json",
+            json.dumps(filtered, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+        )
+
+    def _atomic_write(self, path: Path, content: bytes) -> None:
+        temporary_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
         file_descriptor = os.open(temporary_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
-            with os.fdopen(file_descriptor, "w", encoding="utf-8") as metadata_file:
-                metadata_file.write(json.dumps(filtered, sort_keys=True, separators=(",", ":")))
-            os.replace(temporary_path, metadata_path)
-            metadata_path.chmod(0o600)
+            with os.fdopen(file_descriptor, "wb") as output_file:
+                output_file.write(content)
+            os.replace(temporary_path, path)
+            path.chmod(0o600)
         except Exception:
             temporary_path.unlink(missing_ok=True)
             raise
@@ -254,7 +270,7 @@ class SourceCaptureHandler(BaseHTTPRequestHandler):
     capture_slots = BoundedSemaphore(MAX_CONCURRENT_CAPTURES)
     capture_count = 0
     capture_count_lock = Lock()
-    metadata_store = CaptureMetadataStore(SOURCE_CAPTURE_METADATA_DIR)
+    metadata_store = CaptureMetadataStore(SOURCE_CAPTURE_DIR)
     protocol_version = "HTTP/1.1"
     server_version = "ResearchTreeSourceBroker"
     sys_version = ""
@@ -345,7 +361,8 @@ class SourceCaptureHandler(BaseHTTPRequestHandler):
                 "content_sha256": f"sha256:{sha256(body).hexdigest()}",
                 "status": status,
                 "bytes": len(body),
-            }
+            },
+            body,
         )
 
     def _respond(
