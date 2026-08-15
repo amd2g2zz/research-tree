@@ -16,7 +16,6 @@ from .domain import (
 )
 from .intake import (
     CanonicalInputIntakeService,
-    InputIntakeService,
     IntakeError,
     InvalidContextBundleError,
     InvalidInputError,
@@ -140,12 +139,10 @@ from .intent import (
     CanonicalIntentModelCompiler,
     CanonicalWorkingBriefCompiler,
     IntentError,
-    IntentModelCompiler,
     InvalidIntentModelError,
     InvalidWorkingBriefError,
     QuestionPolicy,
     QuestionRecommendation,
-    WorkingBriefCompiler,
 )
 from .decision_frame import (
     DECISION_FRAME_KIND,
@@ -492,7 +489,6 @@ __all__ = [
     "EXECUTION_CHECKS",
     "FAILURE_CATEGORIES",
     "FAILURE_CATEGORY_GATES",
-    "InputIntakeService",
     "CanonicalInputIntakeService",
     "CanonicalWorkItemCompiler",
     "CanonicalWorkItemPlanner",
@@ -500,7 +496,6 @@ __all__ = [
     "CanonicalIntentModelCompiler",
     "CanonicalWorkingBriefCompiler",
     "IntentError",
-    "IntentModelCompiler",
     "IntakeError",
     "InvalidAssuranceError",
     "InvalidIdentifierError",
@@ -691,7 +686,6 @@ __all__ = [
     "QuestionRecommendation",
     "PrimarySourceValidationPort",
     "ProvenanceIntegrityPort",
-    "WorkingBriefCompiler",
     "DECISION_FRAME_KIND",
     "DECISION_FRAME_SCHEMA_VERSION",
     "ClarificationDecision",

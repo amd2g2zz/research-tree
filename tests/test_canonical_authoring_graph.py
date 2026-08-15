@@ -29,6 +29,19 @@ def test_canonical_input_intake_service_is_public() -> None:
     assert CanonicalInputIntakeService.__name__ == "CanonicalInputIntakeService"
 
 
+def test_legacy_authoring_services_are_not_published() -> None:
+    import research_tree
+    import research_tree.intake as intake
+    import research_tree.intent as intent
+
+    assert not hasattr(research_tree, "InputIntakeService")
+    assert not hasattr(research_tree, "IntentModelCompiler")
+    assert not hasattr(research_tree, "WorkingBriefCompiler")
+    assert not hasattr(intake, "InputIntakeService")
+    assert not hasattr(intent, "IntentModelCompiler")
+    assert not hasattr(intent, "WorkingBriefCompiler")
+
+
 def test_canonical_work_item_compiler_requires_current_revision(tmp_path) -> None:
     from research_tree import ArtifactRef, CanonicalWorkItemCompiler, LedgerConflictError
 
