@@ -426,6 +426,8 @@ def validate_repository(
     for root in sorted(
         root for root in observed_roots - roots if not any(_entry_matches_root(entry, root) for entry in entries)
     ):
+        if _is_effectively_ignored(repository, root):
+            continue
         errors.append(_error("unregistered-checkout-root", root, "add a registry entry or relocate this path"))
 
     for entry in entries:

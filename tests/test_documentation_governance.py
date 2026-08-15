@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 from types import SimpleNamespace
 
 
@@ -68,6 +69,19 @@ def test_checker_rejects_active_legacy_term_broken_link_and_unregistered_documen
         ("legacy-term", "PRODUCT.md"),
         ("undocumented-root", "notes.md"),
     }
+
+
+def test_checker_skips_ignored_untracked_generated_documents(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / ".gitignore").write_text("/AGENTS.md\n.claude/\n", encoding="utf-8")
+    (tmp_path / "AGENTS.md").write_text("generated context\n", encoding="utf-8")
+    generated = tmp_path / ".claude" / "skills" / "gitnexus" / "SKILL.md"
+    generated.parent.mkdir(parents=True)
+    generated.write_text("generated context\n", encoding="utf-8")
+
+    registry = write_registry(tmp_path, [])
+
+    assert checker().validate_repository(tmp_path, registry)["errors"] == []
 
 
 def test_checker_permits_historical_legacy_term_with_supersession(tmp_path: Path) -> None:

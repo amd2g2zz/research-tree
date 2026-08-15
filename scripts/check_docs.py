@@ -107,6 +107,33 @@ def _check_package_provenance(repository: Path, errors: list[dict[str, str]]) ->
         errors.append(_error("stale-generated-copy", "packages/", detail))
 
 
+def _tracked_paths(repository: Path) -> set[str]:
+    result = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=repository,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode:
+        return set()
+    output = result.stdout.encode("utf-8") if isinstance(result.stdout, str) else result.stdout
+    return {path.decode("utf-8", errors="surrogateescape") for path in output.split(b"\0") if path}
+
+
+def _ignored_paths(repository: Path, paths: list[str]) -> set[str]:
+    if not paths:
+        return set()
+    result = subprocess.run(
+        ["git", "check-ignore", "--no-index", "-z", "--stdin"],
+        cwd=repository,
+        capture_output=True,
+        input=("\0".join(paths) + "\0").encode("utf-8"),
+        check=False,
+    )
+    output = result.stdout.encode("utf-8") if isinstance(result.stdout, str) else result.stdout
+    return {path.decode("utf-8", errors="surrogateescape") for path in output.split(b"\0") if path}
+
+
 def validate_repository(repository: Path, registry_path: Path, *, check_packages: bool = False) -> dict[str, Any]:
     repository = repository.resolve()
     errors: list[dict[str, str]] = []
@@ -117,9 +144,19 @@ def validate_repository(repository: Path, registry_path: Path, *, check_packages
     entries, registry_errors = _validate_registry(registry)
     errors.extend(registry_errors)
     forbidden_terms = [term for term in registry.get("forbidden_active_terms", []) if isinstance(term, str)]
+    documents: list[tuple[Path, str]] = []
     for path in sorted(repository.rglob("*.md")):
         relative = _relative(path, repository)
         if any(part in {".git", ".venv", ".pytest_cache", "build", "dist"} for part in path.parts):
+            continue
+        documents.append((path, relative))
+    tracked_paths = _tracked_paths(repository)
+    ignored_paths = _ignored_paths(
+        repository,
+        [relative for _, relative in documents if relative not in tracked_paths],
+    )
+    for path, relative in documents:
+        if relative in ignored_paths:
             continue
         entry = _match_entry(relative, entries)
         if entry is None:
