@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "id": "claude-glm-regression-synthetic-v1",
+  "fixture_class": "synthetic-regression",
+  "historical_status": "non-historical",
+  "redaction_policy": "Only synthetic public turns are retained; no source session or private evaluator material is included.",
+  "public_turns": [
+    {
+      "id": "initial-brief",
+      "role": "requester",
+      "content": "Investigate the decision boundary before choosing an implementation direction.",
+      "synthetic": true
+    },
+    {
+      "id": "scope-repair",
+      "role": "requester",
+      "content": "The repository mentioned during diagnosis is evidence, not the task target.",
+      "synthetic": true
+    },
+    {
+      "id": "depth-objection",
+      "role": "requester",
+      "content": "Continue until the decision-specific closure and both deliverables have evidence references.",
+      "synthetic": true
+    }
+  ],
+  "control_obligations": [
+    "activation_before_reference",
+    "one_open_question",
+    "correction_invalidation",
+    "task_identity_isolation",
+    "recursive_continuation",
+    "attribution_boundary",
+    "dual_delivery"
+  ],
+  "oracle_id": "issue-72-claude-glm-regression-v1",
+  "runtime_comparison": {
+    "required_runtimes": ["claude-code-native", "glm5.2"],
+    "unavailable_is_passing": false,
+    "causal_attribution": "unresolved",
+    "constant_inputs": [
+      "authority",
+      "brief",
+      "context_pack",
+      "environment",
+      "skill_revision",
+      "success_oracle",
+      "tools"
+    ],
+    "varying_factor": "runtime"
+  },
+  "limitations": [
+    "This is a synthetic, non-historical regression fixture and does not reproduce a source conversation.",
+    "The fixture records no model or host causal attribution.",
+    "A missing GLM5.2 runtime is unavailable evidence, never passing parity evidence."
+  ]
+}

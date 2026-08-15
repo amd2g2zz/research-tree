@@ -16,7 +16,8 @@
     "public_alpha1": "uv run python scripts/check_evaluation_assets.py --public-alpha1",
     "black_box": "uv run python evaluation/harness/run_release_gates.py",
     "cross_host": "uv run python evaluation/harness/run_release_gates.py --class cross-host",
-    "expert_review": "uv run python evaluation/harness/run_release_gates.py --class expert-review"
+    "expert_review": "uv run python evaluation/harness/run_release_gates.py --class expert-review",
+    "claude_glm_regression": "uv run python evaluation/harness/run_claude_glm_regression.py --expect-status unavailable"
   },
   "entries": [
     { "path": "evaluation/cases/", "class": "versioned-case", "tracked": true, "mutable": "append-new-version", "retention": "indefinite", "schema": "evaluation/schemas/public-case-v1.schema.json", "id_fields": ["id"] },

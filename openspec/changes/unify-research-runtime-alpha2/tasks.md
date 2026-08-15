@@ -246,12 +246,12 @@ substitute for local evidence.
 
 ## 24. Claude Code and GLM5.2 Black-Box Regression (#72)
 
-- [x] 24.1 Register a redacted case manifest for the reported transcript with exact public turns, expected control transitions, hidden evaluator state, source permission, skill revision, and environment limitations.
+- [ ] 24.1 Replace the unsupported historical-transcript task state with a clearly labelled synthetic, non-historical public case, opaque evaluator identifier, source limitations, and environment/comparison contract.
 - [ ] 24.2 Write failing black-box assertions for activation-before-reference, one open prompt, correction invalidation, task identity, recursive continuation, unsupported attribution, and dual-delivery depth.
 - [ ] 24.3 Implement the fixture runner and retained evidence paths using the governed evaluation asset model from #69.
-- [ ] 24.4 Execute the same registered case against the alpha1 baseline and alpha2 candidate; record non-reproducibility instead of fabricating a baseline failure.
+- [ ] 24.4 Execute the deterministic synthetic control and record that it is not evidence of an alpha1 historical failure or live candidate parity.
 - [ ] 24.5 Execute a controlled Claude Code native versus GLM5.2 comparison when both runtimes are available, otherwise persist an unavailable result with the external blocker.
-- [x] 24.6 Add an attribution validator that rejects model/host causal claims when more than the declared comparison factor changes or comparison evidence is missing.
+- [ ] 24.6 Add an attribution validator that rejects model/host causal claims when more than the declared comparison factor changes or comparison evidence is missing.
 - [ ] 24.7 Link case artifacts, traces, reviewer disposition, and residual uncertainty to issue #72 and the alpha2 release manifest.
 
 ## 25. Durable Source Capture and Analyst Checkpoints (#80)

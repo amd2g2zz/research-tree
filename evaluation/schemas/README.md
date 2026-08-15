@@ -8,3 +8,7 @@ compatibility fixtures and are validated by the governance checker.
 redacted results, and blinded reviews. Hidden oracle bodies, reference patches,
 credentials, private prompts, and provider transcripts are evaluator-owned and
 must never be stored in these public assets.
+
+`claude-glm-regression-v1.schema.json` defines the Issue #72 public fixture.
+It permits only synthetic, non-historical turns and an opaque oracle identifier;
+it cannot establish a historical replay or GLM causal attribution.

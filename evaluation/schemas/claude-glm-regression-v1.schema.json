@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "research-tree/evaluation/claude-glm-regression-v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "fixture_class",
+    "historical_status",
+    "redaction_policy",
+    "public_turns",
+    "control_obligations",
+    "oracle_id",
+    "runtime_comparison",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"const": "claude-glm-regression-synthetic-v1"},
+    "fixture_class": {"const": "synthetic-regression"},
+    "historical_status": {"const": "non-historical"},
+    "redaction_policy": {"type": "string", "minLength": 1},
+    "public_turns": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "role", "content", "synthetic"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "role": {"type": "string", "minLength": 1},
+          "content": {"type": "string", "minLength": 1},
+          "synthetic": {"const": true}
+        },
+        "additionalProperties": false
+      }
+    },
+    "control_obligations": {
+      "type": "array",
+      "minItems": 7,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "oracle_id": {"type": "string", "minLength": 1},
+    "runtime_comparison": {
+      "type": "object",
+      "required": [
+        "required_runtimes",
+        "unavailable_is_passing",
+        "causal_attribution",
+        "constant_inputs",
+        "varying_factor"
+      ],
+      "properties": {
+        "required_runtimes": {"const": ["claude-code-native", "glm5.2"]},
+        "unavailable_is_passing": {"const": false},
+        "causal_attribution": {"const": "unresolved"},
+        "constant_inputs": {
+          "type": "array",
+          "minItems": 7,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "varying_factor": {"const": "runtime"}
+      },
+      "additionalProperties": false
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "additionalProperties": false
+}
