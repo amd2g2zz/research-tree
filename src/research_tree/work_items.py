@@ -244,6 +244,88 @@ class CanonicalWorkItemCompiler:
         )
 
 
+class CanonicalWorkItemPlanner:
+    """Generate bounded work through the canonical ledger only."""
+
+    def __init__(self, ledger: RunLedger) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidWorkItemError("canonical Work Item planner requires a RunLedger")
+        self._ledger = ledger
+        self._compiler = CanonicalWorkItemCompiler(ledger)
+
+    def plan(
+        self,
+        *,
+        round_id: str,
+        blueprint_target: ArtifactRevision,
+        work_item_ids: Mapping[str, str],
+        mode: str = "dependency_respecting",
+    ) -> tuple[ArtifactRevision, ...]:
+        try:
+            snapshot = self._ledger.load_run(round_id)
+            _ensure_round_accepts_normal_work(snapshot.artifacts)
+            target = _resolve_exact_target(snapshot.artifacts, blueprint_target)
+            if target.round_id != round_id:
+                raise InvalidWorkItemError("blueprint_target must belong to planner round")
+            planning_mode = _enum(mode, "mode", PLANNING_MODES)
+            active_slots = {
+                slot["id"]: slot
+                for slot in _target_slots(target)
+                if slot.get("status") in ACTIVE_SLOT_STATUSES
+            }
+            normalized_ids = _normalize_work_item_ids(work_item_ids, active_slots)
+            ordered_slot_ids = _stable_topological_order(active_slots)
+        except (InvalidIdentifierError, TypeError, ValueError) as error:
+            raise InvalidWorkItemError(str(error)) from error
+
+        emitted: list[ArtifactRevision] = []
+        previous_work_id: str | None = None
+        for slot_id in ordered_slot_ids:
+            slot = active_slots[slot_id]
+            dependencies = (
+                ()
+                if planning_mode == "serial" and previous_work_id is None
+                else (
+                    (previous_work_id,)
+                    if planning_mode == "serial"
+                    else tuple(
+                        normalized_ids[dependency]
+                        for dependency in slot["depends_on"]
+                        if dependency in active_slots
+                    )
+                )
+            )
+            work = self._compiler.compile(
+                round_id=round_id,
+                work_item_id=normalized_ids[slot_id],
+                blueprint_target=target,
+                decision_slot_id=slot_id,
+                kind="repository_analysis" if slot["repository_touchpoints"] else "external_research",
+                scope=slot["question"],
+                exclusions="Do not close the Decision Slot, select an alternative, or add unrelated scope.",
+                decision_change_reason="Findings can change the decision among: "
+                + ", ".join(slot["alternatives"])
+                + ".",
+                depends_on=dependencies,
+                methods=(
+                    ("repository_inspection",)
+                    if slot["repository_touchpoints"]
+                    else ("primary_docs",)
+                ),
+                budget={"tool_calls": 8, "time": "bounded"},
+                completion_rule=(
+                    "Return a Finding Pack with atomic observations, option effects, "
+                    "implementation implications, and remaining uncertainties; or explain "
+                    "why evidence is unavailable."
+                ),
+                intent_hypothesis_ids=tuple(slot["intent_hypothesis_ids"]),
+                expected_revision=self._ledger.get_revision(round_id),
+            )
+            emitted.append(work)
+            previous_work_id = work.id
+        return tuple(emitted)
+
+
 class WorkItemPlanner:
     """Generate one deterministic bounded task graph for active target slots."""
 

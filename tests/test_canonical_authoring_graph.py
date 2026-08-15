@@ -57,6 +57,21 @@ def test_canonical_work_item_compiler_requires_current_revision(tmp_path) -> Non
         compiler.compile(**{**arguments, "work_item_id": "work-item-stale"}, expected_revision=expected_revision)
 
 
+def test_canonical_work_item_planner_appends_through_one_ledger(tmp_path) -> None:
+    from research_tree import CanonicalWorkItemPlanner
+
+    ledger, _resolver, _record, _model, _brief, target, *_rest = canonical_context(tmp_path)
+
+    planned = CanonicalWorkItemPlanner(ledger).plan(
+        round_id=RUN_ID,
+        blueprint_target=target,
+        work_item_ids={"slot-isolation": "work-item-planned"},
+    )
+
+    assert [item.id for item in planned] == ["work-item-planned"]
+    assert planned[0].parent_refs[0].artifact_id == target.id
+
+
 def test_canonical_input_intake_requires_current_revision_and_persists_bundle_lineage(tmp_path) -> None:
     from research_tree import ArtifactRef, CanonicalInputIntakeService, LedgerConflictError, RunLedger
 
