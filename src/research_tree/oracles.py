@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import isfinite
 from types import MappingProxyType
-from typing import Any, ClassVar, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, ClassVar, Mapping, Sequence
 
 from .domain import (
     ArtifactRef,
@@ -18,6 +18,15 @@ from .domain import (
     RuntimeStoreError,
     validate_identifier,
 )
+
+if TYPE_CHECKING:
+    from .closure import (
+        ASSESSMENT_KIND,
+        ClosureAssessmentError,
+        OracleService,
+        SlotClosureAssessment,
+        SlotClosureAssessor,
+    )
 
 
 ORACLE_SPEC_KIND = "oracle-spec"
