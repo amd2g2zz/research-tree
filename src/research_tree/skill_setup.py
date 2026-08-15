@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -30,6 +31,15 @@ RUN_DIRECTORIES = (
     "checkpoints",
     "logs",
     "deliveries",
+)
+HERMES_HOOK_EVENTS = (
+    "on_session_start",
+    "on_session_end",
+    "on_session_finalize",
+    "on_session_reset",
+    "subagent_start",
+    "subagent_stop",
+    "post_tool_call",
 )
 
 
@@ -207,6 +217,32 @@ def _restore_file(path: Path, original: bytes | None) -> None:
     _atomic_write_text(path, original.decode("utf-8"))
 
 
+def _render_hermes_config(repository: Path, workspace: dict[str, str]) -> str:
+    """Render shell-parseable run-local Hermes hook commands."""
+    lines = ["hooks:"]
+    for event in HERMES_HOOK_EVENTS:
+        command = shlex.join(
+            (
+                sys.executable,
+                "-m",
+                "research_tree.lifecycle_hook",
+                "--host",
+                "hermes",
+                "--event",
+                event,
+                "--project-root",
+                str(repository),
+                "--project-id",
+                workspace["project_id"],
+                "--run-id",
+                workspace["run_id"],
+            )
+        )
+        lines.extend((f"  {event}:", f"    - command: {json.dumps(command)}", "      timeout: 10"))
+    lines.extend(("", "hooks_auto_accept: false", ""))
+    return "\n".join(lines)
+
+
 def bootstrap_project_hooks(repository: Path, workspace: dict[str, str]) -> dict[str, object]:
     """Atomically configure project-local hooks for one initialized run."""
     root = _absolute(repository)
@@ -231,12 +267,7 @@ def bootstrap_project_hooks(repository: Path, workspace: dict[str, str]) -> dict
                 _load_json_object(path), _hook_template(_template_repository(), template_name), expected
             )
             _atomic_write_text(path, json.dumps(merged, indent=2, sort_keys=True) + "\n")
-        hermes_text = (_template_repository() / "hooks" / "hermes.config.template.yaml").read_text(encoding="utf-8")
-        hermes_text = hermes_text.replace(
-            "D:/absolute/path/to/packages/hermes/research-tree/scripts/hermes_runtime_hook.py",
-            f"research-tree-hook --host hermes --project-root {json.dumps(expected['project_root'])} --project-id {expected['project_id']} --run-id {expected['run_id']}",
-        )
-        _atomic_write_text(hermes_config, hermes_text)
+        _atomic_write_text(hermes_config, _render_hermes_config(root, expected))
     except (OSError, SkillSetupError) as exc:
         for path, original in originals.items():
             _restore_file(path, original)

@@ -28,7 +28,17 @@ HOST_EVENTS = {
         }
     ),
     "claude": frozenset({"SessionStart", "SessionEnd", "PreCompact", "SubagentStop", "Stop"}),
-    "hermes": frozenset({"on_session_start", "on_session_end"}),
+    "hermes": frozenset(
+        {
+            "on_session_start",
+            "on_session_end",
+            "on_session_finalize",
+            "on_session_reset",
+            "subagent_start",
+            "subagent_stop",
+            "post_tool_call",
+        }
+    ),
 }
 
 

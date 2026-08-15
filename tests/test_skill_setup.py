@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
+import shlex
 import shutil
+import subprocess
 
 import pytest
 
@@ -95,6 +98,30 @@ def test_project_hook_bootstrap_rolls_back_all_configs_on_partial_write(
 
     assert codex_config.read_text(encoding="utf-8") == '{"custom":true}'
     assert not (tmp_path / ".claude" / "settings.json").exists()
+
+
+def test_rendered_hermes_hook_command_parses_and_records_its_declared_event(tmp_path: Path) -> None:
+    workspace = initialize_project_workspace(tmp_path, project_id="topic-42", run_id="run-7")
+    hermes_config = Path(bootstrap_project_hooks(tmp_path, workspace)["hermes"]["config"])
+    rendered = hermes_config.read_text(encoding="utf-8")
+    command = re.search(r"on_session_start:\n\s+- command: (.+)", rendered)
+
+    assert command is not None
+    arguments = shlex.split(json.loads(command.group(1)))
+    assert "--event" in arguments
+    assert arguments[arguments.index("--event") + 1] == "on_session_start"
+    completed = subprocess.run(
+        arguments,
+        cwd=tmp_path,
+        input=json.dumps({"cwd": str(tmp_path), "hook_event_name": "on_session_start"}),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == {}
+    assert list((Path(workspace["run_root"]) / "events").glob("*.json"))
 
 
 def test_host_specific_user_and_project_targets(tmp_path: Path) -> None:
