@@ -4,6 +4,7 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
+import research_tree
 
 from canonical_finding_fixture import canonical_context
 
@@ -27,6 +28,11 @@ def api():
         "CanonicalAssuranceStrategySelector": CanonicalAssuranceStrategySelector,
         "InvalidAssuranceError": InvalidAssuranceError,
     }
+
+
+def test_legacy_assurance_exports_are_absent() -> None:
+    assert not hasattr(research_tree, "AssuranceStrategySelector")
+    assert not hasattr(research_tree, "AssuranceAdapterRunner")
 
 
 def decision_context(tmp_path: Path):

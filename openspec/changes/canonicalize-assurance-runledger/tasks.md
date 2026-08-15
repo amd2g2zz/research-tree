@@ -5,7 +5,7 @@
 
 - [x] H.1 Replace RunStore assurance classes with canonical implementations.
 - [x] H.2 Route blocked decisions through the canonical decision compiler.
-- [ ] H.3 Remove the legacy assurance public exports and fixture only after no
+- [x] H.3 Remove the legacy assurance public exports and fixture only after no
   remaining test or runtime consumer references them.
 
 ## I. Canonical Authoring Graph
