@@ -85,6 +85,12 @@ def test_delivery_workflow_lints_only_python_files_that_remain_in_the_head() -> 
     assert "git diff --diff-filter=ACMR --name-only -z" in workflow
 
 
+def test_delivery_workflow_reacts_when_a_maintainer_applies_an_approval_label() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "delivery-governance.yml").read_text(encoding="utf-8")
+
+    assert "types: [opened, synchronize, reopened, labeled]" in workflow
+
+
 def test_policy_rejects_invalid_threshold_order(tmp_path: Path) -> None:
     payload = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
     payload["review_limits"]["hard_limit"]["files"] = 10

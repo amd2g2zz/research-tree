@@ -2,6 +2,7 @@ name: Delivery governance
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
     branches:
       - dev
       - master
