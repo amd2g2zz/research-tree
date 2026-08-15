@@ -168,22 +168,3 @@ def test_canonical_artifact_rejects_non_textual_locator_or_optional_metadata() -
         EvidenceArtifact(**{**base, "source_revision": 1})
     with pytest.raises(EvidenceValidationError, match="license_note"):
         EvidenceArtifact(**{**base, "license_note": 1})
-
-
-def test_generic_anchors_are_readable_only_through_explicit_legacy_representation() -> None:
-    legacy = EvidenceAnchor(
-        artifact_digest="0" * 64,
-        artifact_revision=1,
-        selector_type="symbol",
-        selector_value={"name": "main"},
-        extractor_version="reader-1",
-        applicability="legacy import",
-        confidence="low",
-        limitations=("unresolved provenance",),
-    )
-
-    assert legacy.is_strict is False
-    assert legacy.to_dict()["legacy_unverified"] is True
-    with pytest.raises(EvidenceValidationError, match="compatibility reader"):
-        EvidenceAnchor.from_dict(legacy.to_dict())
-    assert EvidenceAnchor.from_dict(legacy.to_dict(), allow_legacy=True) == legacy

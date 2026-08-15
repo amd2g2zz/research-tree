@@ -626,7 +626,7 @@ def _normalize_observations(
         raw_anchor = observation["anchor"]
         if isinstance(raw_anchor, Mapping) and "artifact_digest" in raw_anchor:
             try:
-                typed = EvidenceAnchor.from_dict(raw_anchor, allow_legacy=not strict_evidence)
+                typed = EvidenceAnchor.from_dict(raw_anchor)
             except (TypeError, ValueError) as error:
                 raise InvalidFindingPackError(f"{label}.anchor is invalid: {error}") from error
             if strict_evidence and not typed.is_strict:

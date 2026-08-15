@@ -521,3 +521,14 @@ substitute for local evidence.
   remain available.
 - [x] 82.3 Run the exact group-82 acceptance command and record a source-bound
   receipt after the source-removal commit.
+
+## 83. Strict Evidence Admission (#168)
+
+- [x] 83.1 Remove legacy typed-anchor parsing, artifact-map resolution,
+  implicit evidence classification, obsolete public helper, and active schema
+  status without adding a compatibility path.
+- [x] 83.2 Preserve `FindingPackCompiler` and the #165 fixture while making its
+  typed evidence parser reject legacy anchors and retaining canonical evidence
+  coverage.
+- [x] 83.3 Run the exact group-83 acceptance command and record a source-bound
+  receipt after the strict-admission commit.

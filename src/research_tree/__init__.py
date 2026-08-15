@@ -380,7 +380,6 @@ from .evidence import (
     EvidenceRepository,
     EvidenceResolver,
     EvidenceValidationError,
-    provenance_group_for,
 )
 from .work_items import (
     InvalidWorkItemError,
@@ -655,7 +654,6 @@ __all__ = [
     "EvidenceRepository",
     "EvidenceResolver",
     "EvidenceValidationError",
-    "provenance_group_for",
     "LedgerError",
     "LedgerConflictError",
     "LedgerIntegrityError",
