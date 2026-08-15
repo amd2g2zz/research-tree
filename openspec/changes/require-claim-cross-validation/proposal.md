@@ -13,6 +13,9 @@ single high-confidence worker result can currently stop an acquisition batch.
   than worker confidence, provider count, method count, or URL count.
 - Prevent an acquisition batch with material isolated, rejected, or superseded
   claims from producing a `stop` disposition.
+- Prevent a selected or conditional canonical decision from relying on a
+  non-corroborated external claim, even when a caller manually constructs a
+  Finding Pack payload.
 - Preserve non-admitted claims as auditable leads without decision authority.
 
 ## Non-goals

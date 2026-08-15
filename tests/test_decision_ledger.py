@@ -5,6 +5,9 @@ from pathlib import Path
 import pytest
 
 from canonical_finding_fixture import canonical_context
+from research_tree import ArtifactRef
+from research_tree.claims import Claim, ClaimGrounding
+from research_tree.evidence import EvidenceAnchor, EvidenceArtifact
 
 
 def api():
@@ -100,20 +103,54 @@ def finding_payload(option: str, effect: str, claim: str) -> dict[str, object]:
 
 
 def compile_finding(modules, store, round_record, work, finding_id: str, **payload):
+    claim = Claim(
+        claim_id=f"claim-{finding_id}",
+        subject="source",
+        predicate="supports",
+        value="the isolated worker boundary",
+        polarity="positive",
+        scope="fixture boundary",
+        version="fixture-v1",
+        time_range="fixture-time",
+    )
     observations = []
     for value in payload["observations"]:
         observation = dict(value)
+        observation["claim_id"] = claim.claim_id
         observation["anchor"] = modules["anchor"].to_dict()
         observations.append(observation)
+    independent_ref = ArtifactRef(round_record.id, "strict-source-independent", 1)
+    independent = EvidenceArtifact.from_revision(independent_ref, store.get_artifact(independent_ref))
+    independent_anchor = EvidenceAnchor(
+        artifact_ref=independent_ref,
+        artifact_digest=independent.content_digest,
+        artifact_revision=1,
+        selector_type="line",
+        selector_value={"start": 1, "end": 1},
+        extractor_version="fixture-reader-v1",
+        applicability="direct support",
+        confidence="high",
+        limitations=(),
+    )
+    effects = []
+    for value in payload["option_effects"]:
+        effect = dict(value)
+        effect["claim_ids"] = [claim.claim_id]
+        effects.append(effect)
     return modules["CanonicalFindingPackCompiler"](store, modules["resolver"]).compile(
         round_id=round_record.id,
         finding_id=finding_id,
         work_item=work,
         observations=observations,
         expected_revision=store.get_revision(round_record.id),
-        option_effects=payload["option_effects"],
+        option_effects=effects,
         implementation_implications=payload["implementation_implications"],
         remaining_uncertainties=payload["remaining_uncertainties"],
+        claims=[claim],
+        claim_groundings=[
+            ClaimGrounding(f"grounding-{finding_id}", claim.claim_id, modules["anchor"].to_dict()),
+            ClaimGrounding(f"grounding-{finding_id}-independent", claim.claim_id, independent_anchor.to_dict()),
+        ],
     )
 
 

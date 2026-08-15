@@ -12,11 +12,14 @@ from research_tree import (
     CanonicalDecisionLedgerCompiler,
     CanonicalDeliveryCompiler,
     CanonicalFindingPackCompiler,
+    EvidenceAnchor,
+    EvidenceArtifact,
     InvalidDeliveryError,
     RunLedger,
 )
 from research_tree.domain import thaw_json
 from research_tree.work_items import WORK_ITEM_KIND
+from research_tree.claims import Claim, ClaimGrounding
 
 
 def api():
@@ -288,12 +291,39 @@ def context(tmp_path: Path):
         },
         (ArtifactRef(round_record.id, target.id, target.revision),),
     )
+    independent_ref = ArtifactRef(round_record.id, "strict-source-independent", 1)
+    independent_artifact = EvidenceArtifact.from_revision(
+        independent_ref,
+        ledger.get_artifact(independent_ref),
+    )
+    independent_anchor = EvidenceAnchor(
+        artifact_ref=independent_ref,
+        artifact_digest=independent_artifact.content_digest,
+        artifact_revision=1,
+        selector_type="line",
+        selector_value={"start": 1, "end": 1},
+        extractor_version="fixture-reader-v1",
+        applicability="direct support",
+        confidence="high",
+        limitations=(),
+    )
+    isolation_claim = Claim(
+        claim_id="claim-isolation-delivery",
+        subject="source",
+        predicate="supports",
+        value="the isolated worker boundary",
+        polarity="positive",
+        scope="fixture boundary",
+        version="fixture-v1",
+        time_range="fixture-time",
+    )
     finding = modules["CanonicalFindingPackCompiler"](ledger, resolver).compile(
         round_id=round_record.id,
         finding_id="finding-isolation-delivery",
         work_item=isolation_work,
         observations=[
             {
+                "claim_id": isolation_claim.claim_id,
                 "claim": "The source supports an isolated worker boundary.",
                 "anchor": anchor.to_dict(),
                 "applicability": "the fixture boundary",
@@ -301,9 +331,16 @@ def context(tmp_path: Path):
                 "limitation": "fixture evidence only",
             }
         ],
-        option_effects=[{"option": "isolated-worker", "effect": "supports"}],
+        option_effects=[{"option": "isolated-worker", "effect": "supports", "claim_ids": [isolation_claim.claim_id]}],
         implementation_implications=["Introduce an isolated worker boundary."],
         remaining_uncertainties=["Measure startup overhead with a spike."],
+        claims=[isolation_claim],
+        claim_groundings=[
+            ClaimGrounding("grounding-isolation-delivery", isolation_claim.claim_id, anchor.to_dict()),
+            ClaimGrounding(
+                "grounding-isolation-delivery-independent", isolation_claim.claim_id, independent_anchor.to_dict()
+            ),
+        ],
         expected_revision=ledger.get_revision(round_record.id),
     )
     decision = modules["CanonicalDecisionLedgerCompiler"](ledger, resolver).converge(

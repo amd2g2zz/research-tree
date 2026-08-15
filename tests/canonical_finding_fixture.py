@@ -15,6 +15,7 @@ from research_tree import (
     EvidenceResolver,
     RunLedger,
 )
+from research_tree.claims import Claim, ClaimGrounding
 from research_tree.work_items import WORK_ITEM_KIND
 
 
@@ -73,9 +74,11 @@ def _slot() -> dict[str, object]:
     }
 
 
-def _evidence(run_id: str, digest: str, size: int) -> EvidenceArtifact:
+def _evidence(
+    run_id: str, digest: str, size: int, *, evidence_id: str = "strict-source", upstream: str = "fixture-source"
+) -> EvidenceArtifact:
     return EvidenceArtifact(
-        evidence_id="strict-source",
+        evidence_id=evidence_id,
         run_id=run_id,
         revision=1,
         media_type="text/plain",
@@ -84,13 +87,20 @@ def _evidence(run_id: str, digest: str, size: int) -> EvidenceArtifact:
         size_bytes=size,
         acquired_at=datetime.now(timezone.utc).isoformat(),
         acquisition_method="fixture",
-        provenance_group="fixture-source",
+        provenance_group=upstream,
         applicability="direct support",
         confidence="high",
         limitations=(),
         status="active",
         extractor_version="fixture-reader-v1",
         evidence_class="source",
+        metadata={
+            "canonical_upstream_id": upstream,
+            "claim_version": "fixture-v1",
+            "claim_time_range": "fixture-time",
+            "claim_scope": "fixture boundary",
+            "claim_conditions": [],
+        },
     )
 
 
@@ -247,6 +257,32 @@ def canonical_context(tmp_path: Path, *, include_decision: bool = True):
         confidence="high",
         limitations=(),
     )
+    independent_content = store.ingest(
+        b"An independent fixture confirms the source supports the isolated worker boundary.\n",
+        "text/plain",
+    )
+    independent = EvidenceRepository(ledger, store).record(
+        _evidence(
+            RUN_ID,
+            independent_content.digest,
+            independent_content.byte_size,
+            evidence_id="strict-source-independent",
+            upstream="fixture-independent-source",
+        ),
+        independent_content,
+        expected_run_revision=ledger.get_revision(RUN_ID),
+    )
+    independent_anchor = EvidenceAnchor(
+        artifact_ref=independent,
+        artifact_digest=independent_content.digest,
+        artifact_revision=independent.revision,
+        selector_type="line",
+        selector_value={"start": 1, "end": 1},
+        extractor_version="fixture-reader-v1",
+        applicability="direct support",
+        confidence="high",
+        limitations=(),
+    )
     if not include_decision:
         return ledger, resolver, RoundRecord(), model, brief, target, work, None, None, evidence, anchor
     finding = CanonicalFindingPackCompiler(ledger, resolver).compile(
@@ -255,6 +291,7 @@ def canonical_context(tmp_path: Path, *, include_decision: bool = True):
         work_item=work,
         observations=[
             {
+                "claim_id": "claim-isolated-worker",
                 "claim": "The source supports an isolated worker.",
                 "anchor": anchor.to_dict(),
                 "applicability": "the fixture boundary",
@@ -262,9 +299,27 @@ def canonical_context(tmp_path: Path, *, include_decision: bool = True):
                 "limitation": "fixture evidence only",
             }
         ],
-        option_effects=[{"option": "isolated-worker", "effect": "supports"}],
+        option_effects=[{"option": "isolated-worker", "effect": "supports", "claim_ids": ["claim-isolated-worker"]}],
         implementation_implications=["Introduce an isolated worker boundary."],
         remaining_uncertainties=["Measure startup overhead."],
+        claims=[
+            Claim(
+                claim_id="claim-isolated-worker",
+                subject="source",
+                predicate="supports",
+                value="the isolated worker boundary",
+                polarity="positive",
+                scope="fixture boundary",
+                version="fixture-v1",
+                time_range="fixture-time",
+            )
+        ],
+        claim_groundings=[
+            ClaimGrounding("grounding-isolated-worker", "claim-isolated-worker", anchor.to_dict()),
+            ClaimGrounding(
+                "grounding-isolated-worker-independent", "claim-isolated-worker", independent_anchor.to_dict()
+            ),
+        ],
         expected_revision=ledger.get_revision(RUN_ID),
     )
     decision = CanonicalDecisionLedgerCompiler(ledger, resolver).converge(

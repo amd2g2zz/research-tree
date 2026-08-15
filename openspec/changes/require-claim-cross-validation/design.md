@@ -1,10 +1,11 @@
 ## Claim model
 
-`Claim` is an atomic scoped assertion. Its `ClaimGrounding` binds an exact
-source capture, extract range, original wording, and a validator-produced
-entailment result. `ProvenanceCluster` groups records by a resolved upstream
-identity, owner, dataset/measurement origin, or content fingerprint. A
-`ClaimAssessment` derives one admission state from those records.
+`Claim` is an atomic scoped assertion. Its `ClaimGrounding` contains only an
+exact canonical `EvidenceAnchor`; the evaluator resolves its bytes, selector,
+scope/version/conditions metadata, and provenance itself. `ProvenanceCluster`
+groups records by resolved upstream identity, owner, dataset/measurement
+origin, or content fingerprint. A `ClaimAssessment` derives one admission
+state from those records.
 
 `candidate`, `isolated`, `rejected`, and `superseded` are audit-only and have
 zero decision authority. Only `corroborated` can authorize a material search
@@ -18,8 +19,11 @@ material non-corroborated assessment forces `deepen` with a typed
 cross-validation action. Existing raw outcome data remains diagnostic and does
 not itself establish corroboration.
 
-## Compatibility
+## Canonical decision boundary
 
-Existing outcome schemas remain readable. Batches that do not declare a
-material claim retain their ordinary acquisition behavior; consequential
-callers must supply the admission assessment before using a stop result.
+Every strict Finding observation declares its claim identity. A supporting
+option effect names the claims on which it relies. The canonical Decision
+Ledger compiler re-resolves those Finding anchors and re-computes admission
+before selected or conditional convergence; it does not trust a persisted
+assessment or caller-owned strings. Thus delivery, readiness, and closure only
+consume claim support after the canonical decision boundary has admitted it.

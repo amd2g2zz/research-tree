@@ -10,7 +10,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 import re
-from typing import Iterable
+from typing import Any, Iterable, Mapping, TYPE_CHECKING
+
+from .domain import ArtifactRef
+
+if TYPE_CHECKING:
+    from .evidence import EvidenceResolver
 
 
 class ClaimValidationError(ValueError):
@@ -111,36 +116,27 @@ class ProvenanceDescriptor:
 
 @dataclass(frozen=True, slots=True)
 class ClaimGrounding:
-    """Exact capture/extract binding and resolved provenance for one claim."""
+    """A claim binding to one exact canonical evidence selector.
+
+    Source wording, scope and provenance are intentionally not caller-owned
+    fields.  ``ClaimAdmissionEvaluator`` derives them from the resolved
+    ``EvidenceAnchor`` and its immutable evidence artifact.
+    """
 
     grounding_id: str
     claim_id: str
-    capture_ref: str
-    extract_ref: str
-    original_wording: str
-    source_revision: str
-    source_version: str
-    source_time_range: str
-    source_scope: str
-    source_conditions: tuple[str, ...]
-    provenance: ProvenanceDescriptor
+    anchor: Mapping[str, Any]
 
     def __post_init__(self) -> None:
-        for field in (
-            "grounding_id",
-            "claim_id",
-            "capture_ref",
-            "extract_ref",
-            "original_wording",
-            "source_revision",
-            "source_version",
-            "source_time_range",
-            "source_scope",
-        ):
+        for field in ("grounding_id", "claim_id"):
             object.__setattr__(self, field, _text(getattr(self, field), field))
-        object.__setattr__(self, "source_conditions", _texts(self.source_conditions, "source_conditions"))
-        if not isinstance(self.provenance, ProvenanceDescriptor):
-            raise ClaimValidationError("provenance must be a ProvenanceDescriptor")
+        try:
+            from .evidence import EvidenceAnchor
+
+            typed = EvidenceAnchor.from_dict(self.anchor)
+        except (TypeError, ValueError) as error:
+            raise ClaimValidationError(f"anchor must be a canonical EvidenceAnchor: {error}") from error
+        object.__setattr__(self, "anchor", typed.to_dict())
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +147,7 @@ class ClaimAssessment:
     state: ClaimState
     provenance_clusters: tuple[str, ...]
     grounding_ids: tuple[str, ...]
+    grounding_refs: tuple[ArtifactRef, ...] = ()
     rejection_reasons: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -159,6 +156,8 @@ class ClaimAssessment:
             raise ClaimValidationError("state must be a ClaimState")
         object.__setattr__(self, "provenance_clusters", _texts(self.provenance_clusters, "provenance_clusters"))
         object.__setattr__(self, "grounding_ids", _texts(self.grounding_ids, "grounding_ids"))
+        if any(not isinstance(reference, ArtifactRef) for reference in self.grounding_refs):
+            raise ClaimValidationError("grounding_refs must contain ArtifactRef values")
         object.__setattr__(self, "rejection_reasons", _texts(self.rejection_reasons, "rejection_reasons"))
 
     @property
@@ -169,6 +168,13 @@ class ClaimAssessment:
 class ClaimAdmissionEvaluator:
     """Derive grounding and corroboration without trusting worker confidence."""
 
+    def __init__(self, evidence_resolver: "EvidenceResolver") -> None:
+        from .evidence import EvidenceResolver
+
+        if not isinstance(evidence_resolver, EvidenceResolver):
+            raise ClaimValidationError("ClaimAdmissionEvaluator requires an EvidenceResolver")
+        self._evidence_resolver = evidence_resolver
+
     def assess(self, claim: Claim, groundings: Iterable[ClaimGrounding]) -> ClaimAssessment:
         if not isinstance(claim, Claim):
             raise ClaimValidationError("claim must be a Claim")
@@ -178,39 +184,63 @@ class ClaimAdmissionEvaluator:
         if any(item.claim_id != claim.claim_id for item in normalized_groundings):
             raise ClaimValidationError("grounding claim_id must match claim")
 
-        invalid = tuple(item for item in normalized_groundings if not self._entails(claim, item))
+        resolved = tuple(self._resolve(item) for item in normalized_groundings)
+        invalid = tuple(item for item in resolved if not self._entails(claim, item))
         if invalid:
             return ClaimAssessment(
                 claim_id=claim.claim_id,
                 state=ClaimState.REJECTED,
-                provenance_clusters=self._clusters(normalized_groundings),
+                provenance_clusters=self._clusters(resolved),
                 grounding_ids=tuple(item.grounding_id for item in normalized_groundings),
+                grounding_refs=tuple(item.reference for item in resolved),
                 rejection_reasons=("extract-does-not-entail-claim",),
             )
         if not normalized_groundings:
             return ClaimAssessment(claim.claim_id, ClaimState.CANDIDATE, (), ())
 
-        clusters = self._clusters(normalized_groundings)
+        clusters = self._clusters(resolved)
         state = ClaimState.CORROBORATED if len(clusters) >= 2 else ClaimState.ISOLATED
         return ClaimAssessment(
             claim_id=claim.claim_id,
             state=state,
             provenance_clusters=clusters,
             grounding_ids=tuple(item.grounding_id for item in normalized_groundings),
+            grounding_refs=tuple(item.reference for item in resolved),
         )
 
-    @staticmethod
-    def _entails(claim: Claim, grounding: ClaimGrounding) -> bool:
-        if claim.normalized_statement not in _normalized(grounding.original_wording):
-            return False
-        if claim.version != grounding.source_version or claim.time_range != grounding.source_time_range:
-            return False
-        if claim.scope != grounding.source_scope:
-            return False
-        return set(claim.conditions).issubset(grounding.source_conditions)
+    def _resolve(self, grounding: ClaimGrounding) -> "ResolvedClaimGrounding":
+        from .evidence import EvidenceAnchor, EvidenceValidationError
+
+        try:
+            anchor = EvidenceAnchor.from_dict(grounding.anchor)
+            evidence = self._evidence_resolver.resolve(anchor)
+            wording = _selected_text(anchor.selector_type, anchor.selector_value, evidence.bytes)
+            metadata = evidence.artifact.metadata
+            return ResolvedClaimGrounding(
+                grounding_id=grounding.grounding_id,
+                reference=evidence.artifact_ref,
+                wording=wording,
+                version=_metadata_text(metadata, "claim_version"),
+                time_range=_metadata_text(metadata, "claim_time_range"),
+                scope=_metadata_text(metadata, "claim_scope"),
+                conditions=_metadata_texts(metadata, "claim_conditions"),
+                provenance=evidence.artifact.provenance_descriptor,
+            )
+        except (EvidenceValidationError, TypeError, ValueError, UnicodeDecodeError) as error:
+            raise ClaimValidationError(f"grounding {grounding.grounding_id} is not resolvable: {error}") from error
 
     @staticmethod
-    def _clusters(groundings: tuple[ClaimGrounding, ...]) -> tuple[str, ...]:
+    def _entails(claim: Claim, grounding: "ResolvedClaimGrounding") -> bool:
+        if claim.normalized_statement not in _normalized(grounding.wording):
+            return False
+        if claim.version != grounding.version or claim.time_range != grounding.time_range:
+            return False
+        if claim.scope != grounding.scope:
+            return False
+        return set(claim.conditions).issubset(grounding.conditions)
+
+    @staticmethod
+    def _clusters(groundings: tuple["ResolvedClaimGrounding", ...]) -> tuple[str, ...]:
         """Cluster all sources sharing any resolved upstream identity.
 
         A mirror can carry a different URL or canonical label but still share a
@@ -236,6 +266,46 @@ class ClaimAdmissionEvaluator:
                 merged_identities.update(extra_identities)
             components[first] = (merged_identities, label)
         return tuple(label for _identities, label in components)
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedClaimGrounding:
+    grounding_id: str
+    reference: ArtifactRef
+    wording: str
+    version: str
+    time_range: str
+    scope: str
+    conditions: tuple[str, ...]
+    provenance: ProvenanceDescriptor
+
+
+def _selected_text(selector_type: str, selector: Mapping[str, object], data: bytes) -> str:
+    if selector_type == "line":
+        lines = data.decode("utf-8").splitlines()
+        start = int(selector["start"]) - 1
+        end = int(selector["end"])
+        return "\n".join(lines[start:end])
+    if selector_type == "fragment":
+        start = int(selector["start"])
+        end = start + int(selector["length"]) if "length" in selector else int(selector["end"])
+        return data[start:end].decode("utf-8")
+    raise ClaimValidationError("claim grounding selector must be line or fragment")
+
+
+def _metadata_text(metadata: Mapping[str, object], field: str) -> str:
+    value = metadata.get(field)
+    try:
+        return _text(value, field)
+    except ClaimValidationError as error:
+        raise ClaimValidationError(f"evidence metadata requires {field}") from error
+
+
+def _metadata_texts(metadata: Mapping[str, object], field: str) -> tuple[str, ...]:
+    value = metadata.get(field)
+    if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple)):
+        raise ClaimValidationError(f"evidence metadata requires {field}")
+    return _texts(value, field)
 
 
 __all__ = [
