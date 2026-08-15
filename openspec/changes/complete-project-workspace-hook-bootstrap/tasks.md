@@ -12,4 +12,4 @@
 ## 3. Verification
 
 - [x] 3.1 Run focused, integration, full regression, package, and delivery gates.
-- [ ] 3.2 Record ignored local raw evidence only after final HEAD validation.
+- [x] 3.2 Record ignored local raw evidence only after final HEAD validation.
