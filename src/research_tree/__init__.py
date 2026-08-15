@@ -40,7 +40,11 @@ from .decision_map import (
     CanonicalBlueprintTargetCompiler,
     InvalidBlueprintTargetError,
 )
-from .work_items import CanonicalWorkItemCompiler, CanonicalWorkItemPlanner
+from .work_items import (
+    CanonicalWorkItemCompiler,
+    CanonicalWorkItemPlanner,
+    CanonicalWorkItemStatusService,
+)
 from .delivery import (
     CanonicalDeliveryCompiler,
     DeliveryArtifacts,
@@ -499,6 +503,7 @@ __all__ = [
     "CanonicalInputIntakeService",
     "CanonicalWorkItemCompiler",
     "CanonicalWorkItemPlanner",
+    "CanonicalWorkItemStatusService",
     "CanonicalIntentModelCompiler",
     "CanonicalWorkingBriefCompiler",
     "IntentError",

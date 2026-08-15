@@ -72,6 +72,55 @@ def test_canonical_work_item_planner_appends_through_one_ledger(tmp_path) -> Non
     assert planned[0].parent_refs[0].artifact_id == target.id
 
 
+def test_canonical_work_item_status_appends_exact_work_and_target_lineage(tmp_path) -> None:
+    from research_tree.domain import thaw_json
+    from research_tree import (
+        CanonicalWorkItemCompiler,
+        CanonicalWorkItemStatusService,
+    )
+
+    ledger, _resolver, _record, _model, _brief, target, *_rest = canonical_context(tmp_path)
+    work = CanonicalWorkItemCompiler(ledger).compile(
+        round_id=RUN_ID,
+        work_item_id="work-item-status",
+        blueprint_target=target,
+        decision_slot_id="slot-isolation",
+        kind="repository_analysis",
+        scope="Inspect the canonical isolation boundary.",
+        exclusions="Do not close the decision slot.",
+        decision_change_reason="The result can revise the chosen boundary.",
+        depends_on=(),
+        methods=("repository_inspection",),
+        budget={"tool_calls": 4, "time": "bounded"},
+        completion_rule="Return a bounded Finding Pack.",
+        expected_revision=ledger.get_revision(RUN_ID),
+    )
+    closed_payload = thaw_json(target.payload)
+    closed_slot = dict(closed_payload["slots"][0])
+    closed_slot["status"] = "selected"
+    closed_payload["slots"] = [closed_slot]
+    closed_target = ledger.append_artifact(
+        RUN_ID,
+        target.id,
+        target.kind,
+        closed_payload,
+        parent_refs=target.parent_refs,
+        expected_revision=ledger.get_revision(RUN_ID),
+    )
+
+    updated = CanonicalWorkItemStatusService(ledger).update(
+        round_id=RUN_ID,
+        work_item=work,
+        blueprint_target=closed_target,
+        status="cancelled",
+        reason="The decision has been superseded.",
+        expected_revision=ledger.get_revision(RUN_ID),
+    )
+
+    assert updated.parent_refs[0].artifact_id == work.id
+    assert updated.parent_refs[1].revision == closed_target.revision
+
+
 def test_canonical_input_intake_requires_current_revision_and_persists_bundle_lineage(tmp_path) -> None:
     from research_tree import ArtifactRef, CanonicalInputIntakeService, LedgerConflictError, RunLedger
 

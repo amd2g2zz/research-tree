@@ -467,6 +467,65 @@ class WorkItemStatusService:
         )
 
 
+class CanonicalWorkItemStatusService:
+    """Append controlled Work Item status revisions in the canonical ledger."""
+
+    def __init__(self, ledger: RunLedger) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidWorkItemError("canonical Work Item status service requires a RunLedger")
+        self._ledger = ledger
+
+    def update(
+        self,
+        *,
+        round_id: str,
+        work_item: ArtifactRevision,
+        blueprint_target: ArtifactRevision,
+        status: str,
+        reason: str,
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        try:
+            snapshot = self._ledger.load_run(round_id)
+            stored_work = _resolve_exact_work_item(snapshot.artifacts, work_item)
+            target = _resolve_exact_target(snapshot.artifacts, blueprint_target)
+            if stored_work.round_id != round_id or target.round_id != round_id:
+                raise InvalidWorkItemError("work item and target must belong to the update round")
+            if stored_work.payload.get("blueprint_target_id") != target.id:
+                raise InvalidWorkItemError("work item does not belong to the supplied Blueprint Target")
+            decision_slot_id = _identifier(
+                stored_work.payload.get("decision_slot_id"), "work_item decision_slot_id"
+            )
+            current_slot = next(
+                (slot for slot in _target_slots(target) if slot.get("id") == decision_slot_id),
+                None,
+            )
+            if current_slot is not None and current_slot.get("status") in ACTIVE_SLOT_STATUSES:
+                raise InvalidWorkItemError(
+                    "cancelled or deferred work requires a closed or superseded Decision Slot"
+                )
+            next_status = _enum(status, "status", {"cancelled", "deferred"})
+            status_reason = _nonempty_string(reason, "reason")
+            payload = thaw_json(stored_work.payload)
+            if not isinstance(payload, dict):
+                raise InvalidWorkItemError("stored work item payload is malformed")
+            payload["status"] = next_status
+            payload["status_reason"] = status_reason
+        except (InvalidIdentifierError, TypeError, ValueError) as error:
+            raise InvalidWorkItemError(str(error)) from error
+
+        previous_ref = ArtifactRef(round_id, stored_work.id, stored_work.revision)
+        target_ref = ArtifactRef(round_id, target.id, target.revision)
+        return self._ledger.append_artifact(
+            round_id,
+            stored_work.id,
+            WORK_ITEM_KIND,
+            payload,
+            parent_refs=(previous_ref, target_ref),
+            expected_revision=expected_revision,
+        )
+
+
 def _ensure_work_id_compatibility(
     artifacts: Sequence[ArtifactRevision], work_item_id: str
 ) -> None:
