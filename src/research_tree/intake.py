@@ -20,6 +20,7 @@ from .domain import (
     validate_identifier,
 )
 from .storage import RunStore
+from .run_ledger import RunLedger
 
 
 INPUT_LEDGER_ARTIFACT_KIND = "input-ledger-entry"
@@ -838,6 +839,275 @@ class InputIntakeService:
         artifacts = [
             artifact
             for artifact in self._store.load_round(round_id).artifacts
+            if artifact.id == input_id and artifact.kind == INPUT_LEDGER_ARTIFACT_KIND
+        ]
+        return max(artifacts, key=lambda artifact: artifact.revision, default=None)
+
+    @staticmethod
+    def _ledger_payload(
+        *,
+        round_id: str,
+        input_id: str,
+        kind: str,
+        origin_type: str,
+        origin_locator: str,
+        revision: dict[str, object],
+        read_scope: str,
+        role: str,
+        member_input_ids: list[str] | None = None,
+        grouping: str = "none",
+        material: dict[str, str] | None = None,
+        repository_baseline: dict[str, object] | None = None,
+        member_refs: list[dict[str, object]] | None = None,
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "id": input_id,
+            "kind": kind,
+            "origin": {"type": origin_type, "locator": origin_locator},
+            "revision": revision,
+            "read_scope": read_scope,
+            "role": role,
+            "member_input_ids": member_input_ids or [],
+            "grouping": grouping,
+            "used_by_rounds": [round_id],
+        }
+        if material is not None:
+            payload["material"] = material
+        if repository_baseline is not None:
+            payload["repository_baseline"] = repository_baseline
+        if member_refs is not None:
+            payload["member_refs"] = member_refs
+        return payload
+
+
+class CanonicalInputIntakeService:
+    """Append Context Pack inputs directly to one canonical RunLedger."""
+
+    def __init__(
+        self,
+        ledger: RunLedger,
+        *,
+        policy: RepositorySafetyPolicy | None = None,
+    ) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidInputError("canonical input intake requires a RunLedger")
+        self._ledger = ledger
+        self._inspector = RepositoryInspector(policy)
+
+    def ingest_text(
+        self,
+        *,
+        round_id: str,
+        input_id: str,
+        kind: str,
+        content: str,
+        origin_type: str,
+        origin_locator: str,
+        role: str = "signal",
+        read_scope: str = "full text",
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        self._validate_common_input(
+            round_id=round_id,
+            input_id=input_id,
+            kind=kind,
+            origin_type=origin_type,
+            origin_locator=origin_locator,
+            role=role,
+            read_scope=read_scope,
+        )
+        if kind not in TEXT_INPUT_KINDS:
+            raise InvalidInputError(f"ingest_text does not accept input kind: {kind}")
+        if not isinstance(content, str):
+            raise InvalidInputError("text content must be a string")
+        self._ensure_kind_compatibility(round_id, input_id, kind)
+        observed_at = utc_now()
+        payload = self._ledger_payload(
+            round_id=round_id,
+            input_id=input_id,
+            kind=kind,
+            origin_type=origin_type,
+            origin_locator=origin_locator,
+            revision={
+                "branch": None,
+                "commit": None,
+                "sha256": sha256(content.encode("utf-8")).hexdigest(),
+                "observed_at": observed_at,
+            },
+            read_scope=read_scope,
+            role=role,
+            material={"kind": "inline-text", "content": content},
+        )
+        return self._ledger.append_artifact(
+            round_id,
+            input_id,
+            INPUT_LEDGER_ARTIFACT_KIND,
+            payload,
+            expected_revision=expected_revision,
+        )
+
+    def ingest_repository(
+        self,
+        *,
+        round_id: str,
+        input_id: str,
+        repository_root: str | Path,
+        origin_type: str,
+        role: str = "baseline",
+        origin_locator: str | None = None,
+        read_scope: str = "repository root (read-only)",
+        include_paths: Iterable[str | Path] | None = None,
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        locator = origin_locator or str(Path(repository_root).expanduser().resolve(strict=False))
+        self._validate_common_input(
+            round_id=round_id,
+            input_id=input_id,
+            kind="repository",
+            origin_type=origin_type,
+            origin_locator=locator,
+            role=role,
+            read_scope=read_scope,
+        )
+        self._ensure_kind_compatibility(round_id, input_id, "repository")
+        baseline = self._inspector.inspect(repository_root, include_paths=include_paths)
+        revision = {
+            "branch": baseline["revision"]["branch"],  # type: ignore[index]
+            "commit": baseline["revision"]["commit"],  # type: ignore[index]
+            "sha256": baseline["revision"]["sha256"],  # type: ignore[index]
+            "observed_at": baseline["revision"]["observed_at"],  # type: ignore[index]
+        }
+        payload = self._ledger_payload(
+            round_id=round_id,
+            input_id=input_id,
+            kind="repository",
+            origin_type=origin_type,
+            origin_locator=locator,
+            revision=revision,
+            read_scope=read_scope,
+            role=role,
+            repository_baseline=baseline,
+        )
+        return self._ledger.append_artifact(
+            round_id,
+            input_id,
+            INPUT_LEDGER_ARTIFACT_KIND,
+            payload,
+            expected_revision=expected_revision,
+        )
+
+    def create_context_bundle(
+        self,
+        *,
+        round_id: str,
+        input_id: str,
+        member_input_ids: Sequence[str],
+        origin_type: str,
+        origin_locator: str,
+        role: str = "baseline",
+        grouping: str = "user_provided",
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        self._validate_common_input(
+            round_id=round_id,
+            input_id=input_id,
+            kind="context_bundle",
+            origin_type=origin_type,
+            origin_locator=origin_locator,
+            role=role,
+            read_scope="member artifacts",
+        )
+        if grouping not in GROUPINGS - {"none"}:
+            raise InvalidContextBundleError(f"invalid Context Bundle grouping: {grouping}")
+        if isinstance(member_input_ids, str) or not member_input_ids:
+            raise InvalidContextBundleError("Context Bundle requires at least one member input id")
+        members = tuple(member_input_ids)
+        if any(not isinstance(member_id, str) for member_id in members):
+            raise InvalidContextBundleError("Context Bundle member ids must be strings")
+        if len(set(members)) != len(members):
+            raise InvalidContextBundleError("Context Bundle cannot include a duplicate member")
+        self._ensure_kind_compatibility(round_id, input_id, "context_bundle")
+
+        member_artifacts: list[ArtifactRevision] = []
+        for member_id in members:
+            validate_identifier(member_id, "Context Bundle member input_id")
+            artifact = self._latest_input_artifact(round_id, member_id)
+            if artifact is None:
+                raise InvalidContextBundleError(f"Context Bundle member is unknown: {member_id}")
+            if artifact.payload["kind"] == "context_bundle":
+                raise InvalidContextBundleError("Context Bundles cannot nest another Context Bundle")
+            member_artifacts.append(artifact)
+
+        parent_refs = tuple(
+            ArtifactRef(round_id, artifact.id, artifact.revision) for artifact in member_artifacts
+        )
+        member_refs = [reference.to_dict() for reference in parent_refs]
+        payload = self._ledger_payload(
+            round_id=round_id,
+            input_id=input_id,
+            kind="context_bundle",
+            origin_type=origin_type,
+            origin_locator=origin_locator,
+            revision={
+                "branch": None,
+                "commit": None,
+                "sha256": sha256(canonical_json_bytes(member_refs)).hexdigest(),
+                "observed_at": utc_now(),
+            },
+            read_scope="member artifacts",
+            role=role,
+            member_input_ids=list(members),
+            grouping=grouping,
+            member_refs=member_refs,
+        )
+        return self._ledger.append_artifact(
+            round_id,
+            input_id,
+            INPUT_LEDGER_ARTIFACT_KIND,
+            payload,
+            parent_refs=parent_refs,
+            expected_revision=expected_revision,
+        )
+
+    def _validate_common_input(
+        self,
+        *,
+        round_id: str,
+        input_id: str,
+        kind: str,
+        origin_type: str,
+        origin_locator: str,
+        role: str,
+        read_scope: str,
+    ) -> None:
+        self._ledger.load_run(round_id)
+        validate_identifier(input_id, "input_id")
+        if kind not in INPUT_KINDS:
+            raise InvalidInputError(f"invalid input kind: {kind}")
+        if origin_type not in ORIGIN_TYPES:
+            raise InvalidInputError(f"invalid input origin type: {origin_type}")
+        if role not in INPUT_ROLES:
+            raise InvalidInputError(f"invalid input role: {role}")
+        if not isinstance(origin_locator, str) or not origin_locator.strip():
+            raise InvalidInputError("input origin locator must be a nonempty string")
+        if not isinstance(read_scope, str) or not read_scope.strip():
+            raise InvalidInputError("input read_scope must be a nonempty string")
+
+    def _ensure_kind_compatibility(self, round_id: str, input_id: str, kind: str) -> None:
+        existing = self._latest_input_artifact(round_id, input_id)
+        if existing is not None and existing.payload["kind"] != kind:
+            raise InvalidInputError(
+                f"input_id {input_id!r} already represents {existing.payload['kind']!r}, not {kind!r}"
+            )
+
+    def _latest_input_artifact(
+        self,
+        round_id: str,
+        input_id: str,
+    ) -> ArtifactRevision | None:
+        artifacts = [
+            artifact
+            for artifact in self._ledger.load_run(round_id).artifacts
             if artifact.id == input_id and artifact.kind == INPUT_LEDGER_ARTIFACT_KIND
         ]
         return max(artifacts, key=lambda artifact: artifact.revision, default=None)

@@ -23,6 +23,52 @@ def test_canonical_working_brief_compiler_is_public() -> None:
     assert CanonicalWorkingBriefCompiler.__name__ == "CanonicalWorkingBriefCompiler"
 
 
+def test_canonical_input_intake_service_is_public() -> None:
+    from research_tree import CanonicalInputIntakeService
+
+    assert CanonicalInputIntakeService.__name__ == "CanonicalInputIntakeService"
+
+
+def test_canonical_input_intake_requires_current_revision_and_persists_bundle_lineage(tmp_path) -> None:
+    from research_tree import ArtifactRef, CanonicalInputIntakeService, LedgerConflictError, RunLedger
+
+    ledger = RunLedger(tmp_path / "intake-ledger")
+    ledger.initialize()
+    ledger.create_run("round-intake")
+    intake = CanonicalInputIntakeService(ledger)
+
+    initial_revision = ledger.get_revision("round-intake")
+    source = intake.ingest_text(
+        round_id="round-intake",
+        input_id="input-source",
+        kind="brief",
+        content="Preserve exact lineage for the canonical intake.",
+        origin_type="user",
+        origin_locator="conversation:1",
+        expected_revision=initial_revision,
+    )
+    bundle = intake.create_context_bundle(
+        round_id="round-intake",
+        input_id="input-context",
+        member_input_ids=[source.id],
+        origin_type="user",
+        origin_locator="conversation:1",
+        expected_revision=ledger.get_revision("round-intake"),
+    )
+
+    assert bundle.parent_refs == (ArtifactRef("round-intake", source.id, source.revision),)
+    with pytest.raises(LedgerConflictError):
+        intake.ingest_text(
+            round_id="round-intake",
+            input_id="input-stale",
+            kind="note",
+            content="A stale writer must not append an input.",
+            origin_type="user",
+            origin_locator="conversation:2",
+            expected_revision=initial_revision,
+        )
+
+
 def test_canonical_blueprint_target_requires_current_ledger_revision(tmp_path) -> None:
     from research_tree import CanonicalBlueprintTargetCompiler, LedgerConflictError
 

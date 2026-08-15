@@ -15,6 +15,7 @@ from .domain import (
     RuntimeStoreError,
 )
 from .intake import (
+    CanonicalInputIntakeService,
     InputIntakeService,
     IntakeError,
     InvalidContextBundleError,
@@ -494,6 +495,7 @@ __all__ = [
     "FAILURE_CATEGORIES",
     "FAILURE_CATEGORY_GATES",
     "InputIntakeService",
+    "CanonicalInputIntakeService",
     "CanonicalIntentModelCompiler",
     "CanonicalWorkingBriefCompiler",
     "IntentError",
