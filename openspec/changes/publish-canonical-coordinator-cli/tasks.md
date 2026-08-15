@@ -23,5 +23,5 @@
 
 - [x] 4.1 Document only the current commands and validate generated package
   parity plus an installed-wheel smoke invocation.
-- [ ] 4.2 Run focused tests, Ruff, strict OpenSpec, governance, documentation,
+- [x] 4.2 Run focused tests, Ruff, strict OpenSpec, governance, documentation,
   package, and GitNexus change checks; then record the group-84 receipt.
