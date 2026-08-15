@@ -463,7 +463,8 @@ def test_single_provider_execution_reports_degraded_capability_not_independence(
 
     assert result.degraded_capability is True
     assert result.assessments[0].provenance_independence == "single-boundary"
-    assert result.assessments[0].disposition == "stop"
+    assert result.assessments[0].disposition == "deepen"
+    assert result.assessments[0].next_actions == ("cross-validate-material-claims",)
     assert result.assessments[0].coverage == "complete"
 
 

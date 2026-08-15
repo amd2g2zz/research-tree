@@ -8,6 +8,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping
 
+from .claims import ProvenanceDescriptor
 from .content_store import ContentAddressedStore, ContentObject, ContentStoreError
 from .domain import ArtifactRef
 from .run_ledger import LedgerError, RunLedger
@@ -95,6 +96,26 @@ class EvidenceArtifact:
         if not isinstance(self.metadata, Mapping):
             raise EvidenceValidationError("metadata must be a mapping")
 
+    @property
+    def provenance_descriptor(self) -> ProvenanceDescriptor:
+        """Resolve the clustering identity without trusting provider boundaries.
+
+        Content-addressed capture bytes are the conservative fallback: two
+        identical captures cannot claim independent corroboration merely
+        because different URLs or providers supplied them.
+        """
+
+        def optional_text(name: str) -> str | None:
+            value = self.metadata.get(name)
+            return value.strip() if isinstance(value, str) and value.strip() else None
+
+        return ProvenanceDescriptor(
+            upstream_id=optional_text("canonical_upstream_id"),
+            owner_id=optional_text("publisher_owner_id"),
+            dataset_id=optional_text("measurement_origin_id"),
+            content_fingerprint=optional_text("content_fingerprint") or self.content_digest,
+        )
+
     def to_dict(self) -> dict[str, Any]:
         """Return the canonical payload stored in an evidence revision."""
 
@@ -126,10 +147,26 @@ class EvidenceArtifact:
         if not isinstance(value, Mapping):
             raise EvidenceValidationError("evidence artifact payload must be a mapping")
         required = {
-            "schema_version", "evidence_id", "run_id", "revision", "media_type", "locator",
-            "content_digest", "size_bytes", "acquired_at", "acquisition_method",
-            "provenance_group", "applicability", "confidence", "limitations", "status",
-            "extractor_version", "source_revision", "license_note", "evidence_class", "metadata",
+            "schema_version",
+            "evidence_id",
+            "run_id",
+            "revision",
+            "media_type",
+            "locator",
+            "content_digest",
+            "size_bytes",
+            "acquired_at",
+            "acquisition_method",
+            "provenance_group",
+            "applicability",
+            "confidence",
+            "limitations",
+            "status",
+            "extractor_version",
+            "source_revision",
+            "license_note",
+            "evidence_class",
+            "metadata",
         }
         if set(value) != required or value.get("schema_version") != EVIDENCE_SCHEMA_VERSION:
             raise EvidenceValidationError("unsupported or non-canonical evidence artifact payload")
@@ -186,7 +223,11 @@ class EvidenceAnchor:
 
     def __post_init__(self) -> None:
         _digest(self.artifact_digest, "artifact_digest")
-        if isinstance(self.artifact_revision, bool) or not isinstance(self.artifact_revision, int) or self.artifact_revision < 1:
+        if (
+            isinstance(self.artifact_revision, bool)
+            or not isinstance(self.artifact_revision, int)
+            or self.artifact_revision < 1
+        ):
             raise EvidenceValidationError("artifact_revision must be positive")
         if self.selector_type not in SELECTOR_TYPES:
             raise EvidenceValidationError(f"unsupported selector_type: {self.selector_type}")
@@ -227,8 +268,14 @@ class EvidenceAnchor:
         if not isinstance(value, Mapping):
             raise EvidenceValidationError("evidence anchor must be a mapping")
         common = {
-            "artifact_digest", "artifact_revision", "selector_type", "selector_value",
-            "extractor_version", "applicability", "confidence", "limitations",
+            "artifact_digest",
+            "artifact_revision",
+            "selector_type",
+            "selector_value",
+            "extractor_version",
+            "applicability",
+            "confidence",
+            "limitations",
         }
         keys = set(value)
         if keys != common | {"artifact_ref"}:
