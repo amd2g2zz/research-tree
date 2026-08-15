@@ -16,14 +16,15 @@ from .domain import (
     validate_identifier,
 )
 from .feedback import RESEARCH_STRATEGY_KIND, validate_research_strategy_payload
-from .ledger import DECISION_LEDGER_KIND, FINDING_PACK_KIND, DecisionLedgerCompiler
+from .evidence import EvidenceResolver
+from .ledger import CanonicalDecisionLedgerCompiler, DECISION_LEDGER_KIND, FINDING_PACK_KIND
 from .ports import (
     EvidenceReviewPort,
     PrimarySourceValidationPort,
     ProvenanceIntegrityPort,
     SourceAcquisitionPort,
 )
-from .storage import RunStore
+from .run_ledger import RunLedger
 
 
 ASSURANCE_ADAPTER_SELECTION_KIND = "assurance-adapter-selection"
@@ -80,11 +81,13 @@ class AssuranceRunArtifacts:
     blocked_decision: ArtifactRevision | None = None
 
 
-class AssuranceStrategySelector:
+class CanonicalAssuranceStrategySelector:
     """Persist a decision-local adapter selection derived from one strategy."""
 
-    def __init__(self, store: RunStore) -> None:
-        self._store = store
+    def __init__(self, ledger: RunLedger) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidAssuranceError("canonical assurance selector requires a RunLedger")
+        self._ledger = ledger
 
     def select(
         self,
@@ -94,11 +97,12 @@ class AssuranceStrategySelector:
         strategy: ArtifactRevision,
         blueprint_target: ArtifactRevision,
         policies: Sequence[Mapping[str, Any]],
+        expected_revision: int,
     ) -> ArtifactRevision:
         """Select zero or more assurance profiles without changing the strategy artifact."""
 
         try:
-            snapshot = self._store.load_round(round_id)
+            snapshot = self._ledger.load_run(round_id)
             validate_identifier(selection_id, "selection_id")
             _ensure_new_id(snapshot.artifacts, selection_id, "selection_id")
             stored_strategy = _resolve_exact(
@@ -128,7 +132,7 @@ class AssuranceStrategySelector:
         except (InvalidIdentifierError, TypeError, ValueError) as error:
             raise InvalidAssuranceError(str(error)) from error
 
-        return self._store.append_artifact(
+        return self._ledger.append_artifact(
             round_id,
             selection_id,
             ASSURANCE_ADAPTER_SELECTION_KIND,
@@ -137,14 +141,20 @@ class AssuranceStrategySelector:
                 ArtifactRef(stored_strategy.round_id, stored_strategy.id, stored_strategy.revision),
                 ArtifactRef(stored_target.round_id, stored_target.id, stored_target.revision),
             ),
+            expected_revision=expected_revision,
         )
 
 
-class AssuranceAdapterRunner:
+class CanonicalAssuranceAdapterRunner:
     """Invoke only the adapters selected for one persisted Decision Ledger revision."""
 
-    def __init__(self, store: RunStore) -> None:
-        self._store = store
+    def __init__(self, ledger: RunLedger, evidence_resolver: EvidenceResolver) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidAssuranceError("canonical assurance runner requires a RunLedger")
+        if not isinstance(evidence_resolver, EvidenceResolver) or evidence_resolver.ledger is not ledger:
+            raise InvalidAssuranceError("canonical assurance runner requires a matching ledger-backed EvidenceResolver")
+        self._ledger = ledger
+        self._evidence_resolver = evidence_resolver
 
     def run(
         self,
@@ -155,11 +165,12 @@ class AssuranceAdapterRunner:
         decision: ArtifactRevision,
         source: Mapping[str, Any],
         adapters: AssuranceAdapterSet,
+        expected_revision: int,
     ) -> AssuranceRunArtifacts:
         """Persist bounded provenance and resolve a failed review locally to its decision."""
 
         try:
-            snapshot = self._store.load_round(round_id)
+            snapshot = self._ledger.load_run(round_id)
             validate_identifier(evidence_id, "evidence_id")
             _ensure_new_id(snapshot.artifacts, evidence_id, "evidence_id")
             stored_selection = _resolve_exact(
@@ -183,9 +194,7 @@ class AssuranceAdapterRunner:
             source_record = _normalize_source(source)
             if not isinstance(adapters, AssuranceAdapterSet):
                 raise InvalidAssuranceError("adapters must be an AssuranceAdapterSet")
-            selected_kinds = (
-                () if selected_policy is None else tuple(selected_policy["adapters"])
-            )
+            selected_kinds = () if selected_policy is None else tuple(selected_policy["adapters"])
             adapter_values = _selected_adapters(adapters, selected_kinds)
             resolution_id = _derived_id(evidence_id, "resolution")
             _ensure_new_id(snapshot.artifacts, resolution_id, "resolution_id")
@@ -249,7 +258,7 @@ class AssuranceAdapterRunner:
             "status": evidence_status,
         }
         validate_assurance_evidence_payload(evidence_payload)
-        evidence = self._store.append_artifact(
+        evidence = self._ledger.append_artifact(
             round_id,
             evidence_id,
             ASSURANCE_EVIDENCE_KIND,
@@ -264,11 +273,13 @@ class AssuranceAdapterRunner:
                 ArtifactRef(target.round_id, target.id, target.revision),
                 ArtifactRef(stored_decision.round_id, stored_decision.id, stored_decision.revision),
             ),
+            expected_revision=expected_revision,
         )
 
         follow_up: ArtifactRevision | None = None
         blocked_decision: ArtifactRevision | None = None
         outcome = "passed"
+        next_revision = expected_revision + 1
         if evidence_status == "failed":
             if selected_policy is None:
                 raise InvalidAssuranceError("an unselected decision cannot produce a failed assurance result")
@@ -282,16 +293,21 @@ class AssuranceAdapterRunner:
                     decision=stored_decision,
                     selection=stored_selection,
                     failed_results=results,
+                    expected_revision=next_revision,
                 )
+                next_revision += 1
                 outcome = "follow_up"
             else:
                 blocked_decision = _append_blocked_decision(
-                    self._store,
+                    self._ledger,
+                    self._evidence_resolver,
                     snapshot.artifacts,
                     stored_decision,
                     target,
                     evidence,
+                    expected_revision=next_revision,
                 )
+                next_revision += 1
                 outcome = "blocked"
 
         resolution_decision = stored_decision if blocked_decision is None else blocked_decision
@@ -314,12 +330,13 @@ class AssuranceAdapterRunner:
         ]
         if follow_up is not None:
             resolution_refs.append(ArtifactRef(follow_up.round_id, follow_up.id, follow_up.revision))
-        resolution = self._store.append_artifact(
+        resolution = self._ledger.append_artifact(
             round_id,
             resolution_id,
             ASSURANCE_RESOLUTION_KIND,
             resolution_payload,
             parent_refs=tuple(resolution_refs),
+            expected_revision=next_revision,
         )
         return AssuranceRunArtifacts(
             evidence=evidence,
@@ -337,6 +354,7 @@ class AssuranceAdapterRunner:
         decision: ArtifactRevision,
         selection: ArtifactRevision,
         failed_results: Sequence[Mapping[str, str]],
+        expected_revision: int,
     ) -> ArtifactRevision:
         failed_kinds = [item["adapter_kind"] for item in failed_results if item["status"] == "failed"]
         payload = {
@@ -346,13 +364,11 @@ class AssuranceAdapterRunner:
             "decision_ref": _ref_dict(decision),
             "decision_slot_id": decision.payload["decision_slot_id"],
             "kind": "evaluation",
-            "scope": (
-                "Resolve failed " + ", ".join(failed_kinds) + " assurance evidence for this Decision Slot."
-            ),
+            "scope": ("Resolve failed " + ", ".join(failed_kinds) + " assurance evidence for this Decision Slot."),
             "reason": "A strategy-selected assurance check failed without changing the requester target.",
         }
         validate_assurance_follow_up_payload(payload)
-        return self._store.append_artifact(
+        return self._ledger.append_artifact(
             round_id,
             follow_up_id,
             ASSURANCE_FOLLOW_UP_KIND,
@@ -362,6 +378,7 @@ class AssuranceAdapterRunner:
                 ArtifactRef(decision.round_id, decision.id, decision.revision),
                 ArtifactRef(selection.round_id, selection.id, selection.revision),
             ),
+            expected_revision=expected_revision,
         )
 
 
@@ -412,9 +429,7 @@ def validate_assurance_selection_payload(payload: Mapping[str, Any]) -> None:
         )
         adapters = _enum_sequence(decision["adapters"], f"{label}.adapters", set(ADAPTER_KINDS))
         if adapters != _adapters_for_policy(standard, risk_tier, decision_value):
-            raise InvalidAssuranceError(
-                f"{label}.adapters does not match the selected evidence_standard"
-            )
+            raise InvalidAssuranceError(f"{label}.adapters does not match the selected evidence_standard")
         _enum(decision["failure_mode"], f"{label}.failure_mode", FAILURE_MODES)
         _nonempty(decision["selection_reason"], f"{label}.selection_reason")
 
@@ -478,13 +493,9 @@ def validate_assurance_evidence_payload(payload: Mapping[str, Any]) -> None:
         expected = by_kind.get(kind)
         if expected is None:
             if status != "not_requested":
-                raise InvalidAssuranceError(
-                    f"assurance evidence {field} must be not_requested without {kind}"
-                )
+                raise InvalidAssuranceError(f"assurance evidence {field} must be not_requested without {kind}")
         elif summary != {"status": expected["status"], "summary": expected["summary"]}:
-            raise InvalidAssuranceError(
-                f"assurance evidence {field} must match its selected adapter result"
-            )
+            raise InvalidAssuranceError(f"assurance evidence {field} must match its selected adapter result")
     status = _enum(data["status"], "assurance evidence status", RESULT_STATUSES)
     has_failure = any(result["status"] == "failed" for result in results)
     if (status == "failed") != has_failure:
@@ -662,14 +673,10 @@ def _validate_strategy_target_lineage(
     strategy_refs = set(strategy.parent_refs)
     target_refs = set(target.parent_refs)
     shared_brief = [
-        ref
-        for ref in strategy_refs & target_refs
-        if ref.artifact_id == brief_id and ref.round_id == strategy.round_id
+        ref for ref in strategy_refs & target_refs if ref.artifact_id == brief_id and ref.round_id == strategy.round_id
     ]
     shared_model = [
-        ref
-        for ref in strategy_refs & target_refs
-        if ref.artifact_id == model_id and ref.round_id == strategy.round_id
+        ref for ref in strategy_refs & target_refs if ref.artifact_id == model_id and ref.round_id == strategy.round_id
     ]
     if len(shared_brief) != 1 or len(shared_model) != 1:
         raise InvalidAssuranceError(
@@ -693,15 +700,9 @@ def _validate_decision_for_target(
         raise InvalidAssuranceError("assurance can only review a selected or conditional decision")
 
 
-def _ensure_latest_decision(
-    artifacts: Sequence[ArtifactRevision], decision: ArtifactRevision
-) -> None:
+def _ensure_latest_decision(artifacts: Sequence[ArtifactRevision], decision: ArtifactRevision) -> None:
     latest = max(
-        (
-            item
-            for item in artifacts
-            if item.id == decision.id and item.kind == DECISION_LEDGER_KIND
-        ),
+        (item for item in artifacts if item.id == decision.id and item.kind == DECISION_LEDGER_KIND),
         key=lambda item: item.revision,
     )
     if latest != decision:
@@ -797,11 +798,14 @@ def _adapter_summary(results: Sequence[Mapping[str, str]], kind: str) -> dict[st
 
 
 def _append_blocked_decision(
-    store: RunStore,
+    ledger: RunLedger,
+    evidence_resolver: EvidenceResolver,
     artifacts: Sequence[ArtifactRevision],
     decision: ArtifactRevision,
     target: ArtifactRevision,
     evidence: ArtifactRevision,
+    *,
+    expected_revision: int,
 ) -> ArtifactRevision:
     payload = thaw_json(decision.payload)
     if not isinstance(payload, dict):
@@ -823,7 +827,7 @@ def _append_blocked_decision(
     finding_packs = _decision_finding_packs(artifacts, decision)
     reversal = _nonempty(payload.get("reversal_condition"), "stored decision reversal_condition")
     reason = _nonempty(payload.get("revision_reason"), "stored decision revision_reason")
-    return DecisionLedgerCompiler(store).converge(
+    return CanonicalDecisionLedgerCompiler(ledger, evidence_resolver).converge(
         round_id=decision.round_id,
         decision_id=decision.id,
         blueprint_target=target,
@@ -833,9 +837,7 @@ def _append_blocked_decision(
         selected_option=None,
         alternatives=alternatives,
         anchors=_mappings(payload.get("anchors"), "stored decision anchors"),
-        design_consequence=_nonempty(
-            payload.get("design_consequence"), "stored decision design_consequence"
-        ),
+        design_consequence=_nonempty(payload.get("design_consequence"), "stored decision design_consequence"),
         repository_touchpoints=_mappings(
             payload.get("repository_touchpoints"), "stored decision repository_touchpoints"
         ),
@@ -846,9 +848,8 @@ def _append_blocked_decision(
         reversal_condition=(
             f"{reversal} Reconsider after assurance evidence {evidence.id}@{evidence.revision} is corrected."
         ),
-        revision_reason=(
-            f"{reason} Blocked after assurance evidence {evidence.id}@{evidence.revision} failed."
-        ),
+        revision_reason=(f"{reason} Blocked after assurance evidence {evidence.id}@{evidence.revision} failed."),
+        expected_revision=expected_revision,
     )
 
 
@@ -892,7 +893,7 @@ def _resolve_exact(
             if item.kind != expected_kind:
                 raise InvalidAssuranceError(f"{label} must be a {expected_kind} artifact")
             return item
-    raise InvalidAssuranceError(f"{label} has not been persisted in this RunStore")
+    raise InvalidAssuranceError(f"{label} has not been persisted in this RunLedger")
 
 
 def _resolve_ref(

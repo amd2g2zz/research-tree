@@ -19,7 +19,7 @@ from .domain import (
     utc_now,
     validate_identifier,
 )
-from .storage import RunStore
+from .run_ledger import RunLedger
 
 
 INPUT_LEDGER_ARTIFACT_KIND = "input-ledger-entry"
@@ -618,16 +618,18 @@ class RepositoryInspector:
         return any(part.lower() in {".aws", ".ssh", "secrets"} for part in Path(relative).parts)
 
 
-class InputIntakeService:
-    """Append Context Pack inputs to one explicit run store."""
+class CanonicalInputIntakeService:
+    """Append Context Pack inputs directly to one canonical RunLedger."""
 
     def __init__(
         self,
-        store: RunStore,
+        ledger: RunLedger,
         *,
         policy: RepositorySafetyPolicy | None = None,
     ) -> None:
-        self._store = store
+        if not isinstance(ledger, RunLedger):
+            raise InvalidInputError("canonical input intake requires a RunLedger")
+        self._ledger = ledger
         self._inspector = RepositoryInspector(policy)
 
     def ingest_text(
@@ -641,6 +643,7 @@ class InputIntakeService:
         origin_locator: str,
         role: str = "signal",
         read_scope: str = "full text",
+        expected_revision: int,
     ) -> ArtifactRevision:
         self._validate_common_input(
             round_id=round_id,
@@ -673,11 +676,12 @@ class InputIntakeService:
             role=role,
             material={"kind": "inline-text", "content": content},
         )
-        return self._store.append_artifact(
+        return self._ledger.append_artifact(
             round_id,
             input_id,
             INPUT_LEDGER_ARTIFACT_KIND,
             payload,
+            expected_revision=expected_revision,
         )
 
     def ingest_repository(
@@ -691,6 +695,7 @@ class InputIntakeService:
         origin_locator: str | None = None,
         read_scope: str = "repository root (read-only)",
         include_paths: Iterable[str | Path] | None = None,
+        expected_revision: int,
     ) -> ArtifactRevision:
         locator = origin_locator or str(Path(repository_root).expanduser().resolve(strict=False))
         self._validate_common_input(
@@ -721,11 +726,12 @@ class InputIntakeService:
             role=role,
             repository_baseline=baseline,
         )
-        return self._store.append_artifact(
+        return self._ledger.append_artifact(
             round_id,
             input_id,
             INPUT_LEDGER_ARTIFACT_KIND,
             payload,
+            expected_revision=expected_revision,
         )
 
     def create_context_bundle(
@@ -738,6 +744,7 @@ class InputIntakeService:
         origin_locator: str,
         role: str = "baseline",
         grouping: str = "user_provided",
+        expected_revision: int,
     ) -> ArtifactRevision:
         self._validate_common_input(
             round_id=round_id,
@@ -791,12 +798,13 @@ class InputIntakeService:
             grouping=grouping,
             member_refs=member_refs,
         )
-        return self._store.append_artifact(
+        return self._ledger.append_artifact(
             round_id,
             input_id,
             INPUT_LEDGER_ARTIFACT_KIND,
             payload,
             parent_refs=parent_refs,
+            expected_revision=expected_revision,
         )
 
     def _validate_common_input(
@@ -810,7 +818,7 @@ class InputIntakeService:
         role: str,
         read_scope: str,
     ) -> None:
-        self._store.load_round(round_id)
+        self._ledger.load_run(round_id)
         validate_identifier(input_id, "input_id")
         if kind not in INPUT_KINDS:
             raise InvalidInputError(f"invalid input kind: {kind}")
@@ -837,7 +845,7 @@ class InputIntakeService:
     ) -> ArtifactRevision | None:
         artifacts = [
             artifact
-            for artifact in self._store.load_round(round_id).artifacts
+            for artifact in self._ledger.load_run(round_id).artifacts
             if artifact.id == input_id and artifact.kind == INPUT_LEDGER_ARTIFACT_KIND
         ]
         return max(artifacts, key=lambda artifact: artifact.revision, default=None)

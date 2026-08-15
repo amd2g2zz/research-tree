@@ -555,6 +555,102 @@ class RunLedger:
                 raise LedgerConflictError(f"run already exists: {run_id}") from error
         return record
 
+    def create_successor_with_artifact_batches(
+        self,
+        *,
+        predecessor_run_id: str,
+        successor_run_id: str,
+        successor_parent_run_id: str | None,
+        expected_predecessor_revision: int,
+        successor_entries: Iterable[tuple[str, str, Any, Iterable[ArtifactRef]]],
+        predecessor_entries: Iterable[tuple[str, str, Any, Iterable[ArtifactRef]]],
+    ) -> tuple[RoundRecord, tuple[ArtifactRevision, ...], tuple[ArtifactRevision, ...]]:
+        """Atomically create one successor and append artifacts to both runs.
+
+        This restricted operation exists for feedback lineage: it compares one
+        predecessor revision, creates one new child or root successor, and
+        appends ordered batches to both runs under a single SQLite transaction.
+        """
+
+        self.initialize()
+        predecessor_run_id = validate_identifier(predecessor_run_id, "predecessor_run_id")
+        successor_run_id = validate_identifier(successor_run_id, "successor_run_id")
+        if predecessor_run_id == successor_run_id:
+            raise LedgerIntegrityError("successor_run_id must differ from predecessor_run_id")
+        if successor_parent_run_id is not None:
+            successor_parent_run_id = validate_identifier(successor_parent_run_id, "successor_parent_run_id")
+        if successor_parent_run_id not in {None, predecessor_run_id}:
+            raise LedgerIntegrityError("successor parent must be the predecessor or None")
+        if (
+            isinstance(expected_predecessor_revision, bool)
+            or not isinstance(expected_predecessor_revision, int)
+            or expected_predecessor_revision < 0
+        ):
+            raise LedgerIntegrityError("expected_predecessor_revision must be a non-negative integer")
+        normalized_successor = tuple(successor_entries)
+        normalized_predecessor = tuple(predecessor_entries)
+        if not normalized_successor:
+            raise LedgerIntegrityError("successor artifact batch must contain at least one entry")
+        if not normalized_predecessor:
+            raise LedgerIntegrityError("predecessor artifact batch must contain at least one entry")
+        record = RoundRecord.create(successor_run_id, successor_parent_run_id)
+
+        with self._connect() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                current_predecessor = self._require_expected_revision(
+                    connection,
+                    predecessor_run_id,
+                    expected_predecessor_revision,
+                )
+                if self._run_exists(connection, successor_run_id):
+                    raise LedgerConflictError(f"run already exists: {successor_run_id}")
+                connection.execute(
+                    "INSERT INTO runs(run_id, record_json, created_at, parent_run_id, revision) VALUES(?, ?, ?, ?, 0)",
+                    (successor_run_id, _json(record.to_dict()), record.created_at, successor_parent_run_id),
+                )
+                self._insert_event(
+                    connection,
+                    LineageEvent.create(
+                        round_id=successor_run_id,
+                        kind="run-created",
+                        parent_round_id=successor_parent_run_id,
+                    ),
+                )
+                created: set[ArtifactRef] = set()
+                successor_artifacts = self._append_transaction_artifacts(
+                    connection,
+                    successor_run_id,
+                    normalized_successor,
+                    created,
+                    "successor",
+                )
+                predecessor_artifacts = self._append_transaction_artifacts(
+                    connection,
+                    predecessor_run_id,
+                    normalized_predecessor,
+                    created,
+                    "predecessor",
+                )
+                successor_update = connection.execute(
+                    "UPDATE runs SET revision = ? WHERE run_id = ? AND revision = 0",
+                    (len(successor_artifacts), successor_run_id),
+                )
+                predecessor_update = connection.execute(
+                    "UPDATE runs SET revision = ? WHERE run_id = ? AND revision = ?",
+                    (
+                        current_predecessor + len(predecessor_artifacts),
+                        predecessor_run_id,
+                        expected_predecessor_revision,
+                    ),
+                )
+                if successor_update.rowcount != 1 or predecessor_update.rowcount != 1:
+                    raise LedgerConflictError("run revision changed during successor transaction")
+                self._before_commit()
+            except sqlite3.IntegrityError as error:
+                raise LedgerIntegrityError("successor transaction violated a ledger constraint") from error
+        return record, successor_artifacts, predecessor_artifacts
+
     def get_revision(self, run_id: str) -> int:
         self.initialize()
         with self._connect() as connection:
@@ -1260,6 +1356,74 @@ class RunLedger:
     def _require_artifact(cls, connection: sqlite3.Connection, reference: ArtifactRef) -> None:
         if not isinstance(reference, ArtifactRef) or not cls._artifact_exists(connection, reference):
             raise LedgerIntegrityError(f"artifact parent does not exist: {reference}")
+
+    def _append_transaction_artifacts(
+        self,
+        connection: sqlite3.Connection,
+        run_id: str,
+        entries: Sequence[tuple[str, str, Any, Iterable[ArtifactRef]]],
+        created: set[ArtifactRef],
+        batch_name: str,
+    ) -> tuple[ArtifactRevision, ...]:
+        """Append validated ordered entries inside an active successor transaction."""
+
+        result: list[ArtifactRevision] = []
+        for index, entry in enumerate(entries):
+            if not isinstance(entry, Sequence) or isinstance(entry, (str, bytes)) or len(entry) != 4:
+                raise LedgerIntegrityError(
+                    f"{batch_name} artifact batch entry {index} must contain id, kind, payload, and parent_refs"
+                )
+            artifact_id, kind, payload, raw_parent_refs = entry
+            artifact_id = validate_identifier(artifact_id, f"{batch_name} artifact batch entry {index} id")
+            if not isinstance(raw_parent_refs, Iterable) or isinstance(raw_parent_refs, (str, bytes)):
+                raise LedgerIntegrityError(f"{batch_name} artifact batch entry {index} parent_refs must be iterable")
+            parent_refs = tuple(raw_parent_refs)
+            for reference in parent_refs:
+                if not isinstance(reference, ArtifactRef):
+                    raise LedgerIntegrityError(
+                        f"{batch_name} artifact batch entry {index} parent_refs must contain ArtifactRef values"
+                    )
+                if reference not in created:
+                    self._require_artifact(connection, reference)
+            next_revision = self._next_artifact_revision(connection, run_id, artifact_id)
+            artifact = ArtifactRevision.create(
+                artifact_id=artifact_id,
+                round_id=run_id,
+                revision=next_revision,
+                kind=kind,
+                payload=payload,
+                parent_refs=parent_refs,
+            )
+            connection.execute(
+                "INSERT INTO artifacts(run_id, artifact_id, revision, artifact_json, content_hash) "
+                "VALUES(?, ?, ?, ?, ?)",
+                (run_id, artifact.id, artifact.revision, _json(artifact.to_dict()), artifact.content_hash),
+            )
+            for reference in parent_refs:
+                connection.execute(
+                    "INSERT INTO artifact_parents(run_id, artifact_id, revision, parent_run_id, "
+                    "parent_artifact_id, parent_revision) VALUES(?, ?, ?, ?, ?, ?)",
+                    (
+                        run_id,
+                        artifact.id,
+                        artifact.revision,
+                        reference.round_id,
+                        reference.artifact_id,
+                        reference.revision,
+                    ),
+                )
+            artifact_ref = ArtifactRef(run_id, artifact.id, artifact.revision)
+            self._insert_event(
+                connection,
+                LineageEvent.create(
+                    round_id=run_id,
+                    kind="artifact-appended",
+                    artifact_ref=artifact_ref,
+                ),
+            )
+            created.add(artifact_ref)
+            result.append(artifact)
+        return tuple(result)
 
 
 def _json(value: Any) -> str:

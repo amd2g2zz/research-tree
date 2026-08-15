@@ -6,16 +6,15 @@ from pathlib import Path
 import research_tree
 import pytest
 
-from research_tree import ContentAddressedStore, InvalidFindingPackError
+from canonical_finding_fixture import canonical_context
+
+from research_tree import CanonicalFindingPackCompiler, ContentAddressedStore, InvalidFindingPackError
 from research_tree.evidence import (
     EvidenceAnchor,
     EvidenceArtifact,
     EvidenceResolver,
     EvidenceValidationError,
 )
-from legacy_runstore_fixture import compile_finding, context, finding_payload
-
-
 ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE_SCHEMA = (
     ROOT / "openspec" / "changes" / "unify-research-runtime-alpha2" / "schemas" / "evidence-artifact-v1.json"
@@ -101,20 +100,42 @@ def test_resolver_has_no_artifact_map_constructor(tmp_path) -> None:
 
 
 def test_retained_compiler_rejects_legacy_typed_evidence_anchor(tmp_path) -> None:
-    modules, store, round_record, _model, _brief, _target, _finding, _decision = context(
+    (
+        ledger,
+        resolver,
+        round_record,
+        _model,
+        _brief,
+        _target,
+        work,
+        _finding,
+        _decision,
+        _evidence,
+        _anchor,
+    ) = canonical_context(
         tmp_path,
         include_decision=False,
     )
-    work = next(artifact for artifact in store.load_round(round_record.id).artifacts if artifact.id == "work-isolation")
-    payload = finding_payload(
-        "isolated-worker",
-        "supports",
-        "Legacy typed evidence cannot establish a finding.",
-    )
-    payload["observations"][0]["anchor"] = _legacy_anchor_payload()
 
     with pytest.raises(InvalidFindingPackError, match="unexpected fields"):
-        compile_finding(modules, store, round_record, work, "finding-legacy-anchor", **payload)
+        CanonicalFindingPackCompiler(ledger, resolver).compile(
+            round_id=round_record.id,
+            finding_id="finding-legacy-anchor",
+            work_item=work,
+            observations=[
+                {
+                    "claim": "Legacy typed evidence cannot establish a finding.",
+                    "anchor": _legacy_anchor_payload(),
+                    "applicability": "fixture boundary",
+                    "confidence": "high",
+                    "limitation": "legacy evidence is unsupported",
+                }
+            ],
+            option_effects=[{"option": "isolated-worker", "effect": "supports"}],
+            implementation_implications=["Use the canonical evidence resolver."],
+            remaining_uncertainties=[],
+            expected_revision=ledger.get_revision(round_record.id),
+        )
 
 
 def test_legacy_provenance_helper_is_not_public() -> None:

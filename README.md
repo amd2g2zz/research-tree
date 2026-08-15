@@ -463,7 +463,7 @@ the packages.
 The `research_tree` package provides composable services for applications that
 need persisted and validated research artifacts. Its public API includes:
 
-- `RunStore` for isolated, reconstructable research rounds;
+- `RunLedger` for transactional, reconstructable research runs;
 - `AlignmentGraphStore` for SQLite-backed, replayable pre-handoff cognition;
 - context intake and repository safety policies;
 - intent, Working Brief, Blueprint Target, and work-item compilers;

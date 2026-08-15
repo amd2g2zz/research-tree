@@ -21,7 +21,6 @@ from .intent import INTENT_MODEL_KIND, WORKING_BRIEF_KIND
 from .ledger import DECISION_LEDGER_KIND, FINDING_PACK_KIND
 from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
 from .run_ledger import RunLedger
-from .storage import RunStore
 from .verification import (
     FAILURE_CATEGORY_GATES,
     InvalidVerificationError,
@@ -59,33 +58,22 @@ class InvalidReadinessError(ReadinessError):
     """Raised before an invalid readiness record can be appended."""
 
 
-class ReadinessVerifier:
+class CanonicalReadinessVerifier:
     """Check an immutable technical package without changing its research target."""
 
     def __init__(
         self,
-        store: RunStore | RunLedger,
-        evidence_resolver: EvidenceResolver | None = None,
-        *,
-        strict_evidence: bool = False,
+        ledger: RunLedger,
+        evidence_resolver: EvidenceResolver,
     ) -> None:
-        if not isinstance(store, (RunStore, RunLedger)):
-            raise InvalidReadinessError("readiness verifier requires a RunStore or RunLedger")
-        if isinstance(store, RunLedger):
-            # A canonical ledger is never a compatibility path.  Do not let a
-            # caller opt out of evidence revalidation by selecting the base
-            # verifier instead of the strict facade.
-            strict_evidence = True
-        if strict_evidence:
-            if not isinstance(store, RunLedger):
-                raise InvalidReadinessError("strict readiness requires a canonical RunLedger")
-            if not isinstance(evidence_resolver, EvidenceResolver) or evidence_resolver.ledger is not store:
-                raise InvalidReadinessError(
-                    "strict readiness requires a matching ledger-backed EvidenceResolver"
-                )
-        self._store = store
+        if not isinstance(ledger, RunLedger):
+            raise InvalidReadinessError("canonical readiness requires a RunLedger")
+        if not isinstance(evidence_resolver, EvidenceResolver) or evidence_resolver.ledger is not ledger:
+            raise InvalidReadinessError(
+                "canonical readiness requires a matching ledger-backed EvidenceResolver"
+            )
+        self._ledger = ledger
         self._evidence_resolver = evidence_resolver
-        self._strict_evidence = strict_evidence
 
     def verify(
         self,
@@ -96,7 +84,7 @@ class ReadinessVerifier:
         repository_roots: Mapping[str, str | Path] | None = None,
         risk_tier: str = "default",
         verification_adapter: IsolatedVerificationAdapter | None = None,
-        expected_revision: int | None = None,
+        expected_revision: int,
     ) -> ArtifactRevision:
         """Append one diagnostic readiness record for an exact package revision.
 
@@ -106,14 +94,7 @@ class ReadinessVerifier:
         """
 
         try:
-            if isinstance(self._store, RunLedger):
-                if expected_revision is None:
-                    raise InvalidReadinessError("canonical readiness requires expected_revision")
-                snapshot = self._store.load_run(round_id)
-            else:
-                if expected_revision is not None:
-                    raise InvalidReadinessError("RunStore readiness does not accept expected_revision")
-                snapshot = self._store.load_round(round_id)
+            snapshot = self._ledger.load_run(round_id)
             validate_identifier(readiness_id, "readiness_id")
             _ensure_id_compatibility(snapshot.artifacts, readiness_id)
             tier = _enum(risk_tier, "risk_tier", RISK_TIERS)
@@ -139,7 +120,7 @@ class ReadinessVerifier:
                 sources,
                 root_map,
                 tier,
-                evidence_resolver=self._evidence_resolver if self._strict_evidence else None,
+                evidence_resolver=self._evidence_resolver,
             )
             assessment = assess_risk_verification(
                 round_id=round_id,
@@ -176,44 +157,27 @@ class ReadinessVerifier:
             (ArtifactRef(round_id, package.id, package.revision),)
             + tuple(ArtifactRef(round_id, item.id, item.revision) for item in sources["artifacts"])
         )
-        if isinstance(self._store, RunLedger):
-            assert expected_revision is not None
-            if not all(self._store.is_latest_artifact(reference) for reference in parent_refs):
-                return self._store.append_artifact(
-                    round_id,
-                    readiness_id,
-                    READINESS_RECORD_KIND,
-                    payload,
-                    parent_refs=parent_refs,
-                    expected_revision=expected_revision,
-                )
-            from .completion_inputs import CompletionInputRegistrar
-
-            return CompletionInputRegistrar(self._store).write_readiness(
+        if not all(self._ledger.is_latest_artifact(reference) for reference in parent_refs):
+            return self._ledger.append_artifact(
                 round_id=round_id,
                 readiness_id=readiness_id,
                 payload=payload,
                 parent_refs=parent_refs,
                 expected_revision=expected_revision,
             )
-        return self._store.append_artifact(
-            round_id,
-            readiness_id,
-            READINESS_RECORD_KIND,
-            payload,
+        from .completion_inputs import CompletionInputRegistrar
+
+        return CompletionInputRegistrar(self._ledger).write_readiness(
+            round_id=round_id,
+            readiness_id=readiness_id,
+            payload=payload,
             parent_refs=parent_refs,
+            expected_revision=expected_revision,
         )
 
 
-class CanonicalReadinessVerifier(ReadinessVerifier):
-    """Strict readiness facade for the canonical RunLedger path."""
-
-    def __init__(self, ledger: RunLedger, evidence_resolver: EvidenceResolver) -> None:
-        super().__init__(ledger, evidence_resolver, strict_evidence=True)
-
-
 def readiness_for_delivery(record: ArtifactRevision) -> Mapping[str, Any]:
-    """Return the exact readiness mapping accepted by ``DeliveryCompiler``."""
+    """Return the exact readiness mapping accepted by canonical delivery."""
 
     if not isinstance(record, ArtifactRevision) or record.kind != READINESS_RECORD_KIND:
         raise InvalidReadinessError("record must be a readiness-record ArtifactRevision")
@@ -1449,7 +1413,7 @@ def _resolve_exact(
             if item.kind != expected_kind:
                 raise InvalidReadinessError(f"{label} must be a {expected_kind}")
             return item
-    raise InvalidReadinessError(f"{label} has not been persisted in this RunStore")
+    raise InvalidReadinessError(f"{label} has not been persisted in this RunLedger")
 
 
 def _slots(target: ArtifactRevision) -> dict[str, Mapping[str, Any]]:

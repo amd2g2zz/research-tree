@@ -169,6 +169,14 @@ def test_case_rejects_eventual_patch_discussion_and_hidden_test_material() -> No
         api_modules["TimeSplitCase"].from_mapping(invalid)
 
 
+def test_evaluation_suite_requires_a_canonical_run_ledger(tmp_path: Path) -> None:
+    from research_tree import BlueprintEvaluationSuite, InvalidEvaluationError, RunLedger
+
+    assert BlueprintEvaluationSuite(RunLedger(tmp_path / "ledger"))
+    with pytest.raises(InvalidEvaluationError, match="RunLedger"):
+        BlueprintEvaluationSuite(object())
+
+
 def test_evaluation_persists_structural_quality_and_isolated_outcome(tmp_path: Path) -> None:
     api_modules = api()
     fixture_modules, store, round_record, package = complete_conditional_package(tmp_path)

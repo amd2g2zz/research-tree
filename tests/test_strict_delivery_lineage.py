@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+import research_tree
 
 from canonical_finding_fixture import canonical_context
 
@@ -16,7 +17,6 @@ from research_tree import (
     EvidenceArtifact,
     EvidenceRepository,
     EvidenceResolver,
-    DeliveryCompiler,
     InvalidDeliveryError,
     LedgerConflictError,
     LedgerIntegrityError,
@@ -569,10 +569,8 @@ def test_canonical_delivery_rejects_stale_run_revision_without_output_pair(tmp_p
     _assert_no_outputs(fixture, "stale-revision")
 
 
-def test_legacy_delivery_compiler_does_not_accept_canonical_storage(tmp_path: Path) -> None:
-    fixture = _fixture(tmp_path)
-    with pytest.raises(InvalidDeliveryError, match="RunStore"):
-        DeliveryCompiler(fixture["ledger"])
+def test_legacy_delivery_compiler_is_not_exported() -> None:
+    assert not hasattr(research_tree, "DeliveryCompiler")
 
 
 def test_retained_finding_pack_consumers_have_no_legacy_fixture_path() -> None:

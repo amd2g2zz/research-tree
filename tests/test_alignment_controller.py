@@ -441,7 +441,7 @@ def test_confirmed_graph_initializes_persisted_tree_with_zero_delta_baseline(
 ) -> None:
     from research_tree import (
         ResearchTreeStateError,
-        RunStore,
+        RunLedger,
         initialize_research_from_alignment,
     )
 
@@ -457,13 +457,14 @@ def test_confirmed_graph_initializes_persisted_tree_with_zero_delta_baseline(
         decision["alignment_digest"],
     )
 
-    run_store = RunStore(tmp_path / "run-store")
-    run_store.create_round("round-alignment")
+    ledger = RunLedger(tmp_path / "run-ledger")
+    ledger.create_run("round-alignment")
     tree = initialize_research_from_alignment(
-        run_store,
+        ledger,
         round_id="round-alignment",
         tree_id="research-tree",
         alignment_database=module.database_path(tmp_path, "integration-run"),
+        expected_revision=ledger.get_revision("round-alignment"),
     )
 
     assert tree.payload["transition_index"] == 0
@@ -482,15 +483,53 @@ def test_confirmed_graph_initializes_persisted_tree_with_zero_delta_baseline(
     assert len(parent_ids) == 2
     assert any(artifact_id.startswith("alignment-handoff-") for artifact_id in parent_ids)
 
-    artifact_count = len(run_store.load_round("round-alignment").artifacts)
+    artifact_count = len(ledger.load_run("round-alignment").artifacts)
     with pytest.raises(ResearchTreeStateError, match="already exists"):
         initialize_research_from_alignment(
-            run_store,
+            ledger,
             round_id="round-alignment",
             tree_id="research-tree",
             alignment_database=module.database_path(tmp_path, "integration-run"),
+            expected_revision=ledger.get_revision("round-alignment"),
         )
-    assert len(run_store.load_round("round-alignment").artifacts) == artifact_count
+    assert len(ledger.load_run("round-alignment").artifacts) == artifact_count
+
+
+def test_alignment_handoff_batch_rolls_back_every_artifact_on_commit_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from research_tree import RunLedger, initialize_research_from_alignment
+
+    module = controller()
+    module.init(tmp_path, "atomic-run")
+    graph = tmp_path / "atomic-graph.json"
+    write_json(graph, complete_graph())
+    decision = module.plan(tmp_path, "atomic-run", graph)
+    module.confirm(
+        tmp_path,
+        "atomic-run",
+        "I accept the displayed strategy and authorize autonomous research.",
+        decision["alignment_digest"],
+    )
+    ledger = RunLedger(tmp_path / "run-ledger")
+    ledger.create_run("round-alignment")
+
+    def fail_commit() -> None:
+        raise RuntimeError("injected alignment handoff failure")
+
+    monkeypatch.setattr(RunLedger, "_before_commit", staticmethod(fail_commit))
+    with pytest.raises(RuntimeError, match="injected alignment handoff failure"):
+        initialize_research_from_alignment(
+            ledger,
+            round_id="round-alignment",
+            tree_id="research-tree",
+            alignment_database=module.database_path(tmp_path, "atomic-run"),
+            expected_revision=ledger.get_revision("round-alignment"),
+        )
+
+    assert ledger.get_revision("round-alignment") == 0
+    assert ledger.load_run("round-alignment").artifacts == ()
 
 
 def test_controller_rejects_utf8_bom_instead_of_silently_using_utf8_sig(

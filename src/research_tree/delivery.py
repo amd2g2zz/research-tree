@@ -26,7 +26,6 @@ from .ledger import (
     OPTION_EFFECTS,
     VALIDATION_KINDS,
 )
-from .storage import RunStore
 from .run_ledger import LedgerError, RunLedger
 
 
@@ -84,23 +83,19 @@ class DeliveryArtifacts:
 
 
 class _DeliveryCompilerBase:
-    """Shared legacy and canonical delivery implementation."""
+    """Shared implementation for canonical delivery compilation."""
 
     def __init__(
         self,
-        store: RunStore | RunLedger,
-        evidence_resolver: EvidenceResolver | None = None,
+        ledger: RunLedger,
+        evidence_resolver: EvidenceResolver,
     ) -> None:
-        if not isinstance(store, (RunStore, RunLedger)):
-            raise InvalidDeliveryError("delivery compiler requires a RunStore or RunLedger")
-        if isinstance(store, RunLedger):
-            if not isinstance(evidence_resolver, EvidenceResolver) or evidence_resolver.ledger is not store:
-                raise InvalidDeliveryError("canonical delivery requires a matching ledger-backed EvidenceResolver")
-        elif evidence_resolver is not None:
-            raise InvalidDeliveryError("RunStore delivery cannot accept an EvidenceResolver")
-        self._store = store
+        if not isinstance(ledger, RunLedger):
+            raise InvalidDeliveryError("canonical delivery requires a RunLedger")
+        if not isinstance(evidence_resolver, EvidenceResolver) or evidence_resolver.ledger is not ledger:
+            raise InvalidDeliveryError("canonical delivery requires a matching ledger-backed EvidenceResolver")
+        self._ledger = ledger
         self._evidence_resolver = evidence_resolver
-        self._strict = isinstance(store, RunLedger)
 
     def compile(
         self,
@@ -112,7 +107,7 @@ class _DeliveryCompilerBase:
         blueprint_target: ArtifactRevision,
         decision_entries: Sequence[ArtifactRevision],
         readiness: Mapping[str, Any],
-        expected_revision: int | None = None,
+        expected_revision: int,
     ) -> DeliveryArtifacts:
         """Append a technical package and a co-primary human research report.
 
@@ -122,14 +117,7 @@ class _DeliveryCompilerBase:
         """
 
         try:
-            if self._strict:
-                if expected_revision is None:
-                    raise InvalidDeliveryError("canonical delivery requires expected_revision")
-                snapshot = self._store.load_run(round_id)
-            else:
-                if expected_revision is not None:
-                    raise InvalidDeliveryError("RunStore delivery does not accept expected_revision")
-                snapshot = self._store.load_round(round_id)
+            snapshot = self._ledger.load_run(round_id)
             validate_identifier(technical_package_id, "technical_package_id")
             validate_identifier(human_brief_id, "human_brief_id")
             if technical_package_id == human_brief_id:
@@ -149,19 +137,15 @@ class _DeliveryCompilerBase:
             _ensure_target_lineage(target, brief, model)
             inputs = _resolve_brief_inputs(snapshot.artifacts, brief)
             decisions, findings = _resolve_decisions(
-                snapshot.artifacts, round_id, target, decision_entries, strict=self._strict
+                snapshot.artifacts, round_id, target, decision_entries, strict=True
             )
-            evidence_refs = (
-                _resolve_strict_delivery_evidence(
-                    snapshot.artifacts,
-                    round_id,
-                    target,
-                    decisions,
-                    findings,
-                    self._evidence_resolver,
-                )
-                if self._strict
-                else ()
+            evidence_refs = _resolve_strict_delivery_evidence(
+                snapshot.artifacts,
+                round_id,
+                target,
+                decisions,
+                findings,
+                self._evidence_resolver,
             )
             normalized_readiness = _normalize_readiness(readiness)
             previous_package = _latest_artifact(
@@ -236,41 +220,21 @@ class _DeliveryCompilerBase:
             + (next_package_ref,)
             + source_refs
         )
-        if self._strict:
-            assert isinstance(self._store, RunLedger)
-            assert expected_revision is not None
-            try:
-                from .completion_inputs import CompletionInputRegistrar
+        try:
+            from .completion_inputs import CompletionInputRegistrar
 
-                technical_package, human_brief = CompletionInputRegistrar(self._store).write_delivery_pair(
-                    round_id=round_id,
-                    technical_package_id=technical_package_id,
-                    human_report_id=human_brief_id,
-                    technical_payload=technical_payload,
-                    human_payload=human_payload,
-                    technical_parent_refs=package_refs,
-                    human_parent_refs=human_refs,
-                    expected_revision=expected_revision,
-                )
-            except (LedgerError, ValueError) as error:
-                raise InvalidDeliveryError(str(error)) from error
-        else:
-            technical_package = self._store.append_artifact(
-                round_id,
-                technical_package_id,
-                TECHNICAL_RESEARCH_PACKAGE_KIND,
-                technical_payload,
-                parent_refs=package_refs,
+            technical_package, human_brief = CompletionInputRegistrar(self._ledger).write_delivery_pair(
+                round_id=round_id,
+                technical_package_id=technical_package_id,
+                human_report_id=human_brief_id,
+                technical_payload=technical_payload,
+                human_payload=human_payload,
+                technical_parent_refs=package_refs,
+                human_parent_refs=human_refs,
+                expected_revision=expected_revision,
             )
-            if technical_package.revision != next_package_ref.revision:
-                raise InvalidDeliveryError("technical package revision changed during delivery compilation")
-            human_brief = self._store.append_artifact(
-                round_id,
-                human_brief_id,
-                HUMAN_RESEARCH_REPORT_KIND,
-                human_payload,
-                parent_refs=human_refs,
-            )
+        except (LedgerError, ValueError) as error:
+            raise InvalidDeliveryError(str(error)) from error
         return DeliveryArtifacts(
             technical_package=technical_package,
             human_research_report=human_brief,
@@ -282,36 +246,6 @@ class CanonicalDeliveryCompiler(_DeliveryCompilerBase):
 
     def __init__(self, ledger: RunLedger, evidence_resolver: EvidenceResolver) -> None:
         super().__init__(ledger, evidence_resolver)
-
-
-class DeliveryCompiler(_DeliveryCompilerBase):
-    """Legacy RunStore delivery compiler with a stable public contract."""
-
-    def __init__(self, store: RunStore) -> None:
-        if not isinstance(store, RunStore):
-            raise InvalidDeliveryError("DeliveryCompiler requires a RunStore")
-        super().__init__(store)
-
-    def compile(
-        self,
-        *,
-        round_id: str,
-        technical_package_id: str,
-        human_brief_id: str,
-        working_brief: ArtifactRevision,
-        blueprint_target: ArtifactRevision,
-        decision_entries: Sequence[ArtifactRevision],
-        readiness: Mapping[str, Any],
-    ) -> DeliveryArtifacts:
-        return super().compile(
-            round_id=round_id,
-            technical_package_id=technical_package_id,
-            human_brief_id=human_brief_id,
-            working_brief=working_brief,
-            blueprint_target=blueprint_target,
-            decision_entries=decision_entries,
-            readiness=readiness,
-        )
 
 
 def validate_technical_package_payload(payload: Mapping[str, Any]) -> None:
@@ -1204,7 +1138,7 @@ def _resolve_exact(
             if stored.kind != expected_kind:
                 raise InvalidDeliveryError(f"{label} must be a {expected_kind} artifact")
             return stored
-    raise InvalidDeliveryError(f"{label} has not been persisted in this RunStore")
+    raise InvalidDeliveryError(f"{label} has not been persisted in this RunLedger")
 
 
 def _artifact_map(artifacts: Sequence[ArtifactRevision]) -> dict[ArtifactRef, ArtifactRevision]:
@@ -1415,7 +1349,7 @@ def _validate_implementation_decision(
 ) -> None:
     """Revalidate direct storage writes against the Decision Ledger contract.
 
-    ``RunStore`` intentionally stores generic immutable JSON and therefore
+    ``RunLedger`` stores generic immutable JSON and therefore
     cannot know the semantic invariants of a Decision Ledger. Delivery is the
     last safe boundary before an implementation agent can act on a record, so
     it repeats the relevant schema and slot-conformance checks here.

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import research_tree
+
 from research_tree import evaluate_research_stop, finalize_research_delivery, initialize_research_state
 
 
@@ -24,9 +26,9 @@ def test_empty_frontier_is_not_authoritative_closure() -> None:
         node["status"] = "deferred"
     projection = evaluate_research_stop(state)
     assert projection["decision_slots"]["slot-authority"]["status"] != "closed"
-    assert (
-        projection["status"] != "complete" and projection["compatibility_projection"]["authority"] == "coordinator_only"
-    )
+    assert projection["status"] != "complete"
+    assert projection["stop_reason"]
+    assert "compatibility_projection" not in projection
 
 
 def test_report_shape_is_observation_only(tmp_path: Path) -> None:
@@ -38,6 +40,11 @@ def test_report_shape_is_observation_only(tmp_path: Path) -> None:
     technical.write_text("# Technical\n# Evidence\n# Risks\n\n" + "x" * 1100, encoding="utf-8")
     human.write_text("# Human\n# Reasoning\n\n" + "x" * 600, encoding="utf-8")
     projection = finalize_research_delivery(state, technical_report=technical, human_report=human)
-    assert (
-        projection["status"] != "complete" and projection["compatibility_projection"]["authority"] == "coordinator_only"
-    )
+    assert projection["status"] != "complete"
+    assert "coordinator" in projection["stop_reason"]
+    assert "compatibility_projection" not in projection
+
+
+def test_active_runtime_exports_no_legacy_tree_state_services() -> None:
+    assert not hasattr(research_tree, "ResearchTreeStateService")
+    assert not hasattr(research_tree, "RecursiveResearchCoordinator")

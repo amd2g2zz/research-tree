@@ -199,7 +199,7 @@ run is `blocked`, not complete.
 ## 8. Persistence and recovery
 
 Each transition appends an immutable `research-tree-state` artifact to the
-run's `RunStore`. It references the previous state and all Finding Packs
+run's canonical SQLite ledger. It references the previous state and all Finding Packs
 consumed by the transition. The state stores the active frontier, terminal
 reasons, evidence baseline, realized deltas, penalty ledger, and completion
 oracle status.
