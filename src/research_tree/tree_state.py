@@ -7,7 +7,6 @@ from typing import Any, Mapping, Sequence
 from .domain import ArtifactRef, ArtifactRevision, RuntimeStoreError, thaw_json, validate_identifier
 from .ledger import FINDING_PACK_KIND
 from .run_ledger import RunLedger
-from .storage import RunStore
 
 
 RESEARCH_TREE_STATE_KIND = "research-tree-state"
@@ -16,105 +15,6 @@ TREE_STATUSES = {"searching", "blocked", "delivery_pending", "complete"}
 
 class ResearchTreeStateError(RuntimeStoreError):
     """Raised when a tree transition is stale, malformed, or unrecoverable."""
-
-
-class ResearchTreeStateService:
-    """Append one immutable state revision for each research transition."""
-
-    def __init__(self, store: RunStore) -> None:
-        self._store = store
-
-    def initialize(
-        self,
-        *,
-        round_id: str,
-        tree_id: str,
-        state: Mapping[str, Any],
-        parent_artifacts: Sequence[ArtifactRevision] = (),
-        baseline_findings: Sequence[ArtifactRevision] = (),
-    ) -> ArtifactRevision:
-        validate_identifier(tree_id, "tree_id")
-        snapshot = self._store.load_round(round_id)
-        if _latest(snapshot.artifacts, tree_id) is not None:
-            raise ResearchTreeStateError(f"research tree already exists: {tree_id}")
-        payload = _normalized_state(state, tree_id, round_id, expected_transition=0)
-        findings = _resolve_findings(snapshot.artifacts, round_id, baseline_findings)
-        expected_ids = {finding.id for finding in findings}
-        consumed = set(payload["consumed_finding_ids"])
-        if consumed != expected_ids:
-            raise ResearchTreeStateError(
-                "initial consumed_finding_ids must exactly match baseline findings"
-            )
-        parents = _resolve_artifacts(snapshot.artifacts, round_id, parent_artifacts)
-        return self._store.append_artifact(
-            round_id,
-            tree_id,
-            RESEARCH_TREE_STATE_KIND,
-            payload,
-            parent_refs=_unique_refs((*parents, *findings)),
-        )
-
-    def transition(
-        self,
-        *,
-        round_id: str,
-        previous: ArtifactRevision,
-        state: Mapping[str, Any],
-        consumed_findings: Sequence[ArtifactRevision],
-    ) -> ArtifactRevision:
-        snapshot = self._store.load_round(round_id)
-        stored = _resolve_tree(snapshot.artifacts, round_id, previous)
-        latest = _latest(snapshot.artifacts, stored.id)
-        if latest != stored:
-            raise ResearchTreeStateError("previous tree state is stale")
-        payload = _normalized_state(
-            state,
-            stored.id,
-            round_id,
-            expected_transition=int(stored.payload["transition_index"]) + 1,
-        )
-        findings = _resolve_findings(snapshot.artifacts, round_id, consumed_findings)
-        previous_ids = set(stored.payload["consumed_finding_ids"])
-        next_ids = set(payload["consumed_finding_ids"])
-        finding_ids = {finding.id for finding in findings}
-        if next_ids != previous_ids | finding_ids:
-            raise ResearchTreeStateError(
-                "transition consumed_finding_ids must add exactly the supplied Finding Packs"
-            )
-        return self._store.append_artifact(
-            round_id,
-            stored.id,
-            RESEARCH_TREE_STATE_KIND,
-            payload,
-            parent_refs=_unique_refs((stored, *findings)),
-        )
-
-    def latest(self, *, round_id: str, tree_id: str) -> ArtifactRevision:
-        validate_identifier(tree_id, "tree_id")
-        snapshot = self._store.load_round(round_id)
-        state = _latest(snapshot.artifacts, tree_id)
-        if state is None:
-            raise ResearchTreeStateError(f"research tree does not exist: {tree_id}")
-        validate_tree_state_payload(state.payload)
-        return state
-
-    def recover_unconsumed(
-        self,
-        *,
-        round_id: str,
-        tree_id: str,
-    ) -> tuple[ArtifactRevision, tuple[ArtifactRevision, ...]]:
-        """Return the last checkpoint and persisted findings not yet applied."""
-
-        snapshot = self._store.load_round(round_id)
-        state = self.latest(round_id=round_id, tree_id=tree_id)
-        consumed = set(state.payload["consumed_finding_ids"])
-        pending = tuple(
-            artifact
-            for artifact in snapshot.artifacts
-            if artifact.kind == FINDING_PACK_KIND and artifact.id not in consumed
-        )
-        return state, pending
 
 
 class CanonicalResearchTreeStateService:
@@ -241,12 +141,11 @@ def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
         "penalty_history",
         "stop_reason",
     }
-    allowed = required | {"compatibility_projection"}
-    if not isinstance(value, Mapping) or not required <= set(value) or set(value) - allowed:
+    if not isinstance(value, Mapping) or not required <= set(value) or set(value) - required:
         actual = set(value) if isinstance(value, Mapping) else set()
         raise ResearchTreeStateError(
             f"tree state has unexpected keys; missing={sorted(required - actual)}, "
-            f"extra={sorted(actual - allowed)}"
+            f"extra={sorted(actual - required)}"
         )
     if value.get("schema") != 1:
         raise ResearchTreeStateError("tree state schema must be 1")
@@ -263,9 +162,6 @@ def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
     ):
         if not isinstance(value.get(key), Mapping):
             raise ResearchTreeStateError(f"tree state {key} must be a mapping")
-    projection = value.get("compatibility_projection", {})
-    if not isinstance(projection, Mapping):
-        raise ResearchTreeStateError("tree state compatibility_projection must be a mapping")
     for key in ("frontier_node_ids", "consumed_finding_ids", "delta_history", "penalty_history"):
         if isinstance(value.get(key), (str, bytes)) or not isinstance(value.get(key), Sequence):
             raise ResearchTreeStateError(f"tree state {key} must be a sequence")
@@ -286,13 +182,6 @@ def _normalized_state(
         raise ResearchTreeStateError("tree state must be a mapping")
     payload["id"] = tree_id
     payload["round_id"] = round_id
-    payload.setdefault(
-        "compatibility_projection",
-        {
-            "authority": "coordinator_only",
-            "blocked_reasons": ["legacy state has no canonical completion authority"],
-        },
-    )
     validate_tree_state_payload(payload)
     if payload["transition_index"] != expected_transition:
         raise ResearchTreeStateError(

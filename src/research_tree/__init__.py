@@ -235,7 +235,6 @@ from .policy import (
 )
 from .recursive_search import (
     CanonicalRecursiveResearchCoordinator,
-    RecursiveResearchCoordinator,
     RecursiveSearchConfig,
     apply_research_results,
     evaluate_research_stop,
@@ -249,7 +248,6 @@ from .tree_state import (
     CanonicalResearchTreeStateService,
     RESEARCH_TREE_STATE_KIND,
     ResearchTreeStateError,
-    ResearchTreeStateService,
     validate_tree_state_payload,
 )
 from .alignment_graph import AlignmentGraphError, AlignmentGraphStore
@@ -430,7 +428,6 @@ __all__ = [
     "VerifiedEvidence",
     "CanonicalRecursiveResearchCoordinator",
     "RecursiveSearchConfig",
-    "RecursiveResearchCoordinator",
     "initialize_research_state",
     "apply_research_results",
     "score_research_frontier",
@@ -441,7 +438,6 @@ __all__ = [
     "RESEARCH_TREE_STATE_KIND",
     "CanonicalResearchTreeStateService",
     "ResearchTreeStateError",
-    "ResearchTreeStateService",
     "validate_tree_state_payload",
     "AlignmentGraphError",
     "AlignmentGraphStore",

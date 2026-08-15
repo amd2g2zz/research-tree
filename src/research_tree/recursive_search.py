@@ -17,7 +17,7 @@ from .evidence_delta import (
     measure_realized_delta,
 )
 from .run_ledger import RunLedger
-from .tree_state import CanonicalResearchTreeStateService, ResearchTreeStateService
+from .tree_state import CanonicalResearchTreeStateService
 
 
 _WORKER_VALIDATION_STATUSES = frozenset({"passed", "failed", "inconclusive"})
@@ -282,105 +282,6 @@ def select_research_actions(
     )
 
 
-class RecursiveResearchCoordinator:
-    """Persisted facade for the initialize/select/ingest/recover loop."""
-
-    def __init__(self, store: Any) -> None:
-        self._states = ResearchTreeStateService(store)
-
-    def initialize(
-        self,
-        *,
-        round_id: str,
-        tree_id: str,
-        decision_slots: Mapping[str, Mapping[str, Any]],
-        baseline_findings: Sequence[Any] = (),
-        execution_context: Mapping[str, Any] | None = None,
-        parent_artifacts: Sequence[Any] = (),
-        config: RecursiveSearchConfig | None = None,
-    ) -> Any:
-        state = initialize_research_state(
-            round_id=round_id,
-            tree_id=tree_id,
-            decision_slots=decision_slots,
-            baseline_findings=baseline_findings,
-            execution_context=execution_context,
-            config=config,
-        )
-        return self._states.initialize(
-            round_id=round_id,
-            tree_id=tree_id,
-            state=state,
-            parent_artifacts=parent_artifacts,
-            baseline_findings=baseline_findings,
-        )
-
-    def next_actions(
-        self,
-        *,
-        round_id: str,
-        tree_id: str,
-        max_parallelism: int,
-    ) -> tuple[Mapping[str, Any], ...]:
-        state = self._states.latest(round_id=round_id, tree_id=tree_id)
-        return select_research_actions(state.payload, max_parallelism=max_parallelism)
-
-    def ingest(
-        self,
-        *,
-        round_id: str,
-        tree_id: str,
-        finding_packs: Sequence[Any],
-    ) -> Any:
-        previous = self._states.latest(round_id=round_id, tree_id=tree_id)
-        state = apply_research_results(previous.payload, finding_packs)
-        if state["transition_index"] == previous.payload["transition_index"]:
-            return previous
-        return self._states.transition(
-            round_id=round_id,
-            previous=previous,
-            state=state,
-            consumed_findings=finding_packs,
-        )
-
-    def recover(self, *, round_id: str, tree_id: str) -> Any:
-        previous, pending = self._states.recover_unconsumed(
-            round_id=round_id,
-            tree_id=tree_id,
-        )
-        if not pending:
-            return previous
-        state = apply_research_results(previous.payload, pending)
-        return self._states.transition(
-            round_id=round_id,
-            previous=previous,
-            state=state,
-            consumed_findings=pending,
-        )
-
-    def finalize_delivery(
-        self,
-        *,
-        round_id: str,
-        tree_id: str,
-        technical_report: Path,
-        human_report: Path,
-    ) -> Any:
-        previous = self._states.latest(round_id=round_id, tree_id=tree_id)
-        state = finalize_research_delivery(
-            previous.payload,
-            technical_report=technical_report,
-            human_report=human_report,
-        )
-        state["transition_index"] = int(previous.payload["transition_index"]) + 1
-        return self._states.transition(
-            round_id=round_id,
-            previous=previous,
-            state=state,
-            consumed_findings=(),
-        )
-
-
 class CanonicalRecursiveResearchCoordinator:
     """Persist recursive research transitions in one canonical RunLedger."""
 
@@ -518,10 +419,6 @@ def finalize_research_delivery(
         manifest["status"] = "observed"
     result["status"] = "delivery_pending"
     result["stop_reason"] = "report manifests observed; coordinator must verify delivery and acceptance"
-    result["compatibility_projection"] = {
-        "authority": "coordinator_only",
-        "blocked_reasons": ["delivery_and_completion_are_canonical_coordinator_obligations"],
-    }
     return result
 
 
@@ -547,10 +444,6 @@ def evaluate_research_stop(state: Mapping[str, Any]) -> dict[str, Any]:
             blockers.append(f"{slot_id}: validation oracle has not passed")
         if open_nodes:
             blockers.append(f"{slot_id}: {len(open_nodes)} frontier action(s) remain")
-    result["compatibility_projection"] = {
-        "authority": "coordinator_only",
-        "blocked_reasons": sorted(set(blockers)) or ["canonical closure is not a local projection"],
-    }
     if result["decision_slots"] and all(
         slot["status"] == "closed" for slot in result["decision_slots"].values()
     ):
