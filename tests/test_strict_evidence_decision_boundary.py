@@ -32,6 +32,7 @@ from research_tree import (
 from research_tree.work_items import WORK_ITEM_KIND
 from research_tree.domain import thaw_json
 from research_tree.readiness import _strict_findings_are_authoritative
+from research_tree.claims import Claim, ClaimGrounding
 
 
 def _artifact(
@@ -55,6 +56,13 @@ def _artifact(
         extractor_version="reader-1",
         source_revision="source-a" if "path" in locator else None,
         evidence_class="source",
+        metadata={
+            "canonical_upstream_id": evidence_id,
+            "claim_version": "fixture-v1",
+            "claim_time_range": "fixture-time",
+            "claim_scope": "fixture boundary",
+            "claim_conditions": [],
+        },
     )
 
 
@@ -101,7 +109,7 @@ def _environment(tmp_path: Path):
         expected_revision=1,
     )
     store = ContentAddressedStore(tmp_path)
-    content = store.ingest(b"first line\nsecond line", "text/plain")
+    content = store.ingest(b"first supports option-a\nsecond line", "text/plain")
     evidence = _artifact(
         run_id="run-strict",
         evidence_id="source-one",
@@ -125,12 +133,43 @@ def _environment(tmp_path: Path):
 
 def _observation(anchor: EvidenceAnchor) -> dict[str, object]:
     return {
+        "claim_id": "claim-option-a",
         "claim": "The bounded source supports option-a.",
         "anchor": anchor.to_dict(),
         "applicability": "direct support",
         "confidence": "high",
         "limitation": "fixture evidence only",
     }
+
+
+def _claim_inputs(ledger, store, reference, digest):
+    content = store.ingest(b"Independent evidence confirms first supports option-a.", "text/plain")
+    evidence = _artifact(
+        run_id="run-strict",
+        evidence_id="source-independent",
+        digest=content.digest,
+        size=content.byte_size,
+        locator={"url": "https://example.invalid/independent"},
+    )
+    independent = EvidenceRepository(ledger, store).record(
+        evidence, content, expected_run_revision=ledger.get_revision("run-strict")
+    )
+    first = _anchor(reference, digest)
+    second = _anchor(independent, content.digest)
+    claim = Claim(
+        claim_id="claim-option-a",
+        subject="first",
+        predicate="supports",
+        value="option-a",
+        polarity="positive",
+        scope="fixture boundary",
+        version="fixture-v1",
+        time_range="fixture-time",
+    )
+    return [claim], [
+        ClaimGrounding("grounding-first", claim.claim_id, first.to_dict()),
+        ClaimGrounding("grounding-independent", claim.claim_id, second.to_dict()),
+    ]
 
 
 def _converge(
@@ -182,7 +221,7 @@ def _raw_decision(ledger, decision_id, payload, parent_refs, expected_revision):
 def test_strict_resolver_requires_exact_current_lineage_and_source_revision(tmp_path: Path) -> None:
     ledger, store, _target, _work, content, evidence, reference, resolver = _environment(tmp_path)
 
-    assert resolver.resolve(_anchor(reference, content.digest)).bytes == b"first line\nsecond line"
+    assert resolver.resolve(_anchor(reference, content.digest)).bytes == b"first supports option-a\nsecond line"
     restarted = EvidenceResolver.from_ledger(
         ledger,
         store,
@@ -264,15 +303,18 @@ def test_strict_selector_rejects_reversed_fragments_and_repository_escape(tmp_pa
 
 def test_canonical_finding_and_decision_preserve_strict_evidence_parents(tmp_path: Path) -> None:
     ledger, _store, target, work, content, _evidence, reference, resolver = _environment(tmp_path)
+    claims, claim_groundings = _claim_inputs(ledger, _store, reference, content.digest)
     finding = CanonicalFindingPackCompiler(ledger, resolver).compile(
         round_id="run-strict",
         finding_id="finding-one",
         work_item=work,
         observations=[_observation(_anchor(reference, content.digest))],
-        option_effects=[{"option": "option-a", "effect": "supports"}],
+        option_effects=[{"option": "option-a", "effect": "supports", "claim_ids": ["claim-option-a"]}],
         implementation_implications=["Implement option-a."],
         remaining_uncertainties=[],
-        expected_revision=3,
+        claims=claims,
+        claim_groundings=claim_groundings,
+        expected_revision=ledger.get_revision("run-strict"),
     )
 
     assert reference in finding.parent_refs
@@ -282,7 +324,7 @@ def test_canonical_finding_and_decision_preserve_strict_evidence_parents(tmp_pat
         target=target,
         decision_id="decision-one",
         findings=[finding],
-        expected_revision=4,
+        expected_revision=ledger.get_revision("run-strict"),
         change_tasks=[
             {
                 "id": "task-one",
@@ -305,7 +347,7 @@ def test_canonical_finding_and_decision_preserve_strict_evidence_parents(tmp_pat
             revision=2,
         ),
         replacement,
-        expected_run_revision=5,
+        expected_run_revision=ledger.get_revision("run-strict"),
     )
     with pytest.raises(InvalidDecisionLedgerError, match="not resolvable"):
         _converge(
@@ -344,6 +386,73 @@ def test_canonical_selected_decision_requires_strict_finding_at_any_priority(tmp
         )
 
 
+def test_forged_single_source_claim_cannot_reach_a_selected_decision(tmp_path: Path) -> None:
+    ledger, _store, target, work, content, _evidence, reference, resolver = _environment(tmp_path)
+    anchor = _anchor(reference, content.digest)
+    claim = Claim(
+        claim_id="claim-forged",
+        subject="first",
+        predicate="supports",
+        value="option-a",
+        polarity="positive",
+        scope="fixture boundary",
+        version="fixture-v1",
+        time_range="fixture-time",
+    )
+    forged = ledger.append_artifact(
+        "run-strict",
+        "finding-forged",
+        "finding-pack",
+        {
+            "blueprint_target_id": target.id,
+            "decision_slot_id": "slot-one",
+            "evidence_mode": "strict",
+            "observations": [_observation(anchor)],
+            "option_effects": [{"option": "option-a", "effect": "supports", "claim_ids": [claim.claim_id]}],
+            "claims": [
+                {
+                    "claim_id": claim.claim_id,
+                    "subject": claim.subject,
+                    "predicate": claim.predicate,
+                    "value": claim.value,
+                    "polarity": claim.polarity,
+                    "scope": claim.scope,
+                    "version": claim.version,
+                    "time_range": claim.time_range,
+                    "conditions": [],
+                }
+            ],
+            "claim_groundings": [
+                {"grounding_id": "forged-grounding", "claim_id": claim.claim_id, "anchor": anchor.to_dict()}
+            ],
+        },
+        parent_refs=(
+            ArtifactRef("run-strict", target.id, target.revision),
+            ArtifactRef("run-strict", work.id, work.revision),
+            reference,
+        ),
+        expected_revision=3,
+    )
+
+    with pytest.raises(InvalidDecisionLedgerError, match="non-corroborated"):
+        _converge(
+            ledger,
+            resolver,
+            target=target,
+            decision_id="decision-forged",
+            findings=[forged],
+            expected_revision=4,
+            change_tasks=[
+                {
+                    "id": "task-forged",
+                    "description": "Reject forged evidence.",
+                    "acceptance_oracle": "fixture",
+                    "repository_touchpoints": [],
+                }
+            ],
+        )
+
+
 def test_strict_readiness_rejects_empty_finding_and_unlinked_selected_decision(tmp_path: Path) -> None:
     ledger, _store, target, work, content, _evidence, reference, resolver = _environment(tmp_path)
     empty_finding = ledger.append_artifact(
@@ -370,15 +479,18 @@ def test_strict_readiness_rejects_empty_finding_and_unlinked_selected_decision(t
         (ArtifactRef("run-strict", target.id, target.revision),),
         4,
     )
+    claims, claim_groundings = _claim_inputs(ledger, _store, reference, content.digest)
     strict_finding = CanonicalFindingPackCompiler(ledger, resolver).compile(
         round_id="run-strict",
         finding_id="finding-valid",
         work_item=work,
         observations=[_observation(_anchor(reference, content.digest))],
-        option_effects=[{"option": "option-a", "effect": "supports"}],
+        option_effects=[{"option": "option-a", "effect": "supports", "claim_ids": ["claim-option-a"]}],
         implementation_implications=["Use the supported option."],
         remaining_uncertainties=[],
-        expected_revision=5,
+        claims=claims,
+        claim_groundings=claim_groundings,
+        expected_revision=ledger.get_revision("run-strict"),
     )
     parent_refs = (
         ArtifactRef("run-strict", target.id, target.revision),
@@ -395,7 +507,7 @@ def test_strict_readiness_rejects_empty_finding_and_unlinked_selected_decision(t
             "selected_option": "option-a",
         },
         parent_refs,
-        6,
+        ledger.get_revision("run-strict"),
     )
     unsupported = _raw_decision(
         ledger,
@@ -407,7 +519,7 @@ def test_strict_readiness_rejects_empty_finding_and_unlinked_selected_decision(t
             "selected_option": "option-b",
         },
         parent_refs,
-        7,
+        ledger.get_revision("run-strict"),
     )
     diagnostics: list[dict[str, object]] = []
     assert not _strict_findings_are_authoritative(
@@ -600,6 +712,8 @@ def test_strict_readiness_rejects_legacy_and_foreign_target_packages(tmp_path: P
         option_effects=thaw_json(finding.payload["option_effects"]),
         implementation_implications=["Create the isolated component."],
         remaining_uncertainties=[],
+        claims=[Claim(**value) for value in thaw_json(finding.payload["claims"])],
+        claim_groundings=[ClaimGrounding(**value) for value in thaw_json(finding.payload["claim_groundings"])],
         expected_revision=ledger.get_revision(round_record.id),
     )
     foreign_decision = CanonicalDecisionLedgerCompiler(ledger, resolver).converge(

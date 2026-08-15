@@ -109,4 +109,5 @@ def test_executor_run_invokes_only_registered_method_boundaries() -> None:
     )
 
     assert seen == [("web-search", "provider-a")]
-    assert result.assessments[0].disposition == "stop"
+    assert result.assessments[0].disposition == "deepen"
+    assert result.assessments[0].next_actions == ("cross-validate-material-claims",)

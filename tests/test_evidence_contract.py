@@ -154,3 +154,16 @@ def test_repository_anchor_requires_the_inspected_revision(tmp_path) -> None:
 
     with pytest.raises(EvidenceValidationError, match="inspected revision"):
         resolver.resolve(_anchor(reference, content.digest, "symbol", {"name": "main"}))
+
+
+def test_evidence_derives_provenance_from_upstream_or_content_identity(tmp_path) -> None:
+    _ledger, _store, artifact, _content, _reference, _resolver = _environment(tmp_path)
+    upstream = EvidenceArtifact(
+        **{
+            **artifact.__dict__,
+            "metadata": {**artifact.metadata, "canonical_upstream_id": "official-release-2"},
+        }
+    )
+
+    assert upstream.provenance_descriptor.cluster_id == "official-release-2"
+    assert artifact.provenance_descriptor.cluster_id == artifact.content_digest

@@ -552,7 +552,8 @@ def _validate_finding_records(value: Any) -> None:
             observation_label = f"{label}.observations[{observation_index}]"
             _require_exact_keys(
                 observation,
-                {"claim", "anchor", "applicability", "confidence", "limitation"},
+                {"claim", "anchor", "applicability", "confidence", "limitation"}
+                | ({"claim_id"} if "claim_id" in observation else set()),
                 observation_label,
             )
             for field in ("claim", "applicability", "limitation"):
@@ -563,7 +564,11 @@ def _validate_finding_records(value: Any) -> None:
             _mapping_sequence(finding["option_effects"], f"{label}.option_effects", allow_empty=True)
         ):
             effect_label = f"{label}.option_effects[{effect_index}]"
-            _require_exact_keys(effect, {"option", "effect"}, effect_label)
+            _require_exact_keys(
+                effect,
+                {"option", "effect"} | ({"claim_ids"} if "claim_ids" in effect else set()),
+                effect_label,
+            )
             _nonempty_string(effect["option"], f"{effect_label}.option")
             _enum_value(effect["effect"], f"{effect_label}.effect", OPTION_EFFECTS)
         _string_sequence(
@@ -1451,7 +1456,7 @@ def _validate_implementation_decision(
         ):
             _require_exact_keys(
                 effect,
-                {"option", "effect"},
+                {"option", "effect"} | ({"claim_ids"} if "claim_ids" in effect else set()),
                 f"Finding Pack {finding.id}.option_effects[{index}]",
             )
             option = _nonempty_string(effect["option"], f"Finding Pack {finding.id}.option_effects[{index}].option")

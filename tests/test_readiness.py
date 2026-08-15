@@ -21,9 +21,12 @@ from research_tree import (
     CanonicalDecisionLedgerCompiler,
     CanonicalFindingPackCompiler,
     CanonicalReadinessVerifier,
+    EvidenceAnchor,
+    EvidenceArtifact,
     InvalidReadinessError,
     readiness_for_delivery,
 )
+from research_tree.claims import Claim, ClaimGrounding
 from research_tree.domain import thaw_json
 from research_tree.work_items import WORK_ITEM_KIND
 
@@ -33,6 +36,39 @@ def api():
         "InvalidReadinessError": InvalidReadinessError,
         "readiness_for_delivery": readiness_for_delivery,
     }
+
+
+def _admitted_source_claim(ledger, round_id: str, anchor: EvidenceAnchor, claim_id: str):
+    independent_ref = ArtifactRef(round_id, "strict-source-independent", 1)
+    independent_artifact = EvidenceArtifact.from_revision(
+        independent_ref,
+        ledger.get_artifact(independent_ref),
+    )
+    independent_anchor = EvidenceAnchor(
+        artifact_ref=independent_ref,
+        artifact_digest=independent_artifact.content_digest,
+        artifact_revision=1,
+        selector_type="line",
+        selector_value={"start": 1, "end": 1},
+        extractor_version="fixture-reader-v1",
+        applicability="direct support",
+        confidence="high",
+        limitations=(),
+    )
+    claim = Claim(
+        claim_id=claim_id,
+        subject="source",
+        predicate="supports",
+        value="the isolated worker boundary",
+        polarity="positive",
+        scope="fixture boundary",
+        version="fixture-v1",
+        time_range="fixture-time",
+    )
+    return claim, [
+        ClaimGrounding(f"{claim_id}-primary", claim_id, anchor.to_dict()),
+        ClaimGrounding(f"{claim_id}-independent", claim_id, independent_anchor.to_dict()),
+    ]
 
 
 def package_context(tmp_path: Path):
@@ -88,40 +124,49 @@ def complete_conditional_package(tmp_path: Path):
     observability_work = next(
         artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.id == "work-observability"
     )
+    observability_anchor = EvidenceAnchor.from_dict(
+        {
+            "artifact_ref": next(
+                reference.to_dict() for reference in decision.parent_refs if reference.artifact_id == "strict-source"
+            ),
+            "artifact_digest": next(
+                artifact.payload["content_digest"]
+                for artifact in ledger.load_run(round_record.id).artifacts
+                if artifact.id == "strict-source"
+            ),
+            "artifact_revision": 1,
+            "selector_type": "line",
+            "selector_value": {"start": 1, "end": 1},
+            "extractor_version": "fixture-reader-v1",
+            "applicability": "direct support",
+            "confidence": "high",
+            "limitations": [],
+        }
+    )
+    observability_claim, observability_groundings = _admitted_source_claim(
+        ledger, round_record.id, observability_anchor, "claim-observability"
+    )
     observability_finding = CanonicalFindingPackCompiler(ledger, modules["resolver"]).compile(
         round_id=round_record.id,
         finding_id="finding-observability",
         work_item=observability_work,
         observations=[
             {
-                "claim": "The existing run boundary can emit structured observability events.",
-                "anchor": {
-                    "artifact_ref": next(
-                        reference.to_dict()
-                        for reference in decision.parent_refs
-                        if reference.artifact_id == "strict-source"
-                    ),
-                    "artifact_digest": next(
-                        artifact.payload["content_digest"]
-                        for artifact in ledger.load_run(round_record.id).artifacts
-                        if artifact.id == "strict-source"
-                    ),
-                    "artifact_revision": 1,
-                    "selector_type": "line",
-                    "selector_value": {"start": 1, "end": 1},
-                    "extractor_version": "fixture-reader-v1",
-                    "applicability": "direct support",
-                    "confidence": "high",
-                    "limitations": [],
-                },
+                "claim_id": observability_claim.claim_id,
+                "claim": "The source supports the isolated worker boundary.",
+                "anchor": observability_anchor.to_dict(),
                 "applicability": "the supplied Python repository",
                 "confidence": "medium",
                 "limitation": "The event schema still needs a bounded spike.",
             }
         ],
-        option_effects=[{"option": "structured-logging", "effect": "supports"}],
+        option_effects=[
+            {"option": "structured-logging", "effect": "supports", "claim_ids": [observability_claim.claim_id]}
+        ],
         implementation_implications=["The adapter emits structured events."],
         remaining_uncertainties=["Measure event overhead."],
+        claims=[observability_claim],
+        claim_groundings=observability_groundings,
         expected_revision=ledger.get_revision(round_record.id),
     )
     kwargs = decision_kwargs(target, observability_finding)
@@ -225,22 +270,28 @@ def greenfield_package(tmp_path: Path):
         work_payload,
         (ArtifactRef(round_record.id, target.id, target.revision),),
     )
+    greenfield_claim, greenfield_groundings = _admitted_source_claim(
+        ledger, round_record.id, anchor, "claim-greenfield"
+    )
     finding = CanonicalFindingPackCompiler(ledger, resolver).compile(
         round_id=round_record.id,
         finding_id="finding-greenfield",
         work_item=work,
         observations=[
             {
-                "claim": "The requester authorized a new isolated component.",
+                "claim_id": greenfield_claim.claim_id,
+                "claim": "The source supports the isolated worker boundary.",
                 "anchor": anchor.to_dict(),
                 "applicability": "the requested first implementation",
                 "confidence": "medium",
                 "limitation": "No repository surface exists for the new component.",
             }
         ],
-        option_effects=[{"option": "new-worker", "effect": "supports"}],
+        option_effects=[{"option": "new-worker", "effect": "supports", "claim_ids": [greenfield_claim.claim_id]}],
         implementation_implications=["Create the isolated component."],
         remaining_uncertainties=[],
+        claims=[greenfield_claim],
+        claim_groundings=greenfield_groundings,
         expected_revision=ledger.get_revision(round_record.id),
     )
     decision = CanonicalDecisionLedgerCompiler(ledger, resolver).converge(
@@ -434,36 +485,39 @@ def multi_repository_package(tmp_path: Path):
     evidence = next(
         artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.id == "strict-source"
     )
+    second_anchor = EvidenceAnchor(
+        artifact_ref=ArtifactRef(round_record.id, evidence.id, evidence.revision),
+        artifact_digest=evidence.payload["content_digest"],
+        artifact_revision=evidence.revision,
+        selector_type="line",
+        selector_value={"start": 1, "end": 1},
+        extractor_version="fixture-reader-v1",
+        applicability="direct support",
+        confidence="high",
+        limitations=(),
+    )
+    second_claim, second_groundings = _admitted_source_claim(
+        ledger, round_record.id, second_anchor, "claim-second-repository"
+    )
     finding = CanonicalFindingPackCompiler(ledger, modules["resolver"]).compile(
         round_id=round_record.id,
         finding_id="finding-second-repository",
         work_item=work,
         observations=[
             {
-                "claim": "The second repository exposes the worker inspection boundary.",
-                "anchor": {
-                    "artifact_ref": ArtifactRef(
-                        round_record.id,
-                        evidence.id,
-                        evidence.revision,
-                    ).to_dict(),
-                    "artifact_digest": evidence.payload["content_digest"],
-                    "artifact_revision": evidence.revision,
-                    "selector_type": "line",
-                    "selector_value": {"start": 1, "end": 1},
-                    "extractor_version": "fixture-reader-v1",
-                    "applicability": "direct support",
-                    "confidence": "high",
-                    "limitations": [],
-                },
+                "claim_id": second_claim.claim_id,
+                "claim": "The source supports the isolated worker boundary.",
+                "anchor": second_anchor.to_dict(),
                 "applicability": "the supplied second repository",
                 "confidence": "medium",
                 "limitation": "Production overhead remains to be measured.",
             }
         ],
-        option_effects=[{"option": "isolated-worker", "effect": "supports"}],
+        option_effects=[{"option": "isolated-worker", "effect": "supports", "claim_ids": [second_claim.claim_id]}],
         implementation_implications=["Add the adapter in the second repository."],
         remaining_uncertainties=["Measure worker startup overhead."],
+        claims=[second_claim],
+        claim_groundings=second_groundings,
         expected_revision=ledger.get_revision(round_record.id),
     )
     decision = CanonicalDecisionLedgerCompiler(ledger, modules["resolver"]).converge(

@@ -15,6 +15,7 @@ from .domain import (
 from .run_ledger import RunLedger
 from .work_items import WORK_ITEM_KIND
 from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
+from .claims import Claim, ClaimAdmissionEvaluator, ClaimGrounding, ClaimState, ClaimValidationError
 
 
 FINDING_PACK_KIND = "finding-pack"
@@ -70,6 +71,8 @@ class CanonicalFindingPackCompiler:
         implementation_implications: Sequence[str],
         remaining_uncertainties: Sequence[str],
         expected_revision: int,
+        claims: Sequence[Claim] = (),
+        claim_groundings: Sequence[ClaimGrounding] = (),
         research_node_id: str | None = None,
         research_continuations: Sequence[Mapping[str, Any]] = (),
         validation_result: Mapping[str, Any] | None = None,
@@ -100,6 +103,14 @@ class CanonicalFindingPackCompiler:
                 strict_evidence=True,
             )
             _validate_resolvable_observations(normalized_observations, self._evidence_resolver)
+            normalized_claims, normalized_groundings, claim_assessments = _normalize_claim_admission(
+                claims,
+                claim_groundings,
+                normalized_observations,
+                self._evidence_resolver,
+            )
+            normalized_effects = _normalize_option_effects(option_effects, options)
+            _validate_effect_claims(normalized_effects, claim_assessments, InvalidFindingPackError)
             payload = {
                 "id": finding_id,
                 "round_id": round_id,
@@ -107,7 +118,10 @@ class CanonicalFindingPackCompiler:
                 "blueprint_target_id": target.id,
                 "decision_slot_id": slot["id"],
                 "observations": normalized_observations,
-                "option_effects": _normalize_option_effects(option_effects, options),
+                "option_effects": normalized_effects,
+                "claims": normalized_claims,
+                "claim_groundings": normalized_groundings,
+                "claim_assessments": claim_assessments,
                 "implementation_implications": list(
                     _string_sequence(
                         implementation_implications,
@@ -141,7 +155,9 @@ class CanonicalFindingPackCompiler:
 
         work_ref = ArtifactRef(round_id, work.id, work.revision)
         target_ref = ArtifactRef(round_id, target.id, target.revision)
-        evidence_refs = _strict_evidence_refs(normalized_observations)
+        evidence_refs = _unique_artifact_refs(
+            (*_strict_evidence_refs(normalized_observations), *_claim_evidence_refs(claim_groundings))
+        )
         return self._ledger.append_artifact(
             round_id,
             finding_id,
@@ -225,6 +241,7 @@ class CanonicalDecisionLedgerCompiler:
                 normalized_status,
                 slot_options,
             )
+            _validate_finding_claim_authority(findings, self._evidence_resolver, selected)
             normalized_alternatives = _normalize_alternatives(
                 alternatives,
                 slot_options,
@@ -251,9 +268,7 @@ class CanonicalDecisionLedgerCompiler:
                 "repository_touchpoints": normalized_touchpoints,
                 "validation": normalized_validation,
                 "change_tasks": normalized_tasks,
-                "assumptions": list(
-                    _string_sequence(assumptions, "assumptions", allow_empty=True)
-                ),
+                "assumptions": list(_string_sequence(assumptions, "assumptions", allow_empty=True)),
                 "fallback": _nonempty_string(fallback, "fallback", InvalidDecisionLedgerError),
                 "reversal_condition": _nonempty_string(
                     reversal_condition,
@@ -272,12 +287,11 @@ class CanonicalDecisionLedgerCompiler:
             raise InvalidDecisionLedgerError(str(error)) from error
 
         target_ref = ArtifactRef(round_id, target.id, target.revision)
-        finding_refs = tuple(
-            ArtifactRef(round_id, finding.id, finding.revision) for finding in findings
-        )
-        parent_refs = (
-            (() if previous is None else (ArtifactRef(round_id, previous.id, previous.revision),))
-            + (target_ref, *finding_refs, *evidence_refs)
+        finding_refs = tuple(ArtifactRef(round_id, finding.id, finding.revision) for finding in findings)
+        parent_refs = (() if previous is None else (ArtifactRef(round_id, previous.id, previous.revision),)) + (
+            target_ref,
+            *finding_refs,
+            *evidence_refs,
         )
         return self._ledger.append_artifact(
             round_id,
@@ -295,15 +309,9 @@ def _ensure_id_compatibility(
     expected_kind: str,
     error_type: type[RuntimeStoreError],
 ) -> None:
-    foreign = {
-        artifact.kind
-        for artifact in artifacts
-        if artifact.id == artifact_id and artifact.kind != expected_kind
-    }
+    foreign = {artifact.kind for artifact in artifacts if artifact.id == artifact_id and artifact.kind != expected_kind}
     if foreign:
-        raise error_type(
-            f"artifact id {artifact_id!r} is already used by kinds: {sorted(foreign)}"
-        )
+        raise error_type(f"artifact id {artifact_id!r} is already used by kinds: {sorted(foreign)}")
 
 
 def _resolve_exact(
@@ -368,9 +376,10 @@ def _normalize_observations(
     normalized: list[dict[str, Any]] = []
     for index, observation in enumerate(observations):
         label = f"observations[{index}]"
+        expected_observation_keys = {"claim", "anchor", "applicability", "confidence", "limitation"}
         _require_exact_keys(
             observation,
-            {"claim", "anchor", "applicability", "confidence", "limitation"},
+            expected_observation_keys | ({"claim_id"} if "claim_id" in observation else set()),
             label,
             InvalidFindingPackError,
         )
@@ -396,6 +405,11 @@ def _normalize_observations(
             _validate_repository_anchor(anchor["ref"], slot, InvalidFindingPackError)
         normalized.append(
             {
+                "claim_id": _identifier(
+                    observation.get("claim_id", f"observation-{index}"),
+                    f"{label}.claim_id",
+                    InvalidFindingPackError,
+                ),
                 "claim": _nonempty_string(observation["claim"], f"{label}.claim", InvalidFindingPackError),
                 "anchor": anchor,
                 "applicability": _nonempty_string(
@@ -426,16 +440,12 @@ def _validate_resolvable_observations(
     for index, observation in enumerate(observations):
         anchor = observation["anchor"]
         if not isinstance(anchor, Mapping) or "artifact_digest" not in anchor:
-            raise InvalidFindingPackError(
-                f"observations[{index}].anchor must be an EvidenceAnchor"
-            )
+            raise InvalidFindingPackError(f"observations[{index}].anchor must be an EvidenceAnchor")
         try:
             typed = EvidenceAnchor.from_dict(anchor)
             resolver.resolve(typed)
         except (KeyError, TypeError, EvidenceValidationError) as error:
-            raise InvalidFindingPackError(
-                f"observations[{index}].anchor is not resolvable: {error}"
-            ) from error
+            raise InvalidFindingPackError(f"observations[{index}].anchor is not resolvable: {error}") from error
 
 
 def _strict_evidence_refs(observations: Sequence[Mapping[str, Any]]) -> tuple[ArtifactRef, ...]:
@@ -444,13 +454,9 @@ def _strict_evidence_refs(observations: Sequence[Mapping[str, Any]]) -> tuple[Ar
         try:
             anchor = EvidenceAnchor.from_dict(observation["anchor"])
         except (KeyError, TypeError, ValueError) as error:
-            raise InvalidFindingPackError(
-                f"observations[{index}].anchor is not canonical evidence: {error}"
-            ) from error
+            raise InvalidFindingPackError(f"observations[{index}].anchor is not canonical evidence: {error}") from error
         if anchor.artifact_ref is None:
-            raise InvalidFindingPackError(
-                f"observations[{index}].anchor is missing its exact evidence reference"
-            )
+            raise InvalidFindingPackError(f"observations[{index}].anchor is missing its exact evidence reference")
         if anchor.artifact_ref not in references:
             references.append(anchor.artifact_ref)
     return tuple(references)
@@ -460,15 +466,11 @@ def _strict_finding_evidence_refs(
     findings: Sequence[ArtifactRevision], resolver: EvidenceResolver
 ) -> tuple[ArtifactRef, ...]:
     if not findings:
-        raise InvalidDecisionLedgerError(
-            "selected or conditional decision requires at least one strict Finding Pack"
-        )
+        raise InvalidDecisionLedgerError("selected or conditional decision requires at least one strict Finding Pack")
     references: list[ArtifactRef] = []
     for finding in findings:
         if finding.payload.get("evidence_mode") != "strict":
-            raise InvalidDecisionLedgerError(
-                f"Finding Pack {finding.id} is not backed by strict evidence"
-            )
+            raise InvalidDecisionLedgerError(f"Finding Pack {finding.id} is not backed by strict evidence")
         try:
             finding_refs = _strict_evidence_refs(finding.payload.get("observations", ()))
         except InvalidFindingPackError as error:
@@ -476,9 +478,7 @@ def _strict_finding_evidence_refs(
                 f"Finding Pack {finding.id} has invalid strict evidence: {error}"
             ) from error
         if not finding_refs:
-            raise InvalidDecisionLedgerError(
-                f"Finding Pack {finding.id} requires at least one strict observation"
-            )
+            raise InvalidDecisionLedgerError(f"Finding Pack {finding.id} requires at least one strict observation")
         for reference in finding_refs:
             if reference not in finding.parent_refs:
                 raise InvalidDecisionLedgerError(
@@ -496,6 +496,169 @@ def _strict_finding_evidence_refs(
     return tuple(references)
 
 
+def _normalize_claim_admission(
+    claims: Sequence[Claim],
+    groundings: Sequence[ClaimGrounding],
+    observations: Sequence[Mapping[str, Any]],
+    resolver: EvidenceResolver,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    normalized_claims = tuple(claims)
+    normalized_groundings = tuple(groundings)
+    if any(not isinstance(claim, Claim) for claim in normalized_claims):
+        raise InvalidFindingPackError("claims must contain Claim values")
+    if any(not isinstance(grounding, ClaimGrounding) for grounding in normalized_groundings):
+        raise InvalidFindingPackError("claim_groundings must contain ClaimGrounding values")
+    if not normalized_claims and not normalized_groundings:
+        return [], [], []
+    claim_ids = {claim.claim_id for claim in normalized_claims}
+    if len(claim_ids) != len(normalized_claims):
+        raise InvalidFindingPackError("claims must not contain duplicate claim_id values")
+    observation_claim_ids = {str(observation["claim_id"]) for observation in observations}
+    if observation_claim_ids != claim_ids:
+        raise InvalidFindingPackError("every Finding observation must bind exactly one declared claim")
+    if any(grounding.claim_id not in claim_ids for grounding in normalized_groundings):
+        raise InvalidFindingPackError("claim grounding refers to an undeclared claim")
+    evaluator = ClaimAdmissionEvaluator(resolver)
+    try:
+        assessments = [
+            evaluator.assess(
+                claim,
+                tuple(grounding for grounding in normalized_groundings if grounding.claim_id == claim.claim_id),
+            )
+            for claim in normalized_claims
+        ]
+    except ClaimValidationError as error:
+        raise InvalidFindingPackError(str(error)) from error
+    return (
+        [_claim_to_dict(claim) for claim in normalized_claims],
+        [_grounding_to_dict(grounding) for grounding in normalized_groundings],
+        [_assessment_to_dict(assessment) for assessment in assessments],
+    )
+
+
+def _validate_effect_claims(
+    effects: Sequence[Mapping[str, Any]],
+    assessments: Sequence[Mapping[str, Any]],
+    error_type: type[RuntimeStoreError],
+) -> None:
+    if not assessments:
+        return
+    admitted = {item.get("claim_id") for item in assessments if item.get("state") == ClaimState.CORROBORATED.value}
+    known = {item.get("claim_id") for item in assessments}
+    for effect in effects:
+        claim_ids = effect.get("claim_ids")
+        if not claim_ids:
+            raise error_type("every option effect requires at least one claim_id")
+        if any(claim_id not in known for claim_id in claim_ids):
+            raise error_type("option effect refers to an undeclared claim")
+        if effect.get("effect") == "supports" and any(claim_id not in admitted for claim_id in claim_ids):
+            raise error_type("supporting option effect requires corroborated claims")
+
+
+def _claim_to_dict(claim: Claim) -> dict[str, Any]:
+    return {
+        "claim_id": claim.claim_id,
+        "subject": claim.subject,
+        "predicate": claim.predicate,
+        "value": claim.value,
+        "polarity": claim.polarity,
+        "scope": claim.scope,
+        "version": claim.version,
+        "time_range": claim.time_range,
+        "conditions": list(claim.conditions),
+    }
+
+
+def _claim_from_dict(value: Mapping[str, Any]) -> Claim:
+    _require_exact_keys(
+        value,
+        {"claim_id", "subject", "predicate", "value", "polarity", "scope", "version", "time_range", "conditions"},
+        "claim",
+        InvalidDecisionLedgerError,
+    )
+    conditions = value["conditions"]
+    if isinstance(conditions, (str, bytes)) or not isinstance(conditions, Sequence):
+        raise InvalidDecisionLedgerError("claim.conditions must be a sequence")
+    return Claim(
+        claim_id=value["claim_id"],
+        subject=value["subject"],
+        predicate=value["predicate"],
+        value=value["value"],
+        polarity=value["polarity"],
+        scope=value["scope"],
+        version=value["version"],
+        time_range=value["time_range"],
+        conditions=tuple(conditions),
+    )
+
+
+def _grounding_to_dict(grounding: ClaimGrounding) -> dict[str, Any]:
+    return {"grounding_id": grounding.grounding_id, "claim_id": grounding.claim_id, "anchor": dict(grounding.anchor)}
+
+
+def _grounding_from_dict(value: Mapping[str, Any]) -> ClaimGrounding:
+    _require_exact_keys(value, {"grounding_id", "claim_id", "anchor"}, "claim_grounding", InvalidDecisionLedgerError)
+    return ClaimGrounding(grounding_id=value["grounding_id"], claim_id=value["claim_id"], anchor=value["anchor"])
+
+
+def _assessment_to_dict(assessment: Any) -> dict[str, Any]:
+    return {
+        "claim_id": assessment.claim_id,
+        "state": assessment.state.value,
+        "provenance_clusters": list(assessment.provenance_clusters),
+        "grounding_ids": list(assessment.grounding_ids),
+        "grounding_refs": [reference.to_dict() for reference in assessment.grounding_refs],
+        "rejection_reasons": list(assessment.rejection_reasons),
+    }
+
+
+def _claim_evidence_refs(groundings: Sequence[ClaimGrounding]) -> tuple[ArtifactRef, ...]:
+    references: list[ArtifactRef] = []
+    for grounding in groundings:
+        try:
+            reference = EvidenceAnchor.from_dict(grounding.anchor).artifact_ref
+        except (TypeError, ValueError) as error:
+            raise InvalidFindingPackError(f"claim grounding is not canonical evidence: {error}") from error
+        if reference not in references:
+            references.append(reference)
+    return tuple(references)
+
+
+def _validate_finding_claim_authority(
+    findings: Sequence[ArtifactRevision],
+    resolver: EvidenceResolver,
+    selected_option: str | None,
+) -> None:
+    if selected_option is None:
+        return
+    for finding in findings:
+        try:
+            claims = tuple(_claim_from_dict(value) for value in finding.payload["claims"])
+            groundings = tuple(_grounding_from_dict(value) for value in finding.payload["claim_groundings"])
+            assessments = {
+                claim.claim_id: ClaimAdmissionEvaluator(resolver).assess(
+                    claim,
+                    tuple(grounding for grounding in groundings if grounding.claim_id == claim.claim_id),
+                )
+                for claim in claims
+            }
+            for effect in finding.payload.get("option_effects", ()):
+                if effect.get("option") != selected_option or effect.get("effect") != "supports":
+                    continue
+                claim_ids = effect.get("claim_ids")
+                if not claim_ids:
+                    raise InvalidDecisionLedgerError("supporting option effect has no claim admission")
+                if any(
+                    assessments.get(claim_id) is None or not assessments[claim_id].decision_authority
+                    for claim_id in claim_ids
+                ):
+                    raise InvalidDecisionLedgerError("selected option relies on a non-corroborated claim")
+        except (ClaimValidationError, KeyError, TypeError, ValueError) as error:
+            raise InvalidDecisionLedgerError(
+                f"Finding Pack {finding.id} has invalid claim admission: {error}"
+            ) from error
+
+
 def _unique_artifact_refs(references: Sequence[ArtifactRef]) -> tuple[ArtifactRef, ...]:
     unique: list[ArtifactRef] = []
     for reference in references:
@@ -504,14 +667,19 @@ def _unique_artifact_refs(references: Sequence[ArtifactRef]) -> tuple[ArtifactRe
     return tuple(unique)
 
 
-def _normalize_option_effects(value: Any, options: tuple[str, ...]) -> list[dict[str, str]]:
+def _normalize_option_effects(value: Any, options: tuple[str, ...]) -> list[dict[str, Any]]:
     effects = _mapping_sequence(value, "option_effects", InvalidFindingPackError)
     if not effects:
         raise InvalidFindingPackError("Finding Pack requires at least one option effect")
-    normalized: list[dict[str, str]] = []
+    normalized: list[dict[str, Any]] = []
     for index, effect in enumerate(effects):
         label = f"option_effects[{index}]"
-        _require_exact_keys(effect, {"option", "effect"}, label, InvalidFindingPackError)
+        _require_exact_keys(
+            effect,
+            {"option", "effect"} | ({"claim_ids"} if "claim_ids" in effect else set()),
+            label,
+            InvalidFindingPackError,
+        )
         option = _nonempty_string(effect["option"], f"{label}.option", InvalidFindingPackError)
         if option not in options:
             raise InvalidFindingPackError(f"{label}.option is absent from the Decision Slot")
@@ -519,6 +687,11 @@ def _normalize_option_effects(value: Any, options: tuple[str, ...]) -> list[dict
             {
                 "option": option,
                 "effect": _enum(effect["effect"], f"{label}.effect", OPTION_EFFECTS, InvalidFindingPackError),
+                "claim_ids": list(
+                    _string_sequence(effect["claim_ids"], f"{label}.claim_ids", error_type=InvalidFindingPackError)
+                )
+                if "claim_ids" in effect
+                else [],
             }
         )
     return normalized
@@ -644,9 +817,7 @@ def _resolve_findings(
             or stored.payload.get("decision_slot_id") != slot_id
             or target_ref not in stored.parent_refs
         ):
-            raise InvalidDecisionLedgerError(
-                "Finding Pack must belong to the exact Blueprint Target and Decision Slot"
-            )
+            raise InvalidDecisionLedgerError("Finding Pack must belong to the exact Blueprint Target and Decision Slot")
         findings.append(stored)
     return tuple(findings)
 
@@ -741,10 +912,14 @@ def _normalize_touchpoints(value: Any, slot: Mapping[str, Any]) -> list[dict[str
         symbol_raw = point["symbol"]
         if symbol_raw is not None and not isinstance(symbol_raw, str):
             raise InvalidDecisionLedgerError(f"{label}.symbol must be a string or null")
-        symbol = None if symbol_raw is None else _nonempty_string(
-            symbol_raw,
-            f"{label}.symbol",
-            InvalidDecisionLedgerError,
+        symbol = (
+            None
+            if symbol_raw is None
+            else _nonempty_string(
+                symbol_raw,
+                f"{label}.symbol",
+                InvalidDecisionLedgerError,
+            )
         )
         if allowed and (path, symbol) not in allowed:
             raise InvalidDecisionLedgerError(f"{label} is absent from the Decision Slot")
@@ -783,7 +958,9 @@ def _normalize_change_tasks(value: Any, slot: Mapping[str, Any]) -> list[dict[st
         normalized.append(
             {
                 "id": task_id,
-                "description": _nonempty_string(task["description"], f"{label}.description", InvalidDecisionLedgerError),
+                "description": _nonempty_string(
+                    task["description"], f"{label}.description", InvalidDecisionLedgerError
+                ),
                 "acceptance_oracle": _nonempty_string(
                     task["acceptance_oracle"],
                     f"{label}.acceptance_oracle",
@@ -806,9 +983,7 @@ def _validate_decision_trace(
 ) -> None:
     if payload["status"] not in {"selected", "conditional"}:
         return
-    finding_anchors = {
-        anchor["ref"] for anchor in payload["anchors"] if anchor["kind"] == "finding"
-    }
+    finding_anchors = {anchor["ref"] for anchor in payload["anchors"] if anchor["kind"] == "finding"}
     if not findings or not finding_anchors:
         raise error_type("selected or conditional decision requires a supplied Finding Pack anchor")
     selected_option = payload["selected_option"]
@@ -817,24 +992,18 @@ def _validate_decision_trace(
         for finding in findings
         for effect in finding.payload.get("option_effects", ())
         if (
-            isinstance(effect, Mapping)
-            and effect.get("effect") == "supports"
-            and isinstance(effect.get("option"), str)
+            isinstance(effect, Mapping) and effect.get("effect") == "supports" and isinstance(effect.get("option"), str)
         )
     }
     if selected_option not in supported_options:
-        raise error_type(
-            "selected or conditional decision requires a Finding Pack support effect for selected_option"
-        )
+        raise error_type("selected or conditional decision requires a Finding Pack support effect for selected_option")
     if slot.get("priority") != "P0":
         return
     if not payload["change_tasks"]:
         raise error_type("P0 selected or conditional decision requires at least one change task")
 
 
-def _latest_artifact(
-    artifacts: Sequence[ArtifactRevision], artifact_id: str, kind: str
-) -> ArtifactRevision | None:
+def _latest_artifact(artifacts: Sequence[ArtifactRevision], artifact_id: str, kind: str) -> ArtifactRevision | None:
     matches = [artifact for artifact in artifacts if artifact.id == artifact_id and artifact.kind == kind]
     return max(matches, key=lambda artifact: artifact.revision, default=None)
 

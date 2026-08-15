@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from .claims import ClaimAssessment
 from .domain import RuntimeStoreError, canonical_json_bytes, validate_identifier
 
 
@@ -1404,9 +1405,13 @@ def assess_acquisition_batch(
     successor_strategy_revision: str | None = None,
     disposition: str | None = None,
     next_actions: Sequence[str] = (),
+    claim_assessments: Sequence[ClaimAssessment] = (),
 ) -> BatchCoverageAssessment:
     """Assess one dependency-ready batch without persisting coordinator state."""
     normalized_outcomes = tuple(_outcome_value(item) for item in _sequence(outcomes, "outcomes"))
+    normalized_claim_assessments = tuple(claim_assessments)
+    if any(not isinstance(item, ClaimAssessment) for item in normalized_claim_assessments):
+        raise InvalidSearchPortfolioError("claim_assessments must contain ClaimAssessment values")
     if normalized_outcomes:
         if any(item.portfolio_id != portfolio_id or item.batch_id != batch_id for item in normalized_outcomes):
             raise InvalidSearchPortfolioError("outcome portfolio and batch identities must match the assessment")
@@ -1485,7 +1490,14 @@ def assess_acquisition_batch(
     )
     alternate_method_ids = tuple(alternate_method_ids)
     alternate_method_available = bool(alternate_method_available or alternate_method_ids)
-    if not next_actions and disposition is None:
+    requires_cross_validation = (
+        any(not item.decision_authority for item in normalized_claim_assessments)
+        or provenance_independence == "single-boundary"
+    )
+    if requires_cross_validation:
+        disposition = "deepen"
+        next_actions = ("cross-validate-material-claims",)
+    elif not next_actions and disposition is None:
         if authority_disposition == "requires_requester_reopen":
             disposition = "blocked"
             next_actions = ("reopen-human-decision",)
