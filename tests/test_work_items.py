@@ -7,7 +7,6 @@ import pytest
 
 def api():
     from research_tree import (
-        BlueprintTargetCompiler,
         CanonicalBlueprintTargetCompiler,
         CanonicalInputIntakeService,
         CanonicalIntentModelCompiler,
@@ -15,19 +14,11 @@ def api():
         CanonicalWorkItemPlanner,
         CanonicalWorkItemStatusService,
         CanonicalWorkingBriefCompiler,
-        InputIntakeService,
-        IntentModelCompiler,
         InvalidWorkItemError,
-        RunStore,
         RunLedger,
-        WorkItemCompiler,
-        WorkItemPlanner,
-        WorkItemStatusService,
-        WorkingBriefCompiler,
     )
 
     return {
-        "BlueprintTargetCompiler": BlueprintTargetCompiler,
         "CanonicalBlueprintTargetCompiler": CanonicalBlueprintTargetCompiler,
         "CanonicalInputIntakeService": CanonicalInputIntakeService,
         "CanonicalIntentModelCompiler": CanonicalIntentModelCompiler,
@@ -35,15 +26,8 @@ def api():
         "CanonicalWorkItemPlanner": CanonicalWorkItemPlanner,
         "CanonicalWorkItemStatusService": CanonicalWorkItemStatusService,
         "CanonicalWorkingBriefCompiler": CanonicalWorkingBriefCompiler,
-        "InputIntakeService": InputIntakeService,
-        "IntentModelCompiler": IntentModelCompiler,
         "InvalidWorkItemError": InvalidWorkItemError,
-        "RunStore": RunStore,
         "RunLedger": RunLedger,
-        "WorkItemCompiler": WorkItemCompiler,
-        "WorkItemPlanner": WorkItemPlanner,
-        "WorkItemStatusService": WorkItemStatusService,
-        "WorkingBriefCompiler": WorkingBriefCompiler,
     }
 
 
@@ -59,110 +43,6 @@ def repository(root: Path) -> Path:
         encoding="utf-8",
     )
     return root
-
-
-def context_target(tmp_path: Path):
-    modules = api()
-    store = modules["RunStore"](tmp_path / "store")
-    round_record = store.create_round("round-work")
-    intake = modules["InputIntakeService"](store)
-    intake.ingest_text(
-        round_id=round_record.id,
-        input_id="input-brief",
-        kind="brief",
-        content="Build an implementation-ready autonomous reverse-engineering agent.",
-        origin_type="user",
-        origin_locator="conversation:1",
-        role="signal",
-    )
-    intake.ingest_repository(
-        round_id=round_record.id,
-        input_id="input-repository",
-        repository_root=repository(tmp_path / "repository"),
-        origin_type="workspace",
-        role="baseline",
-    )
-    intake.create_context_bundle(
-        round_id=round_record.id,
-        input_id="input-context",
-        member_input_ids=("input-brief", "input-repository"),
-        origin_type="user",
-        origin_locator="conversation:1",
-        role="baseline",
-    )
-    model = modules["IntentModelCompiler"](store).compile(
-        round_id=round_record.id,
-        intent_id="intent-model",
-        context_bundle_ids=("input-context",),
-        input_ids=("input-brief", "input-repository"),
-        analysis={
-            "signals": [
-                {
-                    "input_id": "input-brief",
-                    "observation": "The requester needs an autonomous agent.",
-                    "kind": "stated_goal",
-                    "authority_boundary": "It does not select the implementation architecture.",
-                },
-                {
-                    "input_id": "input-repository",
-                    "observation": "The repository has a src/agent.py run boundary.",
-                    "kind": "repository_fact",
-                    "authority_boundary": "It describes current code, not a recommendation.",
-                },
-            ],
-            "hypotheses": [
-                {
-                    "id": "intent-agent",
-                    "interpretation": "Deliver a safe implementation-ready agent path.",
-                    "status": "leading",
-                    "signal_refs": ["input-brief", "input-repository"],
-                    "confidence": "medium",
-                    "decision_consequence": "Architecture and safety boundaries need research.",
-                    "validation": "repository_inspection",
-                }
-            ],
-            "desired_outcomes": ["implementation-ready technical blueprint"],
-            "success_signals": ["an implementation agent can start without rediscovery"],
-            "decision_drivers": [
-                {
-                    "dimension": "technical",
-                    "statement": "The first implementation must be safely isolated.",
-                    "signal_refs": ["input-brief"],
-                }
-            ],
-            "hard_constraints": ["Do not execute untrusted binaries during intake."],
-            "non_goals": ["Do not require a user questionnaire."],
-            "unresolved_interpretations": [],
-        },
-    )
-    brief = modules["WorkingBriefCompiler"](store).compile(
-        round_id=round_record.id,
-        brief_id="working-brief",
-        intent_model=model,
-        triggers=[{"kind": "initial_request", "text": "Start", "input_ids": ["input-brief"]}],
-        context_bundle_ids=("input-context",),
-        selected_input_ids=("input-brief", "input-repository"),
-        input_roles={"input-brief": "primary", "input-repository": "baseline"},
-        material_conflicts=[],
-        working_interpretation="A safe implementation-ready agent path is leading.",
-        technical_outcome="Choose the first agent architecture and integration boundary.",
-    )
-    architecture = slot("slot-architecture", priority="P0")
-    security = slot("slot-security", priority="P1")
-    security["depends_on"] = ["slot-architecture"]
-    target = modules["BlueprintTargetCompiler"](store).compile(
-        round_id=round_record.id,
-        target_id="blueprint-target",
-        working_brief=brief,
-        slots=[security, architecture],
-        change={
-            "kind": "initial",
-            "reason": "Map the open architecture and security decisions.",
-            "from_slot_ids": [],
-            "to_slot_ids": ["slot-security", "slot-architecture"],
-        },
-    )
-    return modules, store, round_record, target
 
 
 def canonical_context_target(tmp_path: Path):
@@ -312,16 +192,17 @@ def test_dependency_respecting_planner_emits_deterministic_bounded_work(tmp_path
 
 
 def test_planner_rejects_normal_work_for_a_superseded_round(tmp_path: Path) -> None:
-    modules, store, round_record, target = context_target(tmp_path)
-    store.append_artifact(
+    modules, ledger, round_record, target = canonical_context_target(tmp_path)
+    ledger.append_artifact(
         round_record.id,
         "round-supersession-round-next",
         "round-supersession",
         {"status": "superseded", "successor_round_id": "round-next"},
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
     with pytest.raises(modules["InvalidWorkItemError"], match="superseded"):
-        modules["WorkItemPlanner"](store).plan(
+        modules["CanonicalWorkItemPlanner"](ledger).plan(
             round_id=round_record.id,
             blueprint_target=target,
             work_item_ids={
@@ -331,7 +212,7 @@ def test_planner_rejects_normal_work_for_a_superseded_round(tmp_path: Path) -> N
         )
 
     with pytest.raises(modules["InvalidWorkItemError"], match="superseded"):
-        modules["WorkItemCompiler"](store).compile(
+        modules["CanonicalWorkItemCompiler"](ledger).compile(
             round_id=round_record.id,
             work_item_id="work-direct",
             blueprint_target=target,
@@ -344,24 +225,25 @@ def test_planner_rejects_normal_work_for_a_superseded_round(tmp_path: Path) -> N
             methods=("repository_inspection",),
             budget={"tool_calls": 4, "time": "bounded"},
             completion_rule="Return a bounded Finding Pack.",
+            expected_revision=ledger.get_revision(round_record.id),
         )
 
     assert not [
         artifact
-        for artifact in store.load_round(round_record.id).artifacts
+        for artifact in ledger.load_run(round_record.id).artifacts
         if artifact.kind == "work-item"
     ]
 
 
 def test_serial_planner_turns_stable_topological_order_into_a_chain(tmp_path: Path) -> None:
-    modules, store, round_record, target = context_target(tmp_path)
+    modules, ledger, round_record, target = canonical_context_target(tmp_path)
     brief = next(
         artifact
-        for artifact in store.load_round(round_record.id).artifacts
+        for artifact in ledger.load_run(round_record.id).artifacts
         if artifact.kind == "working-brief"
     )
     independent = slot("slot-observability", priority="P1")
-    serial_target = modules["BlueprintTargetCompiler"](store).compile(
+    serial_target = modules["CanonicalBlueprintTargetCompiler"](ledger).compile(
         round_id=round_record.id,
         target_id="serial-target",
         working_brief=brief,
@@ -372,8 +254,9 @@ def test_serial_planner_turns_stable_topological_order_into_a_chain(tmp_path: Pa
             "from_slot_ids": [],
             "to_slot_ids": ["slot-architecture", "slot-observability"],
         },
+        expected_revision=ledger.get_revision(round_record.id),
     )
-    items = modules["WorkItemPlanner"](store).plan(
+    items = modules["CanonicalWorkItemPlanner"](ledger).plan(
         round_id=round_record.id,
         blueprint_target=serial_target,
         work_item_ids={
@@ -388,8 +271,8 @@ def test_serial_planner_turns_stable_topological_order_into_a_chain(tmp_path: Pa
 
 
 def test_compiler_rejects_missing_closed_and_unowned_slots_without_exception(tmp_path: Path) -> None:
-    modules, store, round_record, target = context_target(tmp_path)
-    compiler = modules["WorkItemCompiler"](store)
+    modules, ledger, round_record, target = canonical_context_target(tmp_path)
+    compiler = modules["CanonicalWorkItemCompiler"](ledger)
     common = {
         "round_id": round_record.id,
         "work_item_id": "work-invalid",
@@ -404,27 +287,37 @@ def test_compiler_rejects_missing_closed_and_unowned_slots_without_exception(tmp
         "completion_rule": "Return a Finding Pack or state why evidence is unavailable.",
     }
     with pytest.raises(modules["InvalidWorkItemError"]):
-        compiler.compile(decision_slot_id="slot-missing", **common)
+        compiler.compile(
+            decision_slot_id="slot-missing",
+            expected_revision=ledger.get_revision(round_record.id),
+            **common,
+        )
 
     invalid_hypotheses = {**common, "work_item_id": "work-unowned", "intent_hypothesis_ids": ("intent-unknown",)}
     with pytest.raises(modules["InvalidWorkItemError"]):
-        compiler.compile(decision_slot_id="slot-architecture", **invalid_hypotheses)
+        compiler.compile(
+            decision_slot_id="slot-architecture",
+            expected_revision=ledger.get_revision(round_record.id),
+            **invalid_hypotheses,
+        )
 
-    assert [artifact for artifact in store.load_round(round_record.id).artifacts if artifact.kind == "work-item"] == []
+    assert [artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "work-item"] == []
 
 
 def test_closed_slot_requires_recorded_exception_and_deferred_status(tmp_path: Path) -> None:
-    modules, store, round_record, target = context_target(tmp_path)
-    closed_slots = [dict(slot_value) for slot_value in target.payload["slots"]]
+    from research_tree.domain import thaw_json
+
+    modules, ledger, round_record, target = canonical_context_target(tmp_path)
+    closed_slots = thaw_json(target.payload)["slots"]
     next(slot_value for slot_value in closed_slots if slot_value["id"] == "slot-architecture")[
         "status"
     ] = "selected"
-    closed_target = modules["BlueprintTargetCompiler"](store).compile(
+    closed_target = modules["CanonicalBlueprintTargetCompiler"](ledger).compile(
         round_id=round_record.id,
         target_id="closed-target",
         working_brief=next(
             artifact
-            for artifact in store.load_round(round_record.id).artifacts
+            for artifact in ledger.load_run(round_record.id).artifacts
             if artifact.kind == "working-brief"
         ),
         slots=closed_slots,
@@ -434,8 +327,9 @@ def test_closed_slot_requires_recorded_exception_and_deferred_status(tmp_path: P
             "from_slot_ids": [],
             "to_slot_ids": ["slot-architecture", "slot-security"],
         },
+        expected_revision=ledger.get_revision(round_record.id),
     )
-    compiler = modules["WorkItemCompiler"](store)
+    compiler = modules["CanonicalWorkItemCompiler"](ledger)
     common = {
         "round_id": round_record.id,
         "work_item_id": "work-closed",
@@ -451,20 +345,23 @@ def test_closed_slot_requires_recorded_exception_and_deferred_status(tmp_path: P
         "completion_rule": "Return a Finding Pack or state why evidence is unavailable.",
     }
     with pytest.raises(modules["InvalidWorkItemError"]):
-        compiler.compile(**common)
+        compiler.compile(**common, expected_revision=ledger.get_revision(round_record.id))
 
     deferred = compiler.compile(
         **common,
         exception_reason="A regression report requires independent confirmation.",
         status="deferred",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     assert deferred.payload["status"] == "deferred"
     assert deferred.payload["status_reason"] == "A regression report requires independent confirmation."
 
 
 def test_status_service_appends_cancelled_and_deferred_revisions(tmp_path: Path) -> None:
-    modules, store, round_record, target = context_target(tmp_path)
-    work = modules["WorkItemPlanner"](store).plan(
+    from research_tree.domain import thaw_json
+
+    modules, ledger, round_record, target = canonical_context_target(tmp_path)
+    work = modules["CanonicalWorkItemPlanner"](ledger).plan(
         round_id=round_record.id,
         blueprint_target=target,
         work_item_ids={
@@ -473,7 +370,7 @@ def test_status_service_appends_cancelled_and_deferred_revisions(tmp_path: Path)
         },
         mode="dependency_respecting",
     )[1]
-    service = modules["WorkItemStatusService"](store)
+    service = modules["CanonicalWorkItemStatusService"](ledger)
     with pytest.raises(modules["InvalidWorkItemError"]):
         service.update(
             round_id=round_record.id,
@@ -481,18 +378,19 @@ def test_status_service_appends_cancelled_and_deferred_revisions(tmp_path: Path)
             blueprint_target=target,
             status="cancelled",
             reason="This must not cancel active research.",
+            expected_revision=ledger.get_revision(round_record.id),
         )
     brief = next(
         artifact
-        for artifact in store.load_round(round_record.id).artifacts
+        for artifact in ledger.load_run(round_record.id).artifacts
         if artifact.kind == "working-brief"
     )
     retained_slots = [
-        dict(slot_value)
-        for slot_value in target.payload["slots"]
+        slot_value
+        for slot_value in thaw_json(target.payload)["slots"]
         if slot_value["id"] != "slot-security"
     ]
-    superseding_target = modules["BlueprintTargetCompiler"](store).compile(
+    superseding_target = modules["CanonicalBlueprintTargetCompiler"](ledger).compile(
         round_id=round_record.id,
         target_id=target.id,
         working_brief=brief,
@@ -503,6 +401,7 @@ def test_status_service_appends_cancelled_and_deferred_revisions(tmp_path: Path)
             "from_slot_ids": ["slot-security"],
             "to_slot_ids": [],
         },
+        expected_revision=ledger.get_revision(round_record.id),
     )
     cancelled = service.update(
         round_id=round_record.id,
@@ -510,6 +409,7 @@ def test_status_service_appends_cancelled_and_deferred_revisions(tmp_path: Path)
         blueprint_target=superseding_target,
         status="cancelled",
         reason="The upstream architecture decision was superseded.",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     deferred = service.update(
         round_id=round_record.id,
@@ -517,6 +417,7 @@ def test_status_service_appends_cancelled_and_deferred_revisions(tmp_path: Path)
         blueprint_target=superseding_target,
         status="deferred",
         reason="Retain the cancelled evidence request for a later round.",
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
     assert [work.revision, cancelled.revision, deferred.revision] == [1, 2, 3]
