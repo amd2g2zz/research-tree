@@ -168,6 +168,146 @@ def test_failed_append_rolls_back_before_commit(tmp_path: Path, monkeypatch: pyt
     assert ledger.load_run("run-1").artifacts == ()
 
 
+def test_successor_batches_commit_both_runs_with_exact_cross_run_lineage(tmp_path: Path) -> None:
+    RunLedger, _, _ = api()
+    ledger = RunLedger(tmp_path)
+    ledger.create_run("prior")
+    source = ledger.append_artifact(
+        "prior",
+        "source",
+        "input-ledger-entry",
+        {"kind": "source"},
+        expected_revision=0,
+    )
+
+    successor, successor_artifacts, predecessor_artifacts = ledger.create_successor_with_artifact_batches(
+        predecessor_run_id="prior",
+        successor_run_id="successor",
+        successor_parent_run_id="prior",
+        expected_predecessor_revision=ledger.get_revision("prior"),
+        successor_entries=(
+            ("feedback", "input-ledger-entry", {"kind": "feedback"}, ()),
+            (
+                "lineage",
+                "feedback-lineage",
+                {"lineage_kind": "successor"},
+                (
+                    ArtifactRef("successor", "feedback", 1),
+                    ArtifactRef("prior", source.id, source.revision),
+                ),
+            ),
+        ),
+        predecessor_entries=(
+            (
+                "supersession",
+                "round-supersession",
+                {"status": "superseded"},
+                (
+                    ArtifactRef("successor", "lineage", 1),
+                    ArtifactRef("prior", source.id, source.revision),
+                ),
+            ),
+        ),
+    )
+
+    assert successor.parent_round_id == "prior"
+    assert [artifact.id for artifact in successor_artifacts] == ["feedback", "lineage"]
+    assert predecessor_artifacts[0].parent_refs == (
+        ArtifactRef("successor", "lineage", 1),
+        ArtifactRef("prior", source.id, source.revision),
+    )
+    assert ledger.get_revision("successor") == 2
+    assert ledger.get_revision("prior") == 2
+    assert [event.kind for event in ledger.load_run("successor").lineage_events] == [
+        "run-created",
+        "artifact-appended",
+        "artifact-appended",
+    ]
+    assert [event.kind for event in ledger.load_run("prior").lineage_events] == [
+        "run-created",
+        "artifact-appended",
+        "artifact-appended",
+    ]
+
+
+def test_successor_batches_reject_stale_predecessor_without_creating_child(tmp_path: Path) -> None:
+    RunLedger, LedgerConflictError, LedgerIntegrityError = api()
+    ledger = RunLedger(tmp_path)
+    ledger.create_run("prior")
+    ledger.append_artifact("prior", "source", "input-ledger-entry", {}, expected_revision=0)
+
+    with pytest.raises(LedgerConflictError, match="stale run revision"):
+        ledger.create_successor_with_artifact_batches(
+            predecessor_run_id="prior",
+            successor_run_id="successor",
+            successor_parent_run_id="prior",
+            expected_predecessor_revision=0,
+            successor_entries=(("feedback", "input-ledger-entry", {}, ()),),
+            predecessor_entries=(("supersession", "round-supersession", {}, ()),),
+        )
+
+    assert ledger.get_revision("prior") == 1
+    with pytest.raises(LedgerIntegrityError, match="run does not exist: successor"):
+        ledger.load_run("successor")
+
+
+def test_successor_batches_roll_back_both_runs_before_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    RunLedger, _, LedgerIntegrityError = api()
+    ledger = RunLedger(tmp_path)
+    ledger.create_run("prior")
+    source = ledger.append_artifact("prior", "source", "input-ledger-entry", {}, expected_revision=0)
+    before = ledger.load_run("prior")
+    monkeypatch.setattr(ledger, "_before_commit", lambda: (_ for _ in ()).throw(RuntimeError("injected")))
+
+    with pytest.raises(RuntimeError, match="injected"):
+        ledger.create_successor_with_artifact_batches(
+            predecessor_run_id="prior",
+            successor_run_id="successor",
+            successor_parent_run_id="prior",
+            expected_predecessor_revision=ledger.get_revision("prior"),
+            successor_entries=(("feedback", "input-ledger-entry", {}, ()),),
+            predecessor_entries=(
+                (
+                    "supersession",
+                    "round-supersession",
+                    {},
+                    (ArtifactRef("prior", source.id, source.revision),),
+                ),
+            ),
+        )
+
+    assert ledger.load_run("prior") == before
+    with pytest.raises(LedgerIntegrityError, match="run does not exist: successor"):
+        ledger.load_run("successor")
+
+
+def test_successor_batches_roll_back_if_a_later_parent_is_invalid(tmp_path: Path) -> None:
+    RunLedger, _, LedgerIntegrityError = api()
+    ledger = RunLedger(tmp_path)
+    ledger.create_run("prior")
+    before = ledger.load_run("prior")
+
+    with pytest.raises(LedgerIntegrityError, match="artifact parent does not exist"):
+        ledger.create_successor_with_artifact_batches(
+            predecessor_run_id="prior",
+            successor_run_id="successor",
+            successor_parent_run_id="prior",
+            expected_predecessor_revision=0,
+            successor_entries=(
+                ("feedback", "input-ledger-entry", {}, ()),
+                ("lineage", "feedback-lineage", {}, (ArtifactRef("prior", "missing", 1),)),
+            ),
+            predecessor_entries=(("supersession", "round-supersession", {}, ()),),
+        )
+
+    assert ledger.load_run("prior") == before
+    with pytest.raises(LedgerIntegrityError, match="run does not exist: successor"):
+        ledger.load_run("successor")
+
+
 def test_concurrent_readers_see_committed_snapshots(tmp_path: Path) -> None:
     RunLedger, _, _ = api()
     ledger = RunLedger(tmp_path)

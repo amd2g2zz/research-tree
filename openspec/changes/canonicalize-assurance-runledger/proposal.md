@@ -16,8 +16,11 @@ prior-version runtime reachable and would misstate the retirement claim.
 - Packet H replaces the public `AssuranceStrategySelector` and
   `AssuranceAdapterRunner` with direct `RunLedger` implementations named
   `CanonicalAssuranceStrategySelector` and `CanonicalAssuranceAdapterRunner`.
-- Every replacement write requires an explicit expected run revision; no
-  packet changes `RunLedger` or introduces a compatibility store.
+- Every ordinary replacement write requires an explicit expected run revision.
+  Packet K adds one dedicated `RunLedger` transaction for feedback successors:
+  it compares the predecessor revision, creates one successor run, and writes
+  ordered successor and predecessor artifact batches in one SQLite commit.
+  It accepts no callback or arbitrary SQL and introduces no compatibility store.
 - Migrate retained consumers to direct canonical contracts before removing
   their legacy compiler, service, export, test fixture, documentation, and
   generated-package references.
@@ -27,8 +30,11 @@ prior-version runtime reachable and would misstate the retirement claim.
 
 ## Non-Goals
 
-- Do not change `RunLedger`, create a storage adapter, retain an alias, or
-  introduce a dual store, fallback parser, migration, or compatibility reader.
+- Do not alter existing `RunLedger` write methods or schema, create a storage
+  adapter, retain an alias, or introduce a dual store, fallback parser,
+  migration, or compatibility reader. The dedicated Packet K transaction is
+  limited to one new successor and its exact predecessor, and is not a general
+  transaction or callback surface.
 - Do not delete a legacy surface while a retained current runtime consumer is
   still present; each packet must first establish its direct canonical
   replacement or retire the complete unreachable feature boundary.

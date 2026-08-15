@@ -24,6 +24,15 @@ Finding Pack and evidence parent references.
 The source observation remains the existing bounded four-field assurance
 record. It is validated directly; no prior-version payload parser is retained.
 
+Packet K requires a narrowly scoped successor transaction because a feedback
+transition writes to both the predecessor and a newly created successor. The
+transaction checks the predecessor's expected revision, rejects a duplicate
+successor identifier, writes `run-created`, appends ordered successor
+artifacts, appends ordered predecessor artifacts, and advances both revisions
+before a single commit. Entries may refer to an earlier entry in either ordered
+batch or to an existing immutable artifact. No existing ledger method changes
+and no generic callback or arbitrary SQL is exposed.
+
 ## Risks
 
 `RunLedger.append_artifact` has a HIGH graph blast radius (25 direct callers,
@@ -31,6 +40,10 @@ record. It is validated directly; no prior-version payload parser is retained.
 The affected assurance classes, legacy decision compiler, canonical decision
 compiler, and canonical fixture are each MEDIUM risk; focused behavior and
 stale-revision tests run before the full suite.
+
+The successor transaction is additive, but `RunLedger` as a class is HIGH risk.
+Its tests cover stale predecessor CAS, duplicate or invalid input, and a
+pre-commit fault injection to prove neither run observes a partial state.
 
 ## Migration
 

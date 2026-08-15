@@ -68,7 +68,7 @@ diff 2,500–3,500 lines across 14–18 files.
 
 | Direct consumer | Canonical replacement status | Required action |
 | --- | --- | --- |
-| `feedback.py:FeedbackRoundService` | none | Replace successor-round/copy behavior with direct immutable ledger artifacts; prohibit the temporary `RunStore(staged_root)` path. |
+| `feedback.py:FeedbackRoundService` | none | Replace successor-round/copy behavior with direct immutable ledger artifacts and one restricted predecessor-CAS/successor-create transaction; prohibit the temporary `RunStore(staged_root)` path. |
 | `tree_state.py:ResearchTreeStateService` | none | Replace with direct canonical state artifacts and explicit revisions. |
 | `recursive_search.py:RecursiveResearchCoordinator` tests | no canonical tree-state service | Migrate after tree-state replacement; the coordinator must never receive a compatibility store. |
 | `alignment_handoff.py` | depends on tree-state replacement | Migrate after the canonical state writer exists. |
