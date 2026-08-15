@@ -24,7 +24,7 @@
 
 - [ ] K.1 Replace feedback successor-copy behavior with direct ledger artifacts.
 - [ ] K.2 Replace tree-state persistence and migrate recursive-search consumers.
-- [ ] K.3 Rewrite alignment handoff after canonical tree state exists.
+- [x] K.3 Rewrite alignment handoff after canonical tree state exists.
 
 ## L. Active Contracts and Generated Hosts
 
