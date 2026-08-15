@@ -29,6 +29,34 @@ def test_canonical_input_intake_service_is_public() -> None:
     assert CanonicalInputIntakeService.__name__ == "CanonicalInputIntakeService"
 
 
+def test_canonical_work_item_compiler_requires_current_revision(tmp_path) -> None:
+    from research_tree import ArtifactRef, CanonicalWorkItemCompiler, LedgerConflictError
+
+    ledger, _resolver, _record, _model, _brief, target, *_rest = canonical_context(tmp_path)
+    compiler = CanonicalWorkItemCompiler(ledger)
+    expected_revision = ledger.get_revision(RUN_ID)
+    arguments = {
+        "round_id": RUN_ID,
+        "work_item_id": "work-item-next",
+        "blueprint_target": target,
+        "decision_slot_id": "slot-isolation",
+        "kind": "repository_analysis",
+        "scope": "Inspect the first canonical isolation boundary.",
+        "exclusions": "Do not close the decision slot.",
+        "decision_change_reason": "The result can revise the chosen boundary.",
+        "depends_on": (),
+        "methods": ("repository_inspection",),
+        "budget": {"tool_calls": 4, "time": "bounded"},
+        "completion_rule": "Return a bounded Finding Pack.",
+    }
+
+    written = compiler.compile(**arguments, expected_revision=expected_revision)
+
+    assert written.parent_refs == (ArtifactRef(RUN_ID, target.id, target.revision),)
+    with pytest.raises(LedgerConflictError):
+        compiler.compile(**{**arguments, "work_item_id": "work-item-stale"}, expected_revision=expected_revision)
+
+
 def test_canonical_input_intake_requires_current_revision_and_persists_bundle_lineage(tmp_path) -> None:
     from research_tree import ArtifactRef, CanonicalInputIntakeService, LedgerConflictError, RunLedger
 

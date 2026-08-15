@@ -40,6 +40,7 @@ from .decision_map import (
     CanonicalBlueprintTargetCompiler,
     InvalidBlueprintTargetError,
 )
+from .work_items import CanonicalWorkItemCompiler
 from .delivery import (
     CanonicalDeliveryCompiler,
     DeliveryArtifacts,
@@ -496,6 +497,7 @@ __all__ = [
     "FAILURE_CATEGORY_GATES",
     "InputIntakeService",
     "CanonicalInputIntakeService",
+    "CanonicalWorkItemCompiler",
     "CanonicalIntentModelCompiler",
     "CanonicalWorkingBriefCompiler",
     "IntentError",

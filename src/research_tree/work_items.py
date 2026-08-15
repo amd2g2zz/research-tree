@@ -14,6 +14,7 @@ from .domain import (
     validate_identifier,
 )
 from .storage import RunStore
+from .run_ledger import RunLedger
 
 
 WORK_ITEM_KIND = "work-item"
@@ -137,6 +138,109 @@ class WorkItemCompiler:
             WORK_ITEM_KIND,
             payload,
             parent_refs=(target_ref, *dependency_refs),
+        )
+
+
+class CanonicalWorkItemCompiler:
+    """Persist bounded research work directly in the canonical RunLedger."""
+
+    def __init__(self, ledger: RunLedger) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidWorkItemError("canonical Work Item compiler requires a RunLedger")
+        self._ledger = ledger
+
+    def compile(
+        self,
+        *,
+        round_id: str,
+        work_item_id: str,
+        blueprint_target: ArtifactRevision,
+        decision_slot_id: str,
+        kind: str,
+        scope: str,
+        exclusions: str,
+        decision_change_reason: str,
+        depends_on: Sequence[str],
+        methods: Sequence[str],
+        budget: Mapping[str, Any],
+        completion_rule: str,
+        expected_revision: int,
+        intent_hypothesis_ids: Sequence[str] | None = None,
+        status: str | None = None,
+        exception_reason: str | None = None,
+    ) -> ArtifactRevision:
+        """Validate a bounded task before appending it with an exact revision."""
+
+        try:
+            snapshot = self._ledger.load_run(round_id)
+            _ensure_round_accepts_normal_work(snapshot.artifacts)
+            validate_identifier(work_item_id, "work_item_id")
+            _ensure_work_id_compatibility(snapshot.artifacts, work_item_id)
+            target = _resolve_exact_target(snapshot.artifacts, blueprint_target)
+            if target.round_id != round_id:
+                raise InvalidWorkItemError("blueprint_target must belong to work item round")
+            slot_id = _identifier(decision_slot_id, "decision_slot_id")
+            slot = _target_slot(target, slot_id)
+            target_hypotheses = _identifier_sequence(
+                slot.get("intent_hypothesis_ids"), "slot intent_hypothesis_ids"
+            )
+            hypotheses = (
+                target_hypotheses
+                if intent_hypothesis_ids is None
+                else _identifier_sequence(intent_hypothesis_ids, "intent_hypothesis_ids")
+            )
+            if not set(hypotheses) <= set(target_hypotheses):
+                raise InvalidWorkItemError(
+                    "Work Item intent hypotheses must be owned by its Decision Slot"
+                )
+            normalized_dependencies, dependency_artifacts = _resolve_dependencies(
+                snapshot.artifacts,
+                round_id,
+                work_item_id,
+                depends_on,
+                target,
+            )
+            normalized_status, status_reason = _normalize_initial_status(
+                slot,
+                normalized_dependencies,
+                status,
+                exception_reason,
+            )
+            payload = {
+                "id": work_item_id,
+                "round_id": round_id,
+                "blueprint_target_id": target.id,
+                "decision_slot_id": slot_id,
+                "intent_hypothesis_ids": list(hypotheses),
+                "kind": _enum(kind, "kind", WORK_KINDS),
+                "scope": _nonempty_string(scope, "scope"),
+                "exclusions": _nonempty_string(exclusions, "exclusions"),
+                "decision_change_reason": _nonempty_string(
+                    decision_change_reason, "decision_change_reason"
+                ),
+                "depends_on": list(normalized_dependencies),
+                "methods": list(_enum_sequence(methods, "methods", WORK_METHODS)),
+                "budget": _normalize_budget(budget),
+                "completion_rule": _nonempty_string(completion_rule, "completion_rule"),
+                "expected_finding_pack": _expected_finding_pack(),
+                "status": normalized_status,
+                "status_reason": status_reason,
+            }
+        except (InvalidIdentifierError, TypeError, ValueError) as error:
+            raise InvalidWorkItemError(str(error)) from error
+
+        target_ref = ArtifactRef(round_id, target.id, target.revision)
+        dependency_refs = tuple(
+            ArtifactRef(round_id, artifact.id, artifact.revision)
+            for artifact in dependency_artifacts
+        )
+        return self._ledger.append_artifact(
+            round_id,
+            work_item_id,
+            WORK_ITEM_KIND,
+            payload,
+            parent_refs=(target_ref, *dependency_refs),
+            expected_revision=expected_revision,
         )
 
 
