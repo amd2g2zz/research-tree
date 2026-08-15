@@ -788,6 +788,17 @@ def _worktree_payload(record: WorktreeRecord) -> dict[str, Any]:
     }
 
 
+def _approved_exception_from_event(pull_request: Mapping[str, object]) -> bool:
+    labels = pull_request.get("labels")
+    if not isinstance(labels, list):
+        return False
+    return any(
+        isinstance(label, Mapping)
+        and label.get("name") == "delivery:oversized-approved"
+        for label in labels
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     change_root = _default_change_root()
     parser = argparse.ArgumentParser(description="Validate issue-isolated delivery")
@@ -878,6 +889,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             head = args.head
             title = args.title
             body = args.body
+            approved_exception = args.approved_exception
             if args.event is not None:
                 event = _load_json(args.event)
                 pull_request = event.get("pull_request")
@@ -887,6 +899,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 head = pull_request.get("head", {}).get("ref")
                 title = pull_request.get("title", "")
                 body = pull_request.get("body") or ""
+                approved_exception = (
+                    approved_exception
+                    or _approved_exception_from_event(pull_request)
+                )
             if not isinstance(base, str) or not isinstance(head, str):
                 raise ValueError("pull request base and head are required")
             base_ref = f"origin/{base}"
@@ -903,7 +919,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 non_generated_lines=non_generated_lines,
                 commit_file_sets=_commit_file_sets(args.repo, base_ref),
                 added_files=_added_paths(args.repo, base_ref),
-                approved_exception=args.approved_exception,
+                approved_exception=approved_exception,
                 release_derived_from_dev=(
                     _is_ancestor(
                         args.repo,

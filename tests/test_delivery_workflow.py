@@ -8,6 +8,7 @@ import pytest
 
 from research_tree.delivery_workflow import (
     WorktreeRecord,
+    _approved_exception_from_event,
     _canonical_worktree_path,
     _parse_worktree_porcelain,
     classify_cleanup,
@@ -312,6 +313,59 @@ def test_review_threshold_warns_and_approved_exception_allows_hard_limit() -> No
     )
     assert excepted.passed is True
     assert excepted.warnings == ("split_review_required",)
+
+
+def test_only_exact_oversized_approval_label_enables_event_exception() -> None:
+    assert _approved_exception_from_event({}) is False
+    assert _approved_exception_from_event({"labels": "delivery:oversized-approved"}) is False
+    assert (
+        _approved_exception_from_event(
+            {"labels": [{"name": "delivery:oversized-requested"}]}
+        )
+        is False
+    )
+    assert (
+        _approved_exception_from_event(
+            {
+                "labels": [
+                    {"name": "priority:P0"},
+                    {"name": "delivery:oversized-approved"},
+                ]
+            }
+        )
+        is True
+    )
+
+
+def test_check_pr_cli_reads_oversized_approval_from_event(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repository = make_repository(tmp_path)
+    oversized = repository / "oversized.txt"
+    oversized.write_text("line\n" * 1501, encoding="utf-8")
+    git(repository, "add", "oversized.txt")
+    git(repository, "commit", "-m", "oversized change")
+    git(repository, "update-ref", "refs/remotes/origin/dev", "dev")
+    event = tmp_path / "event.json"
+    event.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "base": {"ref": "dev"},
+                    "head": {"ref": "chore/issue-88-dev-governance"},
+                    "title": "chore: establish delivery governance",
+                    "body": "Closes #88",
+                    "labels": [{"name": "delivery:oversized-approved"}],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert main(["check-pr", "--repo", str(repository), "--event", str(event)]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["passed"] is True
+    assert payload["warnings"] == ["split_review_required"]
 
 
 def test_pull_request_gate_requires_generated_output_commit_separation() -> None:
