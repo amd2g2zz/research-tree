@@ -954,20 +954,7 @@
     },
     {
       "group": 84,
-      "state": "verified",
-      "evidence_refs": [
-        "local://.research-tree/verification-runs/issue-150/group-84-receipt.json"
-      ],
-      "command_receipt": {
-        "command": "uv run pytest -q tests/test_cli.py tests/test_host_event_protocol.py tests/test_completion_manifold.py tests/test_runtime_discoverability.py tests/test_legacy_runtime_absence.py tests/test_skill_packages.py && uv run ruff check src/research_tree/cli.py tests/test_cli.py && uv run ruff format --check src/research_tree/cli.py tests/test_cli.py && openspec validate publish-canonical-coordinator-cli --strict && uv run python scripts/check_openspec_governance.py && uv run python scripts/check_docs.py && uv run python scripts/build_skill_packages.py --check",
-        "exit_code": 0,
-        "environment_digest": "d7376b615db9b16aa41392640c306aa22d65d89dc56f24df6f3e602ad2b0e560",
-        "output_digest": "d6b6a6413399af56b689861235a7941833f6732126369e65caba238145d2edb8",
-        "source_revision": "4ea2d58bc9382125f33488f5bc3551910e979175",
-        "raw_output_ref": ".research-tree/verification-runs/issue-150/group-84-output.txt",
-        "recorded_at": "2026-08-15T09:02:06.226486+00:00"
-      },
-      "rollback": "revert the current-only CLI route in Git; do not restore a legacy command, alias, adapter, generic dispatcher, migration, compatibility reader, fallback, dual store, or user-data operation"
+      "state": "planned"
     }
   ]
 }
