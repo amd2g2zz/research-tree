@@ -66,6 +66,23 @@
     { "capability": "canonical-readiness-test-fixtures", "source_modules": ["tests/canonical_finding_fixture.py", "tests/test_readiness.py", "tests/test_strict_evidence_decision_boundary.py", "tests/test_readiness_findingpack_lineage.py", "tests/test_risk_verification.py", "tests/test_evaluation_suite.py"], "public_surface": [], "task_groups": [80], "github_issue": "#181", "owner": "runtime" },
     { "capability": "canonical-findingpack-parent-acceptance", "source_modules": ["tests/test_findingpack_parent_acceptance.py"], "public_surface": [], "task_groups": [81], "github_issue": "#171", "owner": "runtime" },
     { "capability": "runstore-openspec-export-removal", "source_modules": ["src/research_tree/__init__.py", "tests/test_runstore_openspec_export_removal.py"], "public_surface": [], "task_groups": [82], "github_issue": "#176", "owner": "runtime" }
+    , {
+      "capability": "strict-evidence-admission",
+      "source_modules": [
+        "src/research_tree/evidence.py",
+        "src/research_tree/ledger.py",
+        "tests/test_strict_evidence_admission.py",
+        "tests/test_evidence_contract.py"
+      ],
+      "public_surface": [
+        "research_tree.EvidenceAnchor",
+        "research_tree.EvidenceArtifact",
+        "research_tree.EvidenceResolver"
+      ],
+      "task_groups": [83],
+      "github_issue": "#168",
+      "owner": "runtime"
+    }
   ],
   "release_rule": "A capability row is not evidence of implementation. The generated requirement rows, tests, and immutable release manifest must all resolve before status becomes verified."
 }

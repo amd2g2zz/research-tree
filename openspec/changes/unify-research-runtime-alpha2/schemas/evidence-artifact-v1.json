@@ -23,7 +23,7 @@
     "limitations": { "type": "array", "items": { "type": "string" } },
     "license_note": { "type": ["string", "null"] },
     "extractor_version": { "type": "string", "minLength": 1 },
-    "status": { "type": "string", "enum": ["active", "superseded", "rejected", "quarantined", "legacy_unverified"] },
+    "status": { "type": "string", "enum": ["active", "superseded", "rejected", "quarantined"] },
     "evidence_class": { "type": "string", "minLength": 1 },
     "metadata": { "type": "object" }
   }

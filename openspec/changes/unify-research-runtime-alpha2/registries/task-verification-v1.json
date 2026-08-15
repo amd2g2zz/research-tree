@@ -935,5 +935,10 @@
       },
       "rollback": "revert the removal through Git before release; do not restore an exporter, bridge, alias, compatibility reader, migration, fallback, dual state, or user-data operation"
     }
+    , {
+      "group": 83,
+      "state": "planned",
+      "rollback": "revert the strict evidence-admission cutover in Git; do not restore a legacy parser, artifact map, provenance helper, adapter, alias, fallback, migration, or dual evidence state"
+    }
   ]
 }

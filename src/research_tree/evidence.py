@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
-from urllib.parse import urlsplit
 from typing import Any, Mapping
 
 from .content_store import ContentAddressedStore, ContentObject, ContentStoreError
@@ -16,7 +15,7 @@ from .run_ledger import LedgerError, RunLedger
 
 SELECTOR_TYPES = {"line", "symbol", "fragment", "page_section", "image_region", "input_revision", "experiment_field"}
 CONFIDENCES = {"low", "medium", "high"}
-STATUSES = {"active", "superseded", "rejected", "quarantined", "legacy_unverified"}
+STATUSES = {"active", "superseded", "rejected", "quarantined"}
 EVIDENCE_ARTIFACT_KIND = "evidence-artifact"
 EVIDENCE_SCHEMA_VERSION = 1
 
@@ -55,9 +54,9 @@ class EvidenceArtifact:
     limitations: tuple[str, ...]
     status: str
     extractor_version: str
+    evidence_class: str
     source_revision: str | None = None
     license_note: str | None = None
-    evidence_class: str = "legacy_unspecified"
     metadata: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -183,7 +182,7 @@ class EvidenceAnchor:
     applicability: str
     confidence: str
     limitations: tuple[str, ...]
-    artifact_ref: ArtifactRef | None = None
+    artifact_ref: ArtifactRef
 
     def __post_init__(self) -> None:
         _digest(self.artifact_digest, "artifact_digest")
@@ -200,15 +199,14 @@ class EvidenceAnchor:
             raise EvidenceValidationError("invalid confidence")
         if not isinstance(self.limitations, tuple) or any(not isinstance(x, str) for x in self.limitations):
             raise EvidenceValidationError("limitations must be a tuple of strings")
-        if self.artifact_ref is not None:
-            if not isinstance(self.artifact_ref, ArtifactRef):
-                raise EvidenceValidationError("artifact_ref must be an ArtifactRef")
-            if self.artifact_ref.revision != self.artifact_revision:
-                raise EvidenceValidationError("artifact_ref revision does not match artifact_revision")
+        if not isinstance(self.artifact_ref, ArtifactRef):
+            raise EvidenceValidationError("artifact_ref must be an ArtifactRef")
+        if self.artifact_ref.revision != self.artifact_revision:
+            raise EvidenceValidationError("artifact_ref revision does not match artifact_revision")
 
     @property
     def is_strict(self) -> bool:
-        return self.artifact_ref is not None
+        return True
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -221,14 +219,11 @@ class EvidenceAnchor:
             "confidence": self.confidence,
             "limitations": list(self.limitations),
         }
-        if self.artifact_ref is None:
-            payload["legacy_unverified"] = True
-        else:
-            payload["artifact_ref"] = self.artifact_ref.to_dict()
+        payload["artifact_ref"] = self.artifact_ref.to_dict()
         return payload
 
     @classmethod
-    def from_dict(cls, value: Mapping[str, Any], *, allow_legacy: bool = False) -> "EvidenceAnchor":
+    def from_dict(cls, value: Mapping[str, Any]) -> "EvidenceAnchor":
         if not isinstance(value, Mapping):
             raise EvidenceValidationError("evidence anchor must be a mapping")
         common = {
@@ -236,14 +231,9 @@ class EvidenceAnchor:
             "extractor_version", "applicability", "confidence", "limitations",
         }
         keys = set(value)
-        if keys == common | {"artifact_ref"}:
-            artifact_ref = ArtifactRef.from_dict(value["artifact_ref"])
-        elif keys == common | {"legacy_unverified"} and value["legacy_unverified"] is True:
-            if not allow_legacy:
-                raise EvidenceValidationError("legacy anchor requires an explicit compatibility reader")
-            artifact_ref = None
-        else:
+        if keys != common | {"artifact_ref"}:
             raise EvidenceValidationError("evidence anchor has unexpected fields")
+        artifact_ref = ArtifactRef.from_dict(value["artifact_ref"])
         limitations = value["limitations"]
         if isinstance(limitations, (str, bytes)) or not isinstance(limitations, (list, tuple)):
             raise EvidenceValidationError("anchor limitations must be a sequence")
@@ -300,34 +290,22 @@ def _validate_selector(kind: str, value: Mapping[str, object]) -> None:
         _text(value.get("field"), "experiment_field.field")
 
 
-def provenance_group_for(locator: str, explicit: str | None = None) -> str:
-    """Normalize same-origin URLs and their derivatives into one provenance group."""
-    if explicit:
-        return _text(explicit, "provenance_group")
-    parsed = urlsplit(_text(locator, "locator"))
-    if parsed.scheme and parsed.netloc:
-        return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
-    return sha256(locator.encode("utf-8")).hexdigest()[:16]
-
-
 class EvidenceResolver:
-    """Resolve legacy evidence maps or canonical ledger-backed evidence."""
+    """Resolve canonical ledger-backed evidence."""
 
     def __init__(
         self,
         store: ContentAddressedStore,
-        artifacts: Mapping[str, EvidenceArtifact] | None = None,
         *,
-        ledger: RunLedger | None = None,
+        ledger: RunLedger,
         workspace: str | Path | None = None,
         repository_revisions: Mapping[str, str] | None = None,
     ) -> None:
         if not isinstance(store, ContentAddressedStore):
             raise EvidenceValidationError("EvidenceResolver requires a ContentAddressedStore")
-        if ledger is not None and not isinstance(ledger, RunLedger):
+        if not isinstance(ledger, RunLedger):
             raise EvidenceValidationError("ledger must be a RunLedger")
         self.store = store
-        self.artifacts = dict(artifacts or {})
         self.ledger = ledger
         self.workspace = Path(workspace or store.workspace).resolve()
         self.repository_revisions = dict(repository_revisions or {})
@@ -351,35 +329,24 @@ class EvidenceResolver:
     def resolve(self, anchor: EvidenceAnchor):
         if not isinstance(anchor, EvidenceAnchor):
             raise EvidenceValidationError("anchor must be an EvidenceAnchor")
-        strict = self.ledger is not None
-        if strict:
-            artifact = self._resolve_ledger_artifact(anchor)
-        else:
-            artifact = self.artifacts.get(anchor.artifact_digest)
-            if artifact is None or artifact.revision != anchor.artifact_revision:
-                raise EvidenceValidationError("anchor does not reference an exact artifact revision")
+        artifact = self._resolve_ledger_artifact(anchor)
         if artifact.status != "active":
             raise EvidenceValidationError("anchor references inactive evidence")
-        if strict and artifact.evidence_class == "legacy_unspecified":
+        if artifact.evidence_class == "legacy_unspecified":
             raise EvidenceValidationError("evidence class is not authoritative")
         if artifact.extractor_version != anchor.extractor_version:
             raise EvidenceValidationError("extractor version mismatch")
-        self._validate_locator(artifact, strict=strict)
+        self._validate_locator(artifact)
         try:
-            if strict:
-                assert self.ledger is not None
-                assert anchor.artifact_ref is not None
-                content = self.ledger.get_bound_content(anchor.artifact_ref)
-                if content.digest != artifact.content_digest:
-                    raise EvidenceValidationError("ledger binding does not match evidence digest")
-                data = self.ledger.resolve_content(anchor.artifact_ref, self.store)
-            else:
-                data = self.store.read(artifact.content_digest)
+            content = self.ledger.get_bound_content(anchor.artifact_ref)
+            if content.digest != artifact.content_digest:
+                raise EvidenceValidationError("ledger binding does not match evidence digest")
+            data = self.ledger.resolve_content(anchor.artifact_ref, self.store)
         except (ContentStoreError, LedgerError, OSError) as error:
             raise EvidenceValidationError("evidence content is missing or changed") from error
         if len(data) != artifact.size_bytes or sha256(data).hexdigest() != artifact.content_digest:
             raise EvidenceValidationError("evidence content integrity check failed")
-        self._validate_selector_bounds(anchor, artifact, data, strict=strict)
+        self._validate_selector_bounds(anchor, artifact, data)
         return type(
             "ResolvedEvidence",
             (),
@@ -392,9 +359,6 @@ class EvidenceResolver:
         )()
 
     def _resolve_ledger_artifact(self, anchor: EvidenceAnchor) -> EvidenceArtifact:
-        if anchor.artifact_ref is None:
-            raise EvidenceValidationError("strict anchor requires an exact artifact_ref")
-        assert self.ledger is not None
         try:
             revision = self.ledger.get_artifact(anchor.artifact_ref)
             artifact = EvidenceArtifact.from_revision(anchor.artifact_ref, revision)
@@ -408,7 +372,7 @@ class EvidenceResolver:
             raise EvidenceValidationError("anchor references a stale evidence revision")
         return artifact
 
-    def _validate_locator(self, artifact: EvidenceArtifact, *, strict: bool) -> None:
+    def _validate_locator(self, artifact: EvidenceArtifact) -> None:
         locator_path = artifact.locator.get("path")
         if locator_path is None:
             return
@@ -418,9 +382,8 @@ class EvidenceResolver:
         except ValueError as error:
             raise EvidenceValidationError("repository locator escapes workspace") from error
         expected_revision = self.repository_revisions.get(locator_path)
-        if strict:
-            if artifact.source_revision is None or expected_revision is None:
-                raise EvidenceValidationError("repository source revision is unavailable")
+        if artifact.source_revision is None or expected_revision is None:
+            raise EvidenceValidationError("repository source revision is unavailable")
         if expected_revision is not None and artifact.source_revision != expected_revision:
             raise EvidenceValidationError("repository anchor does not bind inspected revision")
 
@@ -429,8 +392,6 @@ class EvidenceResolver:
         anchor: EvidenceAnchor,
         artifact: EvidenceArtifact,
         data: bytes,
-        *,
-        strict: bool,
     ) -> None:
         selector = anchor.selector_value
         if anchor.selector_type == "line":
@@ -448,18 +409,18 @@ class EvidenceResolver:
             if end > len(data):
                 raise EvidenceValidationError("fragment selector exceeds evidence bytes")
         elif anchor.selector_type == "symbol":
-            EvidenceResolver._metadata_contains(artifact, "symbols", selector["name"], strict, "symbol")
+            EvidenceResolver._metadata_contains(artifact, "symbols", selector["name"], "symbol")
         elif anchor.selector_type == "page_section":
             page_count = artifact.metadata.get("page_count")
-            if strict and not isinstance(page_count, int):
+            if not isinstance(page_count, int):
                 raise EvidenceValidationError("page selector has no declared page bound")
             if isinstance(page_count, int) and selector["page"] > page_count:
                 raise EvidenceValidationError("page selector exceeds evidence page count")
-            EvidenceResolver._metadata_contains(artifact, "sections", selector["section"], strict, "page section")
+            EvidenceResolver._metadata_contains(artifact, "sections", selector["section"], "page section")
         elif anchor.selector_type == "image_region":
             width = artifact.metadata.get("width")
             height = artifact.metadata.get("height")
-            if strict and (not isinstance(width, int) or not isinstance(height, int)):
+            if not isinstance(width, int) or not isinstance(height, int):
                 raise EvidenceValidationError("image selector has no declared dimensions")
             if isinstance(width, int) and selector["x"] + selector["width"] > width:
                 raise EvidenceValidationError("image selector exceeds evidence width")
@@ -467,23 +428,22 @@ class EvidenceResolver:
                 raise EvidenceValidationError("image selector exceeds evidence height")
         elif anchor.selector_type == "input_revision":
             revisions = artifact.metadata.get("input_revisions")
-            if strict and (not isinstance(revisions, (list, tuple, set)) or selector["revision"] not in revisions):
+            if not isinstance(revisions, (list, tuple, set)) or selector["revision"] not in revisions:
                 raise EvidenceValidationError("input revision is absent from evidence metadata")
         elif anchor.selector_type == "experiment_field":
-            EvidenceResolver._metadata_contains(artifact, "fields", selector["field"], strict, "experiment field")
+            EvidenceResolver._metadata_contains(artifact, "fields", selector["field"], "experiment field")
 
     @staticmethod
     def _metadata_contains(
         artifact: EvidenceArtifact,
         key: str,
         value: object,
-        strict: bool,
         label: str,
     ) -> None:
         values = artifact.metadata.get(key)
-        if strict and not isinstance(values, (list, tuple, set)):
+        if not isinstance(values, (list, tuple, set)):
             raise EvidenceValidationError(f"{label} has no extractor metadata")
-        if isinstance(values, (list, tuple, set)) and value not in values:
+        if value not in values:
             raise EvidenceValidationError(f"{label} is absent from evidence metadata")
 
 
