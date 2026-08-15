@@ -92,3 +92,11 @@ def test_receipt_generator_rejects_tracked_openspec_evidence_destination(tmp_pat
         generate_receipt(tmp_path, registry, 1, output, source_revision="a" * 40)
 
     assert output.exists() is False
+
+
+def test_receipt_generator_allows_issue_evaluation_run_output(tmp_path: Path) -> None:
+    from research_tree.verification_receipts import local_verification_path
+
+    output = tmp_path / ".research-tree" / "evaluation-runs" / "issue-72" / "group-24-output.txt"
+
+    assert local_verification_path(tmp_path, output) == output

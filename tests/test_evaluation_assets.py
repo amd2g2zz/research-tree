@@ -60,6 +60,7 @@ def test_registry_defines_one_canonical_root_and_non_overlapping_classes() -> No
         "black_box",
         "cross_host",
         "expert_review",
+        "claude_glm_regression",
     }
 
 

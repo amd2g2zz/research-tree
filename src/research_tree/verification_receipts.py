@@ -18,6 +18,8 @@ class VerificationReceiptError(ValueError):
 
 
 LOCAL_VERIFICATION_ROOT = Path(".research-tree/verification-runs")
+LOCAL_EVALUATION_ROOT = Path(".research-tree/evaluation-runs")
+LOCAL_OUTPUT_ROOTS = (LOCAL_VERIFICATION_ROOT, LOCAL_EVALUATION_ROOT)
 
 
 def generate_receipt(
@@ -63,18 +65,17 @@ def generate_receipt(
 
 
 def local_verification_path(repository: str | Path, candidate: str | Path) -> Path:
-    """Resolve a generated verification record within the local-only boundary."""
+    """Resolve a generated receipt record within a registered local-only boundary."""
 
     repo = Path(repository).resolve()
     path = Path(candidate)
     output = path.resolve() if path.is_absolute() else (repo / path).resolve()
     _within(repo, output)
-    try:
-        output.relative_to(repo / LOCAL_VERIFICATION_ROOT)
-    except ValueError as error:
+    if not any(_is_within(output, repo / root) for root in LOCAL_OUTPUT_ROOTS):
         raise VerificationReceiptError(
-            "receipt output must be under the local verification boundary .research-tree/verification-runs/"
-        ) from error
+            "receipt output must be under the local verification boundary: "
+            ".research-tree/verification-runs/ or .research-tree/evaluation-runs/"
+        )
     return output
 
 
@@ -124,6 +125,14 @@ def _within(root: Path, candidate: Path) -> None:
         candidate.relative_to(root)
     except ValueError as error:
         raise VerificationReceiptError("receipt output path escapes repository") from error
+
+
+def _is_within(candidate: Path, root: Path) -> bool:
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return False
+    return True
 
 
 def _sha(value: str, name: str, *, lengths: set[int]) -> None:

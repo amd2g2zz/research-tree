@@ -306,7 +306,22 @@
     },
     {
       "group": 24,
-      "state": "planned"
+      "state": "verified",
+      "evidence_refs": [
+        "evaluation/cases/claude-glm-regression-synthetic-v1.json",
+        "evaluation/results/claude-glm-regression-synthetic-v1.json",
+        "local://.research-tree/evaluation-runs/issue-72/group-24-receipt.json"
+      ],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_claude_glm_regression.py tests/test_evaluation_assets.py tests/test_verification_receipts.py && uv run ruff check evaluation/harness/claude_glm_regression.py evaluation/harness/run_claude_glm_regression.py src/research_tree/verification_receipts.py tests/test_claude_glm_regression.py tests/test_evaluation_assets.py tests/test_verification_receipts.py && uv run ruff format --check evaluation/harness/claude_glm_regression.py evaluation/harness/run_claude_glm_regression.py src/research_tree/verification_receipts.py tests/test_claude_glm_regression.py tests/test_evaluation_assets.py tests/test_verification_receipts.py && uv run python evaluation/harness/run_claude_glm_regression.py --expect-status unavailable && uv run python scripts/check_evaluation_assets.py",
+        "exit_code": 0,
+        "environment_digest": "d7376b615db9b16aa41392640c306aa22d65d89dc56f24df6f3e602ad2b0e560",
+        "output_digest": "5fc69df3584ef6294bd87a8c3e750680b2e53c2c9740fb462b13c097f0ea9812",
+        "source_revision": "e04d26119eb3b965e8fc89aea2956c68244defb9",
+        "raw_output_ref": ".research-tree/evaluation-runs/issue-72/group-24-output.txt",
+        "recorded_at": "2026-08-15T12:23:44.628619+00:00"
+      },
+      "rollback": "Revert the synthetic fixture and retain this unavailable result as non-passing evidence; do not reconstruct a source session or claim GLM causation."
     },
     {
       "group": 25,
