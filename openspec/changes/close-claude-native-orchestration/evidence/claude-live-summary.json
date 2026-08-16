@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "host": "claude-code",
+  "claude_version": "2.1.207",
+  "package_revision": "a2379bcaba428d03b4ab0ebc19f9a44871b9b19d",
+  "environment": {
+    "cwd": "/Users/mikenike/workprojects/research-tree-p0-issue-243",
+    "workspace_head": "a2379bcaba428d03b4ab0ebc19f9a44871b9b19d"
+  },
+  "agent": {
+    "status": "completed",
+    "stream_sha256": "40190f27e2f6dcfa173d8306b75f322b98a7bbc2e4bd3b4afdff50545d835c20",
+    "session_id": "95680f9e-e45f-4767-9ff9-66ad8ed63278",
+    "children": [
+      {
+        "task_id": "agent-alpha",
+        "attempt_id": "attempt-4eeda60c9c524d88840a59258daef7e1",
+        "agent_id": "a602bff436846ec9a",
+        "causation_id": "call_00_fOecVLq09mEi87RWaHnd6057",
+        "finding_sha256": "72d5de57636ce5ac1a7a469ba97b593e2b72c40dc0cd063822f401d09fbbbe0e"
+      },
+      {
+        "task_id": "agent-beta",
+        "attempt_id": "attempt-9c7d81d474994fdea81dbb3a2bcf6447",
+        "agent_id": "ab78505ba2fdbdbba",
+        "causation_id": "call_01_m9QEWgdjR3XJs6DFpm9J4211",
+        "finding_sha256": "ebc90c4244daaed0c870064814d377d540b0ddd44e9c19506a06d1acd628068a"
+      }
+    ],
+    "completion_authority": "coordinator_only"
+  },
+  "workflow": {
+    "status": "completed",
+    "run_id": "wf_18ba89a7-913",
+    "task_id": "wqv9knpd0",
+    "script_id": "workflow-only-two-phases-wf_18ba89a7-913",
+    "script_sha256": "10b780cb68154eb106344f74ddf0fe07d1dc92d08cf4bd8e440c5547d376fa2f",
+    "phase_ids": ["phase-1", "phase-2"],
+    "agent_count": 0,
+    "stream_sha256": "7b83a2e7dc690dfcc8ddc30394665b64209fa422a956c362e31213e42a486788"
+  },
+  "hybrid": {
+    "status": "completed",
+    "run_id": "wf_279bcfe1-d21",
+    "task_id": "wyiqtnuua",
+    "script_id": "bounded-two-phase-probe-wf_279bcfe1-d21",
+    "script_sha256": "ed99b102189d466c6d3fa9210112bc38a0195f5e8ab04cbbfc65105cde9fb2df",
+    "phase_ids": ["phase-1", "replan", "phase-2"],
+    "child_agent_ids": [
+      "a18775f000ea68d2d",
+      "a03429889e9f9c949",
+      "acbf3b6a492196feb"
+    ],
+    "replan_triggered": true,
+    "stream_sha256": "1efe6cc009e17c1b737b086355a1c2b1c9c770ee428de8d4af8bdcec6ee1b08f"
+  },
+  "canonical_execution_state": {
+    "project_id": "issue243green",
+    "run_id": "issue243-green",
+    "revision": 11,
+    "state_sha256": "414428582d65e2cd8182fda06aa2eb7bf1f35a6252d9cc3e007b787d330626af",
+    "task_counts": {"completed": 2, "unknown": 0},
+    "completion_authority": "coordinator_only"
+  },
+  "permission_probe": {
+    "default_mode": "denied; dynamic Workflow review blocked execution without a run ID",
+    "bypass_mode": "completed; required for this noninteractive bounded no-side-effect probe",
+    "default_stream_sha256": "e6feea1023445404578857107446627725695a9e9562373b66aab8df67d02aae"
+  }
+}

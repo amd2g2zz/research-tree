@@ -31,6 +31,9 @@ AVAILABLE = {
     "durable_resume": "available",
     "scheduled_drain": "available",
     "structured_event_transport": "available",
+    "claude-agent-children": "available",
+    "claude-native-workflow": "available",
+    "claude-hybrid-workflow": "available",
 }
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE_ADAPTER = ROOT / "scripts" / "native_execution_adapter.py"

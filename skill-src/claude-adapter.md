@@ -44,16 +44,22 @@ Follow `references/skill-activation.md`: only exact `/research-tree activation-p
   inspect decisive evidence, and reconcile contradictions before updating the
   shared ledger. Keep auto-memory and conversation resume as secondary context;
   the workspace checkpoint is authoritative after compaction or restart.
+- Dispatch an Agent only after `start`, then bind the exact returned child
+  identity with `bind-agent`. Claude Finding Pack submission fails without the
+  active attempt binding, and one child identity cannot bind two attempts. The
+  `PostToolUse:Agent` and `SubagentStop` hooks retain only sanitized opaque
+  identity fields; unmatched identity remains `unknown_outcome`.
 - After handoff, use `scripts/native_execution_adapter.py` with host argument
   `claude` for atomic task attempts, crash recovery, Finding Pack validation,
   and completion checks when Python is available. The native task list mirrors
   this state; it does not replace it.
 - Before selecting dynamic phases, run `probe-host` with explicit session
   capability observations. Build bounded phase/child projections with
-  `project-workflow`, and after restart or contradictory evidence use
-  `reconcile-host` before resuming or replanning. A failed or denied native
-  surface selects `coordinator-dispatch-v1`; never infer availability from a
-  task-list UI or reuse a stale capability digest.
+  `project-workflow`, explicitly selecting Agent, Workflow, or hybrid mode. A
+  failed or denied native surface selects `coordinator-dispatch-v1`; never infer
+  availability from a task-list UI or reuse a stale capability digest. Live
+  Workflow and hybrid claims additionally require native run/task/script
+  identity, a script digest, phase IDs, and hybrid child IDs.
 - The installed package contains `SKILL.md`, bundled references/assets, and the
   dependency-free native execution adapter. It does not contain the repository
   Python runtime, lifecycle hooks, builder, or evaluation corpus.

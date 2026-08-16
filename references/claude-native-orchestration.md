@@ -7,7 +7,10 @@ SDK and non-interactive surfaces.
 ## Preflight and project context
 
 - Inspect the active tools. `AskUserQuestion`, Agent/Task tools, teams,
-  background execution, browser/search, and task lists are session-dependent.
+  Workflow, background execution, browser/search, and task lists are
+  session-dependent. Record `claude-agent-children`,
+  `claude-native-workflow`, and `claude-hybrid-workflow` independently; none
+  implies another.
 - Read applicable `CLAUDE.md` project instructions before repository work.
 - Host permission mode, allowed/disallowed tools, network access, and workspace
   trust remain authoritative after the autonomy handoff.
@@ -69,7 +72,8 @@ adapter:
 ```bash
 python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . init --project-id <project-id> --run-id <run-id> --handoff .research-tree/projects/<project-id>/runs/<alignment-run>/alignment/handoff.json
 python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . add-task --run-id <run-id> --task-id <task-id> --decision-slot <slot> --phase landscape --artifact <finding.json>
-python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . start --run-id <run-id> --task-id <task-id> --worker-id <agent-id>
+python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . start --run-id <run-id> --task-id <task-id>
+python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . bind-agent --run-id <run-id> --task-id <task-id> --attempt-id <attempt-id> --agent-id <returned-agent-id> --session-id <session-id> --causation-id <tool-use-id>
 python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . finish --run-id <run-id> --task-id <task-id> --result submitted
 python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . verify --run-id <run-id> --task-id <task-id> --reviewer-id coordinator --checked-anchor <opened-ref> --review-note <evidence-check>
 python "<skill-dir>/scripts/native_execution_adapter.py" --host claude --workspace . status --run-id <run-id>
@@ -79,8 +83,10 @@ Resolve `<skill-dir>` from `${CLAUDE_SKILL_DIR}` when present or the injected
 Skill path, never from the task workspace. `init` requires the persisted,
 digest-confirmed handoff and copies its Decision Slots, authority, scope, and
 success oracles into durable execution state. `add-task` rejects slots absent
-from that handoff. Add dependencies with `--depends-on`
-and give each worker the `attempt_id` returned by `start`. Run `recover` after a
+from that handoff. Add dependencies with `--depends-on`. Dispatch the task, then
+bind the exact returned Agent identity to `start`'s active `attempt_id`.
+Claude submission fails without that binding, and one child identity cannot bind
+another attempt. Run `recover` after a
 crash, uncertain resume, or integrity error. It reopens corrupt artifacts and
 their executed dependents so invalid evidence cannot release new work. `finish`
 records a schema-valid submission; only the
@@ -132,11 +138,21 @@ or SubagentStop gate must be bounded, reentrancy-safe, and based on an explicit
 completion oracle. Never store prompts, child summaries, transcript content,
 tool inputs, secrets, or research evidence in hook logs.
 
+`PostToolUse:Agent` records only the returned `agentId`, session identity, and
+tool-use causation. `SubagentStop` records task, attempt, agent, session, and
+causation identity when present; incomplete identity is `unknown_outcome`.
+Neither event can complete canonical work.
+
 ## Executable workflow contract
 
 Before projecting a dynamic wave, write explicit current-session capability
 observations to workspace JSON and run `probe-host --observations <json>`. Pass
 that result with canonical actions to `project-workflow --request <json>`.
+Select `execution_mode` explicitly as `agent`, `workflow`, or `hybrid`.
+Projections remain non-authoritative; a live Workflow or hybrid claim also
+carries native run/task/script identity, script digest, at least two phase IDs,
+and child IDs for hybrid. Agent success never supplies Workflow evidence, and a
+Workflow run without child agents never supplies hybrid evidence.
 After compaction, restart, contradiction, cancellation, provider failure, or a
 permission/namespace limit, call `reconcile-host --request <json>` before retry
 or replan. Preserve `workflow_id` and `script_id`; quarantine unfinished phases
