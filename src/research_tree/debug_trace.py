@@ -17,6 +17,8 @@ from typing import Any, Iterable, Mapping, Sequence
 from .coordinator import (
     COMPLETION_RECORD_KIND,
     CONTRADICTION_PACKET_KIND,
+    CONTRADICTION_RETRACTION_KIND,
+    CONTRADICTION_SUCCESSOR_WORK_KIND,
     CORRECTION_EVENT_KIND,
     HOST_EVENT_KIND,
     HOST_EVENT_PROJECTION_KIND,
@@ -919,6 +921,8 @@ class CausalTraceService:
             reason=body.get("reason"),
         )
         quarantine_ref = state.payload.get("quarantine_ref")
+        retraction_ref = state.payload.get("retraction_ref")
+        successor_ref = state.payload.get("successor_work_ref")
         expected.update(
             {
                 "task_id": previous.payload.get("task_id"),
@@ -926,6 +930,8 @@ class CausalTraceService:
                 "contradiction_id": contradiction_id,
                 "previous_state_ref": self._artifact_ref(previous).to_dict(),
                 "quarantine_ref": thaw_json(quarantine_ref),
+                "retraction_ref": thaw_json(retraction_ref),
+                "successor_work_ref": thaw_json(successor_ref),
                 "authority_streams": thaw_json(previous.payload.get("authority_streams", {})),
             }
         )
@@ -940,6 +946,28 @@ class CausalTraceService:
             or quarantine.payload.get("contradiction_event_id") != contradiction_id
         ):
             return expected, {"reason": "contradiction_quarantine_mismatch"}
+        if not isinstance(retraction_ref, Mapping):
+            return expected, {"reason": "contradiction_retraction_reference_missing"}
+        try:
+            retraction = artifacts[ArtifactRef.from_dict(retraction_ref)]
+        except (KeyError, TypeError, ValueError):
+            return expected, {"reason": "contradiction_retraction_reference_invalid"}
+        if (
+            retraction.kind != CONTRADICTION_RETRACTION_KIND
+            or retraction.payload.get("contradiction_id") != contradiction_id
+        ):
+            return expected, {"reason": "contradiction_retraction_mismatch"}
+        if not isinstance(successor_ref, Mapping):
+            return expected, {"reason": "contradiction_successor_reference_missing"}
+        try:
+            successor = artifacts[ArtifactRef.from_dict(successor_ref)]
+        except (KeyError, TypeError, ValueError):
+            return expected, {"reason": "contradiction_successor_reference_invalid"}
+        if (
+            successor.kind != CONTRADICTION_SUCCESSOR_WORK_KIND
+            or successor.payload.get("packet_ref") != self._artifact_ref(packet).to_dict()
+        ):
+            return expected, {"reason": "contradiction_successor_mismatch"}
         expected["state_digest"] = _digest_payload(
             {key: value for key, value in expected.items() if key != "state_digest"}
         )

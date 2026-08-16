@@ -35,15 +35,27 @@ from .feedback import (
     CorrectionBinding,
     CorrectionEvent,
 )
-from .contradictions import ContradictionStatus, claim_from_mapping, derive_contradiction_packets
+from .contradictions import (
+    ClaimBoundary,
+    ContradictionDetector,
+    ContradictionStatus,
+    claim_from_mapping,
+    render_contradiction_packet,
+)
 from .run_ledger import LedgerConflictError, RunLedger
 from .source_capture import ACQUISITION_RECEIPT_KIND, ANALYSIS_CHECKPOINT_KIND, SOURCE_CAPTURE_KIND
 from .search_portfolio import PortfolioExecution, SearchPortfolio
 
 FINDING_PACK_KIND = "finding-pack"
 CONTRADICTION_PACKET_KIND = "contradiction-packet"
+CONTRADICTION_RESOLUTION_KIND = "contradiction-resolution"
+CONTRADICTION_RETRACTION_KIND = "contradiction-retraction"
+CONTRADICTION_SUCCESSOR_WORK_KIND = "contradiction-successor-work"
+STALE_DELIVERY_CLAIM_KIND = "stale-delivery-claim"
 SEARCH_PORTFOLIO_LINEAGE_KIND = "search-portfolio-lineage"
 HUMAN_DECISION_REOPEN_KIND = "human-decision-reopen"
+TECHNICAL_PACKAGE_KIND_ALIAS = "technical-research-package"
+HUMAN_RESEARCH_REPORT_KIND = "human-research-report"
 
 
 LIFECYCLE_STATES = (
@@ -1102,6 +1114,7 @@ class ResearchRunCoordinator:
         expected_revision: int,
         durable_controller: Any | None = None,
         claim_ids: Sequence[str] | None = None,
+        boundary: ClaimBoundary | str = ClaimBoundary.ADMISSION,
     ) -> ArtifactRevision:
         """Atomically persist a material conflict and reopen its run."""
 
@@ -1123,6 +1136,7 @@ class ResearchRunCoordinator:
             if finding.round_id != run_id or not self.ledger.is_latest_artifact(reference):
                 raise CoordinatorConflictError("contradiction Finding Pack is stale or cross-run")
         claims_by_id: dict[str, tuple[dict[str, Any], ArtifactRef, Mapping[str, Any]]] = {}
+        passages: dict[str, tuple[str, ...]] = {}
         typed_claims = []
         for reference in roots:
             finding = self._load(reference, FINDING_PACK_KIND)
@@ -1131,6 +1145,7 @@ class ResearchRunCoordinator:
                 for item in finding.payload.get("claim_assessments", ())
                 if isinstance(item, Mapping) and isinstance(item.get("claim_id"), str)
             }
+            observations = finding.payload.get("observations", ())
             for raw_claim in finding.payload.get("claims", ()):
                 if not isinstance(raw_claim, Mapping):
                     raise CoordinatorConflictError("contradiction Finding Pack has invalid canonical claims")
@@ -1141,10 +1156,19 @@ class ResearchRunCoordinator:
                 if claim.claim_id in claims_by_id:
                     raise CoordinatorConflictError("contradiction claims must have distinct identifiers")
                 typed_claims.append(claim)
-                claims_by_id[claim.claim_id] = (thaw_json(raw_claim), reference, assessments.get(claim.claim_id, {}))
+                claims_by_id[claim.claim_id] = (
+                    thaw_json(raw_claim),
+                    reference,
+                    assessments.get(claim.claim_id, {}),
+                )
+                passages[claim.claim_id] = tuple(
+                    str(observation.get("claim"))
+                    for observation in observations
+                    if isinstance(observation, Mapping) and observation.get("claim_id") == claim.claim_id
+                )
         unresolved = tuple(
             packet
-            for packet in derive_contradiction_packets(typed_claims)
+            for packet in ContradictionDetector().detect(typed_claims, boundary=boundary)
             if packet.status in {ContradictionStatus.UNRESOLVED, ContradictionStatus.CONTESTED}
         )
         if claim_ids is not None:
@@ -1166,6 +1190,8 @@ class ResearchRunCoordinator:
         if existing is not None:
             if tuple(ArtifactRef.from_dict(value) for value in existing.payload.get("finding_refs", ())) != roots:
                 raise CoordinatorEventConflictError("contradiction_id_conflict")
+            if tuple(existing.payload.get("claim_ids", ())) != conflict.claim_ids:
+                raise CoordinatorEventConflictError("contradiction_claim_set_conflict")
             successor = next(
                 (
                     item
@@ -1207,20 +1233,76 @@ class ResearchRunCoordinator:
                 reachable.add(reference)
                 candidates.remove(item)
         packet_ref = ArtifactRef(run_id, contradiction_id, 1)
+        retraction_id = f"retraction-{contradiction_id}"
+        retraction_ref = ArtifactRef(run_id, retraction_id, 1)
+        successor_id = f"successor-{contradiction_id}"
+        successor_ref = ArtifactRef(run_id, successor_id, 1)
         quarantine_id = f"quarantine-{contradiction_id}"
         quarantine_ref = ArtifactRef(run_id, quarantine_id, 1)
+        execution_specs: list[tuple[str, str, dict[str, Any], tuple[ArtifactRef, ...]]] = []
+        execution_result_refs: list[ArtifactRef] = []
+        execution_effects: dict[str, str] = {}
+        stale_delivery_specs: list[tuple[str, str, dict[str, Any], tuple[ArtifactRef, ...]]] = []
+        stale_delivery_ids: list[str] = []
+        dependent_refs = tuple(
+            sorted(dependents, key=lambda reference: (reference.round_id, reference.artifact_id, reference.revision))
+        )
+        dependent_artifacts = {reference: self.ledger.get_artifact(reference) for reference in dependent_refs}
+        for reference, item in sorted(
+            dependent_artifacts.items(),
+            key=lambda pair: (pair[0].round_id, pair[0].artifact_id, pair[0].revision),
+        ):
+            if item.kind == LEASE_KIND and item.payload.get("status") == "active":
+                status = (
+                    "cancelled"
+                    if item.payload.get("execution_status") in {"unexecuted", "registered", "pending"}
+                    else "quarantined"
+                )
+                execution_effects[item.id] = status
+                execution_result_refs.append(ArtifactRef(run_id, item.id, item.revision + 1))
+                execution_specs.append(
+                    (
+                        item.id,
+                        LEASE_KIND,
+                        {
+                            **dict(item.payload),
+                            "status": status,
+                            "contradiction_id": contradiction_id,
+                        },
+                        (reference,),
+                    )
+                )
+            if item.kind in {TECHNICAL_PACKAGE_KIND_ALIAS, HUMAN_RESEARCH_REPORT_KIND}:
+                stale_delivery_ids.append(item.id)
+                stale_delivery_specs.append(
+                    (
+                        f"stale-{item.id}",
+                        STALE_DELIVERY_CLAIM_KIND,
+                        {
+                            "contradiction_id": contradiction_id,
+                            "delivery_ref": reference.to_dict(),
+                            "status": "stale",
+                        },
+                        (reference,),
+                    )
+                )
         packet = {
             "contradiction_id": contradiction_id,
             "run_id": run_id,
             "finding_refs": [reference.to_dict() for reference in roots],
             "claim_ids": list(conflict.claim_ids),
             "conflicting_values": list(conflict.conflicting_values),
+            "unresolved_dimensions": list(conflict.unresolved_dimensions),
+            "scope_dimensions": [result.to_dict() for result in conflict.scope_dimensions],
+            "normalized_claims": [dict(value) for value in conflict.normalized_claims],
+            "boundary": ClaimBoundary(boundary).value,
             "claim_a": claims_by_id[conflict.claim_ids[0]][0],
             "claim_b": claims_by_id[conflict.claim_ids[1]][0],
             "claim_a_ref": claims_by_id[conflict.claim_ids[0]][1].to_dict(),
             "claim_b_ref": claims_by_id[conflict.claim_ids[1]][1].to_dict(),
             "source_refs": {
                 claim_id: {
+                    "passages": list(passages.get(claim_id, ())),
                     "grounding_refs": thaw_json(claims_by_id[claim_id][2].get("grounding_refs", ())),
                     "provenance_clusters": thaw_json(claims_by_id[claim_id][2].get("provenance_clusters", ())),
                 }
@@ -1243,6 +1325,51 @@ class ResearchRunCoordinator:
             "reason": reason.strip(),
             "status": conflict.status.value,
             "resolution_path": "independent-experiment-or-scope-separation",
+            "safe_fallback": "Retain the explicitly recorded reversible fallback until resolution.",
+            "invalidated_refs": [reference.to_dict() for reference in dependent_refs],
+        }
+        packet["packet_digest"] = _digest(packet)
+        packet["rendered"] = render_contradiction_packet(packet)
+        successor = {
+            "contradiction_id": contradiction_id,
+            "packet_ref": packet_ref.to_dict(),
+            "source_refs": [reference.to_dict() for reference in roots],
+            "original_revision_refs": [reference.to_dict() for reference in roots],
+            "method": "independent-source-or-revision-or-executable-experiment",
+            "method_independence": "The successor must not reuse the disputed extraction or provenance cluster.",
+            "oracle": "Resolve every disputed scope dimension or produce an executable counterexample.",
+            "safe_fallback": packet["safe_fallback"],
+            "blocks": ["decision", "readiness", "delivery", "closure", "task_release", "completion"],
+        }
+        invalidated_refs = [reference.to_dict() for reference in dependent_refs]
+        retraction = {
+            "contradiction_id": contradiction_id,
+            "claim_ids": list(conflict.claim_ids),
+            "retraction_digest": _digest({"contradiction_id": contradiction_id, "claim_ids": list(conflict.claim_ids)}),
+            "invalidated_refs": invalidated_refs,
+            "revoked_decisions": [
+                reference.to_dict()
+                for reference in dependent_refs
+                if dependent_artifacts[reference].kind == "decision-ledger-entry"
+            ],
+            "stale_readiness": [
+                reference.to_dict()
+                for reference in dependent_refs
+                if dependent_artifacts[reference].kind == "readiness-record"
+            ],
+            "stale_deliveries": [
+                reference.to_dict()
+                for reference in dependent_refs
+                if dependent_artifacts[reference].kind in {TECHNICAL_PACKAGE_KIND_ALIAS, HUMAN_RESEARCH_REPORT_KIND}
+            ],
+            "stale_delivery_claims": sorted(stale_delivery_ids),
+            "stale_closure_assessments": [
+                reference.to_dict()
+                for reference in dependent_refs
+                if dependent_artifacts[reference].kind == "slot-closure-assessment"
+            ],
+            "execution_effects": execution_effects,
+            "source_state_ref": current_ref.to_dict(),
         }
         quarantine = {
             "contradiction_event_id": contradiction_id,
@@ -1269,6 +1396,8 @@ class ResearchRunCoordinator:
                 "contradiction_id": contradiction_id,
                 "previous_state_ref": current_ref.to_dict(),
                 "quarantine_ref": quarantine_ref.to_dict(),
+                "retraction_ref": retraction_ref.to_dict(),
+                "successor_work_ref": successor_ref.to_dict(),
                 "authority_streams": thaw_json(current.payload["authority_streams"]),
             }
         )
@@ -1278,13 +1407,43 @@ class ResearchRunCoordinator:
                 run_id,
                 (
                     (contradiction_id, CONTRADICTION_PACKET_KIND, packet, (*roots,)),
+                    *execution_specs,
+                    *stale_delivery_specs,
+                    (
+                        successor_id,
+                        CONTRADICTION_SUCCESSOR_WORK_KIND,
+                        successor,
+                        (packet_ref, *roots),
+                    ),
+                    (
+                        retraction_id,
+                        CONTRADICTION_RETRACTION_KIND,
+                        retraction,
+                        (
+                            current_ref,
+                            packet_ref,
+                            successor_ref,
+                            *execution_result_refs,
+                        ),
+                    ),
                     (
                         quarantine_id,
                         STALE_STATE_QUARANTINE_KIND,
                         quarantine,
-                        (current_ref, packet_ref, *roots, *dependents),
+                        (
+                            current_ref,
+                            packet_ref,
+                            retraction_ref,
+                            *roots,
+                            *dependents,
+                        ),
                     ),
-                    ("run-state", RESEARCH_RUN_STATE_KIND, state, (current_ref, packet_ref, quarantine_ref)),
+                    (
+                        "run-state",
+                        RESEARCH_RUN_STATE_KIND,
+                        state,
+                        (current_ref, packet_ref, retraction_ref, quarantine_ref),
+                    ),
                 ),
                 expected_revision=expected_revision,
             )[-1]
@@ -1293,6 +1452,70 @@ class ResearchRunCoordinator:
         self._retract_durable_claims(durable_controller, conflict.claim_ids)
         return successor
 
+    def resolve_contradiction(
+        self,
+        *,
+        packet_ref: ArtifactRevision,
+        resolution_id: str,
+        transition: str,
+        resolver_ref: Mapping[str, Any],
+        evidence_refs: Sequence[ArtifactRevision],
+        selected_claim_ids: Sequence[str],
+        expected_revision: int,
+        prior_resolution: ArtifactRevision | None = None,
+    ) -> ArtifactRevision:
+        """Append one immutable resolution revision without changing the packet."""
+
+        validate_identifier(resolution_id, "resolution_id")
+        if transition not in {"resolved-a", "resolved-b", "both-limited", "superseded"}:
+            raise CoordinatorConflictError("contradiction_resolution_transition_invalid")
+        packet = self._load(self._artifact_ref(packet_ref), CONTRADICTION_PACKET_KIND)
+        if packet != packet_ref or packet.round_id != packet_ref.round_id:
+            raise CoordinatorConflictError("contradiction_packet_stale")
+        prior_ref = None if prior_resolution is None else self._artifact_ref(prior_resolution)
+        if prior_ref is not None:
+            prior = self._load(prior_ref, CONTRADICTION_RESOLUTION_KIND)
+            if prior != prior_resolution or prior.payload.get("packet_ref") != self._artifact_ref(packet).to_dict():
+                raise CoordinatorConflictError("contradiction_resolution_lineage_invalid")
+        if not isinstance(resolver_ref, Mapping) or not resolver_ref:
+            raise CoordinatorConflictError("contradiction_resolver_ref_required")
+        selected_set = {str(value) for value in selected_claim_ids}
+        selected = sorted(selected_set)
+        participating = {str(value) for value in packet.payload.get("claim_ids", ())}
+        if not selected_set <= participating:
+            raise CoordinatorConflictError("contradiction_resolution_claim_set_invalid")
+        if transition in {"resolved-a", "resolved-b"} and not selected or selected == participating:
+            raise CoordinatorConflictError("contradiction_resolution_claim_set_invalid")
+        if transition == "both-limited" and selected:
+            raise CoordinatorConflictError("contradiction_resolution_claim_set_invalid")
+        evidence = tuple(self._artifact_ref(item) for item in evidence_refs)
+        payload = {
+            "resolution_id": resolution_id,
+            "packet_ref": self._artifact_ref(packet).to_dict(),
+            "transition": transition,
+            "resolver_ref": dict(resolver_ref),
+            "evidence_refs": [reference.to_dict() for reference in evidence],
+            "prior_resolution_ref": None if prior_ref is None else prior_ref.to_dict(),
+            "selected_claim_ids": selected,
+            "decision_authority": transition != "superseded",
+            "authorized_claim_ids": [] if transition in {"superseded", "both-limited"} else selected,
+        }
+        try:
+            return self.ledger.append_artifact(
+                packet.round_id,
+                resolution_id,
+                CONTRADICTION_RESOLUTION_KIND,
+                payload,
+                parent_refs=tuple(
+                    reference
+                    for reference in dict.fromkeys((self._artifact_ref(packet), prior_ref, *evidence))
+                    if reference is not None
+                ),
+                expected_revision=expected_revision,
+            )
+        except LedgerConflictError as error:
+            raise CoordinatorConflictError("stale_revision") from error
+
     def detect_and_apply_contradictions(
         self,
         *,
@@ -1300,6 +1523,7 @@ class ResearchRunCoordinator:
         blueprint_target_id: str,
         decision_slot_id: str,
         expected_revision: int,
+        boundary: ClaimBoundary | str = ClaimBoundary.ADMISSION,
     ) -> tuple[ArtifactRevision, ...]:
         """Derive and persist all newly material conflicts for one canonical slot."""
 
@@ -1329,7 +1553,7 @@ class ResearchRunCoordinator:
                 finding_by_claim_id[claim.claim_id] = self._artifact_ref(finding)
         applied: list[ArtifactRevision] = []
         revision = expected_revision
-        for packet in derive_contradiction_packets(claims):
+        for packet in ContradictionDetector().detect(claims, boundary=boundary):
             if packet.status not in {ContradictionStatus.CONTESTED, ContradictionStatus.UNRESOLVED}:
                 continue
             digest = hashlib.sha256(
@@ -1339,6 +1563,18 @@ class ResearchRunCoordinator:
             finding_refs = tuple(dict.fromkeys(finding_by_claim_id[claim_id] for claim_id in packet.claim_ids))
             if len(finding_refs) < 2:
                 continue
+            existing = next(
+                (
+                    item
+                    for item in snapshot.artifacts
+                    if item.kind == CONTRADICTION_PACKET_KIND
+                    and item.id == contradiction_id
+                    and tuple(item.payload.get("claim_ids", ())) == packet.claim_ids
+                ),
+                None,
+            )
+            if existing is not None:
+                continue
             applied.append(
                 self.apply_contradiction(
                     run_id=run_id,
@@ -1347,6 +1583,7 @@ class ResearchRunCoordinator:
                     reason=packet.reason,
                     expected_revision=revision,
                     claim_ids=packet.claim_ids,
+                    boundary=boundary,
                 )
             )
             revision = self.ledger.get_revision(run_id)
@@ -2564,6 +2801,19 @@ class ResearchRunCoordinator:
             except LedgerConflictError as error:
                 raise CoordinatorConflictError("stale_revision") from error
             reconciled.append(str(item.payload["attempt_id"]))
+        for item in self.ledger.load_run(run_id).artifacts:
+            if item.kind != LEASE_KIND or item.payload.get("status") != "quarantined":
+                continue
+            latest = max(
+                (
+                    candidate
+                    for candidate in self.ledger.load_run(run_id).artifacts
+                    if candidate.id == item.id and candidate.kind == LEASE_KIND
+                ),
+                key=lambda candidate: candidate.revision,
+            )
+            if latest == item and str(item.payload["attempt_id"]) not in quarantined_attempts:
+                quarantined_attempts.append(str(item.payload["attempt_id"]))
         return {
             "run_id": run_id,
             "reconciled_attempts": sorted(reconciled),

@@ -20,7 +20,12 @@ from .domain import (
 from .intent import INTENT_MODEL_KIND, WORKING_BRIEF_KIND
 from .ledger import DECISION_LEDGER_KIND, FINDING_PACK_KIND
 from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
-from .contradictions import claim_from_mapping, unresolved_claim_ids
+from .contradictions import (
+    blocking_contradictions,
+    claim_from_mapping,
+    invalidating_contradictions,
+    unresolved_claim_ids,
+)
 from .run_ledger import RunLedger
 from .verification import (
     FAILURE_CATEGORY_GATES,
@@ -614,6 +619,38 @@ def _strict_findings_are_authoritative(
                         )
                         authoritative = False
             contested = unresolved_claim_ids(candidate_claims)
+            contradiction_artifacts = [
+                item
+                for item in resolver.ledger.load_run(decision.round_id).artifacts
+                if item.kind in {"contradiction-packet", "contradiction-resolution", "contradiction-retraction"}
+            ]
+            packet_payloads = [
+                item.payload for item in contradiction_artifacts if item.kind == "contradiction-packet"
+            ]
+            resolution_payloads = [
+                item.payload for item in contradiction_artifacts if item.kind == "contradiction-resolution"
+            ]
+            retraction_payloads = [
+                item.payload for item in contradiction_artifacts if item.kind == "contradiction-retraction"
+            ]
+            active_packets = blocking_contradictions(
+                packet_payloads, contested, resolution_payloads=resolution_payloads
+            )
+            packet_detail = "; ".join(
+                f"contradiction packet {identifier} claims {','.join(claim_ids)}"
+                for identifier, claim_ids in active_packets
+            )
+            invalidating = invalidating_contradictions(
+                retraction_payloads,
+                round_id=decision.round_id,
+                artifact_id=decision.id,
+                revision=decision.revision,
+            )
+            if invalidating:
+                raise InvalidReadinessError(
+                    f"Decision {decision.id} was invalidated by {packet_detail or 'contradiction retraction'}; "
+                    "create fresh decision lineage from a terminal resolution."
+                )
             selected_claim_ids = {
                 claim_id
                 for finding_ref in linked_findings
@@ -625,11 +662,12 @@ def _strict_findings_are_authoritative(
                 if isinstance(claim_id, str)
             }
             if contested.intersection(selected_claim_ids):
+                detail = packet_detail or "no persisted contradiction packet"
                 diagnostics.append(
                     _diagnostic(
                         "decision_closure",
                         "fail",
-                        f"Decision {decision.id} relies on an unresolved canonical contradiction.",
+                        f"Decision {decision.id} relies on an unresolved canonical contradiction: {detail}.",
                         slot_id=slot_id if isinstance(slot_id, str) else None,
                         decision_id=decision.id,
                     )
