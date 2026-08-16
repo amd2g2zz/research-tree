@@ -17,7 +17,12 @@ from .domain import (
 from .intake import INPUT_LEDGER_ARTIFACT_KIND
 from .intent import INTENT_MODEL_KIND, WORKING_BRIEF_KIND
 from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
-from .contradictions import claim_from_mapping, unresolved_claim_ids
+from .contradictions import (
+    blocking_contradictions,
+    claim_from_mapping,
+    invalidating_contradictions,
+    unresolved_claim_ids,
+)
 from .ledger import (
     ALTERNATIVE_DISPOSITIONS,
     ANCHOR_KINDS,
@@ -1361,6 +1366,36 @@ def _resolve_strict_delivery_evidence(
                             f"Finding Pack {candidate.id} has invalid canonical claims: {error}"
                         ) from error
             contested = unresolved_claim_ids(candidate_claims)
+            contradiction_artifacts = [
+                item
+                for item in resolver.ledger.load_run(round_id).artifacts
+                if item.kind in {"contradiction-packet", "contradiction-resolution", "contradiction-retraction"}
+            ]
+            packet_payloads = [item.payload for item in contradiction_artifacts if item.kind == "contradiction-packet"]
+            resolution_payloads = [
+                item.payload for item in contradiction_artifacts if item.kind == "contradiction-resolution"
+            ]
+            retraction_payloads = [
+                item.payload for item in contradiction_artifacts if item.kind == "contradiction-retraction"
+            ]
+            active_packets = blocking_contradictions(
+                packet_payloads, contested, resolution_payloads=resolution_payloads
+            )
+            packet_detail = "; ".join(
+                f"contradiction packet {identifier} claims {','.join(claim_ids)}"
+                for identifier, claim_ids in active_packets
+            )
+            invalidating = invalidating_contradictions(
+                retraction_payloads,
+                round_id=decision.round_id,
+                artifact_id=decision.id,
+                revision=decision.revision,
+            )
+            if invalidating:
+                raise InvalidDeliveryError(
+                    f"Decision {decision.id} was invalidated by {packet_detail or 'contradiction retraction'}; "
+                    "create fresh decision lineage from a terminal resolution."
+                )
             selected_claim_ids = {
                 claim_id
                 for finding in linked
@@ -1372,7 +1407,9 @@ def _resolve_strict_delivery_evidence(
                 if isinstance(claim_id, str)
             }
             if contested.intersection(selected_claim_ids):
-                raise InvalidDeliveryError("selected decision relies on an unresolved canonical contradiction")
+                raise InvalidDeliveryError(
+                    f"Decision {decision.id} relies on an unresolved canonical contradiction: {packet_detail}"
+                )
     return tuple(resolved_refs)
 
 
