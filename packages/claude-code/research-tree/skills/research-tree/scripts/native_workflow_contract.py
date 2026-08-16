@@ -17,6 +17,9 @@ CAPABILITIES = (
     "durable_resume",
     "scheduled_drain",
     "structured_event_transport",
+    "claude-agent-children",
+    "claude-native-workflow",
+    "claude-hybrid-workflow",
 )
 CAPABILITY_STATES = frozenset({"available", "unavailable", "partial", "denied", "failed", "unknown"})
 REQUIRED = ("native_dynamic_workflow", "dynamic_delegation", "durable_resume", "structured_event_transport")
@@ -24,6 +27,12 @@ HOST_SURFACES = {
     "claude-code": "claude-dynamic-phases",
     "codex": "codex-concurrent-ready",
     "hermes": "hermes-delegation-batch",
+}
+EXECUTION_MODES = ("agent", "workflow", "hybrid")
+MODE_REQUIREMENTS = {
+    "agent": ("dynamic_delegation", "claude-agent-children"),
+    "workflow": ("native_dynamic_workflow", "claude-native-workflow"),
+    "hybrid": ("native_dynamic_workflow", "dynamic_delegation", "claude-hybrid-workflow"),
 }
 FALLBACK_ID = "coordinator-dispatch-v1"
 CAPABILITY_FALLBACKS = {
@@ -54,6 +63,20 @@ def _identifier(value: Any, label: str) -> str:
     return text
 
 
+def _opaque_identifier(value: Any, label: str) -> str:
+    text = str(value)
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,127}", text):
+        raise HostCapabilityError(f"{label} must be a valid host identifier")
+    return text
+
+
+def _sha256(value: Any, label: str) -> str:
+    text = str(value)
+    if not re.fullmatch(r"[0-9a-f]{64}", text):
+        raise HostCapabilityError(f"{label} must be a lowercase SHA-256 digest")
+    return text
+
+
 def capability_manifest(host: str) -> dict[str, Any]:
     if host not in HOSTS:
         raise HostCapabilityError(f"unsupported host: {host}")
@@ -79,11 +102,24 @@ def probe_host(host: str, observations: Mapping[str, Any]) -> dict[str, Any]:
     if invalid:
         raise HostCapabilityError(f"invalid capability state for {invalid[0]}")
     mode = "native" if all(normalized[name] == "available" for name in REQUIRED) else "fallback"
+    execution_modes = {}
+    for execution_mode, requirements in MODE_REQUIREMENTS.items():
+        states = [normalized[name] for name in requirements]
+        execution_modes[execution_mode] = (
+            "available"
+            if all(state == "available" for state in states)
+            else "partial"
+            if "partial" in states
+            else "unavailable"
+            if any(state in {"unavailable", "denied", "failed"} for state in states)
+            else "unavailable"
+        )
     result = {
         "schema_version": 1,
         "host": host,
         "observations": normalized,
         "mode": mode,
+        "execution_modes": execution_modes,
         "fallback_id": None if mode == "native" else FALLBACK_ID,
         "failure_codes": {},
         "selected_fallbacks": {
@@ -166,12 +202,48 @@ def project_workflow(request: Mapping[str, Any], expected_host: str) -> dict[str
     if probe["host"] != expected_host:
         raise HostCapabilityError("capability probe host does not match adapter")
     workflow_id = _identifier(request.get("workflow_id"), "workflow_id")
+    execution_mode = str(request.get("execution_mode", "workflow"))
+    if execution_mode not in EXECUTION_MODES:
+        raise HostCapabilityError(f"unsupported execution mode: {execution_mode}")
     phases, children = _children(actions, workflow_id)
     max_phases, max_children = int(request.get("max_phases", 0)), int(request.get("max_children", 0))
     if max_phases < 1 or len(phases) > max_phases:
         raise HostCapabilityError("workflow exceeds maximum phases")
     if max_children < 1 or len(children) > max_children:
         raise HostCapabilityError("workflow exceeds maximum children")
+    native_surface = HOST_SURFACES[expected_host] if probe["mode"] == "native" else "coordinator-dispatch"
+    workflow_evidence = None
+    if expected_host == "claude-code":
+        mode_state = probe["execution_modes"][execution_mode]
+        if mode_state != "available":
+            missing = next(
+                name for name in MODE_REQUIREMENTS[execution_mode] if probe["observations"][name] != "available"
+            )
+            raise HostCapabilityError(f"{missing} is unavailable")
+        native_surface = {
+            "agent": "claude-agent-children",
+            "workflow": "claude-dynamic-phases",
+            "hybrid": "claude-hybrid-workflow",
+        }[execution_mode]
+        if execution_mode in {"workflow", "hybrid"}:
+            live = request.get("live_workflow")
+            if isinstance(live, Mapping):
+                phase_ids = tuple(_identifier(item, "live workflow phase id") for item in live.get("phase_ids", ()))
+                child_ids = tuple(_identifier(item, "live workflow child id") for item in live.get("child_ids", ()))
+                if len(phase_ids) < 2:
+                    raise HostCapabilityError("live workflow evidence requires at least two phases")
+                if execution_mode == "hybrid" and not child_ids:
+                    raise HostCapabilityError("hybrid live workflow evidence requires child identities")
+                workflow_evidence = {
+                    "workflow_id": _opaque_identifier(live.get("workflow_id"), "live workflow id"),
+                    "task_id": _opaque_identifier(live.get("task_id"), "live workflow task id"),
+                    "script_id": _opaque_identifier(live.get("script_id"), "live script id"),
+                    "script_sha256": _sha256(live.get("script_sha256"), "live script digest"),
+                    "run_id": _identifier(live.get("run_id"), "live run id"),
+                    "phase_ids": list(phase_ids),
+                    "child_ids": list(child_ids),
+                    "receipt_ref": live.get("receipt_ref"),
+                }
     result = {
         "schema_version": 1,
         "workflow_id": workflow_id,
@@ -189,7 +261,9 @@ def project_workflow(request: Mapping[str, Any], expected_host: str) -> dict[str
         "children": children,
         "checkpoint_refs": [_identifier(item, "checkpoint_ref") for item in request.get("checkpoint_refs", [])],
         "mode": probe["mode"],
-        "native_surface": HOST_SURFACES[expected_host] if probe["mode"] == "native" else "coordinator-dispatch",
+        "execution_mode": execution_mode,
+        "native_surface": native_surface,
+        "workflow_evidence": workflow_evidence,
         "fallback_id": probe["fallback_id"],
         "max_phases": max_phases,
         "max_children": max_children,
@@ -286,6 +360,7 @@ __all__ = [
     "FALLBACK_ID",
     "HOSTS",
     "HOST_SURFACES",
+    "EXECUTION_MODES",
     "HostCapabilityError",
     "WorkflowContractError",
     "capability_manifest",

@@ -178,9 +178,7 @@ def init_run(workspace: Path, project_id: str, run_id: str, host: str, handoff_p
     if requested_state.exists():
         raise AdapterError(f"run already exists: {run_id}")
     try:
-        project_workspace = initialize_project_run(
-            workspace, project_id=project_id, run_id=run_id, host=host
-        )
+        project_workspace = initialize_project_run(workspace, project_id=project_id, run_id=run_id, host=host)
         installation = install_project_hooks(workspace, project_workspace)
         hook_probe = probe_lifecycle_hook(project_workspace, launcher=Path(installation["launcher"]))
     except ProjectWorkspaceError as error:
@@ -208,6 +206,7 @@ def init_run(workspace: Path, project_id: str, run_id: str, host: str, handoff_p
             "technical_research_package": {"status": "pending"},
             "human_research_report": {"status": "pending"},
         },
+        "agent_bindings": {},
         "tasks": {},
     }
     _save_state(workspace, state)
@@ -248,6 +247,9 @@ def add_task(
         "attempt": 0,
         "attempt_id": None,
         "worker_id": None,
+        "agent_id": None,
+        "session_id": None,
+        "causation_id": None,
         "verified": False,
         "artifact_sha256": None,
         "failure_reason": None,
@@ -305,6 +307,9 @@ def start_task(
     task["attempt"] += 1
     task["attempt_id"] = f"attempt-{uuid4().hex}"
     task["worker_id"] = _identifier(worker_id, "worker id") if worker_id is not None else None
+    task["agent_id"] = None
+    task["session_id"] = None
+    task["causation_id"] = None
     task["verified"] = False
     task["failure_reason"] = None
     task["started_at"] = _now()
@@ -315,6 +320,45 @@ def start_task(
     task["checked_anchors"] = []
     _save_state(workspace, state)
     return task
+
+
+def bind_agent(
+    workspace: Path,
+    run_id: str,
+    host: str,
+    task_id: str,
+    *,
+    attempt_id: str,
+    agent_id: str,
+    session_id: str,
+    causation_id: str,
+) -> dict[str, Any]:
+    if host != "claude":
+        raise AdapterError("exact agent binding is a Claude-only lifecycle contract")
+    state = _load_state(workspace, run_id, host)
+    task = state["tasks"].get(task_id)
+    if not isinstance(task, dict) or task.get("status") != "running":
+        raise AdapterError("agent binding requires a running task attempt")
+    if task.get("attempt_id") != _identifier(attempt_id, "attempt id"):
+        raise AdapterError("agent binding does not match the active attempt")
+    agent_id = _identifier(agent_id, "agent id")
+    bindings = state.setdefault("agent_bindings", {})
+    prior = bindings.get(agent_id)
+    if isinstance(prior, dict):
+        raise AdapterError(f"agent identity is already bound to {prior.get('task_id')}/{prior.get('attempt_id')}")
+    binding = {
+        "task_id": task_id,
+        "attempt_id": attempt_id,
+        "agent_id": agent_id,
+        "session_id": _identifier(session_id, "session id"),
+        "causation_id": _identifier(causation_id, "causation id"),
+        "bound_at": _now(),
+        "terminal": False,
+    }
+    bindings[agent_id] = binding
+    task.update({"agent_id": agent_id, "session_id": session_id, "causation_id": causation_id})
+    _save_state(workspace, state)
+    return binding
 
 
 def _require_string(value: Any, label: str) -> str:
@@ -425,6 +469,10 @@ def finish_task(
     for key, value in expected.items():
         if pack[key] != value:
             raise AdapterError(f"Finding Pack {key} does not match active attempt")
+    if host == "claude":
+        binding = state.get("agent_bindings", {}).get(task.get("agent_id"))
+        if not isinstance(binding, dict) or binding.get("attempt_id") != task.get("attempt_id"):
+            raise AdapterError("Finding Pack submission requires an exact active agent binding")
     task["status"] = "submitted"
     task["verified"] = False
     task["artifact_sha256"] = hashlib.sha256(artifact.read_bytes()).hexdigest()
@@ -497,6 +545,9 @@ def recover(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
         task = state["tasks"][task_id]
         task["status"] = "unknown"
         task["worker_id"] = None
+        task["agent_id"] = None
+        task["session_id"] = None
+        task["causation_id"] = None
         task["verified"] = False
         task["artifact_sha256"] = None
         task["failure_reason"] = reasons[task_id]
@@ -656,6 +707,14 @@ def _parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--task-id", required=True)
     start_parser.add_argument("--worker-id")
 
+    bind_parser = subparsers.add_parser("bind-agent")
+    bind_parser.add_argument("--run-id", required=True)
+    bind_parser.add_argument("--task-id", required=True)
+    bind_parser.add_argument("--attempt-id", required=True)
+    bind_parser.add_argument("--agent-id", required=True)
+    bind_parser.add_argument("--session-id", required=True)
+    bind_parser.add_argument("--causation-id", required=True)
+
     finish_parser = subparsers.add_parser("finish")
     finish_parser.add_argument("--run-id", required=True)
     finish_parser.add_argument("--task-id", required=True)
@@ -762,6 +821,17 @@ def main() -> int:
             )
         elif args.command == "start":
             result = start_task(workspace, args.run_id, args.host, args.task_id, args.worker_id)
+        elif args.command == "bind-agent":
+            result = bind_agent(
+                workspace,
+                args.run_id,
+                args.host,
+                args.task_id,
+                attempt_id=args.attempt_id,
+                agent_id=args.agent_id,
+                session_id=args.session_id,
+                causation_id=args.causation_id,
+            )
         elif args.command == "finish":
             result = finish_task(
                 workspace,

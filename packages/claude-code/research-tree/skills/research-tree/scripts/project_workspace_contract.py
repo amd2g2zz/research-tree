@@ -16,7 +16,17 @@ import re
 
 
 PROJECTS_ROOT = Path(".research-tree") / "projects"
-RUN_DIRECTORIES = ("alignment", "plans", "attempts", "sessions", "events", "checkpoints", "logs", "deliveries", "legacy")
+RUN_DIRECTORIES = (
+    "alignment",
+    "plans",
+    "attempts",
+    "sessions",
+    "events",
+    "checkpoints",
+    "logs",
+    "deliveries",
+    "legacy",
+)
 RUN_BOUND_LEGACY_ROOTS = (
     (Path(".research-tree-native"), "native"),
     (Path(".research-tree-alignment"), "alignment"),
@@ -26,8 +36,16 @@ UNATTRIBUTED_LEGACY_ROOTS = (Path(".research-tree-hooks"),)
 IDENTIFIER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 HOST_HOOK_EVENTS = {
     "codex": ("SessionStart", "SessionEnd", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop", "Stop"),
-    "claude": ("SessionStart", "SessionEnd", "PreCompact", "SubagentStop", "Stop"),
-    "hermes": ("on_session_start", "on_session_end", "on_session_finalize", "on_session_reset", "subagent_start", "subagent_stop", "post_tool_call"),
+    "claude": ("SessionStart", "SessionEnd", "PreCompact", "SubagentStop", "PostToolUse", "Stop"),
+    "hermes": (
+        "on_session_start",
+        "on_session_end",
+        "on_session_finalize",
+        "on_session_reset",
+        "subagent_start",
+        "subagent_stop",
+        "post_tool_call",
+    ),
 }
 
 
@@ -82,7 +100,11 @@ def _load_manifest(workspace: ProjectRunWorkspace) -> dict[str, Any]:
         payload = json.loads(workspace.manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ProjectWorkspaceError("project run manifest is invalid") from error
-    if not isinstance(payload, dict) or payload.get("project_id") != workspace.project_id or payload.get("run_id") != workspace.run_id:
+    if (
+        not isinstance(payload, dict)
+        or payload.get("project_id") != workspace.project_id
+        or payload.get("run_id") != workspace.run_id
+    ):
         raise ProjectWorkspaceError("project run manifest identity does not match arguments")
     return payload
 
@@ -159,7 +181,7 @@ def write_installed_hook_launcher(workspace: ProjectRunWorkspace) -> Path:
     launcher = workspace.run_root / "hooks" / "research_tree_lifecycle_hook.py"
     launcher.parent.mkdir(parents=True, exist_ok=True)
     event_directory = workspace.run_root / "events"
-    script = f'''#!/usr/bin/env {Path(sys.executable).name}
+    script = f"""#!/usr/bin/env {Path(sys.executable).name}
 import json
 import os
 import secrets
@@ -174,13 +196,31 @@ payload = json.load(sys.stdin)
 if not isinstance(payload, dict) or not isinstance(payload.get("hook_event_name"), str):
     raise SystemExit(2)
 record = {{"schema": 1, "project_id": PROJECT_ID, "run_id": RUN_ID, "event": payload["hook_event_name"], "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}}
+for key in ("session_id", "turn_id", "agent_id", "task_id", "attempt_id", "causation_id"):
+    value = payload.get(key)
+    if isinstance(value, str) and value and len(value) <= 256:
+        record[key] = value
+if payload["hook_event_name"] == "SubagentStop":
+    identity = tuple(record.get(key) for key in ("task_id", "attempt_id", "agent_id", "session_id", "causation_id"))
+    record["binding_status"] = "candidate" if all(identity) else "unknown_outcome"
+if payload["hook_event_name"] == "PostToolUse" and payload.get("tool_name") == "Agent":
+    response = payload.get("tool_response")
+    agent_id = response.get("agentId") if isinstance(response, dict) else None
+    causation_id = payload.get("tool_use_id")
+    if isinstance(agent_id, str) and agent_id and len(agent_id) <= 256:
+        record["agent_id"] = agent_id
+    if isinstance(causation_id, str) and causation_id and len(causation_id) <= 256:
+        record["causation_id"] = causation_id
+    record["binding_status"] = (
+        "host_identity_recorded" if "agent_id" in record and "causation_id" in record else "unknown_outcome"
+    )
 EVENT_DIRECTORY.mkdir(parents=True, exist_ok=True)
 path = EVENT_DIRECTORY / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + "-" + secrets.token_hex(8) + ".json")
 descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
 with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
     json.dump(record, handle, sort_keys=True)
 print("{{}}")
-'''
+"""
     launcher.write_text(script, encoding="utf-8")
     launcher.chmod(0o700)
     return launcher
@@ -232,7 +272,9 @@ def _merged_host_hooks(existing: dict[str, Any], *, host: str, launcher: Path) -
     if not isinstance(hooks, dict) or not all(isinstance(entries, list) for entries in hooks.values()):
         raise ProjectWorkspaceError("project hook configuration hooks must map events to lists")
     merged = dict(existing)
-    merged_hooks = {event: [entry for entry in entries if not _owned_entry(entry, launcher)] for event, entries in hooks.items()}
+    merged_hooks = {
+        event: [entry for entry in entries if not _owned_entry(entry, launcher)] for event, entries in hooks.items()
+    }
     for event in HOST_HOOK_EVENTS[host]:
         merged_hooks.setdefault(event, []).append(_host_hook_entry(host, event, launcher))
     merged["hooks"] = merged_hooks
