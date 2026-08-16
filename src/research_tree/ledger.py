@@ -16,6 +16,7 @@ from .run_ledger import RunLedger
 from .work_items import WORK_ITEM_KIND
 from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
 from .claims import Claim, ClaimAdmissionEvaluator, ClaimGrounding, ClaimState, ClaimValidationError
+from .contradictions import unresolved_claim_ids
 
 
 FINDING_PACK_KIND = "finding-pack"
@@ -158,7 +159,7 @@ class CanonicalFindingPackCompiler:
         evidence_refs = _unique_artifact_refs(
             (*_strict_evidence_refs(normalized_observations), *_claim_evidence_refs(claim_groundings))
         )
-        return self._ledger.append_artifact(
+        finding = self._ledger.append_artifact(
             round_id,
             finding_id,
             FINDING_PACK_KIND,
@@ -166,6 +167,16 @@ class CanonicalFindingPackCompiler:
             parent_refs=(work_ref, target_ref, *evidence_refs),
             expected_revision=expected_revision,
         )
+        if any(item.kind == "research-run-state" for item in self._ledger.load_run(round_id).artifacts):
+            from .coordinator import ResearchRunCoordinator
+
+            ResearchRunCoordinator(self._ledger).detect_and_apply_contradictions(
+                run_id=round_id,
+                blueprint_target_id=target.id,
+                decision_slot_id=slot["id"],
+                expected_revision=self._ledger.get_revision(round_id),
+            )
+        return finding
 
 
 class CanonicalDecisionLedgerCompiler:
@@ -241,7 +252,18 @@ class CanonicalDecisionLedgerCompiler:
                 normalized_status,
                 slot_options,
             )
-            _validate_finding_claim_authority(findings, self._evidence_resolver, selected)
+            conflict_candidates = tuple(
+                artifact
+                for artifact in snapshot.artifacts
+                if artifact.kind == FINDING_PACK_KIND
+                and artifact.payload.get("blueprint_target_id") == target.id
+                and artifact.payload.get("decision_slot_id") == slot["id"]
+            )
+            _validate_finding_claim_authority(
+                tuple({(item.id, item.revision): item for item in (*findings, *conflict_candidates)}.values()),
+                self._evidence_resolver,
+                selected,
+            )
             normalized_alternatives = _normalize_alternatives(
                 alternatives,
                 slot_options,
@@ -566,16 +588,26 @@ def _claim_to_dict(claim: Claim) -> dict[str, Any]:
         "version": claim.version,
         "time_range": claim.time_range,
         "conditions": list(claim.conditions),
+        "platform": claim.platform,
+        "modality": claim.modality,
     }
 
 
 def _claim_from_dict(value: Mapping[str, Any]) -> Claim:
-    _require_exact_keys(
-        value,
-        {"claim_id", "subject", "predicate", "value", "polarity", "scope", "version", "time_range", "conditions"},
-        "claim",
-        InvalidDecisionLedgerError,
-    )
+    required = {
+        "claim_id",
+        "subject",
+        "predicate",
+        "value",
+        "polarity",
+        "scope",
+        "version",
+        "time_range",
+        "conditions",
+    }
+    optional = {"platform", "modality"}
+    if not isinstance(value, Mapping) or not required <= set(value) or set(value) - required - optional:
+        raise InvalidDecisionLedgerError("claim has unsupported fields")
     conditions = value["conditions"]
     if isinstance(conditions, (str, bytes)) or not isinstance(conditions, Sequence):
         raise InvalidDecisionLedgerError("claim.conditions must be a sequence")
@@ -589,6 +621,8 @@ def _claim_from_dict(value: Mapping[str, Any]) -> Claim:
         version=value["version"],
         time_range=value["time_range"],
         conditions=tuple(conditions),
+        platform=value.get("platform", "unspecified"),
+        modality=value.get("modality", "unspecified"),
     )
 
 
@@ -631,6 +665,18 @@ def _validate_finding_claim_authority(
 ) -> None:
     if selected_option is None:
         return
+    parsed_claims: list[Claim] = []
+    parsed_by_finding: dict[ArtifactRef, tuple[Claim, ...]] = {}
+    for finding in findings:
+        try:
+            values = tuple(_claim_from_dict(value) for value in finding.payload.get("claims", ()))
+        except (ClaimValidationError, KeyError, TypeError, ValueError) as error:
+            raise InvalidDecisionLedgerError(
+                f"Finding Pack {finding.id} has invalid claim admission: {error}"
+            ) from error
+        parsed_claims.extend(values)
+        parsed_by_finding[ArtifactRef(finding.round_id, finding.id, finding.revision)] = values
+    contested = unresolved_claim_ids(parsed_claims)
     for finding in findings:
         try:
             claims = tuple(_claim_from_dict(value) for value in finding.payload["claims"])
@@ -648,6 +694,8 @@ def _validate_finding_claim_authority(
                 claim_ids = effect.get("claim_ids")
                 if not claim_ids:
                     raise InvalidDecisionLedgerError("supporting option effect has no claim admission")
+                if any(claim_id in contested for claim_id in claim_ids):
+                    raise InvalidDecisionLedgerError("selected option relies on an unresolved canonical contradiction")
                 if any(
                     assessments.get(claim_id) is None or not assessments[claim_id].decision_authority
                     for claim_id in claim_ids

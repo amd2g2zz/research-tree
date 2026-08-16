@@ -35,11 +35,13 @@ from .feedback import (
     CorrectionBinding,
     CorrectionEvent,
 )
+from .contradictions import ContradictionStatus, claim_from_mapping, derive_contradiction_packets
 from .run_ledger import LedgerConflictError, RunLedger
 from .source_capture import ACQUISITION_RECEIPT_KIND, ANALYSIS_CHECKPOINT_KIND, SOURCE_CAPTURE_KIND
 from .search_portfolio import PortfolioExecution, SearchPortfolio
 
 FINDING_PACK_KIND = "finding-pack"
+CONTRADICTION_PACKET_KIND = "contradiction-packet"
 SEARCH_PORTFOLIO_LINEAGE_KIND = "search-portfolio-lineage"
 HUMAN_DECISION_REOPEN_KIND = "human-decision-reopen"
 
@@ -1089,6 +1091,282 @@ class ResearchRunCoordinator:
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
         return created[-1]
+
+    def apply_contradiction(
+        self,
+        *,
+        run_id: str,
+        contradiction_id: str,
+        finding_refs: Sequence[ArtifactRef | Mapping[str, Any]],
+        reason: str,
+        expected_revision: int,
+        durable_controller: Any | None = None,
+        claim_ids: Sequence[str] | None = None,
+    ) -> ArtifactRevision:
+        """Atomically persist a material conflict and reopen its run."""
+
+        validate_identifier(run_id, "run_id")
+        validate_identifier(contradiction_id, "contradiction_id")
+        if not isinstance(reason, str) or not reason.strip():
+            raise CoordinatorConflictError("contradiction reason is required")
+        try:
+            roots = tuple(
+                reference if isinstance(reference, ArtifactRef) else ArtifactRef.from_dict(reference)
+                for reference in finding_refs
+            )
+        except (TypeError, ValueError) as error:
+            raise CoordinatorConflictError("contradiction finding references are invalid") from error
+        if len(roots) < 2 or len(set(roots)) != len(roots):
+            raise CoordinatorConflictError("contradiction requires two distinct Finding Packs")
+        for reference in roots:
+            finding = self._load(reference, FINDING_PACK_KIND)
+            if finding.round_id != run_id or not self.ledger.is_latest_artifact(reference):
+                raise CoordinatorConflictError("contradiction Finding Pack is stale or cross-run")
+        claims_by_id: dict[str, tuple[dict[str, Any], ArtifactRef, Mapping[str, Any]]] = {}
+        typed_claims = []
+        for reference in roots:
+            finding = self._load(reference, FINDING_PACK_KIND)
+            assessments = {
+                item.get("claim_id"): item
+                for item in finding.payload.get("claim_assessments", ())
+                if isinstance(item, Mapping) and isinstance(item.get("claim_id"), str)
+            }
+            for raw_claim in finding.payload.get("claims", ()):
+                if not isinstance(raw_claim, Mapping):
+                    raise CoordinatorConflictError("contradiction Finding Pack has invalid canonical claims")
+                try:
+                    claim = claim_from_mapping(raw_claim)
+                except (TypeError, ValueError) as error:
+                    raise CoordinatorConflictError("contradiction Finding Pack has invalid canonical claims") from error
+                if claim.claim_id in claims_by_id:
+                    raise CoordinatorConflictError("contradiction claims must have distinct identifiers")
+                typed_claims.append(claim)
+                claims_by_id[claim.claim_id] = (thaw_json(raw_claim), reference, assessments.get(claim.claim_id, {}))
+        unresolved = tuple(
+            packet
+            for packet in derive_contradiction_packets(typed_claims)
+            if packet.status in {ContradictionStatus.UNRESOLVED, ContradictionStatus.CONTESTED}
+        )
+        if claim_ids is not None:
+            requested = tuple(sorted(claim_ids))
+            if len(set(requested)) < 2:
+                raise CoordinatorConflictError("contradiction claim_ids must identify two distinct claims")
+            unresolved = tuple(packet for packet in unresolved if packet.claim_ids == requested)
+        if len(unresolved) != 1:
+            raise CoordinatorConflictError("contradiction Finding Packs must contain exactly one material conflict")
+        conflict = unresolved[0]
+        existing = next(
+            (
+                item
+                for item in self.ledger.load_run(run_id).artifacts
+                if item.kind == CONTRADICTION_PACKET_KIND and item.id == contradiction_id
+            ),
+            None,
+        )
+        if existing is not None:
+            if tuple(ArtifactRef.from_dict(value) for value in existing.payload.get("finding_refs", ())) != roots:
+                raise CoordinatorEventConflictError("contradiction_id_conflict")
+            successor = next(
+                (
+                    item
+                    for item in reversed(self._states(run_id))
+                    if item.payload.get("contradiction_id") == contradiction_id
+                ),
+                None,
+            )
+            if successor is None:
+                raise CoordinatorConflictError("contradiction successor state is missing")
+            self._retract_durable_claims(durable_controller, conflict.claim_ids)
+            return successor
+
+        current = self._latest_state(run_id)
+        current_ref = self._artifact_ref(current)
+        reachable = set(roots) | {current_ref}
+        paths = {reference: (reference,) for reference in reachable}
+        dependents: list[ArtifactRef] = []
+        candidates = [
+            item
+            for item in self.ledger.load_run(run_id).artifacts
+            if self._artifact_ref(item) not in reachable and self.ledger.is_latest_artifact(self._artifact_ref(item))
+        ]
+        while candidates:
+            found = sorted(
+                (item for item in candidates if reachable.intersection(item.parent_refs)),
+                key=lambda item: (item.round_id, item.id, item.revision),
+            )
+            if not found:
+                break
+            for item in found:
+                reference = self._artifact_ref(item)
+                parent = min(
+                    reachable.intersection(item.parent_refs),
+                    key=lambda value: (value.round_id, value.artifact_id, value.revision),
+                )
+                paths[reference] = (*paths[parent], reference)
+                dependents.append(reference)
+                reachable.add(reference)
+                candidates.remove(item)
+        packet_ref = ArtifactRef(run_id, contradiction_id, 1)
+        quarantine_id = f"quarantine-{contradiction_id}"
+        quarantine_ref = ArtifactRef(run_id, quarantine_id, 1)
+        packet = {
+            "contradiction_id": contradiction_id,
+            "run_id": run_id,
+            "finding_refs": [reference.to_dict() for reference in roots],
+            "claim_ids": list(conflict.claim_ids),
+            "conflicting_values": list(conflict.conflicting_values),
+            "claim_a": claims_by_id[conflict.claim_ids[0]][0],
+            "claim_b": claims_by_id[conflict.claim_ids[1]][0],
+            "claim_a_ref": claims_by_id[conflict.claim_ids[0]][1].to_dict(),
+            "claim_b_ref": claims_by_id[conflict.claim_ids[1]][1].to_dict(),
+            "source_refs": {
+                claim_id: {
+                    "grounding_refs": thaw_json(claims_by_id[claim_id][2].get("grounding_refs", ())),
+                    "provenance_clusters": thaw_json(claims_by_id[claim_id][2].get("provenance_clusters", ())),
+                }
+                for claim_id in conflict.claim_ids
+            },
+            "shared_scope": {
+                name: claims_by_id[conflict.claim_ids[0]][0][name]
+                for name in (
+                    "subject",
+                    "predicate",
+                    "scope",
+                    "version",
+                    "time_range",
+                    "platform",
+                    "conditions",
+                    "modality",
+                )
+            },
+            "conflict_reason": conflict.reason,
+            "reason": reason.strip(),
+            "status": conflict.status.value,
+            "resolution_path": "independent-experiment-or-scope-separation",
+        }
+        quarantine = {
+            "contradiction_event_id": contradiction_id,
+            "relation": "reopens",
+            "dependent_refs": [reference.to_dict() for reference in (*roots, *dependents)],
+            "dependent_paths": [
+                {"artifact_ref": reference.to_dict(), "path": [entry.to_dict() for entry in paths[reference]]}
+                for reference in dependents
+            ],
+            "source_state_ref": current_ref.to_dict(),
+        }
+        state = self._state_payload(
+            state="alignment",
+            lifecycle_revision=int(current.payload.get("lifecycle_revision", 0)) + 1,
+            obligations=("contradiction_resolution", "closure_revalidation", "delivery_recompilation"),
+            legal_actions=self._next_actions("alignment"),
+            idempotency_key=contradiction_id,
+            reason=reason.strip(),
+        )
+        state.update(
+            {
+                "task_id": current.payload.get("task_id"),
+                "domain_id": current.payload.get("domain_id"),
+                "contradiction_id": contradiction_id,
+                "previous_state_ref": current_ref.to_dict(),
+                "quarantine_ref": quarantine_ref.to_dict(),
+                "authority_streams": thaw_json(current.payload["authority_streams"]),
+            }
+        )
+        state["state_digest"] = _digest({key: value for key, value in state.items() if key != "state_digest"})
+        try:
+            successor = self.ledger.append_artifact_batch(
+                run_id,
+                (
+                    (contradiction_id, CONTRADICTION_PACKET_KIND, packet, (*roots,)),
+                    (
+                        quarantine_id,
+                        STALE_STATE_QUARANTINE_KIND,
+                        quarantine,
+                        (current_ref, packet_ref, *roots, *dependents),
+                    ),
+                    ("run-state", RESEARCH_RUN_STATE_KIND, state, (current_ref, packet_ref, quarantine_ref)),
+                ),
+                expected_revision=expected_revision,
+            )[-1]
+        except LedgerConflictError as error:
+            raise CoordinatorConflictError("stale_revision") from error
+        self._retract_durable_claims(durable_controller, conflict.claim_ids)
+        return successor
+
+    def detect_and_apply_contradictions(
+        self,
+        *,
+        run_id: str,
+        blueprint_target_id: str,
+        decision_slot_id: str,
+        expected_revision: int,
+    ) -> tuple[ArtifactRevision, ...]:
+        """Derive and persist all newly material conflicts for one canonical slot."""
+
+        validate_identifier(run_id, "run_id")
+        validate_identifier(blueprint_target_id, "blueprint_target_id")
+        validate_identifier(decision_slot_id, "decision_slot_id")
+        snapshot = self.ledger.load_run(run_id)
+        findings = tuple(
+            item
+            for item in snapshot.artifacts
+            if item.kind == FINDING_PACK_KIND
+            and item.payload.get("blueprint_target_id") == blueprint_target_id
+            and item.payload.get("decision_slot_id") == decision_slot_id
+            and self.ledger.is_latest_artifact(self._artifact_ref(item))
+        )
+        claims: list[Any] = []
+        finding_by_claim_id: dict[str, ArtifactRef] = {}
+        for finding in findings:
+            for raw_claim in finding.payload.get("claims", ()):
+                try:
+                    claim = claim_from_mapping(raw_claim)
+                except (TypeError, ValueError) as error:
+                    raise CoordinatorConflictError("Finding Pack has invalid canonical claims") from error
+                if claim.claim_id in finding_by_claim_id:
+                    raise CoordinatorConflictError("canonical claim identifiers must be unique across one slot")
+                claims.append(claim)
+                finding_by_claim_id[claim.claim_id] = self._artifact_ref(finding)
+        applied: list[ArtifactRevision] = []
+        revision = expected_revision
+        for packet in derive_contradiction_packets(claims):
+            if packet.status not in {ContradictionStatus.CONTESTED, ContradictionStatus.UNRESOLVED}:
+                continue
+            digest = hashlib.sha256(
+                canonical_json_bytes({"slot": decision_slot_id, "claims": packet.claim_ids})
+            ).hexdigest()
+            contradiction_id = f"contradiction-{digest[:20]}"
+            finding_refs = tuple(dict.fromkeys(finding_by_claim_id[claim_id] for claim_id in packet.claim_ids))
+            if len(finding_refs) < 2:
+                continue
+            applied.append(
+                self.apply_contradiction(
+                    run_id=run_id,
+                    contradiction_id=contradiction_id,
+                    finding_refs=finding_refs,
+                    reason=packet.reason,
+                    expected_revision=revision,
+                    claim_ids=packet.claim_ids,
+                )
+            )
+            revision = self.ledger.get_revision(run_id)
+        return tuple(applied)
+
+    @staticmethod
+    def _retract_durable_claims(controller: Any | None, claim_ids: Sequence[str]) -> None:
+        if controller is None:
+            return
+        if not all(callable(getattr(controller, name, None)) for name in ("load", "contest_evidence_set")):
+            raise CoordinatorConflictError("durable contradiction controller is invalid")
+        current = controller.load()
+        dependencies = current.state.agent.pending_action_dependencies.values()
+        if not (
+            set(claim_ids).intersection(current.factual_beliefs)
+            or set(claim_ids).intersection(current.state.agent.assumptions)
+            or any(set(claim_ids).intersection(values) for values in dependencies)
+        ):
+            return
+        controller.contest_evidence_set(tuple(claim_ids), expected_revision=current.revision)
 
     def _validate_correction_for_apply(
         self, correction: CorrectionEvent

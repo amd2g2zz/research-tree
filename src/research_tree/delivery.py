@@ -17,6 +17,7 @@ from .domain import (
 from .intake import INPUT_LEDGER_ARTIFACT_KIND
 from .intent import INTENT_MODEL_KIND, WORKING_BRIEF_KIND
 from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
+from .contradictions import claim_from_mapping, unresolved_claim_ids
 from .ledger import (
     ALTERNATIVE_DISPOSITIONS,
     ANCHOR_KINDS,
@@ -1344,6 +1345,34 @@ def _resolve_strict_delivery_evidence(
                 raise InvalidDeliveryError(
                     "selected or conditional Decision Ledger requires a Finding Pack support effect for selected_option"
                 )
+            candidate_claims = []
+            for candidate in artifacts:
+                if (
+                    candidate.kind == FINDING_PACK_KIND
+                    and candidate.payload.get("blueprint_target_id") == target.id
+                    and candidate.payload.get("decision_slot_id") == decision.payload.get("decision_slot_id")
+                ):
+                    try:
+                        candidate_claims.extend(
+                            claim_from_mapping(value) for value in candidate.payload.get("claims", ())
+                        )
+                    except (TypeError, ValueError) as error:
+                        raise InvalidDeliveryError(
+                            f"Finding Pack {candidate.id} has invalid canonical claims: {error}"
+                        ) from error
+            contested = unresolved_claim_ids(candidate_claims)
+            selected_claim_ids = {
+                claim_id
+                for finding in linked
+                for effect in finding.payload.get("option_effects", ())
+                if isinstance(effect, Mapping)
+                and effect.get("option") == decision.payload.get("selected_option")
+                and effect.get("effect") == "supports"
+                for claim_id in effect.get("claim_ids", ())
+                if isinstance(claim_id, str)
+            }
+            if contested.intersection(selected_claim_ids):
+                raise InvalidDeliveryError("selected decision relies on an unresolved canonical contradiction")
     return tuple(resolved_refs)
 
 

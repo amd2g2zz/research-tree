@@ -16,6 +16,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from .coordinator import (
     COMPLETION_RECORD_KIND,
+    CONTRADICTION_PACKET_KIND,
     CORRECTION_EVENT_KIND,
     HOST_EVENT_KIND,
     HOST_EVENT_PROJECTION_KIND,
@@ -147,6 +148,7 @@ class CausalTraceService:
                     in {
                         LIFECYCLE_EVENT_KIND,
                         CORRECTION_EVENT_KIND,
+                        CONTRADICTION_PACKET_KIND,
                     }
                 ]
                 for reference in cause_refs:
@@ -171,9 +173,14 @@ class CausalTraceService:
                     for reference in state.parent_refs
                     if reference in artifacts and artifacts[reference].kind == CORRECTION_EVENT_KIND
                 ]
-                if len(causes) + len(corrections) != 1:
+                contradictions = [
+                    artifacts[reference]
+                    for reference in state.parent_refs
+                    if reference in artifacts and artifacts[reference].kind == CONTRADICTION_PACKET_KIND
+                ]
+                if len(causes) + len(corrections) + len(contradictions) != 1:
                     raise CausalTraceError("missing_cause: lifecycle event")
-                cause = causes[0] if causes else corrections[0]
+                cause = causes[0] if causes else corrections[0] if corrections else contradictions[0]
                 if cause.kind == LIFECYCLE_EVENT_KIND:
                     expected, transition_error = self._recompute_lifecycle_state(
                         run_id, previous, state, cause, artifacts, artifact_order=artifact_order
@@ -192,8 +199,24 @@ class CausalTraceService:
                                 divergence=transition_error,
                             )
                         )
-                else:
+                elif cause.kind == CORRECTION_EVENT_KIND:
                     expected, transition_error = self._recompute_correction_state(
+                        run_id, previous, state, cause, artifacts
+                    )
+                    transitions.append(
+                        self._trace_record(
+                            run_id,
+                            sequence,
+                            previous,
+                            state,
+                            cause,
+                            divergence=transition_error,
+                        )
+                    )
+                    if transition_error is not None:
+                        semantic_divergences.append(transition_error)
+                else:
+                    expected, transition_error = self._recompute_contradiction_state(
                         run_id, previous, state, cause, artifacts
                     )
                     transitions.append(
@@ -279,7 +302,11 @@ class CausalTraceService:
             if event.artifact_ref is not None
         }
         causes = sorted(
-            (item for item in snapshot.artifacts if item.kind in {LIFECYCLE_EVENT_KIND, CORRECTION_EVENT_KIND}),
+            (
+                item
+                for item in snapshot.artifacts
+                if item.kind in {LIFECYCLE_EVENT_KIND, CORRECTION_EVENT_KIND, CONTRADICTION_PACKET_KIND}
+            ),
             key=lambda item: (
                 lineage_order.get(self._artifact_ref(item), len(lineage_order)),
                 item.created_at,
@@ -369,14 +396,18 @@ class CausalTraceService:
                 )
                 if completion is not None:
                     parent_refs.append(self._artifact_ref(completion))
-            if cause.kind == CORRECTION_EVENT_KIND:
-                correction_id = thaw_json(cause.payload).get("event_id")
+            if cause.kind in {CORRECTION_EVENT_KIND, CONTRADICTION_PACKET_KIND}:
                 quarantine = next(
                     (
                         item
                         for item in snapshot.artifacts
                         if item.kind == STALE_STATE_QUARANTINE_KIND
-                        and item.payload.get("correction_event_id") == correction_id
+                        and item.payload.get(
+                            "correction_event_id" if cause.kind == CORRECTION_EVENT_KIND else "contradiction_event_id"
+                        )
+                        == thaw_json(cause.payload).get(
+                            "event_id" if cause.kind == CORRECTION_EVENT_KIND else "contradiction_id"
+                        )
                     ),
                     None,
                 )
@@ -387,7 +418,7 @@ class CausalTraceService:
                 revision=sequence + 1,
                 payload={
                     "quarantine_ref": parent_refs[-1].to_dict()
-                    if cause.kind == CORRECTION_EVENT_KIND and len(parent_refs) > 2
+                    if cause.kind in {CORRECTION_EVENT_KIND, CONTRADICTION_PACKET_KIND} and len(parent_refs) > 2
                     else {}
                 },
                 parent_refs=tuple(parent_refs),
@@ -858,6 +889,62 @@ class CausalTraceService:
         )
         return expected, None
 
+    def _recompute_contradiction_state(
+        self,
+        run_id: str,
+        previous: ArtifactRevision,
+        state: ArtifactRevision,
+        packet: ArtifactRevision,
+        artifacts: Mapping[ArtifactRef, ArtifactRevision],
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        body = thaw_json(packet.payload)
+        contradiction_id = body.get("contradiction_id")
+        finding_refs = body.get("finding_refs")
+        if (
+            packet.kind != CONTRADICTION_PACKET_KIND
+            or contradiction_id != packet.id
+            or body.get("run_id") != run_id
+            or body.get("status") not in {"contested", "unresolved"}
+            or not isinstance(finding_refs, list)
+            or len(finding_refs) < 2
+        ):
+            return dict(state.payload), {"reason": "contradiction_packet_invalid"}
+        coordinator = ResearchRunCoordinator(self.ledger)
+        expected = coordinator._state_payload(
+            state="alignment",
+            lifecycle_revision=int(previous.payload.get("lifecycle_revision", 0)) + 1,
+            obligations=("contradiction_resolution", "closure_revalidation", "delivery_recompilation"),
+            legal_actions=coordinator._next_actions("alignment"),
+            idempotency_key=contradiction_id,
+            reason=body.get("reason"),
+        )
+        quarantine_ref = state.payload.get("quarantine_ref")
+        expected.update(
+            {
+                "task_id": previous.payload.get("task_id"),
+                "domain_id": previous.payload.get("domain_id"),
+                "contradiction_id": contradiction_id,
+                "previous_state_ref": self._artifact_ref(previous).to_dict(),
+                "quarantine_ref": thaw_json(quarantine_ref),
+                "authority_streams": thaw_json(previous.payload.get("authority_streams", {})),
+            }
+        )
+        if not isinstance(quarantine_ref, Mapping):
+            return expected, {"reason": "quarantine_reference_missing"}
+        try:
+            quarantine = artifacts[ArtifactRef.from_dict(quarantine_ref)]
+        except (KeyError, TypeError, ValueError):
+            return expected, {"reason": "quarantine_reference_invalid"}
+        if (
+            quarantine.kind != STALE_STATE_QUARANTINE_KIND
+            or quarantine.payload.get("contradiction_event_id") != contradiction_id
+        ):
+            return expected, {"reason": "contradiction_quarantine_mismatch"}
+        expected["state_digest"] = _digest_payload(
+            {key: value for key, value in expected.items() if key != "state_digest"}
+        )
+        return expected, None
+
     def _validate_host_events(
         self,
         run_id: str,
@@ -1105,10 +1192,13 @@ class CausalTraceService:
         divergence: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         body = thaw_json(event.payload)
-        if body.get("event_id") != event.id:
-            raise CausalTraceError("missing_cause: event identity")
         is_correction = event.kind == CORRECTION_EVENT_KIND
-        if not is_correction and (
+        is_contradiction = event.kind == CONTRADICTION_PACKET_KIND
+        identity_field = "contradiction_id" if is_contradiction else "event_id"
+        if body.get(identity_field) != event.id:
+            raise CausalTraceError("missing_cause: event identity")
+        is_retraction = is_correction or is_contradiction
+        if not is_retraction and (
             body.get("from") != previous.payload.get("state") or body.get("to") != state.payload.get("state")
         ):
             raise CausalTraceError("missing_cause: state edge")
@@ -1121,6 +1211,13 @@ class CausalTraceService:
                 "successor_domain_id": body.get("successor_domain_id"),
                 "affected_roles": sorted(body.get("affected", {})),
             }
+        elif is_contradiction:
+            raw_inputs = {
+                "contradiction_id": body.get("contradiction_id"),
+                "status": body.get("status"),
+                "finding_refs": body.get("finding_refs"),
+                "reason_digest": hashlib.sha256(str(body.get("reason", "")).encode("utf-8")).hexdigest(),
+            }
         else:
             raw_inputs = body.get("payload", {})
             if isinstance(raw_inputs, Mapping) and "confirmation" in raw_inputs:
@@ -1130,7 +1227,13 @@ class CausalTraceService:
                 ).hexdigest()
         inputs = _safe_value(raw_inputs, "transition inputs")
         actor = _safe_code(body.get("actor", "coordinator"), "actor")
-        action = "correction" if is_correction else _safe_code(body.get("event", "unknown"), "action")
+        action = (
+            "correction"
+            if is_correction
+            else "contradiction"
+            if is_contradiction
+            else _safe_code(body.get("event", "unknown"), "action")
+        )
         host = _safe_code(inputs.get("host", "coordinator"), "host") if isinstance(inputs, Mapping) else "coordinator"
         trace_id = (
             "trace-"
@@ -1159,9 +1262,11 @@ class CausalTraceService:
             "score_components": _score_components(
                 inputs.get("score_components", {}) if isinstance(inputs, Mapping) else {}
             ),
-            "outcome": state.payload.get("state") if is_correction else body.get("to"),
+            "outcome": state.payload.get("state") if is_retraction else body.get("to"),
             "reason": "correction"
             if is_correction
+            else "contradiction"
+            if is_contradiction
             else inputs.get("reason", "transition_accepted")
             if isinstance(inputs, Mapping)
             else "transition_accepted",

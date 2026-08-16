@@ -20,6 +20,7 @@ from .domain import (
 from .intent import INTENT_MODEL_KIND, WORKING_BRIEF_KIND
 from .ledger import DECISION_LEDGER_KIND, FINDING_PACK_KIND
 from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
+from .contradictions import claim_from_mapping, unresolved_claim_ids
 from .run_ledger import RunLedger
 from .verification import (
     FAILURE_CATEGORY_GATES,
@@ -586,6 +587,49 @@ def _strict_findings_are_authoritative(
                         "decision_closure",
                         "fail",
                         f"Decision {decision.id} lacks strict Finding Pack support for its selected option.",
+                        slot_id=slot_id if isinstance(slot_id, str) else None,
+                        decision_id=decision.id,
+                    )
+                )
+                authoritative = False
+            candidate_claims = []
+            for candidate in findings:
+                if (
+                    candidate.payload.get("blueprint_target_id") == target_id
+                    and candidate.payload.get("decision_slot_id") == slot_id
+                ):
+                    try:
+                        candidate_claims.extend(
+                            claim_from_mapping(value) for value in candidate.payload.get("claims", ())
+                        )
+                    except (TypeError, ValueError) as error:
+                        diagnostics.append(
+                            _diagnostic(
+                                "decision_closure",
+                                "fail",
+                                f"Finding Pack {candidate.id} has invalid canonical claims: {error}",
+                                slot_id=slot_id if isinstance(slot_id, str) else None,
+                                decision_id=decision.id,
+                            )
+                        )
+                        authoritative = False
+            contested = unresolved_claim_ids(candidate_claims)
+            selected_claim_ids = {
+                claim_id
+                for finding_ref in linked_findings
+                for effect in findings_by_ref[finding_ref].payload.get("option_effects", ())
+                if isinstance(effect, Mapping)
+                and effect.get("option") == selected_option
+                and effect.get("effect") == "supports"
+                for claim_id in effect.get("claim_ids", ())
+                if isinstance(claim_id, str)
+            }
+            if contested.intersection(selected_claim_ids):
+                diagnostics.append(
+                    _diagnostic(
+                        "decision_closure",
+                        "fail",
+                        f"Decision {decision.id} relies on an unresolved canonical contradiction.",
                         slot_id=slot_id if isinstance(slot_id, str) else None,
                         decision_id=decision.id,
                     )

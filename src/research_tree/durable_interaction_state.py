@@ -7,8 +7,9 @@ from hashlib import sha256
 import json
 import os
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
+from .domain import validate_identifier
 from .interaction_state import (
     AgentState,
     InteractionEvent,
@@ -462,12 +463,47 @@ class DurableInteractionController:
         return self._change(expected_revision, mutate)
 
     def contest_evidence(self, claim_id: str, *, expected_revision: int) -> PersistedInteractionState:
-        return self._change(
-            expected_revision,
-            lambda prior: replace(
-                prior, factual_beliefs={key: value for key, value in prior.factual_beliefs.items() if key != claim_id}
-            ),
-        )
+        return self.contest_evidence_set((claim_id,), expected_revision=expected_revision)
+
+    def contest_evidence_set(self, claim_ids: Sequence[str], *, expected_revision: int) -> PersistedInteractionState:
+        identifiers = tuple(dict.fromkeys(validate_identifier(claim_id, "claim_id") for claim_id in claim_ids))
+        if not identifiers:
+            raise DurableInteractionStateError("contested evidence requires at least one claim")
+
+        def mutate(prior: PersistedInteractionState) -> PersistedInteractionState:
+            state = prior.state
+            for index, claim_id in enumerate(identifiers, start=1):
+                state = self.reducer.reduce(
+                    state,
+                    InteractionEvent.correction(
+                        event_id=f"contest-{claim_id}-{prior.revision + 1}-{index}",
+                        target_id=claim_id,
+                        replacement="Canonical evidence is contested pending independent resolution.",
+                    ),
+                ).state
+            remaining = {
+                action: status
+                for action, status in prior.pending_actions.items()
+                if action in state.agent.pending_actions
+            }
+            self._episode(
+                prior.revision + 1,
+                "contest-" + "-".join(identifiers),
+                {
+                    "schema": 1,
+                    "event_id": f"contest-{prior.revision + 1}",
+                    "kind": "contradiction",
+                    "claim_ids": list(identifiers),
+                },
+            )
+            return replace(
+                prior,
+                state=state,
+                factual_beliefs={key: value for key, value in prior.factual_beliefs.items() if key not in identifiers},
+                pending_actions=remaining,
+            )
+
+        return self._change(expected_revision, mutate)
 
     def consume_lifecycle_event(self, event: str) -> PersistedInteractionState:
         if event == "PreCompact":

@@ -157,11 +157,7 @@ def measure_realized_delta(
         new_anchors.update(set(evidence["anchor_fingerprints"]) - set(incoming.anchor_fingerprints))
         new_effects.update(set(evidence["effect_fingerprints"]) - set(incoming.effect_fingerprints))
         payload = _payload(finding)
-        contradiction_count += sum(
-            1
-            for effect in payload.get("option_effects", ())
-            if isinstance(effect, Mapping) and effect.get("effect") == "contradicts"
-        )
+        contradiction_count += len(evidence["contradiction_state"])
         continuation_count += len(payload.get("research_continuations", ()))
         continuation_count += len(payload.get("remaining_uncertainties", ()))
         for name, values in evidence.items():
@@ -261,10 +257,19 @@ def _fingerprints(finding: Any) -> dict[str, set[str]]:
     for effect in payload.get("option_effects", ()):
         if isinstance(effect, Mapping):
             effects.add(_digest(f"{effect.get('option')}:{effect.get('effect')}"))
-            if effect.get("effect") == "contradicts":
-                contradictions.add(_digest(_normalize(str(effect))))
     for item in payload.get("contradictions", ()):
         contradictions.add(_digest(_normalize(str(item))))
+    if payload.get("contradiction_id") and payload.get("status") in {"contested", "unresolved"}:
+        contradictions.add(
+            _digest(
+                _normalize(
+                    ":".join(
+                        str(payload.get(name, ""))
+                        for name in ("contradiction_id", "status", "claim_ids", "conflict_reason")
+                    )
+                )
+            )
+        )
     validation = payload.get("validation_result")
     if isinstance(validation, Mapping):
         oracles.add(_digest(_normalize(str(validation.get("status", "unknown")))))
