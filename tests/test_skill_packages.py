@@ -128,6 +128,9 @@ def test_only_claude_package_contains_claude_compatibility_material() -> None:
     assert (claude_skill_root / "references" / "claude-code-compatibility.md").is_file()
     assert (claude_skill_root / "references" / "claude-native-orchestration.md").is_file()
     assert (claude_skill_root / "scripts" / "native_execution_adapter.py").is_file()
+    assert (claude_skill_root / "scripts" / "claude_orchestration_contract.py").is_file()
+    for package in (codex, hermes):
+        assert not (_skill_dir(package) / "scripts" / "claude_orchestration_contract.py").exists()
 
 
 def test_only_codex_package_contains_codex_compatibility_material() -> None:

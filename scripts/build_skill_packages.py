@@ -72,6 +72,7 @@ HERMES_FILES = (
 CLAUDE_FILES = (
     Path("references/claude-code-compatibility.md"),
     Path("references/claude-native-orchestration.md"),
+    Path("scripts/claude_orchestration_contract.py"),
     Path("scripts/native_execution_adapter.py"),
     Path("scripts/host_event_protocol.py"),
 )
