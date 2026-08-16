@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from .content_store import ContentAddressedStore, ContentStoreError
+from .contradictions import claim_from_mapping, unresolved_claim_ids
 from .domain import (
     ArtifactRef,
     ArtifactRevision,
@@ -134,12 +135,30 @@ def _boundary_values(value: Any, label: str) -> list[dict[str, str]]:
     return boundaries
 
 
+def _text_values(value: Any, label: str) -> list[str]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise ClosureAssessmentError(f"{label} must be a sequence")
+    values = [_text(item, f"{label}[{index}]") for index, item in enumerate(value)]
+    if values != sorted(values) or len(set(values)) != len(values):
+        raise ClosureAssessmentError(f"{label} must be sorted and distinct")
+    return values
+
+
 def _finding_lineages(value: Any) -> list[dict[str, Any]]:
     if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
         raise ClosureAssessmentError("finding_lineages must be a sequence")
     lineages: list[dict[str, Any]] = []
     expected = frozenset(
-        {"finding_ref", "evidence_refs", "receipt_refs", "capture_refs", "origin_refs", "method_provider_boundaries"}
+        {
+            "finding_ref",
+            "evidence_refs",
+            "receipt_refs",
+            "capture_refs",
+            "origin_refs",
+            "origin_capture_ids",
+            "provenance_groups",
+            "method_provider_boundaries",
+        }
     )
     for index, item in enumerate(value):
         lineage = _exact_mapping(item, expected, f"finding_lineages[{index}]")
@@ -164,6 +183,12 @@ def _finding_lineages(value: Any) -> list[dict[str, Any]]:
                     reference.to_dict()
                     for reference in _reference_list(lineage["origin_refs"], f"finding_lineages[{index}].origin_refs")
                 ],
+                "origin_capture_ids": _text_values(
+                    lineage["origin_capture_ids"], f"finding_lineages[{index}].origin_capture_ids"
+                ),
+                "provenance_groups": _text_values(
+                    lineage["provenance_groups"], f"finding_lineages[{index}].provenance_groups"
+                ),
                 "method_provider_boundaries": _boundary_values(
                     lineage["method_provider_boundaries"],
                     f"finding_lineages[{index}].method_provider_boundaries",
@@ -241,6 +266,7 @@ def _diagnostic_values(value: Any) -> dict[str, Any]:
         frozenset(
             {
                 "method_provider_boundaries",
+                "provenance_groups",
                 "finding_lineages",
                 "oracle_lineages",
                 "selected_option_contradiction_refs",
@@ -252,6 +278,7 @@ def _diagnostic_values(value: Any) -> dict[str, Any]:
         "method_provider_boundaries": _boundary_values(
             diagnostics["method_provider_boundaries"], "method_provider_boundaries"
         ),
+        "provenance_groups": _text_values(diagnostics["provenance_groups"], "provenance_groups"),
         "finding_lineages": _finding_lineages(diagnostics["finding_lineages"]),
         "oracle_lineages": _oracle_lineages(diagnostics["oracle_lineages"]),
         "selected_option_contradiction_refs": [
@@ -720,6 +747,8 @@ class SlotClosureAssessor:
             receipt_refs: set[ArtifactRef] = set()
             capture_refs: set[ArtifactRef] = set()
             origin_refs: set[ArtifactRef] = set()
+            origin_capture_ids: set[str] = set()
+            provenance_groups: set[str] = set()
             boundaries: set[tuple[str, str]] = set()
             for observation in observations:
                 if not isinstance(observation, Mapping):
@@ -779,7 +808,12 @@ class SlotClosureAssessor:
                     or evidence.acquisition_method != capture.method_id
                 ):
                     raise ClosureAssessmentError("evidence receipt and source capture are not exact")
-                origin_refs.update(self._capture_origin_is_bound(capture_ref, capture, round_id))
+                origins = self._capture_origin_is_bound(capture_ref, capture, round_id)
+                origin_refs.update(origins)
+                origin_capture_ids.update(item.artifact_id for item in origins)
+                if not origins:
+                    origin_capture_ids.add(capture.capture_id)
+                provenance_groups.add(capture.provenance_group)
                 evidence_refs.add(anchor.artifact_ref)
                 boundaries.add((capture.method_id, capture.provider_id))
             if not evidence_refs:
@@ -790,6 +824,8 @@ class SlotClosureAssessor:
                 "receipt_refs": self._sorted_refs(receipt_refs),
                 "capture_refs": self._sorted_refs(capture_refs),
                 "origin_refs": self._sorted_refs(origin_refs),
+                "origin_capture_ids": sorted(origin_capture_ids),
+                "provenance_groups": sorted(provenance_groups),
                 "method_provider_boundaries": [
                     {"method_id": method_id, "provider_id": provider_id}
                     for method_id, provider_id in sorted(boundaries)
@@ -857,6 +893,44 @@ class SlotClosureAssessor:
                     break
         return tuple(sorted(contradictions, key=_reference_sort_key))
 
+    def _canonical_claim_conflicts(
+        self,
+        *,
+        round_id: str,
+        blueprint_target: ArtifactRevision,
+        slot_id: str,
+    ) -> tuple[ArtifactRef, ...]:
+        candidates = tuple(
+            item
+            for item in self.ledger.load_run(round_id).artifacts
+            if item.kind == FINDING_PACK_KIND
+            and item.payload.get("blueprint_target_id") == blueprint_target.id
+            and item.payload.get("decision_slot_id") == slot_id
+        )
+        claims_by_finding: dict[ArtifactRef, tuple[Any, ...]] = {}
+        all_claims: list[Any] = []
+        for finding in candidates:
+            try:
+                claims = tuple(claim_from_mapping(item) for item in finding.payload.get("claims", ()))
+            except (TypeError, ValueError) as error:
+                raise ClosureAssessmentError(
+                    f"Finding Pack {finding.id} has invalid canonical claims: {error}"
+                ) from error
+            reference = _artifact_ref(finding)
+            claims_by_finding[reference] = claims
+            all_claims.extend(claims)
+        contested = unresolved_claim_ids(all_claims)
+        return tuple(
+            sorted(
+                (
+                    reference
+                    for reference, claims in claims_by_finding.items()
+                    if any(claim.claim_id in contested for claim in claims)
+                ),
+                key=_reference_sort_key,
+            )
+        )
+
     @staticmethod
     def _payload_with_token(base: Mapping[str, Any]) -> dict[str, Any]:
         status = base["status"]
@@ -902,13 +976,17 @@ class SlotClosureAssessor:
         finding_lineages = [self._finding_evidence_lineage(item, round_id) for item in finding_values]
         evidence = bool(finding_refs) and all(lineage is not None for lineage in finding_lineages)
         typed_lineages = [lineage for lineage in finding_lineages if lineage is not None]
-        boundaries = {
-            (item["method_id"], item["provider_id"])
-            for lineage in typed_lineages
-            for item in lineage["method_provider_boundaries"]
-        }
+        provenance_groups = {group for lineage in typed_lineages for group in lineage["provenance_groups"]}
         selected_option = _text(decision.payload.get("selected_option"), "decision selected_option")
-        contradiction_refs = self._selected_option_contradictions(finding_values, selected_option)
+        worker_contradiction_refs = self._selected_option_contradictions(finding_values, selected_option)
+        canonical_contradiction_refs = self._canonical_claim_conflicts(
+            round_id=round_id,
+            blueprint_target=blueprint_target,
+            slot_id=slot_id,
+        )
+        contradiction_refs = tuple(
+            sorted(set(worker_contradiction_refs).union(canonical_contradiction_refs), key=_reference_sort_key)
+        )
         passed_input_refs = {
             reference
             for run, _ in validated_oracle_runs or ()
@@ -919,8 +997,9 @@ class SlotClosureAssessor:
         checks = {
             "slot_lineage": True,
             "evidence": evidence,
-            "provenance_independence": evidence and len(boundaries) >= 2,
-            "no_selected_option_contradiction": all(reference in passed_input_refs for reference in contradiction_refs),
+            "provenance_independence": evidence and len(provenance_groups) >= 2,
+            "no_selected_option_contradiction": not canonical_contradiction_refs
+            and all(reference in passed_input_refs for reference in worker_contradiction_refs),
             "oracle": oracle,
             "fallback": bool(str(decision.payload.get("fallback", "")).strip()),
             "reversal_condition": bool(str(decision.payload.get("reversal_condition", "")).strip()),
@@ -940,8 +1019,16 @@ class SlotClosureAssessor:
         parent_refs = (target_ref, decision_ref, *finding_refs, *run_refs)
         diagnostics = {
             "method_provider_boundaries": [
-                {"method_id": method_id, "provider_id": provider_id} for method_id, provider_id in sorted(boundaries)
+                {"method_id": method_id, "provider_id": provider_id}
+                for method_id, provider_id in sorted(
+                    {
+                        (item["method_id"], item["provider_id"])
+                        for lineage in typed_lineages
+                        for item in lineage["method_provider_boundaries"]
+                    }
+                )
             ],
+            "provenance_groups": sorted(provenance_groups),
             "finding_lineages": typed_lineages,
             "oracle_lineages": [lineage for _, lineage in validated_oracle_runs or ()],
             "selected_option_contradiction_refs": [reference.to_dict() for reference in contradiction_refs],

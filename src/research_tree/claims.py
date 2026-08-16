@@ -61,9 +61,21 @@ class Claim:
     version: str
     time_range: str
     conditions: tuple[str, ...] = ()
+    platform: str = "unspecified"
+    modality: str = "unspecified"
 
     def __post_init__(self) -> None:
-        for field in ("claim_id", "subject", "predicate", "value", "scope", "version", "time_range"):
+        for field in (
+            "claim_id",
+            "subject",
+            "predicate",
+            "value",
+            "scope",
+            "version",
+            "time_range",
+            "platform",
+            "modality",
+        ):
             object.__setattr__(self, field, _text(getattr(self, field), field))
         if self.polarity not in {"positive", "negative"}:
             raise ClaimValidationError("polarity must be positive or negative")

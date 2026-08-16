@@ -103,6 +103,28 @@ def test_project_hook_event_checkpoints_and_records_degraded_integrity(tmp_path)
     assert controller.load().state_integrity == "degraded"
 
 
+def test_contested_evidence_cancels_dependent_pending_effects_atomically(tmp_path) -> None:
+    from research_tree.durable_interaction_state import DurableInteractionController
+    from research_tree.interaction_state import InteractionEvent
+
+    controller = DurableInteractionController.initialize(tmp_path, project_id="topic", run_id="run")
+    controller.submit(
+        InteractionEvent.agent_assumption(
+            event_id="assume-claim", assumption_id="claim-a", statement="Use claim A.", pending_actions=("publish",)
+        ),
+        expected_revision=0,
+    )
+    controller.record_action_started("publish", expected_revision=1)
+    controller.propose_evidence("claim-a", "Claim A is true.", admitted=True, expected_revision=2)
+
+    contested = controller.contest_evidence("claim-a", expected_revision=3)
+
+    assert contested.factual_beliefs == {}
+    assert contested.pending_actions == {}
+    assert contested.state.agent.pending_actions == ()
+    assert contested.state.agent.next_move == "repair"
+
+
 def test_lifecycle_observation_consumes_project_state_without_blocking_host(tmp_path) -> None:
     from research_tree.durable_interaction_state import DurableInteractionController
     from research_tree.lifecycle_hook import observe

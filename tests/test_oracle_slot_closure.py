@@ -139,6 +139,7 @@ def _source_graph(
     round_id: str = RUN_ID,
     method_id: str = "web-fetch",
     provider_id: str = "fixture-provider",
+    provenance_group: str = "fixture-source",
 ):
     store = ContentAddressedStore(ledger.workspace)
     capture_data = f"capture:{capture_id}".encode()
@@ -159,7 +160,7 @@ def _source_graph(
                 captured_at=CAPTURED_AT,
                 method_id=method_id,
                 provider_id=provider_id,
-                provenance_group="fixture-source",
+                provenance_group=provenance_group,
                 origin_capture_id=origin_capture_id,
             ).to_dict(),
             round_id=round_id,
@@ -191,7 +192,7 @@ def _source_graph(
             media_type="text/plain",
             method_id=method_id,
             provider_id=provider_id,
-            provenance_group="fixture-source",
+            provenance_group=provenance_group,
             locator={"url": f"https://{capture_id}.test/report"},
             origin_capture_id=origin_capture_id,
             expected_revision=ledger.get_revision(round_id),
@@ -221,7 +222,7 @@ def _source_graph(
         size_bytes=evidence_content.byte_size,
         acquired_at=CAPTURED_AT,
         acquisition_method=method_id,
-        provenance_group="fixture-source",
+        provenance_group=provenance_group,
         applicability="direct support",
         confidence="high",
         limitations=(),
@@ -292,6 +293,7 @@ def _assessment_inputs(
     hidden_contradiction: bool = False,
     include_origin: bool = False,
     independent: bool = False,
+    independent_provenance_group: str = "fixture-independent",
     contradiction_option: str = "a",
     target_slot_id: str = "slot-1",
     decision_slot_id: str = "slot-1",
@@ -357,6 +359,7 @@ def _assessment_inputs(
             attempt_id="attempt-independent",
             method_id="repository-read",
             provider_id="fixture-repository",
+            provenance_group=independent_provenance_group,
         )
         findings.append(
             _finding(
@@ -491,6 +494,25 @@ def test_core_evaluator_issues_revision_bound_closure_token(tmp_path) -> None:
     assert SlotClosureAssessment.from_dict(assessment.payload).closure_token == assessment.payload["closure_token"]
 
 
+def test_distinct_methods_do_not_substitute_for_independent_provenance(tmp_path) -> None:
+    ledger, service = _service(tmp_path)
+    _, _, run = _oracle_run(service, ledger)
+    target, decision, findings = _assessment_inputs(
+        ledger, independent=True, independent_provenance_group="fixture-source"
+    )
+    assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
+
+    for finding in findings:
+        lineage = assessor._finding_evidence_lineage(finding, RUN_ID)
+        assert lineage is not None
+        assert lineage["provenance_groups"] == ["fixture-source"]
+
+    assessment = _assess(assessor, ledger, target, decision, findings, oracle_runs=(run,))
+
+    assert assessment.payload["status"] == "inconclusive"
+    assert assessment.payload["checks"]["provenance_independence"] is False
+
+
 def test_non_core_evaluator_cannot_manually_close_slot(tmp_path) -> None:
     ledger, service = _service(tmp_path)
     _, _, run = _oracle_run(service, ledger)
@@ -610,6 +632,52 @@ def test_selected_option_contradiction_requires_an_exact_passed_oracle_witness(t
     assert unresolved.payload["status"] == "inconclusive"
     assert "adversarial" in unresolved.payload["successor_kinds"]
     assert witnessed.payload["status"] == "passed"
+
+
+def test_canonical_claim_conflict_cannot_be_cleared_by_an_oracle_witness(tmp_path) -> None:
+    from test_canonical_contradictions import _claim_payload
+
+    ledger, service = _service(tmp_path)
+    target, decision, findings = _assessment_inputs(ledger, independent=True)
+    positive = _append(
+        ledger,
+        "finding-canonical-positive",
+        "finding-pack",
+        {
+            "blueprint_target_id": target.id,
+            "decision_slot_id": "slot-1",
+            "claims": [_claim_payload(claim_id="canonical-positive", polarity="positive")],
+        },
+        (_ref(target),),
+    )
+    negative = _append(
+        ledger,
+        "finding-canonical-negative",
+        "finding-pack",
+        {
+            "blueprint_target_id": target.id,
+            "decision_slot_id": "slot-1",
+            "claims": [_claim_payload(claim_id="canonical-negative", polarity="negative")],
+        },
+        (_ref(target),),
+    )
+    _, _, witnessed_run = _oracle_run(service, ledger, input_refs=(_ref(positive), _ref(negative)))
+    assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
+
+    assessment = _assess(
+        assessor,
+        ledger,
+        target,
+        decision,
+        findings,
+        oracle_runs=(witnessed_run,),
+        assessment_id="assessment-canonical-conflict",
+    )
+
+    assert assessment.payload["status"] == "inconclusive"
+    assert assessment.payload["closure_token"] is None
+    assert assessment.payload["checks"]["no_selected_option_contradiction"] is False
+    assert "adversarial" in assessment.payload["successor_kinds"]
 
 
 def test_unselected_option_contradiction_does_not_create_an_adversarial_obligation(tmp_path) -> None:

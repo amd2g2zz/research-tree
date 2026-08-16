@@ -49,4 +49,24 @@ def test_new_state_delta_attributes_each_changed_component_to_finding() -> None:
         transition_index=1,
     )
     assert delta["realized_delta"] > 0 and not delta["no_change"]
-    assert all(item["references"] and item["contribution"] for item in delta["components"].values())
+    assert all(
+        item["references"] and item["contribution"]
+        for name, item in delta["components"].items()
+        if name != "contradiction_state"
+    )
+    assert delta["components"]["contradiction_state"]["value"] == 0
+
+
+def test_canonical_packet_not_worker_effect_is_counted_as_contradiction_delta() -> None:
+    packet = {
+        "id": "contradiction-1",
+        "contradiction_id": "contradiction-1",
+        "status": "unresolved",
+        "claim_ids": ["claim-a", "claim-b"],
+        "conflict_reason": "incompatible-applicable-claims",
+    }
+
+    delta, _ = measure_realized_delta(EvidenceBaseline(), (packet,), transition_index=1)
+
+    assert delta["contradiction_count"] == 1
+    assert delta["components"]["contradiction_state"]["value"] > 0

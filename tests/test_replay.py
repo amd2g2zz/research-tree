@@ -186,6 +186,45 @@ def test_replay_recomputes_correction_quarantine_state(tmp_path) -> None:
     assert replay["earliest_divergence"] is None
 
 
+def test_replay_recomputes_contradiction_quarantine_state(tmp_path) -> None:
+    from test_canonical_contradictions import _claim_payload
+
+    ledger, coordinator, state, _, _ = correction_context(tmp_path)
+    first = ledger.append_artifact(
+        "run-correction",
+        "finding-replay-a",
+        "finding-pack",
+        {"claims": [_claim_payload(claim_id="claim-replay-a", polarity="positive")]},
+        parent_refs=(ArtifactRef(state.round_id, state.id, state.revision),),
+        expected_revision=ledger.get_revision("run-correction"),
+    )
+    second = ledger.append_artifact(
+        "run-correction",
+        "finding-replay-b",
+        "finding-pack",
+        {"claims": [_claim_payload(claim_id="claim-replay-b", polarity="negative")]},
+        parent_refs=(ArtifactRef(first.round_id, first.id, first.revision),),
+        expected_revision=ledger.get_revision("run-correction"),
+    )
+    coordinator.apply_contradiction(
+        run_id="run-correction",
+        contradiction_id="contradiction-replay",
+        finding_refs=(
+            ArtifactRef(first.round_id, first.id, first.revision),
+            ArtifactRef(second.round_id, second.id, second.revision),
+        ),
+        reason="The evidence directly conflicts.",
+        expected_revision=ledger.get_revision("run-correction"),
+    )
+
+    replay = CausalTraceService(ledger).replay("run-correction")
+
+    assert replay["verified"] is True
+    assert replay["terminal_state"] == "alignment"
+    assert replay["transitions"][0]["action"] == "contradiction"
+    assert replay["earliest_divergence"] is None
+
+
 @pytest.mark.parametrize("failure", ["missing_cause", "digest_mismatch", "fork"])
 def test_replay_rejects_ambiguous_or_tampered_state_lineage(tmp_path, failure: str) -> None:
     ledger, coordinator = _setup(tmp_path)
