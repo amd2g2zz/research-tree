@@ -171,3 +171,159 @@ def test_durable_projection_recovers_from_interrupted_double_write(tmp_path) -> 
     loaded = controller.load()
     assert loaded.durable["authority"] == ["repository_write"]
     assert json.loads(controller.paths.durable.read_text(encoding="utf-8"))["authority"] == ["repository_write"]
+
+
+def test_correction_reconciles_started_and_unrelated_pending_actions(tmp_path) -> None:
+    from research_tree.durable_interaction_state import DurableInteractionController
+    from research_tree.interaction_state import InteractionEvent
+
+    controller = DurableInteractionController.initialize(tmp_path, project_id="project-245", run_id="run-245")
+    controller.submit(
+        InteractionEvent.agent_assumption(
+            event_id="assume-weekly",
+            assumption_id="assume-weekly",
+            statement="Publish every week.",
+            pending_actions=("publish-weekly",),
+        ),
+        expected_revision=0,
+    )
+    controller.submit(
+        InteractionEvent.agent_assumption(
+            event_id="assume-notify",
+            assumption_id="assume-notify",
+            statement="Notify the team after publication.",
+            pending_actions=("notify-team",),
+        ),
+        expected_revision=1,
+    )
+    controller.record_action_started("publish-weekly", expected_revision=2)
+    controller.record_action_started("notify-team", expected_revision=3)
+
+    corrected = controller.submit(
+        InteractionEvent.correction(
+            event_id="correct-release",
+            target_id="assume-weekly",
+            replacement="Publish only after verification.",
+        ),
+        expected_revision=4,
+    )
+
+    assert corrected.state.agent.pending_actions == ("notify-team",)
+    assert corrected.pending_actions == {"notify-team": "started"}
+    assert corrected.state.superseded_ids
+    assert corrected.state.agent.next_move == "repair"
+
+
+def test_checkpoint_recovery_cannot_restore_correction_invalidated_action(tmp_path) -> None:
+    from research_tree.durable_interaction_state import DurableInteractionController
+    from research_tree.interaction_state import InteractionEvent
+
+    controller = DurableInteractionController.initialize(tmp_path, project_id="project-245", run_id="run-245-recovery")
+    controller.submit(
+        InteractionEvent.agent_assumption(
+            event_id="assume-weekly",
+            assumption_id="assume-weekly",
+            statement="Publish every week.",
+            pending_actions=("publish-weekly",),
+        ),
+        expected_revision=0,
+    )
+    controller.submit(
+        InteractionEvent.agent_assumption(
+            event_id="assume-notify",
+            assumption_id="assume-notify",
+            statement="Notify the team after publication.",
+            pending_actions=("notify-team",),
+        ),
+        expected_revision=1,
+    )
+    controller.record_action_started("publish-weekly", expected_revision=2)
+    controller.record_action_started("notify-team", expected_revision=3)
+    checkpoint = controller.checkpoint(expected_revision=4)
+
+    controller.submit(
+        InteractionEvent.correction(
+            event_id="correct-release",
+            target_id="assume-weekly",
+            replacement="Publish only after verification.",
+        ),
+        expected_revision=4,
+    )
+    recovered = controller.recover(checkpoint)
+
+    assert "publish-weekly" not in recovered.state.agent.pending_actions
+    assert recovered.state.agent.pending_actions == ("notify-team",)
+    assert recovered.pending_actions == {"notify-team": "unknown"}
+    assert "assume-weekly" in recovered.state.superseded_ids
+
+
+@pytest.mark.parametrize(
+    ("filename", "payload"),
+    [
+        ("malformed.yaml", {"schema": 1}),
+        (
+            "00000000000000000003-malformed.yaml",
+            {
+                "event": {
+                    "kind": "correction",
+                    "event_id": "malformed",
+                    "target_id": "assume-weekly",
+                    "replacement": None,
+                }
+            },
+        ),
+    ],
+)
+def test_checkpoint_recovery_fails_closed_on_malformed_correction_evidence(
+    tmp_path, filename: str, payload: dict[str, object]
+) -> None:
+    from research_tree.durable_interaction_state import (
+        DurableInteractionController,
+        DurableInteractionStateError,
+    )
+    from research_tree.interaction_state import InteractionEvent
+
+    controller = DurableInteractionController.initialize(tmp_path, project_id="project-245", run_id="run-245-malformed")
+    controller.submit(
+        InteractionEvent.agent_assumption(
+            event_id="assume-weekly",
+            assumption_id="assume-weekly",
+            statement="Publish every week.",
+            pending_actions=("publish-weekly",),
+        ),
+        expected_revision=0,
+    )
+    controller.record_action_started("publish-weekly", expected_revision=1)
+    checkpoint = controller.checkpoint(expected_revision=2)
+    (controller.paths.episodes / filename).write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(DurableInteractionStateError):
+        controller.recover(checkpoint)
+
+
+def test_duplicate_correction_does_not_restore_invalidated_action(tmp_path) -> None:
+    from research_tree.durable_interaction_state import DurableInteractionController
+    from research_tree.interaction_state import InteractionEvent
+
+    controller = DurableInteractionController.initialize(tmp_path, project_id="project-245", run_id="run-245-replay")
+    controller.submit(
+        InteractionEvent.agent_assumption(
+            event_id="assume-release",
+            assumption_id="assume-weekly",
+            statement="Publish every week.",
+            pending_actions=("publish-weekly",),
+        ),
+        expected_revision=0,
+    )
+    controller.record_action_started("publish-weekly", expected_revision=1)
+    correction = InteractionEvent.correction(
+        event_id="correct-release",
+        target_id="assume-weekly",
+        replacement="Publish only after verification.",
+    )
+    corrected = controller.submit(correction, expected_revision=2)
+
+    repeated = controller.submit(correction, expected_revision=corrected.revision)
+
+    assert repeated.state.agent.pending_actions == ()
+    assert repeated.pending_actions == {}

@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from .domain import validate_identifier
+from .domain import RuntimeStoreError, validate_identifier
 from .interaction_state import (
     AgentState,
     InteractionEvent,
@@ -305,6 +305,15 @@ class DurableInteractionController:
         _atomic_write(self.paths.episodes / f"{revision:020d}-{event_id}.yaml", payload)
 
     @staticmethod
+    def _reconcile_pending_actions(
+        pending_actions: dict[str, str],
+        prior_state: InteractionState,
+        successor_state: InteractionState,
+    ) -> dict[str, str]:
+        invalidated = set(prior_state.agent.pending_actions) - set(successor_state.agent.pending_actions)
+        return {action_id: status for action_id, status in pending_actions.items() if action_id not in invalidated}
+
+    @staticmethod
     def _promote(durable: dict[str, Any], state: InteractionState, event: InteractionEvent) -> dict[str, Any]:
         result = json.loads(json.dumps(durable))
         result["authority"] = list(state.relationship.authority)
@@ -334,6 +343,7 @@ class DurableInteractionController:
                 state=reduction.state,
                 active_window=window,
                 durable=self._promote(prior.durable, reduction.state, event),
+                pending_actions=self._reconcile_pending_actions(prior.pending_actions, prior.state, reduction.state),
             )
             self._episode(
                 prior.revision + 1,
@@ -423,11 +433,42 @@ class DurableInteractionController:
             raise DurableInteractionStateError("interaction checkpoint digest mismatch")
 
         def mutate(prior: PersistedInteractionState) -> PersistedInteractionState:
+            checkpoint_revision = checkpoint.get("revision")
+            if not isinstance(checkpoint_revision, int):
+                raise DurableInteractionStateError("interaction checkpoint has an invalid revision")
+
+            checkpoint_pending = checkpoint.get("pending_actions", {})
+            if not isinstance(checkpoint_pending, dict):
+                raise DurableInteractionStateError("interaction checkpoint has invalid pending actions")
             pending = {
                 key: ("unknown" if value == "started" else value)
-                for key, value in checkpoint.get("pending_actions", {}).items()
+                for key, value in checkpoint_pending.items()
+                if key in prior.pending_actions
             }
+
             state = _state_from_dict(checkpoint["state"])
+            for path in sorted(self.paths.episodes.glob("*.yaml")):
+                episode_prefix, separator, episode_event_id = path.name.partition("-")
+                if not episode_prefix or not separator or episode_event_id in {"", ".yaml"}:
+                    raise DurableInteractionStateError(f"invalid interaction episode name: {path}")
+                try:
+                    episode_revision = int(episode_prefix)
+                except ValueError as error:
+                    raise DurableInteractionStateError(f"invalid interaction episode name: {path}") from error
+                if episode_revision <= checkpoint_revision:
+                    continue
+                episode = _read_object(path)
+                event_payload = episode.get("event")
+                if not isinstance(event_payload, dict) or event_payload.get("kind") != "correction":
+                    continue
+                try:
+                    event = InteractionEvent(**event_payload)
+                    prior_state = state
+                    reduction = self.reducer.reduce(prior_state, event)
+                except (TypeError, ValueError, RuntimeStoreError) as error:
+                    raise DurableInteractionStateError(f"invalid correction episode: {path}") from error
+                pending = self._reconcile_pending_actions(pending, prior_state, reduction.state)
+                state = reduction.state
             if "unknown" in pending.values():
                 state = replace(state, agent=replace(state.agent, next_move="repair"))
             return replace(
