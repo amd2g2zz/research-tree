@@ -109,6 +109,16 @@ Follow `references/skill-activation.md`: only exact `/research-tree activation-p
   `reconcile-host` before resuming or replanning. A failed or denied native
   surface selects `coordinator-dispatch-v1`; never infer availability from a
   task-list UI or reuse a stale capability digest.
+- Separately run `scripts/claude_orchestration_contract.py` with its
+  `select-mode` command and current Claude Code/SDK versions, model, package
+  revision, environment digest, and explicit `agent`, `workflow`, and `hooks`
+  observations. It
+  selects `agent`, `workflow`, `hybrid`, or `infeasible`; Workflow absence must
+  leave an available Agent path selectable, and Agent absence may select a
+  Workflow-only path. After native execution, use `bind-receipt` to validate
+  actual session, workflow, phase, child, script, and hook identities before
+  HostEvent conversion. Hand-written fixtures and task/workflow status are not
+  live evidence and never grant completion authority.
 - The installed package contains `SKILL.md`, bundled references/assets, and the
   dependency-free native execution adapter. It does not contain the repository
   Python runtime, lifecycle hooks, builder, or evaluation corpus.

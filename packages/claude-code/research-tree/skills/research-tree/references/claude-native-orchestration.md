@@ -134,6 +134,32 @@ tool inputs, secrets, or research evidence in hook logs.
 
 ## Executable workflow contract
 
+Agent, Workflow, and hybrid are distinct Claude native surfaces. Record the
+current Claude Code and SDK versions, model, package revision, environment
+digest, and explicit `agent`, `workflow`, and `hooks` observations, then select
+the intended surface with:
+
+```bash
+python "<skill-dir>/scripts/claude_orchestration_contract.py" select-mode --request <selection.json>
+```
+
+`selection.json` declares `requested_mode` (`auto`, `agent`, `workflow`, or
+`hybrid`). Auto chooses hybrid only when both surfaces are observed available,
+otherwise Agent or Workflow-only as available. After native execution, record
+actual session, workflow/script/runtime IDs, phase IDs, Agent IDs, canonical
+attempt IDs, and hook event IDs in a Claude Code runtime receipt:
+
+```bash
+python "<skill-dir>/scripts/claude_orchestration_contract.py" bind-receipt \
+  --selected <selection-result.json> --receipt <native-runtime-receipt.json>
+```
+
+The bridge result is attempt-bound and non-authoritative. It does not simulate
+native execution, accept a task/workflow status as proof, or grant closure.
+Hybrid child delegation is bounded to a workflow phase and one delegation
+level. A contradiction replan names superseded phase IDs, whose output remains
+quarantined until a new attempt is independently verified.
+
 Before projecting a dynamic wave, write explicit current-session capability
 observations to workspace JSON and run `probe-host --observations <json>`. Pass
 that result with canonical actions to `project-workflow --request <json>`.
