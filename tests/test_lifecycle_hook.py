@@ -160,17 +160,9 @@ def test_read_payload_is_bounded_and_requires_an_object() -> None:
 
 def test_host_templates_use_native_wrappers_and_isolated_hermes_hook() -> None:
     root = Path(__file__).resolve().parents[1]
-    codex = json.loads(
-        (root / "hooks" / "codex.hooks.template.json").read_text(encoding="utf-8")
-    )
-    claude = json.loads(
-        (root / "hooks" / "claude-code.settings.template.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    hermes = (root / "hooks" / "hermes.config.template.yaml").read_text(
-        encoding="utf-8"
-    )
+    codex = json.loads((root / "hooks" / "codex.hooks.template.json").read_text(encoding="utf-8"))
+    claude = json.loads((root / "hooks" / "claude-code.settings.template.json").read_text(encoding="utf-8"))
+    hermes = (root / "hooks" / "hermes.config.template.yaml").read_text(encoding="utf-8")
 
     assert set(codex["hooks"]) == {
         "SessionStart",
@@ -186,6 +178,7 @@ def test_host_templates_use_native_wrappers_and_isolated_hermes_hook() -> None:
         "SessionEnd",
         "PreCompact",
         "SubagentStop",
+        "PostToolUse",
         "Stop",
     }
     assert "on_session_start:" in hermes

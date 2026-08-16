@@ -70,6 +70,29 @@ def run_adapter(workspace: Path, host: str, command: str, *args: str) -> subproc
     )
 
 
+def bind_claude(workspace: Path, host: str, run_id: str, task: dict[str, object]) -> None:
+    if host != "claude":
+        return
+    completed = run_adapter(
+        workspace,
+        host,
+        "bind-agent",
+        "--run-id",
+        run_id,
+        "--task-id",
+        str(task["task_id"]),
+        "--attempt-id",
+        str(task["attempt_id"]),
+        "--agent-id",
+        f"agent-{task['attempt_id']}",
+        "--session-id",
+        "session-test",
+        "--causation-id",
+        f"tool-{task['attempt_id']}",
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
 def finding(task_id: str, slot: str, phase: str, attempt_id: str) -> dict[str, object]:
     return {
         "id": f"finding-{task_id}",
@@ -100,14 +123,14 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
     run_id = f"{host}-run"
     technical, human = write_reports(tmp_path)
     initialized = run_adapter(
-            tmp_path,
-            host,
-            "init",
-            "--run-id",
-            run_id,
-            "--handoff",
-            str(write_handoff(tmp_path)),
-        )
+        tmp_path,
+        host,
+        "init",
+        "--run-id",
+        run_id,
+        "--handoff",
+        str(write_handoff(tmp_path)),
+    )
     assert initialized.returncode == 0, initialized.stderr
     assert not (tmp_path / ".research-tree-native" / run_id).exists()
     assert (tmp_path / ".research-tree" / "projects" / f"project-{host}" / "runs" / run_id / "state.json").is_file()
@@ -177,6 +200,7 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
         "landscape-1",
     )
     restarted_task = json.loads(restarted.stdout)
+    bind_claude(tmp_path, host, run_id, restarted_task)
     assert restarted_task["attempt"] == 2
     artifact = tmp_path / "findings" / "landscape-1.json"
     artifact.parent.mkdir()
@@ -276,6 +300,7 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
     validation_start = run_adapter(tmp_path, host, "start", "--run-id", run_id, "--task-id", "validation-1")
     assert validation_start.returncode == 0
     validation_task = json.loads(validation_start.stdout)
+    bind_claude(tmp_path, host, run_id, validation_task)
     validation = tmp_path / "findings" / "validation-1.json"
     validation.write_text(
         json.dumps(

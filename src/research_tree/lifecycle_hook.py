@@ -28,7 +28,7 @@ HOST_EVENTS = {
             "Stop",
         }
     ),
-    "claude": frozenset({"SessionStart", "SessionEnd", "PreCompact", "SubagentStop", "Stop"}),
+    "claude": frozenset({"SessionStart", "SessionEnd", "PreCompact", "SubagentStop", "PostToolUse", "Stop"}),
     "hermes": frozenset({"on_session_start", "on_session_end"}),
 }
 
@@ -162,10 +162,27 @@ def observe(
         "event": event,
         "workspace": workspace.relative_to(root).as_posix() or ".",
     }
-    for key in ("session_id", "turn_id", "agent_id"):
+    for key in ("session_id", "turn_id", "agent_id", "task_id", "attempt_id", "causation_id"):
         value = _optional_identifier(payload, key)
         if value is not None:
             record[key] = value
+    if host == "claude" and event == "SubagentStop":
+        identity = tuple(
+            _optional_identifier(payload, key)
+            for key in ("task_id", "attempt_id", "agent_id", "session_id", "causation_id")
+        )
+        record["binding_status"] = "candidate" if all(identity) else "unknown_outcome"
+    if host == "claude" and event == "PostToolUse" and payload.get("tool_name") == "Agent":
+        response = payload.get("tool_response")
+        agent_id = _optional_identifier(response, "agentId") if isinstance(response, dict) else None
+        causation_id = _optional_identifier(payload, "tool_use_id")
+        if agent_id is not None:
+            record["agent_id"] = agent_id
+        if causation_id is not None:
+            record["causation_id"] = causation_id
+        record["binding_status"] = (
+            "host_identity_recorded" if agent_id is not None and causation_id is not None else "unknown_outcome"
+        )
     project_id = payload.get("project_id")
     run_id = payload.get("run_id")
     if project_id is None and run_id is None:

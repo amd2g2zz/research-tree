@@ -95,6 +95,10 @@ installed commands point to a dependency-free launcher in
 records only under that run's `events/` directory. The static template remains
 an opt-in reference; without an explicit project/run binding it does not write
 local lifecycle state.
+Claude `PostToolUse:Agent` and `SubagentStop` hooks preserve only opaque host,
+session, causation, task, attempt, and agent identifiers. Raw tool payloads and
+child output stay out of tracked files; unmatched lifecycle identity is recorded
+as `unknown_outcome` and never releases canonical work.
 
 ## Development verification
 
