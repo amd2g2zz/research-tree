@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -32,6 +33,45 @@ class HostLayout:
     user_parts: tuple[str, ...]
     project_parts: tuple[str, ...] | None
     discovery: str
+
+
+HERMES_DEPENDENCY_SCHEMA = 1
+# Pinned against the upstream artifact: anysearch-ai/anysearch-skill tag
+# v2.1.0 = 6ff6aa958ad9747659d669b5e9984f07c896f2aa. The digest covers every
+# tracked payload file in sorted order (name\0 content\0 per file).
+ANYSEARCH_PINNED_SHA256 = "f06c1a94a0cf8eca345cde609e62deb47907cb3b24889a0a37f5e1fdd0279d37"
+ANYSEARCH_PAYLOAD_FILES = (
+    ".env.example",
+    ".gitignore",
+    "README.md",
+    "SKILL.md",
+    "runtime.conf.example",
+    "scripts/anysearch_cli.js",
+    "scripts/anysearch_cli.ps1",
+    "scripts/anysearch_cli.py",
+    "scripts/anysearch_cli.sh",
+    "scripts/generate.py",
+    "scripts/shared/constants.json",
+    "scripts/shared/doc_spec.md",
+)
+ANYSEARCH_SOURCE_REPO = "https://github.com/anysearch-ai/anysearch-skill.git"
+
+
+def hermes_dependency_manifest() -> dict[str, object]:
+    """Return the pinned run-local Hermes dependency manifest."""
+
+    return {
+        "schema": HERMES_DEPENDENCY_SCHEMA,
+        "dependencies": {
+            "anysearch": {
+                "version": "2.1.0",
+                "revision": "6ff6aa958ad9747659d669b5e9984f07c896f2aa",
+                "install_path": "skills/anysearch",
+                "payload_files": list(ANYSEARCH_PAYLOAD_FILES),
+                "payload_sha256": ANYSEARCH_PINNED_SHA256,
+            }
+        },
+    }
 
 
 HOST_LAYOUTS = {
@@ -402,6 +442,99 @@ def _selected_hosts(raw_hosts: Sequence[str] | None) -> tuple[str, ...]:
     return tuple(dict.fromkeys(raw_hosts))
 
 
+def _dependency_payload_digest(root: Path, payload_files: Sequence[str]) -> str:
+    digest = hashlib.sha256()
+    for name in payload_files:
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update((root / name).read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def install_hermes_dependencies(*, home: Path, source_root: Path | None = None) -> dict[str, object]:
+    """Install pinned run-local Hermes dependencies before Hermes starts.
+
+    Fail closed when the payload at ``source_root`` does not match the pinned
+    manifest revision or an already-installed dependency drifted.
+    """
+
+    manifest = hermes_dependency_manifest()
+    resolved_home = _absolute(home)
+    dependencies: dict[str, dict[str, object]] = {}
+    for name, spec in manifest["dependencies"].items():
+        assert isinstance(spec, dict)
+        install_root = resolved_home / str(spec["install_path"])
+        payload_files = tuple(str(item) for item in spec["payload_files"])
+        pinned_digest = str(spec["payload_sha256"])
+        source = _absolute(source_root / "skills" / name) if source_root else None
+        if source is not None:
+            missing = [item for item in payload_files if not (source / item).is_file()]
+            if missing:
+                raise SkillSetupError(f"{name} source is missing pinned payload files: {', '.join(missing)}")
+            source_digest = _dependency_payload_digest(source, payload_files)
+            if source_digest != pinned_digest:
+                raise SkillSetupError(
+                    f"{name} source payload digest {source_digest} does not match the pinned manifest digest"
+                )
+        if install_root.is_dir():
+            installed_digest = _dependency_payload_digest(install_root, payload_files)
+        elif source is not None:
+            installed_digest = None
+        else:
+            raise SkillSetupError(f"{name} is not installed and no source was provided")
+        if source is not None:
+            if installed_digest is not None and installed_digest != pinned_digest:
+                raise SkillSetupError(
+                    f"{name} payload drift: installed dependency does not match the pinned manifest digest"
+                )
+            if not install_root.exists():
+                install_root.mkdir(parents=True)
+                for item in payload_files:
+                    destination = install_root / item
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source / item, destination)
+                installed_digest = _dependency_payload_digest(install_root, payload_files)
+        dependencies[name] = {
+            "version": spec["version"],
+            "revision": spec["revision"],
+            "status": "current",
+            "payload_sha256": installed_digest,
+        }
+    return {
+        "home": str(resolved_home),
+        "status": "installed",
+        "manifest_schema": HERMES_DEPENDENCY_SCHEMA,
+        "dependencies": dependencies,
+    }
+
+
+def hermes_dependency_status(*, home: Path) -> dict[str, object]:
+    """Report installed dependency revisions without mutating anything."""
+
+    manifest = hermes_dependency_manifest()
+    resolved_home = _absolute(home)
+    dependencies: dict[str, dict[str, object]] = {}
+    for name, spec in manifest["dependencies"].items():
+        assert isinstance(spec, dict)
+        install_root = resolved_home / str(spec["install_path"])
+        payload_files = tuple(str(item) for item in spec["payload_files"])
+        if install_root.is_dir() and all((install_root / item).is_file() for item in payload_files):
+            dependencies[name] = {
+                "version": spec["version"],
+                "revision": spec["revision"],
+                "status": "current",
+                "payload_sha256": _dependency_payload_digest(install_root, payload_files),
+            }
+        else:
+            dependencies[name] = {"version": spec["version"], "revision": spec["revision"], "status": "missing"}
+    return {
+        "home": str(resolved_home),
+        "manifest_schema": HERMES_DEPENDENCY_SCHEMA,
+        "dependencies": dependencies,
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="research-tree-setup",
@@ -428,6 +561,11 @@ def build_parser() -> argparse.ArgumentParser:
     install = commands.choices["install"]
     install.add_argument("--mode", choices=("link", "copy"), default="link")
     install.add_argument("--dry-run", action="store_true")
+    install.add_argument(
+        "--hermes-dependency-source",
+        type=Path,
+        help="directory holding pinned run-local Hermes dependency payloads",
+    )
     return parser
 
 
@@ -436,6 +574,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     hosts = _selected_hosts(arguments.host)
     try:
+        dependency_result: dict[str, object] | None = None
+        if "hermes" in hosts and getattr(arguments, "hermes_dependency_source", None):
+            hermes_home = arguments.home / ".hermes"
+            if arguments.command == "install" and not arguments.dry_run:
+                dependency_result = install_hermes_dependencies(
+                    home=hermes_home, source_root=arguments.hermes_dependency_source
+                )
+            else:
+                dependency_result = hermes_dependency_status(home=hermes_home)
         if arguments.command == "install":
             result = install_skill(
                 hosts,
@@ -459,6 +606,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SkillSetupError as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2), file=sys.stderr)
         return 2
+    if dependency_result is not None and isinstance(result, dict):
+        result["hermes_dependencies"] = dependency_result
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 

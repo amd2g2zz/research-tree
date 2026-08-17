@@ -358,3 +358,133 @@ def test_doctor_classifies_context_failure_without_leaking_log(tmp_path: Path) -
         "context length",
     }
     assert secret not in completed.stdout
+
+
+def _run_hook(payload: dict, tmp_path: Path, project: str = "topic-1", run: str = "run-1") -> dict:
+    run_root = tmp_path / ".research-tree" / "projects" / project / "runs" / run
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "manifest.json").write_text("{}", encoding="utf-8")
+    completed = subprocess.run(
+        [sys.executable, str(RUNTIME_HOOK)],
+        input=json.dumps(payload),
+        text=True,
+        capture_output=True,
+        check=False,
+        cwd=tmp_path,
+        env={**os.environ, "RESEARCH_TREE_PROJECT_ID": project, "RESEARCH_TREE_RUN_ID": run},
+    )
+    assert completed.returncode == 0
+    files = sorted((run_root / "events").glob("*.json"))
+    assert files, "hook recorded no event"
+    return json.loads(files[-1].read_text(encoding="utf-8"))
+
+
+def test_runtime_hook_propagates_delegation_identity_fields(tmp_path: Path) -> None:
+    payload = {
+        "hook_event_name": "post_tool_call",
+        "tool_name": "delegate_task",
+        "session_id": "session-42",
+        "cwd": str(tmp_path),
+        "tool_input": {"tasks": [{"task": "TOP SECRET RESEARCH QUESTION"}]},
+        "extra": {
+            "delegation_id": "deleg-9f2a",
+            "task_id": "task-77",
+            "attempt_id": "attempt-3",
+            "action_id": "action-11",
+            "causation_id": "evt-5",
+            "tool_call_id": "call-8",
+            "child_subagent_id": "child-abc",
+            "child_session_id": "sess-child-1",
+            "turn_id": "turn-2",
+            "status": "dispatched",
+        },
+    }
+
+    record = _run_hook(payload, tmp_path)
+
+    assert record["delegation_id"] == "deleg-9f2a"
+    assert record["task_id"] == "task-77"
+    assert record["attempt_id"] == "attempt-3"
+    assert record["action_id"] == "action-11"
+    assert record["causation_id"] == "evt-5"
+    assert record["child_subagent_id"] == "child-abc"
+    assert record["child_session_id"] == "sess-child-1"
+    assert record["turn_id"] == "turn-2"
+    # Canonical mappings required by the delegation bridge.
+    assert record["agent_id"] == "child-abc"
+    # tool_call_id maps to a distinct causation record only when extra causation_id is absent.
+    serialized = json.dumps(record)
+    assert "TOP SECRET" not in serialized
+
+
+def test_runtime_hook_records_tool_call_id_as_causation_when_missing(tmp_path: Path) -> None:
+    payload = {
+        "hook_event_name": "subagent_start",
+        "cwd": str(tmp_path),
+        "extra": {"tool_call_id": "call-8", "child_id": "child-abc"},
+    }
+
+    record = _run_hook(payload, tmp_path)
+
+    assert record["tool_call_id"] == "call-8"
+    assert record["causation_id"] == "call-8"
+    assert "agent_id" not in record
+
+
+def test_runtime_hook_drops_malformed_identity_values(tmp_path: Path) -> None:
+    payload = {
+        "hook_event_name": "post_tool_call",
+        "tool_name": "delegate_task",
+        "cwd": str(tmp_path),
+        "tool_input": {"tasks": [{"task": "private"}]},
+        "extra": {
+            "delegation_id": "deleg-1",
+            "attempt_id": {"nested": "object"},
+            "child_subagent_id": "bad id with spaces",
+            "action_id": 42,
+            "status": "running",
+        },
+    }
+
+    record = _run_hook(payload, tmp_path)
+
+    assert record["delegation_id"] == "deleg-1"
+    assert "attempt_id" not in record
+    assert "child_subagent_id" not in record
+    assert "agent_id" not in record
+    assert "action_id" not in record
+    assert record["status"] == "running"
+
+
+def test_runtime_hook_env_fallback_identity(tmp_path: Path) -> None:
+    run_root = tmp_path / ".research-tree" / "projects" / "topic-1" / "runs" / "run-1"
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "manifest.json").write_text("{}", encoding="utf-8")
+    payload = {
+        "hook_event_name": "post_tool_call",
+        "tool_name": "delegate_task",
+        "cwd": str(tmp_path),
+        "tool_input": {"tasks": [{"task": "private"}]},
+        "extra": {"delegation_id": "deleg-1"},
+    }
+    completed = subprocess.run(
+        [sys.executable, str(RUNTIME_HOOK)],
+        input=json.dumps(payload),
+        text=True,
+        capture_output=True,
+        check=False,
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "RESEARCH_TREE_PROJECT_ID": "topic-1",
+            "RESEARCH_TREE_RUN_ID": "run-1",
+            "RESEARCH_TREE_TASK_ID": "task-9",
+            "RESEARCH_TREE_ATTEMPT_ID": "attempt-9",
+            "RESEARCH_TREE_ACTION_ID": "action-9",
+        },
+    )
+    assert completed.returncode == 0
+    record = json.loads(next((run_root / "events").glob("*.json")).read_text(encoding="utf-8"))
+    assert record["task_id"] == "task-9"
+    assert record["attempt_id"] == "attempt-9"
+    assert record["action_id"] == "action-9"
