@@ -27,6 +27,7 @@
     "scripts/hermes_execution_adapter.py",
     "scripts/host_event_protocol.py",
     "scripts/native_execution_adapter.py",
+    "src/research_tree/project_workspace.py",
     "skill-src/**"
   ],
   "ephemeral_verification_paths": [
