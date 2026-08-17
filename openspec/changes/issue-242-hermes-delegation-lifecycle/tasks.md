@@ -76,16 +76,16 @@ output is retained under `.research-tree/verification-runs/issue-242/`.
 
 ## 7. Live evidence (separate live-evidence subagent)
 
-- [ ] 7.1 Docker envelope preflight: official image digest resolved and
+- [x] 7.1 Docker envelope preflight: official image digest resolved and
       recorded; setup container installs pinned deps into run-local
       `HERMES_HOME` volume.
-- [ ] 7.2 Two-child delegation batch through the project-mounted bridge;
+- [x] 7.2 Two-child delegation batch through the project-mounted bridge;
       receipt contains actual identities, non-empty Finding Packs, hook
       events, ledger rows, image/config/dependency digests, redacted
       command.
-- [ ] 7.3 Fault-injected run: one child interrupted; recovery receipt shows
+- [x] 7.3 Fault-injected run: one child interrupted; recovery receipt shows
       `unknown` → new attempt while sibling stays accepted.
-- [ ] 7.4 Sanitized receipt + verifier replay path recorded under
+- [x] 7.4 Sanitized receipt + verifier replay path recorded under
       `.research-tree/evaluation-runs/issue-242/<run-id>/`.
 
 ## 8. Review and delivery
