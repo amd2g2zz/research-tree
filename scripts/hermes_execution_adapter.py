@@ -153,7 +153,11 @@ def batch_observation(
     status: str,
     delegation_ids: list[str],
     finding_paths: list[Path],
+    finding_digests: list[str] | None = None,
+    attempt_id: str | None = None,
 ) -> dict[str, Any]:
+    if not delegation_ids:
+        raise HermesExecutionError("record-batch requires at least one observed delegation identity")
     observed = _observed_delegation_ids(workspace, run_id)
     for delegation_id in delegation_ids:
         if delegation_id not in observed:
@@ -161,6 +165,21 @@ def batch_observation(
                 f"delegation identity {delegation_id!r} was not observed by the project hook stream"
             )
     findings = [_validated_finding(workspace, path) for path in finding_paths]
+    if finding_digests is not None:
+        if len(finding_digests) != len(findings):
+            raise HermesExecutionError("declared finding digests must match the finding count")
+        for declared, (_, actual) in zip(finding_digests, findings, strict=False):
+            if declared != actual:
+                raise HermesExecutionError(f"finding pack digest mismatch: declared {declared}")
+    if attempt_id is not None:
+        for relative, _ in findings:
+            body = json.loads((workspace / relative).read_text(encoding="utf-8"))
+            declared_attempt = body.get("attempt_id")
+            if declared_attempt is not None and declared_attempt != attempt_id:
+                raise HermesExecutionError(
+                    f"finding pack {relative!r} attempt ancestry {declared_attempt!r} "
+                    f"does not match batch attempt {attempt_id!r}"
+                )
     return {
         "run_id": run_id,
         "batch_id": batch_id,
@@ -221,10 +240,11 @@ def run_delegation(workspace: Path, run_id: str, wave_path: Path) -> dict[str, A
     pending: list[dict[str, Any]] = [
         item for item in attempts if str(item.get("attempt_id")) not in retry_of_by_attempt
     ]
-    if len(observed) < len(pending):
+    if len(observed) != len(pending):
         raise HermesExecutionError(
             f"observed hook stream has {len(observed)} children for {len(pending)} attempts; "
-            "identities must come from the real host surface"
+            "identities must come from the real host surface and surplus observations "
+            "must not rebind across waves"
         )
 
     bindings: list[dict[str, Any]] = []
@@ -245,7 +265,7 @@ def run_delegation(workspace: Path, run_id: str, wave_path: Path) -> dict[str, A
                 "task_id": observation.get("task_id"),
             }
         )
-        interrupted = observation.get("status") == "interrupted"
+        status = observation.get("status")
         events.append(
             build_hermes_event(
                 event_id=f"{attempt['event_id_prefix']}-start",
@@ -259,21 +279,7 @@ def run_delegation(workspace: Path, run_id: str, wave_path: Path) -> dict[str, A
                 payload={},
             )
         )
-        if interrupted:
-            events.append(
-                build_hermes_event(
-                    event_id=f"{attempt['event_id_prefix']}-unknown",
-                    kind="unknown_outcome",
-                    run_id=run_id,
-                    attempt_id=attempt_id,
-                    expected_revision=attempt["expected_revision"],
-                    sequence=attempt["next_sequence"] + 1,
-                    action_id=attempt.get("action_id"),
-                    created_at=attempt["created_at"],
-                    payload={"reason": "interrupted_child"},
-                )
-            )
-        else:
+        if status == "completed":
             events.append(
                 build_hermes_event(
                     event_id=f"{attempt['event_id_prefix']}-finish",
@@ -285,6 +291,23 @@ def run_delegation(workspace: Path, run_id: str, wave_path: Path) -> dict[str, A
                     action_id=attempt.get("action_id"),
                     created_at=attempt["created_at"],
                     payload={"outcome": "completed"},
+                )
+            )
+        else:
+            # Only an explicitly observed "completed" status may finish a
+            # worker; every other status (interrupted, cancelled, failed,
+            # error, timeout, or absent) is an unresolved outcome.
+            events.append(
+                build_hermes_event(
+                    event_id=f"{attempt['event_id_prefix']}-unknown",
+                    kind="unknown_outcome",
+                    run_id=run_id,
+                    attempt_id=attempt_id,
+                    expected_revision=attempt["expected_revision"],
+                    sequence=attempt["next_sequence"] + 1,
+                    action_id=attempt.get("action_id"),
+                    created_at=attempt["created_at"],
+                    payload={"reason": "interrupted_child" if status == "interrupted" else "unresolved_status"},
                 )
             )
 
@@ -302,7 +325,6 @@ def run_delegation(workspace: Path, run_id: str, wave_path: Path) -> dict[str, A
                 expected_revision=item["expected_revision"],
                 sequence=item["next_sequence"],
                 action_id=item.get("action_id"),
-                causation_id=f"{item['event_id_prefix']}-retry-causation",
                 created_at=item["created_at"],
                 payload={"retry_of": retry_of, "category": "transient", "action_id": item.get("action_id")},
             )
@@ -334,6 +356,8 @@ def _parser() -> argparse.ArgumentParser:
     batch.add_argument("--status", required=True)
     batch.add_argument("--delegation-id", action="append", default=[])
     batch.add_argument("--finding", type=Path, action="append", default=[])
+    batch.add_argument("--finding-digest", action="append", default=[])
+    batch.add_argument("--attempt-id")
 
     recover = commands.add_parser("recover")
     recover.add_argument("--run-id", required=True)
@@ -409,7 +433,14 @@ def main() -> int:
             result = initialize_projection(workspace, args.project_id, args.run_id, args.handoff)
         elif args.command == "record-batch":
             result = batch_observation(
-                workspace, args.run_id, args.batch_id, args.status, args.delegation_id, args.finding
+                workspace,
+                args.run_id,
+                args.batch_id,
+                args.status,
+                args.delegation_id,
+                args.finding,
+                finding_digests=args.finding_digest or None,
+                attempt_id=args.attempt_id,
             )
         elif args.command == "run-delegation":
             result = run_delegation(workspace, args.run_id, args.wave)

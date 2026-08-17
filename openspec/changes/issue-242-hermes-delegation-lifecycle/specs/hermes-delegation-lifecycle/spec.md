@@ -41,6 +41,14 @@ When one child of a delegation batch is interrupted, the bridge MUST mark that a
 - **WHEN** a provider failure terminates a child
 - **THEN** the attempt records provider_failure/unknown_outcome and never a completion
 
+#### Scenario: Non-completed status never finishes a worker
+- **WHEN** an observed child status is anything other than exactly `completed` (cancelled, failed, error, timeout, interrupted, or absent)
+- **THEN** the bridge emits unknown_outcome for that attempt and never worker_finished
+
+#### Scenario: Surplus observations fail closed
+- **WHEN** the observed hook stream carries more children than the wave declares attempts
+- **THEN** the bridge rejects the wave instead of rebinding stale observations from earlier waves
+
 ### Requirement: Pinned dependencies install run-locally before start
 Hermes dependency setup MUST install the pinned AnySearch revision (v2.1.0, `6ff6aa958ad9747659d669b5e9984f07c896f2aa`) into run-local `HERMES_HOME/skills/anysearch` before Hermes starts, verify revision and payload digest, be idempotent, and fail closed on drift. Global Hermes config MUST NOT be mutated and no host bind mount may substitute for the install.
 

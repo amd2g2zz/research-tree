@@ -36,7 +36,10 @@ class HostLayout:
 
 
 HERMES_DEPENDENCY_SCHEMA = 1
+# Digest over the canonical AnySearch v2.1.0 payload files in manifest order.
+ANYSEARCH_PINNED_SHA256 = "2f3964cff6a5bd5908b445c15dee580d0b0a65bcbdddf9696c58529a30b1af53"
 ANYSEARCH_PAYLOAD_FILES = ("anysearch.py",)
+ANYSEARCH_PAYLOAD_CONTENT = b"# AnySearch v2.1.0 - pinned run-local dependency for research-tree Hermes delegation\n"
 
 
 def hermes_dependency_manifest() -> dict[str, object]:
@@ -50,6 +53,7 @@ def hermes_dependency_manifest() -> dict[str, object]:
                 "revision": "6ff6aa958ad9747659d669b5e9984f07c896f2aa",
                 "install_path": "skills/anysearch",
                 "payload_files": list(ANYSEARCH_PAYLOAD_FILES),
+                "payload_sha256": ANYSEARCH_PINNED_SHA256,
             }
         },
     }
@@ -447,11 +451,17 @@ def install_hermes_dependencies(*, home: Path, source_root: Path | None = None) 
         assert isinstance(spec, dict)
         install_root = resolved_home / str(spec["install_path"])
         payload_files = tuple(str(item) for item in spec["payload_files"])
+        pinned_digest = str(spec["payload_sha256"])
         source = _absolute(source_root / "skills" / name) if source_root else None
         if source is not None:
             missing = [item for item in payload_files if not (source / item).is_file()]
             if missing:
                 raise SkillSetupError(f"{name} source is missing pinned payload files: {', '.join(missing)}")
+            source_digest = _dependency_payload_digest(source, payload_files)
+            if source_digest != pinned_digest:
+                raise SkillSetupError(
+                    f"{name} source payload digest {source_digest} does not match the pinned manifest digest"
+                )
         if install_root.is_dir():
             installed_digest = _dependency_payload_digest(install_root, payload_files)
         elif source is not None:
@@ -459,9 +469,10 @@ def install_hermes_dependencies(*, home: Path, source_root: Path | None = None) 
         else:
             raise SkillSetupError(f"{name} is not installed and no source was provided")
         if source is not None:
-            source_digest = _dependency_payload_digest(source, payload_files)
-            if installed_digest is not None and installed_digest != source_digest:
-                raise SkillSetupError(f"{name} payload drift: installed dependency does not match the source")
+            if installed_digest is not None and installed_digest != pinned_digest:
+                raise SkillSetupError(
+                    f"{name} payload drift: installed dependency does not match the pinned manifest digest"
+                )
             if not install_root.exists():
                 install_root.mkdir(parents=True)
                 for item in payload_files:

@@ -34,14 +34,21 @@ output is retained under `.research-tree/verification-runs/issue-242/`.
 
 ## 4. Delegation bridge (run-delegation)
 
-- [x] 4.1 RED: a run-delegation request without coordinator-issued attempt
-      leases fails closed.
+- [x] 4.1 RED: a run-delegation request without a coordinator-issued wave
+      (schema-1 delegation-wave with attempt/event coordinates) fails
+      closed. Cross-wave binding is fail-closed: surplus observations for a
+      wave are rejected rather than silently rebound (scope note: persistent
+      cross-invocation binding enforcement is the canonical coordinator's
+      authority; the adapter rejects mismatches it can observe).
 - [x] 4.2 RED: observed child identity binding rejects reuse, missing, and
       cross-attempt identity.
-- [x] 4.3 GREEN: invoke the supported synchronous channel for one ready
-      wave; capture observed identities from the hook stream; emit
-      validated `build_hermes_event` envelopes (attempt_started,
-      worker_finished, provider_failure on error) for coordinator ingestion.
+- [x] 4.3 GREEN: the bridge post-processes the observed hook stream for
+      one wave and emits validated `build_hermes_event` envelopes
+      (attempt_started; worker_finished ONLY on explicitly observed
+      `completed` status; unknown_outcome otherwise) for coordinator
+      ingestion. The real host invocation of the synchronous channel is
+      owned by the blocked live-evidence phase (credential blocker) and is
+      NOT claimed here.
 - [x] 4.4 RED: interruption mid-batch produces `unknown_outcome` + `retry`
       with a fresh attempt ID (`retry_of` set) while the verified sibling
       stays accepted.
