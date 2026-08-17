@@ -378,3 +378,67 @@ def test_refresh_command_is_not_registered(tmp_path: Path) -> None:
         )
 
     assert error.value.code == 2
+
+
+def test_hermes_dependency_manifest_declares_pinned_anysearch() -> None:
+    from research_tree.skill_setup import hermes_dependency_manifest
+
+    manifest = hermes_dependency_manifest()
+
+    assert manifest["schema"] == 1
+    anysearch = manifest["dependencies"]["anysearch"]
+    assert anysearch["version"] == "2.1.0"
+    assert anysearch["revision"] == "6ff6aa958ad9747659d669b5e9984f07c896f2aa"
+    assert anysearch["install_path"] == "skills/anysearch"
+    assert isinstance(anysearch["payload_files"], list) and anysearch["payload_files"]
+
+
+def test_hermes_dependency_install_is_verified_and_idempotent(tmp_path: Path) -> None:
+    from research_tree.skill_setup import hermes_dependency_status, install_hermes_dependencies
+
+    home = tmp_path / "hermes-home"
+    source = tmp_path / "deps" / "anysearch-2.1.0"
+    (source / "skills" / "anysearch").mkdir(parents=True)
+    (source / "skills" / "anysearch" / "anysearch.py").write_text("# anysearch v2.1.0\n", encoding="utf-8")
+
+    first = install_hermes_dependencies(home=home, source_root=source)
+    assert first["status"] == "installed"
+    assert first["dependencies"]["anysearch"]["revision"].startswith("6ff6aa9")
+
+    second = install_hermes_dependencies(home=home, source_root=source)
+    assert second["status"] == "installed"
+    assert second["dependencies"]["anysearch"]["revision"] == first["dependencies"]["anysearch"]["revision"]
+
+    status = hermes_dependency_status(home=home)
+    assert status["dependencies"]["anysearch"]["status"] == "current"
+
+
+def test_hermes_dependency_drift_fails_closed(tmp_path: Path) -> None:
+    from research_tree.skill_setup import SkillSetupError, install_hermes_dependencies
+
+    home = tmp_path / "hermes-home"
+    good = tmp_path / "deps-good" / "anysearch-2.1.0"
+    (good / "skills" / "anysearch").mkdir(parents=True)
+    (good / "skills" / "anysearch" / "anysearch.py").write_text("# anysearch v2.1.0 good\n", encoding="utf-8")
+    install_hermes_dependencies(home=home, source_root=good)
+
+    drifted = tmp_path / "deps-drift" / "anysearch-2.1.0"
+    (drifted / "skills" / "anysearch").mkdir(parents=True)
+    (drifted / "skills" / "anysearch" / "anysearch.py").write_text("# tampered payload\n", encoding="utf-8")
+
+    with pytest.raises(SkillSetupError, match="drift"):
+        install_hermes_dependencies(home=home, source_root=drifted)
+
+
+def test_hermes_dependency_install_does_not_touch_global_config(tmp_path: Path) -> None:
+    from research_tree.skill_setup import install_hermes_dependencies
+
+    home = tmp_path / "hermes-home"
+    source = tmp_path / "deps" / "anysearch-2.1.0"
+    (source / "skills" / "anysearch").mkdir(parents=True)
+    (source / "skills" / "anysearch" / "anysearch.py").write_text("# anysearch v2.1.0\n", encoding="utf-8")
+
+    install_hermes_dependencies(home=home, source_root=source)
+
+    assert (home / "skills" / "anysearch" / "anysearch.py").is_file()
+    assert not (home / "config.yaml").exists()
