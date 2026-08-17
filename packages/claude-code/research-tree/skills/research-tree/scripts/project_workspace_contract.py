@@ -255,7 +255,18 @@ def _command(launcher: Path) -> str:
 
 
 def _owned_entry(entry: object, launcher: Path) -> bool:
-    return str(launcher) in json.dumps(entry, sort_keys=True)
+    if not isinstance(entry, dict) or not isinstance(entry.get("hooks"), list):
+        return False
+    expected = str(launcher)
+    return any(
+        isinstance(hook, dict)
+        and any(
+            expected in command
+            for field in ("command", "commandWindows")
+            if isinstance(command := hook.get(field), str)
+        )
+        for hook in entry["hooks"]
+    )
 
 
 def _host_hook_entry(host: str, event: str, launcher: Path) -> dict[str, Any]:
