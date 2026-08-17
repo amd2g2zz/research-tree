@@ -185,6 +185,139 @@ def completion_observation(run_id: str) -> dict[str, Any]:
     }
 
 
+def _observed_children(workspace: Path, run_id: str) -> list[dict[str, Any]]:
+    """Return observed hook records that carry a bindable child identity."""
+
+    events_root = workspace / ".research-tree" / "projects"
+    observed: list[dict[str, Any]] = []
+    for hook_file in sorted(events_root.glob(f"*/runs/{run_id}/events/*.json")):
+        try:
+            record = json.loads(hook_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(record, dict) or record.get("source") != "research-tree-hermes-hook":
+            continue
+        child_id = record.get("agent_id") or record.get("child_subagent_id") or record.get("child_id")
+        if not isinstance(child_id, str) or not child_id:
+            continue
+        observed.append({**record, "child_id": child_id})
+    return observed
+
+
+def run_delegation(workspace: Path, run_id: str, wave_path: Path) -> dict[str, Any]:
+    """Bind observed delegation children to canonical attempts and build events."""
+
+    wave = _read_json(workspace, wave_path, "delegation wave")
+    if wave.get("schema") != 1 or wave.get("kind") != "delegation-wave":
+        raise HermesExecutionError("wave must be a schema-1 delegation-wave artifact")
+    attempts = wave.get("attempts")
+    if not isinstance(attempts, list) or not attempts:
+        raise HermesExecutionError("wave must declare at least one attempt")
+
+    observed = _observed_children(workspace, run_id)
+    retry_of_by_attempt = {
+        str(item.get("attempt_id")): item.get("retry_of") for item in attempts if item.get("retry_of")
+    }
+    pending: list[dict[str, Any]] = [
+        item for item in attempts if str(item.get("attempt_id")) not in retry_of_by_attempt
+    ]
+    if len(observed) < len(pending):
+        raise HermesExecutionError(
+            f"observed hook stream has {len(observed)} children for {len(pending)} attempts; "
+            "identities must come from the real host surface"
+        )
+
+    bindings: list[dict[str, Any]] = []
+    events: list[dict[str, Any]] = []
+    used_children: set[str] = set()
+    for attempt, observation in zip(pending, observed, strict=False):
+        child_id = observation["child_id"]
+        if child_id in used_children:
+            raise HermesExecutionError(f"child identity {child_id!r} cannot bind to a second attempt")
+        used_children.add(child_id)
+        attempt_id = str(attempt["attempt_id"])
+        bindings.append(
+            {
+                "attempt_id": attempt_id,
+                "action_id": attempt.get("action_id"),
+                "child_id": child_id,
+                "delegation_id": observation.get("delegation_id"),
+                "task_id": observation.get("task_id"),
+            }
+        )
+        interrupted = observation.get("status") == "interrupted"
+        events.append(
+            build_hermes_event(
+                event_id=f"{attempt['event_id_prefix']}-start",
+                kind="attempt_started",
+                run_id=run_id,
+                attempt_id=attempt_id,
+                expected_revision=attempt["expected_revision"],
+                sequence=attempt["next_sequence"],
+                action_id=attempt.get("action_id"),
+                created_at=attempt["created_at"],
+                payload={},
+            )
+        )
+        if interrupted:
+            events.append(
+                build_hermes_event(
+                    event_id=f"{attempt['event_id_prefix']}-unknown",
+                    kind="unknown_outcome",
+                    run_id=run_id,
+                    attempt_id=attempt_id,
+                    expected_revision=attempt["expected_revision"],
+                    sequence=attempt["next_sequence"] + 1,
+                    action_id=attempt.get("action_id"),
+                    created_at=attempt["created_at"],
+                    payload={"reason": "interrupted_child"},
+                )
+            )
+        else:
+            events.append(
+                build_hermes_event(
+                    event_id=f"{attempt['event_id_prefix']}-finish",
+                    kind="worker_finished",
+                    run_id=run_id,
+                    attempt_id=attempt_id,
+                    expected_revision=attempt["expected_revision"],
+                    sequence=attempt["next_sequence"] + 1,
+                    action_id=attempt.get("action_id"),
+                    created_at=attempt["created_at"],
+                    payload={"outcome": "completed"},
+                )
+            )
+
+    for item in attempts:
+        attempt_id = str(item.get("attempt_id"))
+        retry_of = retry_of_by_attempt.get(attempt_id)
+        if retry_of is None:
+            continue
+        events.append(
+            build_hermes_event(
+                event_id=f"{item['event_id_prefix']}-retry",
+                kind="retry",
+                run_id=run_id,
+                attempt_id=attempt_id,
+                expected_revision=item["expected_revision"],
+                sequence=item["next_sequence"],
+                action_id=item.get("action_id"),
+                causation_id=f"{item['event_id_prefix']}-retry-causation",
+                created_at=item["created_at"],
+                payload={"retry_of": retry_of, "category": "transient", "action_id": item.get("action_id")},
+            )
+        )
+
+    return {
+        "run_id": run_id,
+        "bindings": bindings,
+        "events": events,
+        "status": "observed",
+        "authoritative": False,
+        "completion_authority": "coordinator_only",
+    }
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
@@ -210,6 +343,10 @@ def _parser() -> argparse.ArgumentParser:
     recover.add_argument("--retry-category")
     recover.add_argument("--method")
     recover.add_argument("--created-at")
+
+    delegation = commands.add_parser("run-delegation")
+    delegation.add_argument("--run-id", required=True)
+    delegation.add_argument("--wave", type=Path, required=True)
 
     status = commands.add_parser("status")
     status.add_argument("--run-id", required=True)
@@ -274,6 +411,8 @@ def main() -> int:
             result = batch_observation(
                 workspace, args.run_id, args.batch_id, args.status, args.delegation_id, args.finding
             )
+        elif args.command == "run-delegation":
+            result = run_delegation(workspace, args.run_id, args.wave)
         elif args.command == "recover":
             if args.canonical_attempt is None:
                 raise HermesExecutionError("canonical attempt snapshot is required")
