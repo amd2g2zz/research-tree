@@ -28,12 +28,27 @@ EVENTS = frozenset(
 SAFE_EXTRA_KEYS = (
     "delegation_id",
     "task_id",
+    "attempt_id",
+    "action_id",
+    "causation_id",
+    "tool_call_id",
     "child_id",
+    "child_session_id",
+    "child_subagent_id",
+    "parent_subagent_id",
+    "parent_turn_id",
+    "turn_id",
+    "api_request_id",
     "role",
     "status",
     "duration_ms",
 )
 IDENTIFIER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+ENV_IDENTITY_FALLBACKS = (
+    ("RESEARCH_TREE_TASK_ID", "task_id"),
+    ("RESEARCH_TREE_ATTEMPT_ID", "attempt_id"),
+    ("RESEARCH_TREE_ACTION_ID", "action_id"),
+)
 
 
 def _bounded_payload() -> dict[str, Any]:
@@ -52,6 +67,10 @@ def _safe_scalar(value: Any) -> str | int | float | bool | None:
     return None
 
 
+def _safe_identifier(value: Any) -> str | None:
+    return value if isinstance(value, str) and IDENTIFIER_RE.fullmatch(value) else None
+
+
 def _event_record(payload: dict[str, Any]) -> dict[str, Any] | None:
     event = payload.get("hook_event_name")
     if event not in EVENTS:
@@ -68,6 +87,10 @@ def _event_record(payload: dict[str, Any]) -> dict[str, Any] | None:
         value = _safe_scalar(payload.get(key))
         if value is not None:
             record[key] = value
+    for key in ("task_id", "attempt_id", "action_id", "causation_id"):
+        value = _safe_identifier(payload.get(key))
+        if value is not None:
+            record[key] = value
 
     tool_input = payload.get("tool_input")
     if tool_name == "delegate_task" and isinstance(tool_input, dict):
@@ -78,9 +101,18 @@ def _event_record(payload: dict[str, Any]) -> dict[str, Any] | None:
     extra = payload.get("extra")
     if isinstance(extra, dict):
         for key in SAFE_EXTRA_KEYS:
-            value = _safe_scalar(extra.get(key))
+            value = _safe_identifier(extra.get(key)) if key.endswith("_id") else _safe_scalar(extra.get(key))
             if value is not None:
                 record[key] = value
+                if key == "child_subagent_id":
+                    record.setdefault("agent_id", value)
+                elif key == "tool_call_id":
+                    record.setdefault("causation_id", value)
+    for env_key, record_key in ENV_IDENTITY_FALLBACKS:
+        if record_key not in record:
+            value = _safe_identifier(os.environ.get(env_key))
+            if value is not None:
+                record[record_key] = value
     return record
 
 
@@ -110,10 +142,7 @@ def main() -> int:
             record["source"] = "research-tree-hermes-hook"
             event_directory.mkdir(parents=True, exist_ok=True)
             target = event_directory / (
-                datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-                + "-"
-                + secrets.token_hex(8)
-                + ".json"
+                datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + "-" + secrets.token_hex(8) + ".json"
             )
             with target.open("x", encoding="utf-8", newline="\n") as stream:
                 json.dump(record, stream, ensure_ascii=True, separators=(",", ":"))
