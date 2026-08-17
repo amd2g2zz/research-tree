@@ -242,11 +242,13 @@ def test_help_lists_only_current_canonical_coordinator_verbs() -> None:
 def test_installed_wheel_exposes_only_the_current_cli(tmp_path: Path) -> None:
     distribution = tmp_path / "dist"
     subprocess.run(
-        ["uv", "build", "--wheel", "--out-dir", str(distribution)],
+        ["uv", "build", "--wheel", "--offline", "--out-dir", str(distribution)],
         cwd=ROOT,
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     environment = tmp_path / "environment"
     subprocess.run([sys.executable, "-m", "venv", str(environment)], check=True, capture_output=True, text=True)
