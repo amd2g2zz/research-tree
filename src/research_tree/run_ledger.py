@@ -1227,7 +1227,7 @@ class RunLedger:
                         if reference not in by_ref and not self._artifact_exists(connection, reference):
                             raise LedgerIntegrityError(f"dangling artifact parent: {reference}")
                 event_rows = connection.execute(
-                    "SELECT event_json FROM events WHERE run_id = ? ORDER BY created_at, event_id", (run_id,)
+                    "SELECT event_json FROM events WHERE run_id = ? ORDER BY rowid", (run_id,)
                 ).fetchall()
                 events = tuple(LineageEvent.from_dict(json.loads(row[0])) for row in event_rows)
                 for event in events:

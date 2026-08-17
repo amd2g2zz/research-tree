@@ -5,6 +5,19 @@ import json
 import pytest
 
 
+def test_directory_sync_is_skipped_on_windows(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import research_tree.durable_interaction_state as durable_state
+
+    monkeypatch.setattr(durable_state.os, "name", "nt")
+    monkeypatch.setattr(
+        durable_state.os,
+        "open",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("directory open is unsupported")),
+    )
+
+    durable_state._sync_directory(tmp_path)
+
+
 def _event(number: int):
     from research_tree.interaction_state import InteractionEvent
 

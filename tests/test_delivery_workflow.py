@@ -414,6 +414,24 @@ def test_pull_request_gate_requires_generated_output_commit_separation() -> None
     )
     assert separated.passed is True
 
+    generated_workspace_contract = evaluate_pull_request(
+        policy=policy,
+        base_branch="dev",
+        head_branch="fix/issue-263-windows-persistence",
+        title="fix: stabilize project workspace hooks",
+        body="Closes #263",
+        changed_files=[
+            "src/research_tree/project_workspace.py",
+            "packages/codex/research-tree/scripts/project_workspace_contract.py",
+        ],
+        non_generated_lines=20,
+        commit_file_sets=[
+            {"src/research_tree/project_workspace.py"},
+            {"packages/codex/research-tree/scripts/project_workspace_contract.py"},
+        ],
+    )
+    assert generated_workspace_contract.passed is True
+
 
 def test_pull_request_gate_rejects_new_generated_verification_records() -> None:
     policy = load_delivery_policy(POLICY_PATH)
