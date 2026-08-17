@@ -57,6 +57,16 @@ def _json_bytes(payload: dict[str, Any]) -> bytes:
     return (json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
+def _sync_directory(path: Path) -> None:
+    if os.name == "nt":
+        return
+    directory = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
 def _atomic_write(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -67,11 +77,7 @@ def _atomic_write(path: Path, payload: dict[str, Any]) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        _sync_directory(path.parent)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -231,17 +237,32 @@ class DurableInteractionController:
         return controller
 
     def _lock(self):
-        import fcntl
-
         self.paths.root.mkdir(parents=True, exist_ok=True)
-        handle = self.paths.lock.open("a+")
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        handle = self.paths.lock.open("a+b")
+        if os.name == "nt":
+            import msvcrt
+
+            if handle.tell() == 0:
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         return handle
 
     def _unlock(self, handle: Any) -> None:
-        import fcntl
+        if os.name == "nt":
+            import msvcrt
 
-        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
         handle.close()
 
     def load(self) -> PersistedInteractionState:

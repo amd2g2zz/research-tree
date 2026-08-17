@@ -168,7 +168,10 @@ def test_failed_append_rolls_back_before_commit(tmp_path: Path, monkeypatch: pyt
     assert ledger.load_run("run-1").artifacts == ()
 
 
-def test_successor_batches_commit_both_runs_with_exact_cross_run_lineage(tmp_path: Path) -> None:
+def test_successor_batches_commit_both_runs_with_exact_cross_run_lineage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("research_tree.domain.utc_now", lambda: "2026-08-17T00:00:00+00:00")
     RunLedger, _, _ = api()
     ledger = RunLedger(tmp_path)
     ledger.create_run("prior")

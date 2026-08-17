@@ -99,7 +99,11 @@ def test_project_hook_install_merges_configs_and_executes_configured_command(tmp
     codex = json.loads((tmp_path / ".codex" / "hooks.json").read_text(encoding="utf-8"))
     assert codex["custom"] is True
     assert codex["hooks"]["SessionStart"][0]["command"] == "keep"
-    owned = [entry for entry in codex["hooks"]["SessionStart"] if str(first["launcher"]) in json.dumps(entry)]
+    owned = [
+        entry
+        for entry in codex["hooks"]["SessionStart"]
+        if str(first["launcher"]) in entry.get("hooks", [{}])[0].get("command", "")
+    ]
     assert len(owned) == 1
     assert first["launcher"] == second["launcher"]
     assert Path(first["hermes"]["config"]).is_relative_to(workspace.run_root)
