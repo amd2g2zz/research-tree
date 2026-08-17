@@ -82,20 +82,48 @@ def _read_json(workspace: Path, path: Path, label: str) -> dict[str, Any]:
     return value
 
 
-def _relative_paths(workspace: Path, paths: list[Path]) -> list[str]:
-    return [
-        _inside(workspace, path if path.is_absolute() else workspace / path, "Finding Pack path")
-        .relative_to(workspace)
-        .as_posix()
-        for path in paths
-    ]
+def _observed_delegation_ids(workspace: Path, run_id: str) -> set[str]:
+    """Return delegation identities the project hook stream actually observed."""
+
+    events_root = workspace / ".research-tree" / "projects"
+    observed: set[str] = set()
+    for hook_file in sorted(events_root.glob(f"*/runs/{run_id}/events/*.json")):
+        try:
+            record = json.loads(hook_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(record, dict) or record.get("source") != "research-tree-hermes-hook":
+            continue
+        if record.get("tool_name") not in (None, "delegate_task"):
+            continue
+        delegation_id = record.get("delegation_id")
+        if isinstance(delegation_id, str) and delegation_id:
+            observed.add(delegation_id)
+    return observed
+
+
+def _validated_finding(workspace: Path, path: Path) -> tuple[str, str]:
+    """Return (relative path, sha256) for one intact object Finding Pack."""
+
+    resolved = _inside(workspace, path if path.is_absolute() else workspace / path, "Finding Pack path")
+    try:
+        raw = resolved.read_bytes()
+    except OSError as error:
+        raise HermesExecutionError(f"finding pack is unreadable: {error}") from error
+    if not raw:
+        raise HermesExecutionError("finding pack is empty")
+    try:
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise HermesExecutionError(f"finding pack is not valid JSON: {error}") from error
+    if not isinstance(value, dict):
+        raise HermesExecutionError("finding pack must be an object")
+    return resolved.relative_to(workspace).as_posix(), hashlib.sha256(raw).hexdigest()
 
 
 def initialize_projection(workspace: Path, project_id: str, run_id: str, handoff_path: Path) -> dict[str, Any]:
     try:
-        project_workspace = initialize_project_run(
-            workspace, project_id=project_id, run_id=run_id, host="hermes"
-        )
+        project_workspace = initialize_project_run(workspace, project_id=project_id, run_id=run_id, host="hermes")
         installation = install_project_hooks(workspace, project_workspace)
         hook_probe = probe_lifecycle_hook(project_workspace, launcher=Path(installation["launcher"]))
     except ProjectWorkspaceError as error:
@@ -126,12 +154,20 @@ def batch_observation(
     delegation_ids: list[str],
     finding_paths: list[Path],
 ) -> dict[str, Any]:
+    observed = _observed_delegation_ids(workspace, run_id)
+    for delegation_id in delegation_ids:
+        if delegation_id not in observed:
+            raise HermesExecutionError(
+                f"delegation identity {delegation_id!r} was not observed by the project hook stream"
+            )
+    findings = [_validated_finding(workspace, path) for path in finding_paths]
     return {
         "run_id": run_id,
         "batch_id": batch_id,
         "batch_status": status,
         "delegation_ids": list(delegation_ids),
-        "finding_paths": _relative_paths(workspace, finding_paths),
+        "finding_paths": [relative for relative, _ in findings],
+        "finding_digests": [digest for _, digest in findings],
         "status": "observed",
         "authoritative": False,
         "completion_authority": "coordinator_only",

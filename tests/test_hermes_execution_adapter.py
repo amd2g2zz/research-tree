@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -58,6 +59,8 @@ def test_legacy_commands_are_non_authoritative_observations(tmp_path: Path) -> N
     assert init_result["authoritative"] is False
     assert init_result["completion_authority"] == "coordinator_only"
 
+    # record-batch is fail-closed since the delegation lifecycle contract: a
+    # missing Finding Pack is rejected rather than echoed.
     batch = run_adapter(
         tmp_path,
         "record-batch",
@@ -70,11 +73,8 @@ def test_legacy_commands_are_non_authoritative_observations(tmp_path: Path) -> N
         "--finding",
         str(tmp_path / "missing-finding.json"),
     )
-    assert batch.returncode == 0, batch.stdout + batch.stderr
-    batch_result = json.loads(batch.stdout)
-    assert batch_result["status"] == "observed"
-    assert batch_result["batch_status"] == "verified"
-    assert batch_result["authoritative"] is False
+    assert batch.returncode == 1
+    assert "finding" in batch.stdout
 
     completed = run_adapter(
         tmp_path,
@@ -141,3 +141,147 @@ def test_recover_requires_canonical_attempt_snapshot(tmp_path: Path) -> None:
     assert [event["kind"] for event in events] == ["unknown_outcome", "retry"]
     assert [event["sequence"] for event in events] == [3, 4]
     assert not (tmp_path / ".research-tree-hermes" / "hermes-run" / "state.json").exists()
+
+
+def _write_finding(workspace: Path, name: str, body: dict) -> Path:
+    path = workspace / name
+    path.write_text(json.dumps(body), encoding="utf-8")
+    return path
+
+
+def _write_hook_observation(tmp_path: Path, run_id: str, delegation_id: str = "deleg-observed") -> None:
+    events_root = tmp_path / ".research-tree" / "projects" / "project-hermes" / "runs" / run_id / "events"
+    events_root.mkdir(parents=True, exist_ok=True)
+    (events_root / "hook-1.json").write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "source": "research-tree-hermes-hook",
+                "event": "post_tool_call",
+                "tool_name": "delegate_task",
+                "delegation_id": delegation_id,
+                "task_id": "task-observed",
+                "child_subagent_id": "child-observed",
+                "agent_id": "child-observed",
+                "task_count": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_record_batch_fails_closed_on_missing_finding(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    _write_hook_observation(tmp_path, "hermes-run")
+
+    batch = run_adapter(
+        tmp_path,
+        "record-batch",
+        "--run-id",
+        "hermes-run",
+        "--batch-id",
+        "wave-1",
+        "--status",
+        "verified",
+        "--delegation-id",
+        "deleg-observed",
+        "--finding",
+        str(tmp_path / "missing-finding.json"),
+    )
+    assert batch.returncode == 1
+    assert "finding" in batch.stdout
+
+
+def test_record_batch_fails_closed_on_empty_finding(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    (tmp_path / "empty-finding.json").write_text("", encoding="utf-8")
+
+    batch = run_adapter(
+        tmp_path,
+        "record-batch",
+        "--run-id",
+        "hermes-run",
+        "--batch-id",
+        "wave-1",
+        "--status",
+        "verified",
+        "--finding",
+        str(tmp_path / "empty-finding.json"),
+    )
+    assert batch.returncode == 1
+    assert "finding" in batch.stdout
+
+
+def test_record_batch_fails_closed_on_non_object_finding(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    (tmp_path / "array-finding.json").write_text("[]", encoding="utf-8")
+
+    batch = run_adapter(
+        tmp_path,
+        "record-batch",
+        "--run-id",
+        "hermes-run",
+        "--batch-id",
+        "wave-1",
+        "--status",
+        "verified",
+        "--finding",
+        str(tmp_path / "array-finding.json"),
+    )
+    assert batch.returncode == 1
+    assert "finding" in batch.stdout
+
+
+def test_record_batch_rejects_unbound_delegation_identity(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    _write_hook_observation(tmp_path, "hermes-run")
+    finding = _write_finding(tmp_path, "finding.json", {"schema": 1, "kind": "finding-pack"})
+
+    batch = run_adapter(
+        tmp_path,
+        "record-batch",
+        "--run-id",
+        "hermes-run",
+        "--batch-id",
+        "wave-1",
+        "--status",
+        "verified",
+        "--delegation-id",
+        "deleg-invented",
+        "--finding",
+        str(finding),
+    )
+    assert batch.returncode == 1
+    assert "identity" in batch.stdout or "delegation" in batch.stdout
+
+
+def test_record_batch_accepts_observed_identity_with_intact_finding(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    _write_hook_observation(tmp_path, "hermes-run")
+    finding = _write_finding(
+        tmp_path,
+        "finding.json",
+        {"schema": 1, "kind": "finding-pack", "run_id": "hermes-run"},
+    )
+
+    batch = run_adapter(
+        tmp_path,
+        "record-batch",
+        "--run-id",
+        "hermes-run",
+        "--batch-id",
+        "wave-1",
+        "--status",
+        "verified",
+        "--delegation-id",
+        "deleg-observed",
+        "--finding",
+        str(finding),
+    )
+    assert batch.returncode == 0, batch.stdout + batch.stderr
+    result = json.loads(batch.stdout)
+    assert result["batch_status"] == "verified"
+    assert result["delegation_ids"] == ["deleg-observed"]
+    assert result["authoritative"] is False
+    finding_sha = hashlib.sha256(finding.read_bytes()).hexdigest()
+    assert result["finding_digests"][0] == finding_sha
