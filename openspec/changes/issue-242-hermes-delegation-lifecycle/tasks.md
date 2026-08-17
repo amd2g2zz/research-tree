@@ -13,58 +13,58 @@ output is retained under `.research-tree/verification-runs/issue-242/`.
 
 ## 2. Hook identity propagation (reviewed handoff patch)
 
-- [ ] 2.1 RED: hook records `attempt_id`/`action_id`/`causation_id`/
+- [x] 2.1 RED: hook records `attempt_id`/`action_id`/`causation_id`/
       `child_subagent_id`→`agent_id`/`tool_call_id`→`causation_id` and env
       fallbacks from a delegate_task payload; free text still dropped.
-- [ ] 2.2 RED: non-identifier values for `_id` fields are dropped, not
+- [x] 2.2 RED: non-identifier values for `_id` fields are dropped, not
       coerced; 1 MiB bound and event whitelist unchanged.
-- [ ] 2.3 GREEN: apply reviewed patch to `scripts/hermes_runtime_hook.py`
+- [x] 2.3 GREEN: apply reviewed patch to `scripts/hermes_runtime_hook.py`
       keeping copy-allowlist semantics.
-- [ ] 2.4 REFACTOR: regenerate Hermes package; package parity check passes.
+- [x] 2.4 REFACTOR: regenerate Hermes package; package parity check passes.
 
 ## 3. record-batch fail-closed admission
 
-- [ ] 3.1 RED: missing/empty/non-object/modified-digest/cross-attempt
+- [x] 3.1 RED: missing/empty/non-object/modified-digest/cross-attempt
       Finding Pack inputs each exit 1 with a stable message.
-- [ ] 3.2 RED: caller-supplied delegation/task/child IDs that never appear
+- [x] 3.2 RED: caller-supplied delegation/task/child IDs that never appear
       in observed hook events are rejected as unbound identities.
-- [ ] 3.3 GREEN: validate paths-in-workspace, non-empty object JSON, digest
+- [x] 3.3 GREEN: validate paths-in-workspace, non-empty object JSON, digest
       match, and attempt ancestry before recording; output remains
       `authoritative: False`.
 
 ## 4. Delegation bridge (run-delegation)
 
-- [ ] 4.1 RED: a run-delegation request without coordinator-issued attempt
+- [x] 4.1 RED: a run-delegation request without coordinator-issued attempt
       leases fails closed.
-- [ ] 4.2 RED: observed child identity binding rejects reuse, missing, and
+- [x] 4.2 RED: observed child identity binding rejects reuse, missing, and
       cross-attempt identity.
-- [ ] 4.3 GREEN: invoke the supported synchronous channel for one ready
+- [x] 4.3 GREEN: invoke the supported synchronous channel for one ready
       wave; capture observed identities from the hook stream; emit
       validated `build_hermes_event` envelopes (attempt_started,
       worker_finished, provider_failure on error) for coordinator ingestion.
-- [ ] 4.4 RED: interruption mid-batch produces `unknown_outcome` + `retry`
+- [x] 4.4 RED: interruption mid-batch produces `unknown_outcome` + `retry`
       with a fresh attempt ID (`retry_of` set) while the verified sibling
       stays accepted.
-- [ ] 4.5 GREEN: recovery path per `recovery_events` contract.
+- [x] 4.5 GREEN: recovery path per `recovery_events` contract.
 
 ## 5. Pinned dependency setup
 
-- [ ] 5.1 RED: dependency manifest declares AnySearch v2.1.0 rev
+- [x] 5.1 RED: dependency manifest declares AnySearch v2.1.0 rev
       `6ff6aa958ad9747659d669b5e9984f07c896f2aa`; missing manifest or
       wrong revision fails closed.
-- [ ] 5.2 RED: install into run-local `HERMES_HOME/skills/anysearch` is
+- [x] 5.2 RED: install into run-local `HERMES_HOME/skills/anysearch` is
       idempotent; status reports revision/digest; drift fails closed.
-- [ ] 5.3 GREEN: extend `research-tree-setup --host hermes` with the
+- [x] 5.3 GREEN: extend `research-tree-setup --host hermes` with the
       dependency phase; no global config mutation, no bind mount.
-- [ ] 5.4 REFACTOR: manifest source under `skill-src/` flows into the
+- [x] 5.4 REFACTOR: manifest source under `skill-src/` flows into the
       generated package; parity check passes.
 
 ## 6. Focused + full gates
 
-- [ ] 6.1 Focused suites green: `tests/test_hermes_execution_adapter.py`,
+- [x] 6.1 Focused suites green: `tests/test_hermes_execution_adapter.py`,
       `tests/test_hermes_skill_compatibility.py`, `tests/test_skill_setup.py`,
       `tests/test_hermes_host_events.py`.
-- [ ] 6.2 Full governed suite passes (or unrelated failures explicitly
+- [x] 6.2 Full governed suite passes (or unrelated failures explicitly
       reconciled against the recorded baseline set).
 
 ## 7. Live evidence (separate live-evidence subagent)
