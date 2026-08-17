@@ -36,10 +36,25 @@ class HostLayout:
 
 
 HERMES_DEPENDENCY_SCHEMA = 1
-# Digest over the canonical AnySearch v2.1.0 payload files in manifest order.
-ANYSEARCH_PINNED_SHA256 = "2f3964cff6a5bd5908b445c15dee580d0b0a65bcbdddf9696c58529a30b1af53"
-ANYSEARCH_PAYLOAD_FILES = ("anysearch.py",)
-ANYSEARCH_PAYLOAD_CONTENT = b"# AnySearch v2.1.0 - pinned run-local dependency for research-tree Hermes delegation\n"
+# Pinned against the upstream artifact: anysearch-ai/anysearch-skill tag
+# v2.1.0 = 6ff6aa958ad9747659d669b5e9984f07c896f2aa. The digest covers every
+# tracked payload file in sorted order (name\0 content\0 per file).
+ANYSEARCH_PINNED_SHA256 = "f06c1a94a0cf8eca345cde609e62deb47907cb3b24889a0a37f5e1fdd0279d37"
+ANYSEARCH_PAYLOAD_FILES = (
+    ".env.example",
+    ".gitignore",
+    "README.md",
+    "SKILL.md",
+    "runtime.conf.example",
+    "scripts/anysearch_cli.js",
+    "scripts/anysearch_cli.ps1",
+    "scripts/anysearch_cli.py",
+    "scripts/anysearch_cli.sh",
+    "scripts/generate.py",
+    "scripts/shared/constants.json",
+    "scripts/shared/doc_spec.md",
+)
+ANYSEARCH_SOURCE_REPO = "https://github.com/anysearch-ai/anysearch-skill.git"
 
 
 def hermes_dependency_manifest() -> dict[str, object]:
@@ -476,7 +491,9 @@ def install_hermes_dependencies(*, home: Path, source_root: Path | None = None) 
             if not install_root.exists():
                 install_root.mkdir(parents=True)
                 for item in payload_files:
-                    shutil.copy2(source / item, install_root / item)
+                    destination = install_root / item
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source / item, destination)
                 installed_digest = _dependency_payload_digest(install_root, payload_files)
         dependencies[name] = {
             "version": spec["version"],

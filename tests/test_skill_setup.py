@@ -380,8 +380,26 @@ def test_refresh_command_is_not_registered(tmp_path: Path) -> None:
     assert error.value.code == 2
 
 
+def _build_pinned_anysearch_source(root: Path) -> Path:
+    """Materialize the vendored upstream AnySearch v2.1.0 payload for tests."""
+
+    from research_tree.skill_setup import ANYSEARCH_PAYLOAD_FILES
+
+    source = root / "deps" / "anysearch-2.1.0" / "skills" / "anysearch"
+    source.mkdir(parents=True)
+    for relative in ANYSEARCH_PAYLOAD_FILES:
+        target = source / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(_upstream_anysearch_root() / relative, target)
+    return source
+
+
+def _upstream_anysearch_root() -> Path:
+    return Path(__file__).resolve().parents[1] / ".research-tree" / "upstream-anysearch-v2.1.0"
+
+
 def test_hermes_dependency_manifest_declares_pinned_anysearch() -> None:
-    from research_tree.skill_setup import hermes_dependency_manifest
+    from research_tree.skill_setup import ANYSEARCH_PINNED_SHA256, hermes_dependency_manifest
 
     manifest = hermes_dependency_manifest()
 
@@ -391,23 +409,34 @@ def test_hermes_dependency_manifest_declares_pinned_anysearch() -> None:
     assert anysearch["revision"] == "6ff6aa958ad9747659d669b5e9984f07c896f2aa"
     assert anysearch["install_path"] == "skills/anysearch"
     assert isinstance(anysearch["payload_files"], list) and anysearch["payload_files"]
+    assert anysearch["payload_sha256"] == ANYSEARCH_PINNED_SHA256
+    assert len(ANYSEARCH_PINNED_SHA256) == 64
+
+
+def test_vendored_upstream_payload_matches_pinned_digest() -> None:
+    upstream = _upstream_anysearch_root()
+    if not upstream.is_dir():
+        pytest.skip("vendored upstream AnySearch payload absent (fetched in live-evidence phase)")
+    from research_tree.skill_setup import ANYSEARCH_PAYLOAD_FILES, ANYSEARCH_PINNED_SHA256
+    from research_tree.skill_setup import _dependency_payload_digest
+
+    assert _dependency_payload_digest(upstream, ANYSEARCH_PAYLOAD_FILES) == ANYSEARCH_PINNED_SHA256
 
 
 def test_hermes_dependency_install_is_verified_and_idempotent(tmp_path: Path) -> None:
+    if not _upstream_anysearch_root().is_dir():
+        pytest.skip("vendored upstream AnySearch payload absent (fetched in live-evidence phase)")
     from research_tree.skill_setup import hermes_dependency_status, install_hermes_dependencies
 
     home = tmp_path / "hermes-home"
-    source = tmp_path / "deps" / "anysearch-2.1.0"
-    (source / "skills" / "anysearch").mkdir(parents=True)
-    from research_tree.skill_setup import ANYSEARCH_PAYLOAD_CONTENT
+    source_root = tmp_path / "deps" / "anysearch-2.1.0"
+    _build_pinned_anysearch_source(tmp_path)
 
-    (source / "skills" / "anysearch" / "anysearch.py").write_bytes(ANYSEARCH_PAYLOAD_CONTENT)
-
-    first = install_hermes_dependencies(home=home, source_root=source)
+    first = install_hermes_dependencies(home=home, source_root=source_root)
     assert first["status"] == "installed"
     assert first["dependencies"]["anysearch"]["revision"].startswith("6ff6aa9")
 
-    second = install_hermes_dependencies(home=home, source_root=source)
+    second = install_hermes_dependencies(home=home, source_root=source_root)
     assert second["status"] == "installed"
     assert second["dependencies"]["anysearch"]["revision"] == first["dependencies"]["anysearch"]["revision"]
 
@@ -415,64 +444,40 @@ def test_hermes_dependency_install_is_verified_and_idempotent(tmp_path: Path) ->
     assert status["dependencies"]["anysearch"]["status"] == "current"
 
 
-def test_hermes_dependency_drift_fails_closed(tmp_path: Path) -> None:
+def test_hermes_dependency_tampered_source_fails_closed(tmp_path: Path) -> None:
     from research_tree.skill_setup import SkillSetupError, install_hermes_dependencies
 
-    home = tmp_path / "hermes-home"
-    good = tmp_path / "deps-good" / "anysearch-2.1.0"
-    (good / "skills" / "anysearch").mkdir(parents=True)
-    from research_tree.skill_setup import ANYSEARCH_PAYLOAD_CONTENT
-
-    (good / "skills" / "anysearch" / "anysearch.py").write_bytes(ANYSEARCH_PAYLOAD_CONTENT)
-    install_hermes_dependencies(home=home, source_root=good)
-
-    drifted = tmp_path / "deps-drift" / "anysearch-2.1.0"
-    (drifted / "skills" / "anysearch").mkdir(parents=True)
-    (drifted / "skills" / "anysearch" / "anysearch.py").write_text("# tampered payload\n", encoding="utf-8")
-
-    with pytest.raises(SkillSetupError, match="digest"):
-        install_hermes_dependencies(home=home, source_root=drifted)
-
-
-def test_hermes_dependency_install_does_not_touch_global_config(tmp_path: Path) -> None:
-    from research_tree.skill_setup import install_hermes_dependencies
-
-    home = tmp_path / "hermes-home"
-    source = tmp_path / "deps" / "anysearch-2.1.0"
-    (source / "skills" / "anysearch").mkdir(parents=True)
-    from research_tree.skill_setup import ANYSEARCH_PAYLOAD_CONTENT
-
-    (source / "skills" / "anysearch" / "anysearch.py").write_bytes(ANYSEARCH_PAYLOAD_CONTENT)
-
-    install_hermes_dependencies(home=home, source_root=source)
-
-    assert (home / "skills" / "anysearch" / "anysearch.py").is_file()
-    assert not (home / "config.yaml").exists()
-
-
-def test_hermes_dependency_manifest_pinned_payload_digest(tmp_path: Path) -> None:
-    from research_tree.skill_setup import SkillSetupError, install_hermes_dependencies
-
-    # A tampered payload must fail closed against the pinned manifest digest.
     tampered = tmp_path / "deps" / "anysearch-2.1.0"
     (tampered / "skills" / "anysearch").mkdir(parents=True)
-    (tampered / "skills" / "anysearch" / "anysearch.py").write_text("# tampered\n", encoding="utf-8")
+    (tampered / "skills" / "anysearch" / "anysearch.py").write_text("# tampered payload\n", encoding="utf-8")
 
-    with pytest.raises(SkillSetupError, match="manifest"):
+    with pytest.raises(SkillSetupError, match="missing pinned payload files"):
         install_hermes_dependencies(home=tmp_path / "hermes-home", source_root=tampered)
 
 
-def test_hermes_dependency_source_digest_matches_pinned(tmp_path: Path) -> None:
+def test_hermes_dependency_install_does_not_touch_global_config(tmp_path: Path) -> None:
+    if not _upstream_anysearch_root().is_dir():
+        pytest.skip("vendored upstream AnySearch payload absent (fetched in live-evidence phase)")
     from research_tree.skill_setup import install_hermes_dependencies
 
-    # A non-canonical source payload must fail closed against the pinned
-    # manifest digest even when no prior installation exists.
-    source = tmp_path / "deps" / "anysearch-2.1.0"
-    target_dir = source / "skills" / "anysearch"
-    target_dir.mkdir(parents=True)
+    home = tmp_path / "hermes-home"
+    source_root = tmp_path / "deps" / "anysearch-2.1.0"
+    _build_pinned_anysearch_source(tmp_path)
 
-    # Brute-force a payload matching the pinned digest is impossible; instead
-    # update expectations: install must fail closed unless source digest == pinned.
-    (target_dir / "anysearch.py").write_text("# candidate payload\n", encoding="utf-8")
-    with pytest.raises(SkillSetupError, match="manifest"):
-        install_hermes_dependencies(home=tmp_path / "hermes-home", source_root=source)
+    install_hermes_dependencies(home=home, source_root=source_root)
+
+    assert (home / "skills" / "anysearch" / "SKILL.md").is_file()
+    assert not (home / "config.yaml").exists()
+
+
+def test_hermes_dependency_complete_but_modified_payload_fails_closed(tmp_path: Path) -> None:
+    if not _upstream_anysearch_root().is_dir():
+        pytest.skip("vendored upstream AnySearch payload absent (fetched in live-evidence phase)")
+    from research_tree.skill_setup import SkillSetupError, install_hermes_dependencies
+
+    source_root = tmp_path / "deps" / "anysearch-2.1.0"
+    _build_pinned_anysearch_source(tmp_path)
+    (source_root / "skills" / "anysearch" / "SKILL.md").write_text("# tampered\n", encoding="utf-8")
+
+    with pytest.raises(SkillSetupError, match="pinned manifest digest"):
+        install_hermes_dependencies(home=tmp_path / "hermes-home", source_root=source_root)
