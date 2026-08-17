@@ -183,6 +183,12 @@ def observe(
         record["binding_status"] = (
             "host_identity_recorded" if agent_id is not None and causation_id is not None else "unknown_outcome"
         )
+    if host == "codex" and event in ("SubagentStart", "SubagentStop"):
+        response = payload.get("tool_response")
+        agent_id = _optional_identifier(response, "agentId") if isinstance(response, dict) else None
+        if agent_id is not None:
+            record["agent_id"] = agent_id
+        record["binding_status"] = "candidate" if agent_id is not None else "unknown_outcome"
     project_id = payload.get("project_id")
     run_id = payload.get("run_id")
     if project_id is None and run_id is None:

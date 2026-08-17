@@ -103,6 +103,23 @@ def _run_dir(workspace: Path, run_id: str) -> Path:
     return _inside(workspace, candidates[0], "run directory")
 
 
+def _observed_agent_ids(workspace: Path, run_id: str, host: str) -> set[str]:
+    """Return child agent identities the project hook stream observed."""
+
+    observed: set[str] = set()
+    for hook_file in sorted((_run_dir(workspace, run_id) / "events").glob("*.json")):
+        try:
+            record = json.loads(hook_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(record, dict) or record.get("host") != host:
+            continue
+        agent_id = record.get("agent_id")
+        if isinstance(agent_id, str) and agent_id:
+            observed.add(agent_id)
+    return observed
+
+
 def _state_path(workspace: Path, run_id: str) -> Path:
     return _run_dir(workspace, run_id) / "state.json"
 
@@ -333,8 +350,8 @@ def bind_agent(
     session_id: str,
     causation_id: str,
 ) -> dict[str, Any]:
-    if host != "claude":
-        raise AdapterError("exact agent binding is a Claude-only lifecycle contract")
+    if host not in ("claude", "codex"):
+        raise AdapterError("exact agent binding is a Claude/Codex lifecycle contract")
     state = _load_state(workspace, run_id, host)
     task = state["tasks"].get(task_id)
     if not isinstance(task, dict) or task.get("status") != "running":
@@ -342,6 +359,8 @@ def bind_agent(
     if task.get("attempt_id") != _identifier(attempt_id, "attempt id"):
         raise AdapterError("agent binding does not match the active attempt")
     agent_id = _identifier(agent_id, "agent id")
+    if host == "codex" and agent_id not in _observed_agent_ids(workspace, run_id, host):
+        raise AdapterError(f"agent identity {agent_id!r} was not observed by the project hook stream")
     bindings = state.setdefault("agent_bindings", {})
     prior = bindings.get(agent_id)
     if isinstance(prior, dict):

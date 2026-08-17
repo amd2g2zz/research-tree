@@ -665,3 +665,152 @@ def test_host_event_uses_explicit_canonical_revision_not_local_state(tmp_path: P
     )
     assert emitted.returncode == 0, emitted.stderr
     assert json.loads(emitted.stdout)["expected_revision"] == 77
+
+
+def _codex_running_run(workspace: Path) -> tuple[str, dict]:
+    run_id = "codex-bind-run"
+    technical, human = write_reports(workspace)
+    assert (
+        run_adapter(
+            workspace, "codex", "init", "--run-id", run_id, "--handoff", str(write_handoff(workspace))
+        ).returncode
+        == 0
+    )
+    assert (
+        run_adapter(
+            workspace,
+            "codex",
+            "add-task",
+            "--run-id",
+            run_id,
+            "--task-id",
+            "task-codex-1",
+            "--decision-slot",
+            "slot-a",
+            "--phase",
+            "landscape",
+            "--artifact",
+            str(technical),
+        ).returncode
+        == 0
+    )
+    started = run_adapter(workspace, "codex", "start", "--run-id", run_id, "--task-id", "task-codex-1")
+    assert started.returncode == 0, started.stderr
+    return run_id, json.loads(started.stdout)
+
+
+def _write_codex_hook_observation(workspace: Path, run_id: str, agent_id: str) -> None:
+    events_root = workspace / ".research-tree" / "projects" / "project-codex" / "runs" / run_id / "events"
+    events_root.mkdir(parents=True, exist_ok=True)
+    (events_root / "hook-codex-1.json").write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "source": "research-tree-lifecycle-hook",
+                "host": "codex",
+                "event": "SubagentStart",
+                "agent_id": agent_id,
+                "session_id": "session-codex-1",
+                "turn_id": "turn-codex-1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_codex_bind_agent_requires_observed_identity(tmp_path: Path) -> None:
+    run_id, task = _codex_running_run(tmp_path)
+
+    result = run_adapter(
+        tmp_path,
+        "codex",
+        "bind-agent",
+        "--run-id",
+        run_id,
+        "--task-id",
+        "task-codex-1",
+        "--attempt-id",
+        str(task["attempt_id"]),
+        "--agent-id",
+        "agent-unobserved",
+        "--session-id",
+        "session-codex-1",
+        "--causation-id",
+        "tool-codex-1",
+    )
+
+    assert result.returncode == 1
+    assert "observed" in (result.stdout + result.stderr).lower()
+
+
+def test_codex_bind_agent_binds_observed_identity(tmp_path: Path) -> None:
+    run_id, task = _codex_running_run(tmp_path)
+    _write_codex_hook_observation(tmp_path, run_id, "agent-codex-live")
+
+    result = run_adapter(
+        tmp_path,
+        "codex",
+        "bind-agent",
+        "--run-id",
+        run_id,
+        "--task-id",
+        "task-codex-1",
+        "--attempt-id",
+        str(task["attempt_id"]),
+        "--agent-id",
+        "agent-codex-live",
+        "--session-id",
+        "session-codex-1",
+        "--causation-id",
+        "tool-codex-1",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    binding = json.loads(result.stdout)
+    assert binding["agent_id"] == "agent-codex-live"
+    assert binding["attempt_id"] == task["attempt_id"]
+
+
+def test_codex_bind_agent_rejects_identity_reuse(tmp_path: Path) -> None:
+    run_id, first = _codex_running_run(tmp_path)
+    _write_codex_hook_observation(tmp_path, run_id, "agent-codex-live")
+    ok = run_adapter(
+        tmp_path,
+        "codex",
+        "bind-agent",
+        "--run-id",
+        run_id,
+        "--task-id",
+        "task-codex-1",
+        "--attempt-id",
+        str(first["attempt_id"]),
+        "--agent-id",
+        "agent-codex-live",
+        "--session-id",
+        "session-codex-1",
+        "--causation-id",
+        "tool-codex-1",
+    )
+    assert ok.returncode == 0
+
+    second_start = run_adapter(tmp_path, "codex", "start", "--run-id", run_id, "--task-id", "task-codex-1")
+    assert second_start.returncode == 1  # already running; reuse via new attempt path not modeled here
+
+    stale = run_adapter(
+        tmp_path,
+        "codex",
+        "bind-agent",
+        "--run-id",
+        run_id,
+        "--task-id",
+        "task-codex-1",
+        "--attempt-id",
+        str(first["attempt_id"]),
+        "--agent-id",
+        "agent-codex-live",
+        "--session-id",
+        "session-codex-1",
+        "--causation-id",
+        "tool-codex-2",
+    )
+    assert stale.returncode == 1

@@ -190,3 +190,64 @@ def test_host_templates_use_native_wrappers_and_isolated_hermes_hook() -> None:
     assert "research-tree-hook" not in hermes
     assert "subagent_start:" in hermes
     assert "post_tool_call:" in hermes
+
+
+def test_codex_subagent_start_records_binding_candidate(tmp_path: Path) -> None:
+    root = project(tmp_path)
+    project_run(root)
+    payload = {
+        "cwd": str(root),
+        "hook_event_name": "SubagentStart",
+        "session_id": "session-parent",
+        "turn_id": "turn-9",
+        "tool_response": {"agentId": "agent-codex-child-1", "summary": "TOP SECRET child briefing"},
+        "project_id": "topic-1",
+        "run_id": "run-1",
+    }
+
+    result = observe(payload, host="codex", event="SubagentStart", project_root=root, process_cwd=root)
+
+    assert result["status"] == "recorded"
+    record = json.loads((root / result["path"]).read_text(encoding="utf-8"))
+    assert record["event"] == "SubagentStart"
+    assert record["agent_id"] == "agent-codex-child-1"
+    assert record["binding_status"] == "candidate"
+    serialized = json.dumps(record)
+    assert "TOP SECRET" not in serialized
+
+
+def test_codex_subagent_start_drops_malformed_identity(tmp_path: Path) -> None:
+    root = project(tmp_path)
+    project_run(root)
+    payload = {
+        "cwd": str(root),
+        "hook_event_name": "SubagentStart",
+        "tool_response": {"agentId": {"nested": "object"}},
+        "project_id": "topic-1",
+        "run_id": "run-1",
+    }
+
+    result = observe(payload, host="codex", event="SubagentStart", project_root=root, process_cwd=root)
+
+    record = json.loads((root / result["path"]).read_text(encoding="utf-8"))
+    assert "agent_id" not in record
+    assert record.get("binding_status") == "unknown_outcome"
+
+
+def test_codex_subagent_stop_records_completed_identity(tmp_path: Path) -> None:
+    root = project(tmp_path)
+    project_run(root)
+    payload = {
+        "cwd": str(root),
+        "hook_event_name": "SubagentStop",
+        "session_id": "session-parent",
+        "tool_response": {"agentId": "agent-codex-child-1", "outcome": "completed"},
+        "project_id": "topic-1",
+        "run_id": "run-1",
+    }
+
+    result = observe(payload, host="codex", event="SubagentStop", project_root=root, process_cwd=root)
+
+    record = json.loads((root / result["path"]).read_text(encoding="utf-8"))
+    assert record["agent_id"] == "agent-codex-child-1"
+    assert record["binding_status"] == "candidate"
