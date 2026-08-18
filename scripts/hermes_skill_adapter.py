@@ -13,6 +13,19 @@ import sys
 import tempfile
 from pathlib import Path
 
+try:
+    from research_tree.skill_activation import (
+        build_loader_receipt,
+        loader_integrity_status,
+        validate_loader_receipt,
+    )
+except ModuleNotFoundError:  # standalone generated Hermes package
+    from skill_activation import (  # type: ignore[no-redef]
+        build_loader_receipt,
+        loader_integrity_status,
+        validate_loader_receipt,
+    )
+
 
 HERMES_VERSION = "v2026.8.3"
 MAX_NAME_LENGTH = 64
@@ -211,7 +224,13 @@ def _cold_start_errors(skill_dir: Path, entrypoints: list[dict[str, object]]) ->
     return errors
 
 
-def validate(skill_dir: Path, mode: str) -> dict[str, object]:
+def validate(
+    skill_dir: Path,
+    mode: str,
+    *,
+    loader_receipt: Path | None = None,
+    session_id: str | None = None,
+) -> dict[str, object]:
     skill_dir = skill_dir.resolve()
     skill_file = skill_dir / "SKILL.md"
     errors: list[str] = []
@@ -312,8 +331,21 @@ def validate(skill_dir: Path, mode: str) -> dict[str, object]:
 
     activation_payload_estimate = skill_chars + sum(2 * len(relative) + 12 for relative in resources) + 500
 
+    loader_status = {"state": "unverified_loader_integrity", "host": "hermes"}
+    if loader_receipt is not None:
+        try:
+            receipt = json.loads(loader_receipt.read_text(encoding="utf-8"))
+            if not isinstance(receipt, dict):
+                raise ValueError("loader receipt must be an object")
+            validate_loader_receipt(receipt, skill_dir, host="hermes", session_id=session_id)
+            loader_status = loader_integrity_status(skill_dir, host="hermes", receipt=receipt, session_id=session_id)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            loader_status = {"state": "invalid_loader_receipt", "host": "hermes", "diagnostic": str(exc)}
+
     return {
         "compatible": not errors,
+        "static_compatible": not errors,
+        "loader_integrity": loader_status,
         "hermes_version": HERMES_VERSION,
         "mode": mode,
         "skill_dir": str(skill_dir),
@@ -495,6 +527,13 @@ def main() -> int:
         choices=("external-dir", "github-bundle", "single-file"),
         default="external-dir",
     )
+    validate_parser.add_argument("--loader-receipt", type=Path)
+    validate_parser.add_argument("--session-id")
+
+    receipt_parser = subparsers.add_parser("receipt")
+    receipt_parser.add_argument("--skill-dir", type=Path, default=_default_skill_dir())
+    receipt_parser.add_argument("--session-id", required=True)
+    receipt_parser.add_argument("--output", type=Path, required=True)
 
     stage_parser = subparsers.add_parser("stage")
     stage_parser.add_argument("output", type=Path)
@@ -510,9 +549,31 @@ def main() -> int:
 
     args = parser.parse_args()
     if args.command == "validate":
-        result = validate(args.skill_dir, args.mode)
+        result = validate(
+            args.skill_dir,
+            args.mode,
+            loader_receipt=args.loader_receipt,
+            session_id=args.session_id,
+        )
         print(json.dumps(result, ensure_ascii=False, indent=2))
-        return 0 if result["compatible"] else 1
+        return 0 if result["compatible"] and result["loader_integrity"]["state"] != "invalid_loader_receipt" else 1
+
+    if args.command == "receipt":
+        try:
+            receipt = build_loader_receipt(
+                args.skill_dir,
+                host="hermes",
+                session_id=args.session_id,
+                state="host_message_verified",
+                evidence="hermes-runtime",
+            )
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            print(json.dumps(receipt, ensure_ascii=False, indent=2))
+        except (OSError, ValueError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        return 0
 
     if args.command == "render-hooks":
         try:

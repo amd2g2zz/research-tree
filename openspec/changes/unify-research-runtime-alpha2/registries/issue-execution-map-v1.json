@@ -68,6 +68,7 @@
     { "issue": 171, "primary_group": 81, "supporting_groups": [79, 80], "capabilities": ["canonical-findingpack-parent-acceptance"], "openspec_change": "accept-canonical-findingpack-parent-acceptance" },
     { "issue": 176, "primary_group": 82, "supporting_groups": [81], "capabilities": ["runstore-openspec-export-removal"], "openspec_change": "remove-runstore-openspec-exporter" },
     { "issue": 168, "primary_group": 83, "supporting_groups": [82], "capabilities": ["strict-evidence-admission"], "openspec_change": "remove-permissive-legacy-evidence-admission" },
-    { "issue": 150, "primary_group": 84, "supporting_groups": [36, 54, 61, 83], "capabilities": ["canonical-coordinator-cli"], "openspec_change": "publish-canonical-coordinator-cli" }
+    { "issue": 150, "primary_group": 84, "supporting_groups": [36, 54, 61, 83], "capabilities": ["canonical-coordinator-cli"], "openspec_change": "publish-canonical-coordinator-cli" },
+    { "issue": 269, "primary_group": 85, "supporting_groups": [8, 9, 32, 42], "capabilities": ["cross-host-skill-loader-integrity"], "openspec_change": "prove-host-skill-loader-integrity" }
   ]
 }

@@ -12,6 +12,8 @@ import sys
 import re
 from typing import Any, BinaryIO, Sequence
 
+from .skill_activation import build_loader_receipt
+
 
 MAX_INPUT_BYTES = 64 * 1024
 MAX_IDENTIFIER_LENGTH = 256
@@ -166,6 +168,20 @@ def observe(
         value = _optional_identifier(payload, key)
         if value is not None:
             record[key] = value
+    if event in {"SessionStart", "on_session_start"}:
+        skill_dir_raw = os.environ.get("RESEARCH_TREE_SKILL_DIR")
+        session_id = record.get("session_id")
+        if isinstance(skill_dir_raw, str) and isinstance(session_id, str):
+            try:
+                loader = build_loader_receipt(
+                    Path(skill_dir_raw),
+                    host=host,
+                    session_id=session_id,
+                    evidence="host-session-start",
+                )
+                record["skill_load"] = loader
+            except (OSError, ValueError):
+                record["skill_load"] = {"state": "unverified_loader_integrity", "host": host}
     if host == "claude" and event == "SubagentStop":
         identity = tuple(
             _optional_identifier(payload, key)
@@ -232,6 +248,7 @@ def observe(
         "host": host,
         "event": event,
         "path": path.relative_to(root).as_posix(),
+        **({"skill_load": record["skill_load"]} if "skill_load" in record else {}),
     }
 
 

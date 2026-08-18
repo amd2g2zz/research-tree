@@ -983,6 +983,12 @@
         "recorded_at": "2026-08-15T10:20:07.336354+00:00"
       },
       "rollback": "revert the current-only CLI route in Git; do not restore a legacy command, alias, adapter, generic dispatcher, migration, compatibility reader, fallback, dual store, or user-data operation"
+    },
+    {
+      "group": 85,
+      "state": "planned",
+      "evidence_refs": [],
+      "rollback": "revoke loader receipts and keep all hosts in unverified_loader_integrity; do not restore implicit activation or mutate global host configuration"
     }
   ]
 }

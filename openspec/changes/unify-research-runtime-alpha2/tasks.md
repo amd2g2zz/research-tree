@@ -532,3 +532,14 @@ substitute for local evidence.
   coverage.
 - [x] 83.3 Run the exact group-83 acceptance command and record a source-bound
   receipt after the strict-admission commit.
+
+## 85. Cross-host SKILL.md Loader Integrity (#269)
+
+- [ ] 85.1 Define one digest-bound loader receipt for Codex, Claude, and Hermes
+  with explicit unavailable and invalid states.
+- [ ] 85.2 Record session-start skill-load evidence through the shared observer
+  and Hermes package hook without prompts, provider payloads, or credentials.
+- [ ] 85.3 Verify host-message/full-content parity and mutation rejection,
+  including the official Hermes image probe when available.
+- [ ] 85.4 Run the exact group-85 acceptance command and record a source-bound
+  receipt before closing #269.

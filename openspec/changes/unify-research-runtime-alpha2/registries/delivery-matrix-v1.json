@@ -84,6 +84,24 @@
       "owner": "runtime"
     },
     {
+      "capability": "cross-host-skill-loader-integrity",
+      "source_modules": [
+        "src/research_tree/skill_activation.py",
+        "src/research_tree/lifecycle_hook.py",
+        "scripts/hermes_skill_adapter.py",
+        "scripts/hermes_runtime_hook.py",
+        "tests/test_skill_loader_integrity.py"
+      ],
+      "public_surface": [
+        "build_loader_receipt",
+        "validate_loader_receipt",
+        "loader_integrity_status"
+      ],
+      "task_groups": [85],
+      "github_issue": "#269",
+      "owner": "host-adapter"
+    },
+    {
       "capability": "canonical-coordinator-cli",
       "source_modules": [
         "src/research_tree/cli.py",
