@@ -986,8 +986,17 @@
     },
     {
       "group": 85,
-      "state": "planned",
-      "evidence_refs": [],
+      "state": "verified",
+      "evidence_refs": ["local://.research-tree/verification-runs/issue-269/group-85-receipt.json"],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_skill_loader_integrity.py tests/test_skill_activation.py tests/test_lifecycle_hook.py tests/test_skill_packages.py && uv run ruff check src/research_tree/__init__.py src/research_tree/skill_activation.py src/research_tree/lifecycle_hook.py scripts/hermes_skill_adapter.py scripts/hermes_runtime_hook.py tests/test_skill_loader_integrity.py && uv run ruff format --check src/research_tree/__init__.py src/research_tree/skill_activation.py src/research_tree/lifecycle_hook.py scripts/hermes_skill_adapter.py scripts/hermes_runtime_hook.py tests/test_skill_loader_integrity.py && openspec validate prove-host-skill-loader-integrity --strict && uv run python scripts/build_skill_packages.py --check && uv run python scripts/check_openspec_governance.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "1ddf446fae114aee4eb1c1a310c739ffad0f7cf60dffc0b7a3224a70a463a592",
+        "source_revision": "bd0b23eb59c9a4f5448f75e83c872989209817cc",
+        "raw_output_ref": ".research-tree/verification-runs/issue-269/group-85-output.txt",
+        "recorded_at": "2026-08-18T05:04:15.546455+00:00"
+      },
       "rollback": "revoke loader receipts and keep all hosts in unverified_loader_integrity; do not restore implicit activation or mutate global host configuration"
     }
   ]
