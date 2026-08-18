@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "host-conformance-v1",
+  "corpus_version": "2026.3",
+  "decision_slot": {"id": "slot-conformance", "question": "Choose between two independent implementation directions."},
+  "phases": ["landscape", "validation"],
+  "leaves": [
+    {"id": "leaf-a", "phase": "landscape", "objective": "Investigate direction A and report ALPHA_OK evidence.", "anchor_kind": "source"},
+    {"id": "leaf-b", "phase": "landscape", "objective": "Investigate direction B and report BETA_OK evidence.", "anchor_kind": "source"}
+  ],
+  "contradiction": {"id": "contra-1", "leaves": ["leaf-a", "leaf-b"], "expect": "replan_retry_with_fresh_attempt"},
+  "validation": {"id": "validation-1", "depends_on": ["leaf-a", "leaf-b"], "expect": "gated_on_verified_leaves"},
+  "expected_canonical_sequence": [
+    "attempt_started:leaf-a",
+    "attempt_started:leaf-b",
+    "worker_finished:leaf-a|leaf-b (verified)",
+    "contradiction_detected",
+    "retry:leaf-a|leaf-b (fresh attempt)",
+    "worker_finished:retried leaf (verified)",
+    "validation:accepted"
+  ],
+  "negative_oracles": [
+    {"id": "projected-identity", "input": "caller-supplied worker_id without hook observation", "expect": "rejected"},
+    {"id": "synthetic-finding", "input": "manually authored Finding Pack without live anchor", "expect": "rejected"},
+    {"id": "capability-string", "input": "host capability declaration without execution", "expect": "not_evidence"}
+  ],
+  "faults": ["provider_interruption", "cancellation", "hook_loss", "process_kill", "stale_child", "modified_artifact", "resume", "fork"],
+  "limitations": []
+}
