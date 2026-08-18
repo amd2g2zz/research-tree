@@ -1013,6 +1013,12 @@
         "recorded_at": "2026-08-18T05:16:10.202805+00:00"
       },
       "rollback": "revoke autonomous activation and keep every host blocked until loader, alignment, and explicit handoff states are current"
+    },
+    {
+      "group": 87,
+      "state": "planned",
+      "evidence_refs": [],
+      "rollback": "retain the immutable fault matrix and keep all hosts blocked; do not relax loader or handoff gates"
     }
   ]
 }

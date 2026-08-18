@@ -551,3 +551,11 @@ substitute for local evidence.
   host skill packages.
 - [ ] 86.3 Run the exact group-86 acceptance command and record a source-bound
   receipt before closing #270.
+
+## 87. Cross-host Fault Injection (#271)
+
+- [ ] 87.1 Inject first/middle/tail mutation and truncation for all hosts.
+- [ ] 87.2 Inject stale/wrong-session/wrong-host receipts and pre-handoff
+  actions; require blocked outcomes.
+- [ ] 87.3 Run the exact group-87 acceptance command and record a source-bound
+  receipt before closing #271.

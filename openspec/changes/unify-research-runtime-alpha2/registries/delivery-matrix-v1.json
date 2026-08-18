@@ -84,6 +84,17 @@
       "owner": "runtime"
     },
     {
+      "capability": "cross-host-fault-injection",
+      "source_modules": [
+        "tests/test_cross_host_fault_injection.py",
+        "src/research_tree/skill_activation.py"
+      ],
+      "public_surface": [],
+      "task_groups": [87],
+      "github_issue": "#271",
+      "owner": "quality"
+    },
+    {
       "capability": "deterministic-cross-host-skill-activation",
       "source_modules": [
         "src/research_tree/skill_activation.py",
