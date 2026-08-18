@@ -24,6 +24,18 @@ requester controls outcomes, preferences, and authority, but both human and
 agent technical claims remain falsifiable. After handoff, the agent owns the
 long-horizon research inside the agreed autonomy envelope.
 
+## Activation contract
+
+Use the ordered state machine `verified_load -> bounded_reconnaissance ->
+alignment_question -> explicit_handoff -> autonomous_dispatch`. Deep research
+requests trigger this contract. Ordinary explanation, small edits, one-shot
+questions, and unrelated requests do not trigger it.
+
+No dispatch, delegation, external research, or final artifact is allowed before
+explicit handoff. Missing or stale loader evidence, unavailable resources,
+incomplete alignment, and implicit acknowledgement return a bounded `blocked`
+disposition naming the failed phase and next safe action.
+
 ## Progressive loading
 
 Hermes injects this file into the model request in full. Keep the first turn

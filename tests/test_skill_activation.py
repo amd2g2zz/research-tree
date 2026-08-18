@@ -15,6 +15,7 @@ from research_tree.skill_activation import (
     run_native_probes,
     validate_probe_contract,
     verify_activation_response,
+    evaluate_activation_gate,
 )
 
 
@@ -318,3 +319,27 @@ def test_codex_closed_app_server_surface_is_unavailable(tmp_path: Path) -> None:
     probe = build_activation_probe("codex", _package(tmp_path, "codex"), correlation_id="run-closed")
     result = run_codex_app_server_probe("codex", probe, session_factory=lambda _: _FakeCodexSession([], closed=True))
     assert result == {"host": "codex", "status": "unavailable", "missing_capability": "surface:app-server-stdio"}
+
+
+@pytest.mark.parametrize("host", ["codex", "claude", "hermes"])
+def test_activation_gate_is_host_neutral_and_fail_closed(host: str) -> None:
+    ready = evaluate_activation_gate(
+        loader_state="host_message_verified",
+        alignment_state="equilibrium",
+        handoff_state="confirmed",
+        requested_action="research",
+    )
+    assert ready == {"state": "ready", "code": "activation_authorized"}
+    for field, value in (
+        ("loader_state", "unverified_loader_integrity"),
+        ("alignment_state", "pending"),
+        ("handoff_state", "implicit"),
+    ):
+        values = {
+            "loader_state": "host_message_verified",
+            "alignment_state": "equilibrium",
+            "handoff_state": "confirmed",
+            "requested_action": "research",
+        }
+        values[field] = value
+        assert evaluate_activation_gate(**values)["state"] == "blocked"

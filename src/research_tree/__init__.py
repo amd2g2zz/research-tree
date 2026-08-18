@@ -58,6 +58,7 @@ from .skill_activation import (
     LOADER_SCHEMA_VERSION,
     LOADER_STATES,
     build_loader_receipt,
+    evaluate_activation_gate,
     loader_integrity_status,
     validate_loader_receipt,
 )
@@ -504,6 +505,7 @@ __all__ = [
     "LOADER_SCHEMA_VERSION",
     "LOADER_STATES",
     "build_loader_receipt",
+    "evaluate_activation_gate",
     "loader_integrity_status",
     "validate_loader_receipt",
     "InvalidDecisionLedgerError",

@@ -998,6 +998,12 @@
         "recorded_at": "2026-08-18T05:06:36.086236+00:00"
       },
       "rollback": "revoke loader receipts and keep all hosts in unverified_loader_integrity; do not restore implicit activation or mutate global host configuration"
+    },
+    {
+      "group": 86,
+      "state": "planned",
+      "evidence_refs": [],
+      "rollback": "revoke autonomous activation and keep every host blocked until loader, alignment, and explicit handoff states are current"
     }
   ]
 }
