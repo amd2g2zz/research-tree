@@ -54,6 +54,13 @@ from .delivery import (
     validate_technical_package_payload,
 )
 from .acceptance import AcceptanceError, DeliveryAcceptance, validate_semantic_deliveries
+from .skill_activation import (
+    LOADER_SCHEMA_VERSION,
+    LOADER_STATES,
+    build_loader_receipt,
+    loader_integrity_status,
+    validate_loader_receipt,
+)
 from .completion_inputs import CompletionInputError, CompletionInputRegistrar, delivery_manifest_digest
 from .evaluation import (
     BLUEPRINT_EVALUATION_KIND,
@@ -494,6 +501,11 @@ __all__ = [
     "InvalidDeliveryError",
     "AcceptanceError",
     "DeliveryAcceptance",
+    "LOADER_SCHEMA_VERSION",
+    "LOADER_STATES",
+    "build_loader_receipt",
+    "loader_integrity_status",
+    "validate_loader_receipt",
     "InvalidDecisionLedgerError",
     "InvalidEvaluationError",
     "InvalidReleaseManifest",
