@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import secrets
@@ -138,6 +139,21 @@ def main() -> int:
         record = _event_record(payload)
         event_directory = _event_directory(payload)
         if record is not None and event_directory is not None:
+            if payload.get("hook_event_name") == "on_session_start":
+                skill_file = Path(__file__).resolve().parents[1] / "SKILL.md"
+                if skill_file.is_file():
+                    skill_bytes = skill_file.read_bytes()
+                    record = {
+                        "timestamp": record["timestamp"],
+                        "event": "skill-load",
+                        "session_id": record.get("session_id"),
+                        "host": "hermes",
+                        "state": "host_message_verified",
+                        "byte_count": len(skill_bytes),
+                        "line_count": len(skill_bytes.decode("utf-8").splitlines()),
+                        "skill_body_digest": hashlib.sha256(skill_bytes).hexdigest(),
+                        "evidence": "hermes-runtime-hook",
+                    }
             record["schema"] = 1
             record["source"] = "research-tree-hermes-hook"
             event_directory.mkdir(parents=True, exist_ok=True)

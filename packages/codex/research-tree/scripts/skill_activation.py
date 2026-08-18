@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 import queue
 import re
@@ -18,6 +19,8 @@ SKILL_NAME = "research-tree"
 ACTIVATION_SCHEMA_VERSION = 1
 ACTIVATION_PROBE_VERSION = "v1"
 ACTIVATION_STATES = ("discovered", "static_ready", "live_verified")
+LOADER_SCHEMA_VERSION = 1
+LOADER_STATES = ("package_attested", "host_message_verified", "live_verified", "unavailable")
 SUPPORTED_HOSTS = ("codex", "claude", "hermes")
 HOST_MARKERS = {
     "codex": "research-tree-activation-contract:v1:codex",
@@ -30,6 +33,100 @@ DIGEST_RE = re.compile(r"[0-9a-f]{64}")
 
 class ActivationError(ValueError):
     """Raised when activation evidence is malformed or exceeds its authority."""
+
+
+def build_loader_receipt(
+    package_root: Path,
+    *,
+    host: str,
+    session_id: str,
+    state: str = "package_attested",
+    evidence: str = "static-package",
+) -> dict[str, object]:
+    """Create a redacted receipt binding one host session to exact skill bytes."""
+    selected_host = _host(host)
+    correlation = _correlation(session_id)
+    if state not in LOADER_STATES or state == "unavailable":
+        _fail("invalid_loader_state", "a receipt must carry a verified state")
+    root = package_root.expanduser().resolve()
+    skill_file = root / "SKILL.md"
+    if not skill_file.is_file():
+        _fail("package_missing", "package root must contain SKILL.md")
+    payload = skill_file.read_bytes()
+    digests = package_digests(root)
+    return {
+        "schema_version": LOADER_SCHEMA_VERSION,
+        "state": state,
+        "host": selected_host,
+        "session_id": correlation,
+        "package_ref": root.name,
+        "package_digest": digests["package_digest"],
+        "skill_body_digest": digests["skill_body_digest"],
+        "byte_count": len(payload),
+        "line_count": len(payload.decode("utf-8").splitlines()),
+        "evidence": evidence,
+        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+
+
+def validate_loader_receipt(
+    receipt: Mapping[str, object],
+    package_root: Path,
+    *,
+    host: str,
+    session_id: str | None = None,
+    require_verified: bool = True,
+) -> dict[str, object]:
+    """Verify a receipt against current bytes and an optional session identity."""
+    selected_host = _host(host)
+    if receipt.get("schema_version") != LOADER_SCHEMA_VERSION:
+        _fail("invalid_loader_receipt", "unsupported loader receipt schema")
+    state = receipt.get("state")
+    if state not in LOADER_STATES or state == "unavailable":
+        _fail("invalid_loader_receipt", "receipt state is not verifiable")
+    if require_verified and state not in {"host_message_verified", "live_verified"}:
+        _fail("unverified_loader_integrity", "host-level loader evidence is unavailable")
+    if receipt.get("host") != selected_host:
+        _fail("invalid_loader_receipt", "receipt host does not match expected host")
+    actual_session = _correlation(receipt.get("session_id"))
+    if session_id is not None and actual_session != _correlation(session_id):
+        _fail("invalid_loader_receipt", "receipt session does not match activation session")
+    root = package_root.expanduser().resolve()
+    current = package_digests(root)
+    skill = root / "SKILL.md"
+    payload = skill.read_bytes()
+    if receipt.get("package_digest") != current["package_digest"]:
+        _fail("invalid_loader_receipt", "package digest does not match current package")
+    if receipt.get("skill_body_digest") != current["skill_body_digest"]:
+        _fail("invalid_loader_receipt", "skill digest does not match current SKILL.md")
+    if receipt.get("byte_count") != len(payload) or receipt.get("line_count") != len(
+        payload.decode("utf-8").splitlines()
+    ):
+        _fail("invalid_loader_receipt", "skill byte or line count does not match current file")
+    return dict(receipt)
+
+
+def loader_integrity_status(
+    package_root: Path,
+    *,
+    host: str,
+    receipt: Mapping[str, object] | None = None,
+    session_id: str | None = None,
+) -> dict[str, object]:
+    """Return bounded status without converting missing evidence into a pass."""
+    if receipt is None:
+        return {"state": "unverified_loader_integrity", "host": _host(host)}
+    try:
+        validated = validate_loader_receipt(
+            receipt,
+            package_root,
+            host=host,
+            session_id=session_id,
+            require_verified=False,
+        )
+    except ActivationError as exc:
+        return {"state": "invalid_loader_receipt", "host": _host(host), "diagnostic": str(exc).split(":", 1)[0]}
+    return {"state": str(validated["state"]), "host": _host(host), "session_id": validated["session_id"]}
 
 
 def _fail(code: str, detail: str) -> None:
