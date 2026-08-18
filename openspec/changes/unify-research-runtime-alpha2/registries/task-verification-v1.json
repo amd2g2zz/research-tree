@@ -1013,6 +1013,21 @@
         "recorded_at": "2026-08-18T05:16:10.202805+00:00"
       },
       "rollback": "revoke autonomous activation and keep every host blocked until loader, alignment, and explicit handoff states are current"
+    },
+    {
+      "group": 87,
+      "state": "verified",
+      "evidence_refs": ["local://.research-tree/verification-runs/group-87/receipt.json"],
+      "command_receipt": {
+        "command": "uv run pytest -q tests/test_cross_host_fault_injection.py tests/test_skill_loader_integrity.py tests/test_skill_activation.py && uv run ruff check tests/test_cross_host_fault_injection.py src/research_tree/skill_activation.py && uv run ruff format --check tests/test_cross_host_fault_injection.py src/research_tree/skill_activation.py && openspec validate fault-inject-cross-host-skill-activation --strict && uv run python scripts/check_openspec_governance.py",
+        "exit_code": 0,
+        "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+        "output_digest": "c8b4c7ba862ff46be0213c604120415656f12691cb8c2f777786f860246f0118",
+        "source_revision": "f0dd59b2afc82bc5e13092d02239ce46766217ba",
+        "raw_output_ref": ".research-tree/verification-runs/group-87/output.txt",
+        "recorded_at": "2026-08-18T05:23:47.297088+00:00"
+      },
+      "rollback": "retain the immutable fault matrix and keep all hosts blocked; do not relax loader or handoff gates"
     }
   ]
 }
