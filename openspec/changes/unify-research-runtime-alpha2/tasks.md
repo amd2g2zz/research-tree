@@ -543,3 +543,11 @@ substitute for local evidence.
   including the official Hermes image probe when available.
 - [ ] 85.4 Run the exact group-85 acceptance command and record a source-bound
   receipt before closing #269.
+
+## 86. Deterministic Cross-host Skill Activation (#270)
+
+- [ ] 86.1 Add the host-neutral activation gate and explicit blocked codes.
+- [ ] 86.2 Add ordered phases plus positive/negative triggers to all generated
+  host skill packages.
+- [ ] 86.3 Run the exact group-86 acceptance command and record a source-bound
+  receipt before closing #270.

@@ -138,6 +138,7 @@ def test_group_35_owns_integrated_receipt_and_preserves_historical_future_gap_ev
         83,
         84,
         85,
+        86,
     )
     assert report.unverified_groups == (
         *(

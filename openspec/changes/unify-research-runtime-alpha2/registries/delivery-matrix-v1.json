@@ -84,6 +84,19 @@
       "owner": "runtime"
     },
     {
+      "capability": "deterministic-cross-host-skill-activation",
+      "source_modules": [
+        "src/research_tree/skill_activation.py",
+        "skill-src/SKILL.template.md",
+        "skill-src/hermes-SKILL.template.md",
+        "tests/test_skill_activation.py"
+      ],
+      "public_surface": ["evaluate_activation_gate"],
+      "task_groups": [86],
+      "github_issue": "#270",
+      "owner": "host-adapter"
+    },
+    {
       "capability": "cross-host-skill-loader-integrity",
       "source_modules": [
         "src/research_tree/skill_activation.py",

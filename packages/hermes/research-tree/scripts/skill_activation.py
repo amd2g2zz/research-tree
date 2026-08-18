@@ -21,6 +21,7 @@ ACTIVATION_PROBE_VERSION = "v1"
 ACTIVATION_STATES = ("discovered", "static_ready", "live_verified")
 LOADER_SCHEMA_VERSION = 1
 LOADER_STATES = ("package_attested", "host_message_verified", "live_verified", "unavailable")
+ACTIVATION_GATE_STATES = ("blocked", "ready")
 SUPPORTED_HOSTS = ("codex", "claude", "hermes")
 HOST_MARKERS = {
     "codex": "research-tree-activation-contract:v1:codex",
@@ -33,6 +34,25 @@ DIGEST_RE = re.compile(r"[0-9a-f]{64}")
 
 class ActivationError(ValueError):
     """Raised when activation evidence is malformed or exceeds its authority."""
+
+
+def evaluate_activation_gate(
+    *,
+    loader_state: str,
+    alignment_state: str,
+    handoff_state: str,
+    requested_action: str,
+) -> dict[str, object]:
+    """Apply the same fail-closed activation state machine for every host."""
+    if loader_state not in {"host_message_verified", "live_verified"}:
+        return {"state": "blocked", "code": "loader_integrity_unverified"}
+    if alignment_state != "equilibrium":
+        return {"state": "blocked", "code": "alignment_pending"}
+    if handoff_state != "confirmed":
+        return {"state": "blocked", "code": "handoff_pending"}
+    if requested_action not in {"dispatch", "delegate", "research"}:
+        return {"state": "blocked", "code": "unsupported_activation_action"}
+    return {"state": "ready", "code": "activation_authorized"}
 
 
 def build_loader_receipt(
