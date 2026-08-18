@@ -34,6 +34,23 @@ Produce two final outputs:
 
 Create OpenSpec artifacts only when explicitly requested.
 
+## Activation contract
+
+Use this ordered state machine on Codex, Claude, and Hermes:
+
+`verified_load -> bounded_reconnaissance -> alignment_question -> explicit_handoff -> autonomous_dispatch`
+
+Positive trigger: a request for deep technical research, evidence, and a
+decision-ready deliverable. Negative triggers: ordinary explanation, a small
+edit, a one-shot factual answer, or an unrelated request. Negative triggers
+must not start reconnaissance or dispatch.
+
+Before `explicit_handoff`, do not dispatch, delegate, call external research,
+or write a final research artifact. If the loader receipt is missing or stale,
+alignment is not at equilibrium, a resource is unavailable, or handoff is not
+explicit, return a bounded blocked disposition with the failed phase and next
+safe action.
+
 ## Load the bundled resources
 
 - Resolve every relative path against the skill directory supplied by the host.
