@@ -61,6 +61,7 @@ SCHEMA = 1
 HOSTS = ("codex", "claude")
 PHASES = ("landscape", "deep_dive", "adversarial", "validation")
 DELIVERY_SNAPSHOT_SCHEMA = 1
+PLAN_PROJECTION_SCHEMA = 1
 IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 TASK_STATUSES = (
     "pending",
@@ -212,6 +213,10 @@ def _save_state(workspace: Path, state: dict[str, Any]) -> None:
     state["revision"] = int(state.get("revision", 0)) + 1
     state["updated_at"] = _now()
     _atomic_write(_state_path(workspace, state["run_id"]), state)
+    try:
+        _write_plan_snapshot(workspace, state)
+    except OSError:
+        pass
 
 
 def _load_handoff(workspace: Path, path: Path) -> tuple[dict[str, Any], Path]:
@@ -700,6 +705,7 @@ def status(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
         task["status"] == "submitted" and task["verified"] is True for task in state["tasks"].values()
     )
     observed_complete = observed_complete and not integrity_errors
+    projection = _plan_projection_status(workspace, state)
     return {
         "run_id": run_id,
         "host": host,
@@ -712,6 +718,153 @@ def status(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
         "completion_authority": "coordinator_only",
         "integrity_errors": integrity_errors,
         "recovery_required": [error.split(":", 1)[0] for error in integrity_errors],
+        "plan_projection": projection["state"],
+        "plan_snapshot": projection.get("snapshot"),
+    }
+
+
+def _plan_snapshot_path(workspace: Path, run_id: str) -> Path:
+    return _run_dir(workspace, run_id) / "codex-plan-snapshot.json"
+
+
+def _plan_mirror_path(workspace: Path, run_id: str) -> Path:
+    return _run_dir(workspace, run_id) / "codex-plan-mirror.json"
+
+
+def _plan_snapshot(workspace: Path, state: dict[str, Any]) -> dict[str, Any]:
+    task_counts = {value: 0 for value in TASK_STATUSES}
+    ready: list[str] = []
+    obligations: list[str] = []
+    for task_id, task in sorted(state["tasks"].items()):
+        task_counts[task["status"]] += 1
+        if task["status"] in ("pending", "failed", "unknown") and _dependencies_complete(state, task):
+            ready.append(task_id)
+        if task["status"] != "submitted" or task.get("verified") is not True:
+            obligations.append(f"{task_id}:independent_review_or_submission_required")
+        if integrity_error := _artifact_integrity_error(task):
+            obligations.append(f"{task_id}:{integrity_error}")
+    if not state["tasks"]:
+        obligations.append("no_host_tasks_registered")
+    why_not_complete = sorted(set(obligations))
+    return {
+        "schema": PLAN_PROJECTION_SCHEMA,
+        "kind": "codex-plan-snapshot",
+        "run_id": state["run_id"],
+        "host": state["host"],
+        "state_revision": state["revision"],
+        "status": state["status"],
+        "task_counts": task_counts,
+        "ready": ready,
+        "unresolved_obligations": why_not_complete,
+        "why_not_complete": why_not_complete or ["coordinator_completion_required"],
+    }
+
+
+def _write_plan_snapshot(workspace: Path, state: dict[str, Any]) -> dict[str, Any]:
+    snapshot = _plan_snapshot(workspace, state)
+    encoded = json.dumps(snapshot, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    snapshot["snapshot_sha256"] = hashlib.sha256(encoded).hexdigest()
+    _atomic_write(_plan_snapshot_path(workspace, state["run_id"]), snapshot)
+    return snapshot
+
+
+def _read_plan_snapshot(workspace: Path, state: dict[str, Any]) -> dict[str, Any] | None:
+    path = _plan_snapshot_path(workspace, state["run_id"])
+    try:
+        snapshot = _read_json(path, "Codex plan snapshot")
+    except AdapterError:
+        return None
+    if (
+        snapshot.get("schema") != PLAN_PROJECTION_SCHEMA
+        or snapshot.get("kind") != "codex-plan-snapshot"
+        or snapshot.get("run_id") != state["run_id"]
+        or snapshot.get("state_revision") != state["revision"]
+    ):
+        return None
+    digest = snapshot.get("snapshot_sha256")
+    unsigned = {key: value for key, value in snapshot.items() if key != "snapshot_sha256"}
+    encoded = json.dumps(unsigned, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    if not isinstance(digest, str) or digest != hashlib.sha256(encoded).hexdigest():
+        return None
+    return snapshot
+
+
+def _plan_items(snapshot: dict[str, Any]) -> list[dict[str, str]]:
+    terminal = not snapshot["unresolved_obligations"]
+    items = [
+        {
+            "id": f"run:{snapshot['run_id']}",
+            "content": f"Durable host observation: {snapshot['status']} at revision {snapshot['state_revision']}",
+            "status": "completed" if terminal else "in_progress",
+        }
+    ]
+    for task_id in snapshot["ready"]:
+        items.append(
+            {
+                "id": f"task:{task_id}",
+                "content": f"Run ready task {task_id} from durable state",
+                "status": "pending",
+            }
+        )
+    for obligation in snapshot["unresolved_obligations"]:
+        items.append(
+            {
+                "id": f"obligation:{obligation}",
+                "content": f"Resolve {obligation}",
+                "status": "pending",
+            }
+        )
+    return items
+
+
+def _plan_projection_status(workspace: Path, state: dict[str, Any]) -> dict[str, Any]:
+    snapshot = _read_plan_snapshot(workspace, state)
+    if snapshot is None:
+        return {"state": "unavailable"}
+    try:
+        mirror = _read_json(_plan_mirror_path(workspace, state["run_id"]), "Codex plan mirror")
+    except AdapterError:
+        return {"state": "unavailable", "snapshot": snapshot}
+    if (
+        mirror.get("schema") != PLAN_PROJECTION_SCHEMA
+        or mirror.get("kind") != "codex-plan-mirror"
+        or mirror.get("run_id") != state["run_id"]
+        or mirror.get("state_revision") != state["revision"]
+        or mirror.get("snapshot_sha256") != snapshot["snapshot_sha256"]
+        or mirror.get("items") != _plan_items(snapshot)
+    ):
+        return {"state": "stale", "snapshot": snapshot}
+    return {"state": "current", "snapshot": snapshot}
+
+
+def sync_plan_mirror(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
+    state = _load_state(workspace, run_id, host)
+    snapshot = _read_plan_snapshot(workspace, state) or _write_plan_snapshot(workspace, state)
+    mirror = {
+        "schema": PLAN_PROJECTION_SCHEMA,
+        "kind": "codex-plan-mirror",
+        "run_id": run_id,
+        "state_revision": state["revision"],
+        "snapshot_sha256": snapshot["snapshot_sha256"],
+        "items": _plan_items(snapshot),
+    }
+    path = _plan_mirror_path(workspace, run_id)
+    idempotent = False
+    try:
+        idempotent = _read_json(path, "Codex plan mirror") == mirror
+    except AdapterError:
+        pass
+    if not idempotent:
+        _atomic_write(path, mirror)
+    return {
+        "plan_projection": "current",
+        "idempotent": idempotent,
+        "snapshot": {
+            "path": str(_plan_snapshot_path(workspace, run_id)),
+            "sha256": snapshot["snapshot_sha256"],
+            "state_revision": state["revision"],
+        },
+        "items": mirror["items"],
     }
 
 
@@ -1057,6 +1210,9 @@ def _parser() -> argparse.ArgumentParser:
     status_parser = subparsers.add_parser("status")
     status_parser.add_argument("--run-id", required=True)
 
+    sync_plan_parser = subparsers.add_parser("sync-plan")
+    sync_plan_parser.add_argument("--run-id", required=True)
+
     complete_parser = subparsers.add_parser("complete")
     complete_parser.add_argument("--run-id", required=True)
     complete_parser.add_argument("--technical-report", type=Path, required=True)
@@ -1188,6 +1344,8 @@ def main() -> int:
             result = recover(workspace, args.run_id, args.host)
         elif args.command == "status":
             result = status(workspace, args.run_id, args.host)
+        elif args.command == "sync-plan":
+            result = sync_plan_mirror(workspace, args.run_id, args.host)
         elif args.command == "complete":
             technical = (
                 args.technical_report if args.technical_report.is_absolute() else workspace / args.technical_report
