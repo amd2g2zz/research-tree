@@ -293,6 +293,7 @@ def add_task(
     phase: str,
     artifact: Path,
     dependencies: list[str],
+    dependency_edges: list[dict[str, str]],
 ) -> dict[str, Any]:
     state = _load_state(workspace, run_id, host)
     task_id = _identifier(task_id, "task id")
@@ -303,17 +304,53 @@ def add_task(
         raise AdapterError(f"invalid phase: {phase}")
     if task_id in state["tasks"]:
         raise AdapterError(f"task already exists: {task_id}")
-    for dependency in dependencies:
+    if len(dependencies) != len(dependency_edges):
+        raise AdapterError("each dependency requires one structured dependency edge")
+    normalized_edges: list[dict[str, str]] = []
+    target = _inside(workspace, artifact, "artifact path")
+    for dependency, edge in zip(dependencies, dependency_edges, strict=True):
         _identifier(dependency, "dependency")
         if dependency not in state["tasks"]:
             raise AdapterError(f"dependency has not been added: {dependency}")
-    target = _inside(workspace, artifact, "artifact path")
+        if edge.get("dependency_id") != dependency:
+            raise AdapterError("dependency edge does not match declared dependency")
+        rationale = edge.get("rationale")
+        evidence_ref = edge.get("evidence_ref")
+        kind = edge.get("kind")
+        if not isinstance(rationale, str) or not rationale.strip():
+            raise AdapterError("dependency edge rationale must be non-empty")
+        if not isinstance(evidence_ref, str) or not evidence_ref.strip():
+            raise AdapterError("dependency edge evidence_ref must be non-empty")
+        if kind == "artifact":
+            producer = state["tasks"][dependency]["artifact"]
+            if evidence_ref != producer:
+                raise AdapterError("artifact dependency evidence_ref must equal the producer artifact path")
+        elif kind == "authority_constraint":
+            constraints = {
+                *state["execution_context"].get("authority", []),
+                *state["execution_context"].get("constraints", []),
+            }
+            if evidence_ref not in constraints:
+                raise AdapterError("authority dependency evidence_ref is not a confirmed handoff constraint")
+        else:
+            raise AdapterError("dependency edge kind must be artifact or authority_constraint")
+        normalized_edges.append(
+            {
+                "dependency_id": dependency,
+                "kind": kind,
+                "rationale": rationale.strip(),
+                "evidence_ref": evidence_ref,
+                "consumer_artifact": str(target),
+            }
+        )
     state["tasks"][task_id] = {
         "task_id": task_id,
         "decision_slot": decision_slot,
         "phase": phase,
         "artifact": str(target),
         "dependencies": dependencies,
+        "dependency_edges": normalized_edges,
+        "track_id": state["decision_slots"][decision_slot].get("track_id", "untracked"),
         "status": "pending",
         "attempt": 0,
         "attempt_id": None,
@@ -689,6 +726,37 @@ def recover(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
     }
 
 
+def _parallelism(state: dict[str, Any], ready: list[str]) -> dict[str, Any]:
+    blocked_dependencies: list[dict[str, Any]] = []
+    for task_id, task in sorted(state["tasks"].items()):
+        if task["status"] not in ("pending", "failed", "unknown") or not task["dependencies"]:
+            continue
+        unresolved = [
+            dependency
+            for dependency in task["dependencies"]
+            if not (
+                state["tasks"][dependency]["status"] in ("submitted", "completed")
+                and state["tasks"][dependency]["verified"] is True
+                and _artifact_integrity_error(state["tasks"][dependency]) is None
+            )
+        ]
+        if unresolved:
+            edges = {edge["dependency_id"]: edge for edge in task.get("dependency_edges", [])}
+            blocked_dependencies.append(
+                {
+                    "task_id": task_id,
+                    "track_id": task.get("track_id", "untracked"),
+                    "waiting_on": unresolved,
+                    "justifications": [edges[dependency] for dependency in unresolved if dependency in edges],
+                }
+            )
+    return {
+        "ready_wave": sorted(ready),
+        "ready_tracks": sorted({state["tasks"][task_id].get("track_id", "untracked") for task_id in ready}),
+        "blocked_dependencies": blocked_dependencies,
+    }
+
+
 def status(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
     state = _load_state(workspace, run_id, host)
     integrity_errors: list[str] = []
@@ -706,6 +774,7 @@ def status(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
     )
     observed_complete = observed_complete and not integrity_errors
     projection = _plan_projection_status(workspace, state)
+    parallelism = _parallelism(state, ready)
     return {
         "run_id": run_id,
         "host": host,
@@ -713,6 +782,7 @@ def status(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
         "revision": state["revision"],
         "counts": counts,
         "ready": sorted(ready),
+        "parallelism": parallelism,
         "complete": False,
         "observed_complete": observed_complete,
         "completion_authority": "coordinator_only",
@@ -920,6 +990,11 @@ def _delivery_snapshot(workspace: Path, state: dict[str, Any]) -> dict[str, Any]
         if (error := _artifact_integrity_error(task)) is not None
     ]
     unresolved = sorted({*unreviewed, *validation_obligations, *integrity_errors})
+    ready = [
+        task_id
+        for task_id, task in state["tasks"].items()
+        if task["status"] in ("pending", "failed", "unknown") and _dependencies_complete(state, task)
+    ]
     return {
         "schema": DELIVERY_SNAPSHOT_SCHEMA,
         "kind": "delivery-receipt-snapshot",
@@ -936,6 +1011,7 @@ def _delivery_snapshot(workspace: Path, state: dict[str, Any]) -> dict[str, Any]
             "lifecycle_hooks": state.get("lifecycle_hooks"),
             "host": state["host"],
         },
+        "parallelism": _parallelism(state, ready),
         "unresolved_obligations": unresolved,
     }
 
@@ -979,6 +1055,12 @@ def _render_delivery_report(kind: str, snapshot_path: Path, snapshot: dict[str, 
         "## Review Status",
         "",
         *_snapshot_lines(snapshot["reviewer_status"]),
+        "",
+        "## Parallelism",
+        "",
+        f"- ready_wave: {', '.join(snapshot['parallelism']['ready_wave']) or 'none'}",
+        f"- ready_tracks: {', '.join(snapshot['parallelism']['ready_tracks']) or 'none'}",
+        f"- blocked_dependencies: {len(snapshot['parallelism']['blocked_dependencies'])}",
         "",
         "## Unresolved Obligations",
         "",
@@ -1173,6 +1255,9 @@ def _parser() -> argparse.ArgumentParser:
     add_parser.add_argument("--phase", choices=PHASES, required=True)
     add_parser.add_argument("--artifact", type=Path, required=True)
     add_parser.add_argument("--depends-on", action="append", default=[])
+    add_parser.add_argument("--dependency-kind", action="append", default=[])
+    add_parser.add_argument("--dependency-rationale", action="append", default=[])
+    add_parser.add_argument("--dependency-evidence-ref", action="append", default=[])
 
     start_parser = subparsers.add_parser("start")
     start_parser.add_argument("--run-id", required=True)
@@ -1293,6 +1378,28 @@ def main() -> int:
             artifact = args.artifact
             if not artifact.is_absolute():
                 artifact = workspace / artifact
+            dependency_fields = (
+                args.dependency_kind,
+                args.dependency_rationale,
+                args.dependency_evidence_ref,
+            )
+            if not all(len(values) == len(args.depends_on) for values in dependency_fields):
+                raise AdapterError("every dependency requires kind, rationale, and evidence_ref")
+            dependency_edges = [
+                {
+                    "dependency_id": dependency,
+                    "kind": kind,
+                    "rationale": rationale,
+                    "evidence_ref": evidence_ref,
+                }
+                for dependency, kind, rationale, evidence_ref in zip(
+                    args.depends_on,
+                    args.dependency_kind,
+                    args.dependency_rationale,
+                    args.dependency_evidence_ref,
+                    strict=True,
+                )
+            ]
             result = add_task(
                 workspace,
                 args.run_id,
@@ -1302,6 +1409,7 @@ def main() -> int:
                 args.phase,
                 artifact,
                 args.depends_on,
+                dependency_edges,
             )
         elif args.command == "start":
             result = start_task(workspace, args.run_id, args.host, args.task_id, args.worker_id)
