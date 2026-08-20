@@ -25,12 +25,45 @@ def write_handoff(workspace: Path) -> Path:
                 "alignment_digest": "a" * 64,
                 "compiled_graph_digest": "a" * 64,
                 "decision_slots": {
-                    "slot-a": {"question": "Primary decision"},
-                    "slot-b": {"question": "Secondary decision"},
+                    "slot-a": {
+                        "question": "Primary decision",
+                        "track_id": "track-architecture",
+                        "priority": "P0",
+                        "evidence_boundary": "bounded architecture evidence",
+                        "validation": {"oracle": "Architecture closure."},
+                    },
+                    "slot-b": {
+                        "question": "Secondary decision",
+                        "track_id": "track-evidence",
+                        "priority": "P1",
+                        "evidence_boundary": "bounded evidence review",
+                        "validation": {"oracle": "Evidence closure."},
+                    },
+                    "slot-c": {
+                        "question": "Adversarial decision",
+                        "track_id": "track-adversarial",
+                        "priority": "P0",
+                        "evidence_boundary": "bounded counterevidence",
+                        "validation": {"oracle": "Adversarial closure."},
+                    },
+                    "slot-d": {
+                        "question": "Validation decision",
+                        "track_id": "track-validation",
+                        "priority": "P0",
+                        "evidence_boundary": "bounded validation evidence",
+                        "validation": {"oracle": "Validation closure."},
+                    },
                 },
                 "execution_context": {
                     "authority": ["Autonomous research only; no target edits."],
+                    "constraints": ["Human-approved serialization for a protected change window."],
                     "success_oracles": ["All P0 decisions are independently validated."],
+                    "strategy_tracks": [
+                        {"id": "track-architecture"},
+                        {"id": "track-evidence"},
+                        {"id": "track-adversarial"},
+                        {"id": "track-validation"},
+                    ],
                 },
             }
         ),
@@ -232,6 +265,12 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
         "findings/validation-1.json",
         "--depends-on",
         "landscape-1",
+        "--dependency-kind",
+        "artifact",
+        "--dependency-rationale",
+        "Validation consumes the discovery Finding Pack.",
+        "--dependency-evidence-ref",
+        str(tmp_path / "findings" / "landscape-1.json"),
     )
     assert second.returncode == 0, second.stderr
 
@@ -490,6 +529,12 @@ def test_adapter_rejects_invalid_finding_and_detects_tampering(tmp_path: Path) -
         "finding-2.json",
         "--depends-on",
         "task-1",
+        "--dependency-kind",
+        "artifact",
+        "--dependency-rationale",
+        "The second task consumes the first Finding Pack.",
+        "--dependency-evidence-ref",
+        str(tmp_path / "finding.json"),
     )
     started = run_adapter(tmp_path, "codex", "start", "--run-id", run_id, "--task-id", "task-1")
     started_task = json.loads(started.stdout)
@@ -1193,3 +1238,125 @@ def test_codex_plan_mirror_is_revision_bound_idempotent_and_rebuildable(tmp_path
     fork_status = run_adapter(fork, "codex", "status", "--run-id", run_id)
     assert fork_status.returncode == 0, fork_status.stderr
     assert json.loads(fork_status.stdout)["plan_projection"] == "current"
+
+
+def test_adapter_dispatches_independent_strategy_tracks_in_one_ready_wave(tmp_path: Path) -> None:
+    run_id = "parallel-tracks"
+    initialized = run_adapter(
+        tmp_path,
+        "codex",
+        "init",
+        "--run-id",
+        run_id,
+        "--handoff",
+        str(write_handoff(tmp_path)),
+    )
+    assert initialized.returncode == 0, initialized.stderr
+    for index, slot_id in enumerate(("slot-a", "slot-b", "slot-c", "slot-d"), start=1):
+        added = run_adapter(
+            tmp_path,
+            "codex",
+            "add-task",
+            "--run-id",
+            run_id,
+            "--task-id",
+            f"task-track-{index}",
+            "--decision-slot",
+            slot_id,
+            "--phase",
+            "landscape",
+            "--artifact",
+            f"findings/task-track-{index}.json",
+        )
+        assert added.returncode == 0, added.stderr
+    summary = json.loads(run_adapter(tmp_path, "codex", "status", "--run-id", run_id).stdout)
+    assert summary["parallelism"]["ready_wave"] == [
+        "task-track-1",
+        "task-track-2",
+        "task-track-3",
+        "task-track-4",
+    ]
+    assert summary["parallelism"]["ready_tracks"] == [
+        "track-adversarial",
+        "track-architecture",
+        "track-evidence",
+        "track-validation",
+    ]
+
+
+def test_adapter_requires_justified_dependency_serialization(tmp_path: Path) -> None:
+    run_id = "dependency-justification"
+    initialized = run_adapter(
+        tmp_path,
+        "codex",
+        "init",
+        "--run-id",
+        run_id,
+        "--handoff",
+        str(write_handoff(tmp_path)),
+    )
+    assert initialized.returncode == 0, initialized.stderr
+    producer = run_adapter(
+        tmp_path,
+        "codex",
+        "add-task",
+        "--run-id",
+        run_id,
+        "--task-id",
+        "task-producer",
+        "--decision-slot",
+        "slot-a",
+        "--phase",
+        "landscape",
+        "--artifact",
+        "findings/producer.json",
+    )
+    assert producer.returncode == 0, producer.stderr
+    unjustified = run_adapter(
+        tmp_path,
+        "codex",
+        "add-task",
+        "--run-id",
+        run_id,
+        "--task-id",
+        "task-consumer",
+        "--decision-slot",
+        "slot-b",
+        "--phase",
+        "validation",
+        "--artifact",
+        "findings/consumer.json",
+        "--depends-on",
+        "task-producer",
+    )
+    assert unjustified.returncode == 1
+    assert "requires kind, rationale, and evidence_ref" in unjustified.stderr
+
+    constrained = run_adapter(
+        tmp_path,
+        "codex",
+        "add-task",
+        "--run-id",
+        run_id,
+        "--task-id",
+        "task-constrained",
+        "--decision-slot",
+        "slot-b",
+        "--phase",
+        "validation",
+        "--artifact",
+        "findings/constrained.json",
+        "--depends-on",
+        "task-producer",
+        "--dependency-kind",
+        "authority_constraint",
+        "--dependency-rationale",
+        "The protected change window requires explicitly approved serialization.",
+        "--dependency-evidence-ref",
+        "Human-approved serialization for a protected change window.",
+    )
+    assert constrained.returncode == 0, constrained.stderr
+    summary = json.loads(run_adapter(tmp_path, "codex", "status", "--run-id", run_id).stdout)
+    blocked = summary["parallelism"]["blocked_dependencies"]
+    assert blocked[0]["task_id"] == "task-constrained"
+    assert blocked[0]["justifications"][0]["kind"] == "authority_constraint"
