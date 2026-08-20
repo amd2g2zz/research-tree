@@ -179,6 +179,15 @@ def _load_handoff(workspace: Path, path: Path) -> tuple[dict[str, Any], Path]:
     handoff = _read_json(resolved, "alignment handoff")
     if handoff.get("schema") != 1 or handoff.get("kind") != "alignment-handoff":
         raise AdapterError("handoff must be a schema-1 alignment-handoff artifact")
+    alignment_digest = handoff.get("alignment_digest")
+    compiled_digest = handoff.get("compiled_graph_digest")
+    if not all(
+        isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest)
+        for digest in (alignment_digest, compiled_digest)
+    ):
+        raise AdapterError("handoff must include alignment confirmation digests")
+    if alignment_digest != compiled_digest:
+        raise AdapterError("handoff has a stale alignment confirmation")
     if not isinstance(handoff.get("decision_slots"), dict) or not handoff["decision_slots"]:
         raise AdapterError("handoff decision_slots must be a nonempty object")
     if not isinstance(handoff.get("execution_context"), dict):
