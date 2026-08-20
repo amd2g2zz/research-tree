@@ -39,6 +39,11 @@ except ImportError:
     )
 
 try:
+    from research_tree.context_ledger import ContextBudget, ContextLedgerError, ContextReadLedger
+except ImportError:
+    from context_ledger_contract import ContextBudget, ContextLedgerError, ContextReadLedger
+
+try:
     from research_tree.host_capabilities import (
         WorkflowContractError,
         probe_host,
@@ -70,6 +75,39 @@ def _inside(workspace: Path, candidate: Path, label: str) -> Path:
     except ValueError as error:
         raise HermesExecutionError(f"{label} must remain in the workspace") from error
     return resolved
+
+
+def _run_dir(workspace: Path, run_id: str) -> Path:
+    candidates = tuple((workspace / ".research-tree" / "projects").glob(f"*/runs/{run_id}"))
+    if len(candidates) != 1:
+        raise HermesExecutionError("run must resolve to exactly one project workspace")
+    return _inside(workspace, candidates[0], "run directory")
+
+
+def _context_budget(args: argparse.Namespace) -> ContextBudget | None:
+    values = {
+        "max_fresh_input_tokens": getattr(args, "max_fresh_input_tokens", None),
+        "max_cached_input_tokens": getattr(args, "max_cached_input_tokens", None),
+        "max_replayed_input_tokens": getattr(args, "max_replayed_input_tokens", None),
+        "max_tool_output_tokens": getattr(args, "max_tool_output_tokens", None),
+        "max_process_output_tokens": getattr(args, "max_process_output_tokens", None),
+        "max_duplicate_read_ratio": getattr(args, "max_duplicate_read_ratio", None),
+    }
+    budget = ContextBudget(**values)
+    return None if budget.is_unbounded else budget
+
+
+def _context_ledger(workspace: Path, args: argparse.Namespace) -> ContextReadLedger:
+    return ContextReadLedger(workspace, _run_dir(workspace, args.run_id), args.run_id, budget=_context_budget(args))
+
+
+def _add_context_budget_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--max-fresh-input-tokens", type=int)
+    parser.add_argument("--max-cached-input-tokens", type=int)
+    parser.add_argument("--max-replayed-input-tokens", type=int)
+    parser.add_argument("--max-tool-output-tokens", type=int)
+    parser.add_argument("--max-process-output-tokens", type=int)
+    parser.add_argument("--max-duplicate-read-ratio", type=float)
 
 
 def _read_json(workspace: Path, path: Path, label: str) -> dict[str, Any]:
@@ -390,6 +428,29 @@ def _parser() -> argparse.ArgumentParser:
     status = commands.add_parser("status")
     status.add_argument("--run-id", required=True)
 
+    context_record = commands.add_parser("context-record")
+    context_record.add_argument("--run-id", required=True)
+    context_record.add_argument("--source", type=Path, required=True)
+    context_record.add_argument("--consumer", required=True)
+    context_record.add_argument("--phase", required=True)
+    context_record.add_argument("--byte-start", type=int, default=0)
+    context_record.add_argument("--byte-end", type=int)
+    context_record.add_argument("--input-tokens", type=int, default=0)
+    context_record.add_argument("--tool-output-tokens", type=int, default=0)
+    context_record.add_argument("--process-output-tokens", type=int, default=0)
+    _add_context_budget_arguments(context_record)
+
+    context_seal = commands.add_parser("context-seal")
+    context_seal.add_argument("--run-id", required=True)
+    context_seal.add_argument("--source", type=Path, required=True)
+
+    context_receipt = commands.add_parser("context-receipt")
+    context_receipt.add_argument("--run-id", required=True)
+
+    context_resume = commands.add_parser("context-resume")
+    context_resume.add_argument("--run-id", required=True)
+    _add_context_budget_arguments(context_resume)
+
     complete = commands.add_parser("complete")
     complete.add_argument("--run-id", required=True)
     complete.add_argument("--technical-report", type=Path, required=True)
@@ -431,6 +492,7 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = _parser().parse_args()
     workspace = args.workspace.resolve()
+    exit_code = 0
     try:
         if args.command == "probe-host":
             result = probe_host("hermes", _read_json(workspace, args.observations, "capability observations"))
@@ -446,6 +508,25 @@ def main() -> int:
             result = resume_workflow(_read_json(workspace, args.request, "workflow resume request"), "hermes")
         elif args.command == "init":
             result = initialize_projection(workspace, args.project_id, args.run_id, args.handoff)
+        elif args.command == "context-record":
+            result = _context_ledger(workspace, args).record_read(
+                args.source,
+                consumer=args.consumer,
+                phase=args.phase,
+                byte_start=args.byte_start,
+                byte_end=args.byte_end,
+                input_tokens=args.input_tokens,
+                tool_output_tokens=args.tool_output_tokens,
+                process_output_tokens=args.process_output_tokens,
+            )
+            if result["status"] == "budget_exceeded":
+                exit_code = 4
+        elif args.command == "context-seal":
+            result = _context_ledger(workspace, args).seal_source(args.source)
+        elif args.command == "context-receipt":
+            result = _context_ledger(workspace, args).receipt()
+        elif args.command == "context-resume":
+            result = _context_ledger(workspace, args).resume(_context_budget(args))
         elif args.command == "record-batch":
             result = batch_observation(
                 workspace,
@@ -499,11 +580,11 @@ def main() -> int:
             result = project_hermes_action(_read_json(workspace, args.action, "canonical action"))
         else:
             raise HermesExecutionError("status requires the canonical coordinator ledger")
-    except (HermesEventError, HermesExecutionError, WorkflowContractError, TypeError, ValueError) as error:
+    except (ContextLedgerError, HermesEventError, HermesExecutionError, WorkflowContractError, TypeError, ValueError) as error:
         print(str(error))
         return 1
     print(json.dumps(result, ensure_ascii=True, indent=2, sort_keys=True))
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":
