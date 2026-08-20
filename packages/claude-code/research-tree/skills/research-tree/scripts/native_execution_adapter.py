@@ -60,6 +60,7 @@ except ImportError:
 SCHEMA = 1
 HOSTS = ("codex", "claude")
 PHASES = ("landscape", "deep_dive", "adversarial", "validation")
+DELIVERY_SNAPSHOT_SCHEMA = 1
 IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 TASK_STATUSES = (
     "pending",
@@ -174,6 +175,18 @@ def _atomic_write(path: Path, value: dict[str, Any]) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _atomic_write_text(path: Path, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, raw = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(raw)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(value)
+        temporary.replace(path)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -702,6 +715,190 @@ def status(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
     }
 
 
+def _delivery_snapshot_path(workspace: Path, run_id: str) -> Path:
+    return _run_dir(workspace, run_id) / "delivery-snapshot.json"
+
+
+def _validation_outcomes(tasks: dict[str, Any]) -> tuple[dict[str, int], list[str]]:
+    outcomes = {"passed": 0, "failed": 0, "inconclusive": 0, "missing": 0}
+    unresolved: list[str] = []
+    for task_id, task in sorted(tasks.items()):
+        if task.get("status") not in ("submitted", "completed"):
+            outcomes["missing"] += 1
+            unresolved.append(f"{task_id}:task_not_submitted")
+            continue
+        try:
+            pack = _read_json(Path(task["artifact"]), "Finding Pack")
+        except (AdapterError, TypeError):
+            outcomes["missing"] += 1
+            unresolved.append(f"{task_id}:validation_missing")
+            continue
+        validation = pack.get("validation_result")
+        validation_status = validation.get("status") if isinstance(validation, dict) else "missing"
+        if validation_status not in outcomes:
+            validation_status = "missing"
+        outcomes[validation_status] += 1
+        if validation_status != "passed":
+            unresolved.append(f"{task_id}:validation_{validation_status}")
+    return outcomes, unresolved
+
+
+def _delivery_snapshot(workspace: Path, state: dict[str, Any]) -> dict[str, Any]:
+    task_counts = {value: 0 for value in TASK_STATUSES}
+    unreviewed: list[str] = []
+    independently_reviewed = 0
+    for task_id, task in sorted(state["tasks"].items()):
+        task_counts[task["status"]] += 1
+        review_fields = (
+            task.get("reviewed_by"),
+            task.get("reviewer_host"),
+            task.get("reviewer_session_id"),
+            task.get("reviewer_lease_id"),
+            task.get("review_custody_sha256"),
+        )
+        if task.get("verified") is True and all(isinstance(value, str) and value for value in review_fields):
+            independently_reviewed += 1
+        else:
+            unreviewed.append(f"{task_id}:independent_review_required")
+    validation_outcomes, validation_obligations = _validation_outcomes(state["tasks"])
+    integrity_errors = [
+        f"{task_id}:{error}"
+        for task_id, task in sorted(state["tasks"].items())
+        if (error := _artifact_integrity_error(task)) is not None
+    ]
+    unresolved = sorted({*unreviewed, *validation_obligations, *integrity_errors})
+    return {
+        "schema": DELIVERY_SNAPSHOT_SCHEMA,
+        "kind": "delivery-receipt-snapshot",
+        "run_id": state["run_id"],
+        "host": state["host"],
+        "state_revision": state["revision"],
+        "task_counts": task_counts,
+        "validation_outcomes": validation_outcomes,
+        "reviewer_status": {
+            "independently_reviewed": independently_reviewed,
+            "unreviewed": len(unreviewed),
+        },
+        "host_availability": {
+            "lifecycle_hooks": state.get("lifecycle_hooks"),
+            "host": state["host"],
+        },
+        "unresolved_obligations": unresolved,
+    }
+
+
+def _write_delivery_snapshot(workspace: Path, state: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
+    snapshot = _delivery_snapshot(workspace, state)
+    encoded = json.dumps(snapshot, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    snapshot["snapshot_sha256"] = hashlib.sha256(encoded).hexdigest()
+    path = _delivery_snapshot_path(workspace, state["run_id"])
+    _atomic_write(path, snapshot)
+    return path, snapshot
+
+
+def _snapshot_lines(values: dict[str, Any]) -> list[str]:
+    return [f"- {key}: {values[key]}" for key in sorted(values)]
+
+
+def _render_delivery_report(kind: str, snapshot_path: Path, snapshot: dict[str, Any]) -> str:
+    digest = snapshot["snapshot_sha256"]
+    title = "Technical Research Package" if kind == "technical_research_package" else "Human Research Report"
+    lines = [
+        f"# {title}",
+        "",
+        f"<!-- research-tree-delivery-snapshot: {digest} -->",
+        "",
+        "## Receipt Snapshot",
+        "",
+        f"- snapshot_ref: {snapshot_path.name}",
+        f"- snapshot_sha256: {digest}",
+        f"- run_id: {snapshot['run_id']}",
+        f"- state_revision: {snapshot['state_revision']}",
+        "",
+        "## Task Metrics",
+        "",
+        *_snapshot_lines(snapshot["task_counts"]),
+        "",
+        "## Validation Outcomes",
+        "",
+        *_snapshot_lines(snapshot["validation_outcomes"]),
+        "",
+        "## Review Status",
+        "",
+        *_snapshot_lines(snapshot["reviewer_status"]),
+        "",
+        "## Unresolved Obligations",
+        "",
+    ]
+    if snapshot["unresolved_obligations"]:
+        lines.extend(f"- {value}" for value in snapshot["unresolved_obligations"])
+    else:
+        lines.append("- none")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_delivery_reports(
+    workspace: Path,
+    run_id: str,
+    host: str,
+    technical_report: Path,
+    human_report: Path,
+) -> dict[str, Any]:
+    state = _load_state(workspace, run_id, host)
+    snapshot_path, snapshot = _write_delivery_snapshot(workspace, state)
+    technical = _inside(workspace, technical_report, "technical_research_package path")
+    human = _inside(workspace, human_report, "human_research_report path")
+    _atomic_write_text(technical, _render_delivery_report("technical_research_package", snapshot_path, snapshot))
+    _atomic_write_text(human, _render_delivery_report("human_research_report", snapshot_path, snapshot))
+    return {
+        "snapshot": {
+            "path": str(snapshot_path),
+            "sha256": snapshot["snapshot_sha256"],
+            "state_revision": snapshot["state_revision"],
+        },
+        "technical_research_package": _observe_report(workspace, technical, "technical_research_package"),
+        "human_research_report": _observe_report(workspace, human, "human_research_report"),
+    }
+
+
+def _projection_mismatch(kind: str, expected: str, actual: str, snapshot: dict[str, Any]) -> str:
+    if actual == expected:
+        return ""
+    for group_name in ("task_counts", "validation_outcomes", "reviewer_status"):
+        for field, expected_value in snapshot[group_name].items():
+            expected_line = f"- {field}: {expected_value}"
+            actual_line = next((line for line in actual.splitlines() if line.startswith(f"- {field}:")), None)
+            if actual_line != expected_line:
+                return f"delivery report metric mismatch: {group_name}.{field}"
+    marker = f"<!-- research-tree-delivery-snapshot: {snapshot['snapshot_sha256']} -->"
+    if marker not in actual:
+        return "delivery report snapshot digest mismatch"
+    return f"{kind} contains prose not generated from the canonical delivery snapshot"
+
+
+def _observe_report_projection(
+    workspace: Path,
+    path: Path,
+    kind: str,
+    snapshot_path: Path,
+    snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    manifest = _observe_report(workspace, path, kind)
+    if not manifest.get("exists"):
+        raise AdapterError(f"{kind} projection is missing")
+    if manifest.get("encoding") == "invalid_utf8":
+        raise AdapterError(f"{kind} projection must be UTF-8")
+    actual = path.read_text(encoding="utf-8")
+    expected = _render_delivery_report(kind, snapshot_path, snapshot)
+    if mismatch := _projection_mismatch(kind, expected, actual, snapshot):
+        raise AdapterError(mismatch)
+    manifest["snapshot_ref"] = str(snapshot_path)
+    manifest["snapshot_sha256"] = snapshot["snapshot_sha256"]
+    manifest["state_revision"] = snapshot["state_revision"]
+    return manifest
+
+
 def _observe_report(workspace: Path, path: Path, kind: str) -> dict[str, Any]:
     resolved = _inside(workspace, path, f"{kind} path")
     if not resolved.is_file():
@@ -741,9 +938,24 @@ def complete_run(
     if not summary["observed_complete"]:
         raise AdapterError("host observations are incomplete; coordinator must assess closure")
     state = _load_state(workspace, run_id, host)
+    snapshot_path, snapshot = _write_delivery_snapshot(workspace, state)
+    technical = _inside(workspace, technical_report, "technical_research_package path")
+    human = _inside(workspace, human_report, "human_research_report path")
     state["deliverables"] = {
-        "technical_research_package": _observe_report(workspace, technical_report, "technical_research_package"),
-        "human_research_report": _observe_report(workspace, human_report, "human_research_report"),
+        "technical_research_package": _observe_report_projection(
+            workspace,
+            technical,
+            "technical_research_package",
+            snapshot_path,
+            snapshot,
+        ),
+        "human_research_report": _observe_report_projection(
+            workspace,
+            human,
+            "human_research_report",
+            snapshot_path,
+            snapshot,
+        ),
     }
     state["status"] = "delivery_pending"
     state["completion_authority"] = "coordinator_only"
@@ -849,6 +1061,11 @@ def _parser() -> argparse.ArgumentParser:
     complete_parser.add_argument("--run-id", required=True)
     complete_parser.add_argument("--technical-report", type=Path, required=True)
     complete_parser.add_argument("--human-report", type=Path, required=True)
+
+    render_delivery_parser = subparsers.add_parser("render-delivery")
+    render_delivery_parser.add_argument("--run-id", required=True)
+    render_delivery_parser.add_argument("--technical-report", type=Path, required=True)
+    render_delivery_parser.add_argument("--human-report", type=Path, required=True)
 
     validate_parser = subparsers.add_parser("validate-finding")
     validate_parser.add_argument("path", type=Path)
@@ -977,6 +1194,12 @@ def main() -> int:
             )
             human = args.human_report if args.human_report.is_absolute() else workspace / args.human_report
             result = complete_run(workspace, args.run_id, args.host, technical, human)
+        elif args.command == "render-delivery":
+            technical = (
+                args.technical_report if args.technical_report.is_absolute() else workspace / args.technical_report
+            )
+            human = args.human_report if args.human_report.is_absolute() else workspace / args.human_report
+            result = render_delivery_reports(workspace, args.run_id, args.host, technical, human)
         else:
             result = validate_finding(args.path.resolve())
     except (AdapterError, OSError, WorkflowContractError) as exc:

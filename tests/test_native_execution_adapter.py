@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -405,6 +406,21 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
         ).returncode
         == 0
     )
+    rendered = run_adapter(
+        tmp_path,
+        host,
+        "render-delivery",
+        "--run-id",
+        run_id,
+        "--technical-report",
+        str(technical),
+        "--human-report",
+        str(human),
+    )
+    assert rendered.returncode == 0, rendered.stderr
+    render_receipt = json.loads(rendered.stdout)
+    assert isinstance(render_receipt["snapshot"]["state_revision"], int)
+    assert "research-tree-delivery-snapshot" in technical.read_text(encoding="utf-8")
     completed = run_adapter(
         tmp_path,
         host,
@@ -1050,3 +1066,70 @@ def test_adapter_records_only_an_independently_reviewed_submission(tmp_path: Pat
     summary = json.loads(run_adapter(tmp_path, "codex", "status", "--run-id", run_id).stdout)
     assert summary["complete"] is False
     assert summary["observed_complete"] is True
+
+
+def test_delivery_snapshot_rejects_33_passed_reported_as_30(tmp_path: Path) -> None:
+    run_id = "delivery-33"
+    initialized = run_adapter(
+        tmp_path,
+        "codex",
+        "init",
+        "--run-id",
+        run_id,
+        "--handoff",
+        str(write_handoff(tmp_path)),
+    )
+    assert initialized.returncode == 0, initialized.stderr
+    artifact = tmp_path / "findings" / "passed.json"
+    artifact.parent.mkdir()
+    artifact.write_text(json.dumps(finding("task-1", "slot-a", "landscape", "attempt-receipt")), encoding="utf-8")
+    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    state_path = tmp_path / ".research-tree" / "projects" / "project-codex" / "runs" / run_id / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["tasks"] = {
+        f"task-{index}": {
+            "task_id": f"task-{index}",
+            "artifact": str(artifact),
+            "status": "submitted",
+            "verified": True,
+            "artifact_sha256": digest,
+            "reviewed_by": "reviewer",
+            "reviewer_host": "codex",
+            "reviewer_session_id": "review-session",
+            "reviewer_lease_id": "review-lease",
+            "review_custody_sha256": digest,
+        }
+        for index in range(1, 34)
+    }
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    technical = tmp_path / "technical-research-package.md"
+    human = tmp_path / "human-research-report.md"
+    rendered = run_adapter(
+        tmp_path,
+        "codex",
+        "render-delivery",
+        "--run-id",
+        run_id,
+        "--technical-report",
+        str(technical),
+        "--human-report",
+        str(human),
+    )
+    assert rendered.returncode == 0, rendered.stderr
+    technical.write_text(
+        technical.read_text(encoding="utf-8").replace("- passed: 33", "- passed: 30"),
+        encoding="utf-8",
+    )
+    rejected = run_adapter(
+        tmp_path,
+        "codex",
+        "complete",
+        "--run-id",
+        run_id,
+        "--technical-report",
+        str(technical),
+        "--human-report",
+        str(human),
+    )
+    assert rejected.returncode == 1
+    assert "validation_outcomes.passed" in rejected.stderr
