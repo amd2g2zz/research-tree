@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import sys
 from typing import Any
 
@@ -82,6 +83,23 @@ def _read_json(workspace: Path, path: Path, label: str) -> dict[str, Any]:
     return value
 
 
+def _load_handoff(workspace: Path, path: Path) -> tuple[dict[str, Any], Path]:
+    handoff = _read_json(workspace, path, "alignment handoff")
+    if handoff.get("schema") != 1 or handoff.get("kind") != "alignment-handoff":
+        raise HermesExecutionError("handoff must be a schema-1 alignment-handoff artifact")
+    alignment_digest = handoff.get("alignment_digest")
+    compiled_digest = handoff.get("compiled_graph_digest")
+    if not all(
+        isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest)
+        for digest in (alignment_digest, compiled_digest)
+    ):
+        raise HermesExecutionError("handoff must include alignment confirmation digests")
+    if alignment_digest != compiled_digest:
+        raise HermesExecutionError("handoff has a stale alignment confirmation")
+    resolved = _inside(workspace, path if path.is_absolute() else workspace / path, "handoff")
+    return handoff, resolved
+
+
 def _observed_delegation_ids(workspace: Path, run_id: str) -> set[str]:
     """Return delegation identities the project hook stream actually observed."""
 
@@ -122,16 +140,13 @@ def _validated_finding(workspace: Path, path: Path) -> tuple[str, str]:
 
 
 def initialize_projection(workspace: Path, project_id: str, run_id: str, handoff_path: Path) -> dict[str, Any]:
+    handoff, resolved = _load_handoff(workspace, handoff_path)
     try:
         project_workspace = initialize_project_run(workspace, project_id=project_id, run_id=run_id, host="hermes")
         installation = install_project_hooks(workspace, project_workspace)
         hook_probe = probe_lifecycle_hook(project_workspace, launcher=Path(installation["launcher"]))
     except ProjectWorkspaceError as error:
         raise HermesExecutionError(str(error)) from error
-    handoff = _read_json(workspace, handoff_path, "alignment handoff")
-    if handoff.get("schema") != 1 or handoff.get("kind") != "alignment-handoff":
-        raise HermesExecutionError("handoff must be a schema-1 alignment-handoff artifact")
-    resolved = _inside(workspace, handoff_path if handoff_path.is_absolute() else workspace / handoff_path, "handoff")
     return {
         "run_id": run_id,
         "project_id": project_workspace.project_id,

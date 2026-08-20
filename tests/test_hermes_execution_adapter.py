@@ -31,6 +31,8 @@ def write_handoff(workspace: Path) -> Path:
                 "schema": 1,
                 "kind": "alignment-handoff",
                 "run_id": "alignment-hermes",
+                "alignment_digest": "a" * 64,
+                "compiled_graph_digest": "a" * 64,
                 "decision_slots": {"slot-a": {"question": "Bound the decision."}},
                 "execution_context": {"authority": ["Autonomous research within scope."]},
             }
@@ -97,6 +99,28 @@ def test_legacy_commands_are_non_authoritative_observations(tmp_path: Path) -> N
         "authoritative": False,
     }
     assert not (tmp_path / ".research-tree-hermes" / run_id / "state.json").exists()
+
+
+def test_hermes_init_rejects_stale_handoff_before_creating_project_authority(
+    tmp_path: Path,
+) -> None:
+    handoff = write_handoff(tmp_path)
+    payload = json.loads(handoff.read_text(encoding="utf-8"))
+    payload["compiled_graph_digest"] = "b" * 64
+    handoff.write_text(json.dumps(payload), encoding="utf-8")
+
+    rejected = run_adapter(
+        tmp_path,
+        "init",
+        "--run-id",
+        "stale-hermes-run",
+        "--handoff",
+        str(handoff),
+    )
+
+    assert rejected.returncode == 1
+    assert "stale alignment confirmation" in rejected.stdout
+    assert not list(tmp_path.glob(".research-tree/projects/*/runs/stale-hermes-run"))
 
 
 def test_recover_requires_canonical_attempt_snapshot(tmp_path: Path) -> None:

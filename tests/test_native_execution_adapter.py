@@ -20,6 +20,8 @@ def write_handoff(workspace: Path) -> Path:
                 "schema": 1,
                 "kind": "alignment-handoff",
                 "run_id": "alignment-run",
+                "alignment_digest": "a" * 64,
+                "compiled_graph_digest": "a" * 64,
                 "decision_slots": {
                     "slot-a": {"question": "Primary decision"},
                     "slot-b": {"question": "Secondary decision"},
@@ -596,6 +598,49 @@ def test_adapter_requires_handoff_and_rejects_unknown_decision_slot(tmp_path: Pa
     )
     assert rejected.returncode == 1
     assert "confirmed handoff" in rejected.stderr
+
+
+def test_adapter_rejects_stale_handoff_before_creating_execution_state(tmp_path: Path) -> None:
+    handoff = write_handoff(tmp_path)
+    payload = json.loads(handoff.read_text(encoding="utf-8"))
+    payload["compiled_graph_digest"] = "b" * 64
+    handoff.write_text(json.dumps(payload), encoding="utf-8")
+
+    rejected = run_adapter(
+        tmp_path,
+        "codex",
+        "init",
+        "--run-id",
+        "stale-handoff-run",
+        "--handoff",
+        str(handoff),
+    )
+
+    assert rejected.returncode == 1
+    assert "stale alignment confirmation" in rejected.stderr
+    assert not list(tmp_path.glob(".research-tree/projects/*/runs/stale-handoff-run/state.json"))
+
+
+def test_adapter_rejects_handoff_without_confirmation_digests(tmp_path: Path) -> None:
+    handoff = write_handoff(tmp_path)
+    payload = json.loads(handoff.read_text(encoding="utf-8"))
+    payload.pop("alignment_digest")
+    payload.pop("compiled_graph_digest")
+    handoff.write_text(json.dumps(payload), encoding="utf-8")
+
+    rejected = run_adapter(
+        tmp_path,
+        "codex",
+        "init",
+        "--run-id",
+        "missing-confirmation-run",
+        "--handoff",
+        str(handoff),
+    )
+
+    assert rejected.returncode == 1
+    assert "alignment confirmation digests" in rejected.stderr
+    assert not list(tmp_path.glob(".research-tree/projects/*/runs/missing-confirmation-run/state.json"))
 
 
 def test_host_event_uses_explicit_canonical_revision_not_local_state(tmp_path: Path) -> None:

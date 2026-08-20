@@ -194,10 +194,15 @@ class AlignmentGraphStore:
                 self._upsert_node(connection, node)
             for edge in edges:
                 self._upsert_edge(connection, edge)
+            handoff_invalidated = self._invalidate_handoff_if_confirmed(connection)
             self._commit_event(
                 connection,
                 "graph_merged",
-                {"node_ids": [node["id"] for node in nodes], "edge_ids": [edge["id"] for edge in edges]},
+                {
+                    "node_ids": [node["id"] for node in nodes],
+                    "edge_ids": [edge["id"] for edge in edges],
+                    "handoff_invalidated": handoff_invalidated,
+                },
             )
         return self.status()
 
@@ -319,10 +324,16 @@ class AlignmentGraphStore:
                 """,
                 (turn, stagnant, hashed),
             )
+            handoff_invalidated = self._invalidate_handoff_if_confirmed(connection)
             state = self._commit_event(
                 connection,
                 "response_recorded",
-                {"node_id": node_id, "outcome": outcome, "state_changed": changed},
+                {
+                    "node_id": node_id,
+                    "outcome": outcome,
+                    "state_changed": changed,
+                    "handoff_invalidated": handoff_invalidated,
+                },
             )
         return {
             "turn": state["controller"]["turn"],
@@ -360,10 +371,12 @@ class AlignmentGraphStore:
                 "UPDATE nodes SET status='accepted', updated_at=? WHERE node_type='strategy' AND status IN ('supported','resolved')",
                 (_now(),),
             )
+            confirmed_state = self._materialize(connection)
             handoff = {
                 "confirmed_at": _now(),
                 "confirmation_digest": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-                "alignment_digest": state["graph_digest"],
+                "alignment_digest": confirmed_state["graph_digest"],
+                "stale": False,
             }
             connection.execute(
                 """
@@ -382,8 +395,13 @@ class AlignmentGraphStore:
 
     def compile_handoff(self) -> dict[str, Any]:
         state = self.status()
+        handoff = state["controller"].get("handoff")
+        if not isinstance(handoff, Mapping) or handoff.get("stale"):
+            raise AlignmentGraphError("stale_handoff_confirmation")
         if state["controller"]["status"] != "autonomous":
             raise AlignmentGraphError("alignment must be explicitly confirmed before compilation")
+        if handoff.get("alignment_digest") != state["graph_digest"]:
+            raise AlignmentGraphError("stale_handoff_confirmation")
         nodes = {node["id"]: node for node in state["graph"]["nodes"]}
         active_edges = [
             edge for edge in state["graph"]["edges"] if edge["status"] == "active"
@@ -504,7 +522,7 @@ class AlignmentGraphStore:
             "kind": "alignment-handoff",
             "run_id": state["controller"]["run_id"],
             "alignment_revision": state["controller"]["revision"],
-            "alignment_digest": state["controller"]["handoff"]["alignment_digest"],
+            "alignment_digest": handoff["alignment_digest"],
             "compiled_graph_digest": state["graph_digest"],
             "objective": objective,
             "strategy": strategy,
@@ -667,6 +685,31 @@ class AlignmentGraphStore:
             )
         except sqlite3.IntegrityError as exc:
             raise AlignmentGraphError(f"edge {edge['id']} references an unknown node") from exc
+
+    @staticmethod
+    def _invalidate_handoff_if_confirmed(connection: sqlite3.Connection) -> bool:
+        controller = connection.execute(
+            "SELECT status, handoff_json FROM controller WHERE singleton=1"
+        ).fetchone()
+        if controller is None or controller["status"] != "autonomous":
+            return False
+        handoff = json.loads(controller["handoff_json"]) if controller["handoff_json"] else {}
+        handoff.update(
+            {
+                "stale": True,
+                "stale_at": _now(),
+                "stale_reason": "alignment_graph_changed",
+            }
+        )
+        connection.execute(
+            """
+            UPDATE controller
+            SET status='alignment', phase='alignment', handoff_json=?
+            WHERE singleton=1
+            """,
+            (_json(handoff),),
+        )
+        return True
 
     def _commit_event(
         self, connection: sqlite3.Connection, event_type: str, details: Mapping[str, Any]

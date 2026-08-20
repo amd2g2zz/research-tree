@@ -194,6 +194,8 @@ def test_installed_native_package_initializes_without_source_imports(
                 "schema": 1,
                 "kind": "alignment-handoff",
                 "run_id": "alignment-run",
+                "alignment_digest": "a" * 64,
+                "compiled_graph_digest": "a" * 64,
                 "decision_slots": {"slot-1": {"question": "Bound the decision."}},
                 "execution_context": {},
             }
@@ -229,3 +231,69 @@ def test_installed_native_package_initializes_without_source_imports(
 
     assert completed.returncode == 0, completed.stderr
     assert json.loads(completed.stdout)["lifecycle_hooks"] == "available"
+
+
+@pytest.mark.parametrize(
+    ("host", "relative_adapter", "native"),
+    [
+        ("codex", Path("packages/codex/research-tree/scripts/native_execution_adapter.py"), True),
+        (
+            "claude",
+            Path("packages/claude-code/research-tree/skills/research-tree/scripts/native_execution_adapter.py"),
+            True,
+        ),
+        ("hermes", Path("packages/hermes/research-tree/scripts/hermes_execution_adapter.py"), False),
+    ],
+)
+def test_generated_host_packages_reject_stale_handoff(
+    tmp_path: Path, host: str, relative_adapter: Path, native: bool
+) -> None:
+    repository = Path(__file__).resolve().parents[1]
+    handoff = tmp_path / "handoff.json"
+    handoff.write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "kind": "alignment-handoff",
+                "run_id": "alignment-run",
+                "alignment_digest": "a" * 64,
+                "compiled_graph_digest": "b" * 64,
+                "decision_slots": {"slot-1": {"question": "Bound the decision."}},
+                "execution_context": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    command = [
+        sys.executable,
+        "-E",
+        "-B",
+        str(repository / relative_adapter),
+        "--workspace",
+        str(tmp_path),
+    ]
+    if native:
+        command.extend(["--host", host])
+    command.extend(
+        [
+            "init",
+            "--project-id",
+            "topic-1",
+            "--run-id",
+            "run-1",
+            "--handoff",
+            str(handoff),
+        ]
+    )
+
+    completed = subprocess.run(
+        command,
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 1
+    assert "stale alignment confirmation" in completed.stdout + completed.stderr
+    assert not (tmp_path / ".research-tree" / "projects" / "topic-1").exists()

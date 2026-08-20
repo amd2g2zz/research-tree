@@ -33,6 +33,8 @@ def _execution_run(tmp_path: Path, task_id: str = "agent-task") -> tuple[Path, d
                 "schema": 1,
                 "kind": "alignment-handoff",
                 "run_id": "alignment-run",
+                "alignment_digest": "a" * 64,
+                "compiled_graph_digest": "a" * 64,
                 "decision_slots": {"slot-agent": {"question": "Bind Claude children."}},
                 "execution_context": {"authority": ["Read-only Agent probe."]},
             }
