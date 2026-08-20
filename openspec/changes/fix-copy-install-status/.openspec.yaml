@@ -1,0 +1,4 @@
+schema: 1
+change: fix-copy-install-status
+status: complete
+issue: 281

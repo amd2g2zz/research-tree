@@ -244,19 +244,40 @@ def _same_payload(target: Path, source: Path) -> bool:
         return False
 
 
+def _payload_digest(root: Path) -> str | None:
+    try:
+        return package_digests(root)["package_digest"]
+    except (OSError, ValueError):
+        return None
+
+
+def _installation_status_detail(target: Path, source: Path) -> tuple[str, str, str | None, str | None]:
+    if not _lexists(target):
+        return "missing", "target_missing", _payload_digest(source), None
+    if _same_source(target, source):
+        source_digest = _payload_digest(source)
+        return "current", "link_target_current", source_digest, source_digest
+    if _is_link_like(target):
+        return "conflict", "link_target_mismatch", None, None
+    source_digest = _payload_digest(source)
+    if not target.is_dir():
+        return "conflict", "target_not_directory", source_digest, None
+    try:
+        _read_payload(target)
+    except SkillSetupError as error:
+        reason = "missing_referenced_resource" if "referenced resource is missing" in str(error) else "legacy_payload"
+        return "conflict", reason, source_digest, _payload_digest(target)
+    target_digest = _payload_digest(target)
+    if source_digest is not None and target_digest == source_digest:
+        return "current", "payload_digest_match", source_digest, target_digest
+    return "conflict", "payload_digest_mismatch", source_digest, target_digest
+
+
 def installation_status(
     target: Path,
     source: Path,
 ) -> str:
-    if not _lexists(target):
-        return "missing"
-    if _same_source(target, source):
-        return "current"
-    if _is_link_like(target):
-        return "unsupported"
-    if _same_payload(target, source):
-        return "current"
-    return "unsupported"
+    return _installation_status_detail(target, source)[0]
 
 
 def _create_link(source: Path, target: Path) -> None:
@@ -344,10 +365,10 @@ def install_skill(
             )
 
     statuses = {host: installation_status(target, sources[host]) for host, target in targets.items()}
-    unsupported = [host for host, status in statuses.items() if status == "unsupported"]
-    if unsupported:
-        details = ", ".join(f"{host}={statuses[host]}:{targets[host]}" for host in unsupported)
-        raise SkillSetupError("refusing to modify unsupported user-owned skill installation(s): " + details)
+    conflicts = [host for host, status in statuses.items() if status == "conflict"]
+    if conflicts:
+        details = ", ".join(f"{host}={statuses[host]}:{targets[host]}" for host in conflicts)
+        raise SkillSetupError("refusing to modify conflicting user-owned skill installation(s): " + details)
 
     results: list[dict[str, str]] = []
     created: list[Path] = []
@@ -415,7 +436,7 @@ def skill_status(
                 codex_home=codex_home,
             )
         )
-        status = installation_status(target, skill_source)
+        status, reason, source_digest, target_digest = _installation_status_detail(target, skill_source)
         installations.append(
             {
                 "host": host,
@@ -424,6 +445,9 @@ def skill_status(
                 "package": str(package),
                 "skill_source": str(skill_source),
                 "status": status,
+                "reason": reason,
+                "source_payload_digest": source_digest,
+                "target_payload_digest": target_digest,
                 "activation_state": "static_ready" if status == "current" else "discovered",
                 "live_activation": "unproven",
                 "discovery": HOST_LAYOUTS[host].discovery,

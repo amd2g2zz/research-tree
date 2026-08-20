@@ -68,13 +68,85 @@ def test_copy_install_uses_each_hosts_own_directory_and_complete_payload(
             assert (target / relative).is_file()
 
 
+def test_copy_status_is_digest_current_tamper_detected_and_reinstallable(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    installed = install_skill(
+        ("codex", "claude", "hermes"),
+        source=ROOT,
+        scope="user",
+        mode="copy",
+        home=home,
+        project_root=project,
+    )
+    statuses = skill_status(
+        ("codex", "claude", "hermes"),
+        source=ROOT,
+        scope="user",
+        home=home,
+        project_root=project,
+    )["installations"]
+    assert {item["status"] for item in statuses} == {"current"}
+    assert {item["reason"] for item in statuses} == {"payload_digest_match"}
+    assert all(item["source_payload_digest"] == item["target_payload_digest"] for item in statuses)
+
+    codex_target = Path(next(item for item in installed["installations"] if item["host"] == "codex")["target"])
+    (codex_target / "SKILL.md").write_text("---\nname: research-tree\n---\ntampered", encoding="utf-8")
+    tampered = skill_status(
+        ("codex",),
+        source=ROOT,
+        scope="user",
+        home=home,
+        project_root=project,
+    )["installations"][0]
+    assert tampered["status"] == "conflict"
+    assert tampered["reason"] == "payload_digest_mismatch"
+
+    with pytest.raises(SkillSetupError, match="conflicting"):
+        install_skill(
+            ("codex",),
+            source=ROOT,
+            scope="user",
+            mode="copy",
+            home=home,
+            project_root=project,
+        )
+    shutil.rmtree(codex_target)
+    reinstalled = install_skill(
+        ("codex",),
+        source=ROOT,
+        scope="user",
+        mode="copy",
+        home=home,
+        project_root=project,
+    )
+    assert reinstalled["installations"][0]["action"] == "installed"
+    assert skill_status(
+        ("codex",),
+        source=ROOT,
+        scope="user",
+        home=home,
+        project_root=project,
+    )["installations"][0]["status"] == "current"
+    (codex_target / "references" / "codex-native-orchestration.md").unlink()
+    missing_resource = skill_status(
+        ("codex",),
+        source=ROOT,
+        scope="user",
+        home=home,
+        project_root=project,
+    )["installations"][0]
+    assert missing_resource["status"] == "conflict"
+    assert missing_resource["reason"] == "missing_referenced_resource"
+
+
 def test_install_preflights_all_hosts_before_writing(tmp_path: Path) -> None:
     home = tmp_path / "home"
     conflict = home / ".claude" / "skills" / "research-tree"
     conflict.mkdir(parents=True)
     (conflict / "SKILL.md").write_text("existing", encoding="utf-8")
 
-    with pytest.raises(SkillSetupError, match="unsupported"):
+    with pytest.raises(SkillSetupError, match="conflicting"):
         install_skill(
             ("codex", "claude", "hermes"),
             source=ROOT,
@@ -174,7 +246,7 @@ def test_legacy_repository_link_is_unsupported_without_reading_or_mutation(
         skill_setup, "package_digests", lambda _: (_ for _ in ()).throw(AssertionError("must not read"))
     )
 
-    with pytest.raises(SkillSetupError, match="unsupported"):
+    with pytest.raises(SkillSetupError, match="conflicting"):
         install_skill(
             ("hermes",),
             source=ROOT,
@@ -192,7 +264,7 @@ def test_legacy_repository_link_is_unsupported_without_reading_or_mutation(
         home=home,
         project_root=tmp_path / "project",
     )
-    assert status["installations"][0]["status"] == "unsupported"
+    assert status["installations"][0]["status"] == "conflict"
 
 
 def test_claude_direct_install_uses_nested_skill_and_reports_plugin_package(
@@ -221,7 +293,7 @@ def test_legacy_claude_plugin_root_link_is_unsupported_without_mutation(tmp_path
     target.parent.mkdir(parents=True)
     _create_link(resolve_package(ROOT, "claude"), target)
 
-    with pytest.raises(SkillSetupError, match="unsupported"):
+    with pytest.raises(SkillSetupError, match="conflicting"):
         install_skill(
             ("claude",),
             source=ROOT,
@@ -239,7 +311,7 @@ def test_legacy_claude_plugin_root_link_is_unsupported_without_mutation(tmp_path
         home=home,
         project_root=tmp_path / "project",
     )
-    assert status["installations"][0]["status"] == "unsupported"
+    assert status["installations"][0]["status"] == "conflict"
 
 
 def test_codex_home_override_is_used_for_user_scope(tmp_path: Path) -> None:
@@ -304,10 +376,10 @@ def test_status_reports_existing_non_current_targets_as_unsupported(tmp_path: Pa
     )
     statuses = {item["host"]: item for item in result["installations"]}
 
-    assert statuses["codex"]["status"] == "unsupported"
+    assert statuses["codex"]["status"] == "conflict"
     assert statuses["codex"]["activation_state"] == "discovered"
     assert statuses["codex"]["live_activation"] == "unproven"
-    assert statuses["claude"]["status"] == "unsupported"
+    assert statuses["claude"]["status"] == "conflict"
     assert statuses["hermes"]["status"] == "current"
     assert statuses["hermes"]["activation_state"] == "static_ready"
 
@@ -332,7 +404,7 @@ def test_broken_link_is_unsupported_and_status_does_not_repoint_it(tmp_path: Pat
         project_root=tmp_path / "project",
     )
 
-    assert result["installations"][0]["status"] == "unsupported"
+    assert result["installations"][0]["status"] == "conflict"
     assert os.path.lexists(target)
 
 
@@ -345,7 +417,7 @@ def test_install_rejects_existing_link_without_refresh_path(tmp_path: Path) -> N
     target.parent.mkdir(parents=True)
     _create_link(stale_source, target)
 
-    with pytest.raises(SkillSetupError, match="unsupported"):
+    with pytest.raises(SkillSetupError, match="conflicting"):
         install_skill(
             ("codex",),
             source=ROOT,
