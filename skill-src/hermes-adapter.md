@@ -38,6 +38,10 @@ Follow `references/skill-activation.md`: only exact `/research-tree activation-p
   `reconcile-host` after restart. Optional surfaces may fall back independently;
   absent or denied native workflow support selects `coordinator-dispatch-v1`,
   and no goal, Kanban card, hook, or drain result owns completion.
+- In source-checkout development, use `context-record` and `context-receipt` to
+  make every source range and repeated read visible. The adapter excludes active
+  run outputs until `context-seal` records a digest; `budget_exceeded` is a
+  resumable `unknown` checkpoint, never a successful result.
 - Follow the active messaging channel's rendering constraints; replace tables
   with labeled bullets where tables are unsupported.
 - Keep research artifacts in the writable task workspace. Do not modify the

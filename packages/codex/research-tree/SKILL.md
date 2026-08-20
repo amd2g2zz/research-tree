@@ -101,6 +101,11 @@ Follow `references/skill-activation.md`: only exact `$research-tree activation-p
   completion checks when Python is available. This executable state is
   authoritative over the visible plan; never mark a run complete when its
   integrity check fails.
+- In source-checkout development, record each source range through
+  `context-record` and inspect its `context-receipt` before sending more context.
+  Repeated unchanged ranges remain visible as `cached` or `replayed`; active run
+  outputs are excluded until `context-seal` binds their digest. A
+  `budget_exceeded` receipt is resumable but remains `unknown`, never completion.
 - When the checkout runtime is available, use the stable lifecycle sequence
   `research-tree install`, `research-tree doctor`, `research-tree run`,
   `research-tree resume`, `research-tree status`, and `research-tree verify`.

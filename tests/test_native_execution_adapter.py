@@ -107,6 +107,51 @@ def run_adapter(workspace: Path, host: str, command: str, *args: str) -> subproc
     )
 
 
+@pytest.mark.parametrize("host", ["codex", "claude"])
+def test_context_budget_receipt_is_resumable_and_non_authoritative(tmp_path: Path, host: str) -> None:
+    run_id = f"context-{host}"
+    initialized = run_adapter(tmp_path, host, "init", "--run-id", run_id, "--handoff", str(write_handoff(tmp_path)))
+    assert initialized.returncode == 0, initialized.stdout + initialized.stderr
+    source = tmp_path / "source.md"
+    source.write_text("bounded source", encoding="utf-8")
+
+    exhausted = run_adapter(
+        tmp_path,
+        host,
+        "context-record",
+        "--run-id",
+        run_id,
+        "--source",
+        str(source),
+        "--consumer",
+        "coordinator",
+        "--phase",
+        "landscape",
+        "--input-tokens",
+        "11",
+        "--max-fresh-input-tokens",
+        "10",
+    )
+
+    assert exhausted.returncode == 4, exhausted.stdout + exhausted.stderr
+    receipt = json.loads(exhausted.stdout)
+    assert receipt["status"] == "budget_exceeded"
+    assert receipt["execution_state"] == "unknown"
+    assert receipt["completion_authority"] == "none"
+
+    resumed = run_adapter(
+        tmp_path,
+        host,
+        "context-resume",
+        "--run-id",
+        run_id,
+        "--max-fresh-input-tokens",
+        "100",
+    )
+    assert resumed.returncode == 0, resumed.stdout + resumed.stderr
+    assert json.loads(resumed.stdout)["status"] == "active"
+
+
 def write_lifecycle_observation(
     workspace: Path,
     host: str,

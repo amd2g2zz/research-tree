@@ -53,6 +53,11 @@ Follow `references/skill-activation.md`: only exact `/research-tree activation-p
   `claude` for atomic task attempts, crash recovery, Finding Pack validation,
   and completion checks when Python is available. The native task list mirrors
   this state; it does not replace it.
+- In source-checkout development, use `context-record` and `context-receipt` to
+  bound source reads. Unchanged rereads are explicitly `cached` or `replayed`;
+  active run outputs require digest-bound `context-seal` before use. A
+  `budget_exceeded` checkpoint only permits `context-resume` and remains
+  `unknown`, not complete.
 - When the checkout runtime is available, use the stable lifecycle sequence
   `research-tree install`, `research-tree doctor`, `research-tree run`,
   `research-tree resume`, `research-tree status`, and `research-tree verify`.
