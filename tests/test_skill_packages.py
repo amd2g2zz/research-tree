@@ -69,6 +69,22 @@ def test_checked_in_host_packages_are_current_and_isolated() -> None:
     assert len(skill_bodies) == 3
 
 
+def test_all_host_packages_document_the_same_stable_lifecycle_contract() -> None:
+    packages = (
+        ROOT / "packages" / "codex" / "research-tree",
+        ROOT / "packages" / "claude-code" / "research-tree",
+        ROOT / "packages" / "hermes" / "research-tree",
+    )
+
+    for package in packages:
+        skill = (_skill_dir(package) / "SKILL.md").read_text(encoding="utf-8")
+        normalized_skill = " ".join(skill.split())
+        for command in ("install", "doctor", "run", "resume", "status", "verify"):
+            assert f"research-tree {command}" in skill
+        assert "HostEvent or SQLite inputs" in normalized_skill
+        assert "completion authority" in normalized_skill
+
+
 def test_only_hermes_package_contains_hermes_compatibility_material() -> None:
     codex = ROOT / "packages" / "codex" / "research-tree"
     claude = ROOT / "packages" / "claude-code" / "research-tree"

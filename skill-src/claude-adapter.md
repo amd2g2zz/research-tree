@@ -53,6 +53,13 @@ Follow `references/skill-activation.md`: only exact `/research-tree activation-p
   `claude` for atomic task attempts, crash recovery, Finding Pack validation,
   and completion checks when Python is available. The native task list mirrors
   this state; it does not replace it.
+- When the checkout runtime is available, use the stable lifecycle sequence
+  `research-tree install`, `research-tree doctor`, `research-tree run`,
+  `research-tree resume`, `research-tree status`, and `research-tree verify`.
+  Supply ordinary workspace and plain-language authority inputs, never
+  HostEvent or SQLite inputs. `prepared` and
+  `verification_pending` remain non-authoritative receipts with no completion
+  authority.
 - Before selecting dynamic phases, run `probe-host` with explicit session
   capability observations. Build bounded phase/child projections with
   `project-workflow`, explicitly selecting Agent, Workflow, or hybrid mode. A
