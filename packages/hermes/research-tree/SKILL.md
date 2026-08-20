@@ -70,6 +70,16 @@ small; never eagerly load every supporting file.
 Do not load `references/research-quality-playbook.md` in Hermes; the three
 Hermes phase references are its context-bounded operational form.
 
+## Python execution contract
+
+When operating in a `research-tree` source checkout, run every bundled Python
+script through the locked project environment: `uv run --frozen python ...`.
+Discover the checkout containing `pyproject.toml` and `uv.lock` before invoking
+the script, and use `uv run --project <checkout> --frozen python ...` when the
+current working directory is elsewhere. Never substitute the system `python`
+executable. If no `uv` project can be found, report an actionable environment
+blocker instead of producing a parser-level error from an incompatible Python.
+
 ## Stable lifecycle contract
 
 When the checkout runtime is available, use `research-tree install`,

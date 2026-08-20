@@ -70,6 +70,16 @@ safe action.
   expanding, pruning, or closing a recursive research tree.
 - Read `references/debug-tracing.md` only for explicit behavior diagnosis or debug mode.
 
+## Python execution contract
+
+When operating in a `research-tree` source checkout, run every bundled Python
+script through the locked project environment: `uv run --frozen python ...`.
+Discover the checkout containing `pyproject.toml` and `uv.lock` before invoking
+the script, and use `uv run --project <checkout> --frozen python ...` when the
+current working directory is elsewhere. Never substitute the system `python`
+executable. If no `uv` project can be found, report an actionable environment
+blocker instead of producing a parser-level error from an incompatible Python.
+
 ## Claude Code runtime adapter
 
 This is the Claude Code package of `research-tree`. Invoke with `/research-tree`
@@ -158,7 +168,7 @@ work, these repository paths are available:
 | --- | --- | --- |
 | `hooks/research_hook.py` | Lifecycle hook launcher | Run through `uv run` from the checkout; it imports `research_tree` and is not part of the installed skill package. |
 | `src/research_tree/` | Python artifact runtime | Edit only when the task changes runtime behavior; use the public API and run the full test suite. |
-| `scripts/` | Host package builder and Hermes staging/validation tools | Run `python scripts/build_skill_packages.py --check` after package-affecting changes. |
+| `scripts/` | Host package builder and Hermes staging/validation tools | Run `uv run --frozen python scripts/build_skill_packages.py --check` after package-affecting changes. |
 | `evaluation/` | Evaluation cases and forward-test material | Treat as development/evaluation input, not as a user research source or runtime dependency. |
 
 Before using these paths, verify the checkout with `pyproject.toml`, `src/`,

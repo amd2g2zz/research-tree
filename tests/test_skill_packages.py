@@ -69,6 +69,59 @@ def test_checked_in_host_packages_are_current_and_isolated() -> None:
     assert len(skill_bodies) == 3
 
 
+def test_alignment_controller_commands_require_uv_managed_python() -> None:
+    references = [
+        ROOT / "references" / "alignment-controller.md",
+        ROOT / "packages" / "codex" / "research-tree" / "references" / "alignment-controller.md",
+        ROOT
+        / "packages"
+        / "claude-code"
+        / "research-tree"
+        / "skills"
+        / "research-tree"
+        / "references"
+        / "alignment-controller.md",
+        ROOT / "packages" / "hermes" / "research-tree" / "references" / "alignment-controller.md",
+    ]
+
+    for reference in references:
+        text = reference.read_text(encoding="utf-8")
+        command_lines = [line.strip() for line in text.splitlines() if "alignment_controller.py" in line]
+        assert command_lines
+        assert all(not line.startswith("python scripts/alignment_controller.py") for line in command_lines)
+        assert "uv run --frozen python scripts/alignment_controller.py" in text
+        assert "uv run --project <checkout> --frozen python" in text
+
+
+def test_alignment_controller_help_runs_in_locked_uv_environment() -> None:
+    completed = subprocess.run(
+        ["uv", "run", "--frozen", "python", str(ROOT / "scripts" / "alignment_controller.py"), "--help"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr or completed.stdout
+    assert "usage:" in completed.stdout
+
+
+def test_host_skills_require_the_uv_python_execution_contract() -> None:
+    packages = (
+        ROOT / "packages" / "codex" / "research-tree",
+        ROOT / "packages" / "claude-code" / "research-tree",
+        ROOT / "packages" / "hermes" / "research-tree",
+    )
+
+    for package in packages:
+        skill = (_skill_dir(package) / "SKILL.md").read_text(encoding="utf-8")
+        assert "## Python execution contract" in skill
+        assert "uv run --frozen python" in skill
+        assert "uv run --project <checkout> --frozen python" in skill
+        assert "Never substitute the system `python`" in skill
+        assert "incompatible Python" in skill
+
+
 def test_all_host_packages_document_the_same_stable_lifecycle_contract() -> None:
     packages = (
         ROOT / "packages" / "codex" / "research-tree",
