@@ -44,3 +44,9 @@ Follow `references/skill-activation.md`: only exact `/research-tree activation-p
   installed package during an ordinary research run.
 - Use `scripts/hermes_skill_adapter.py` only for installation diagnostics,
   hook rendering, package validation, or staging, never as a research worker.
+- When the checkout runtime is available, use the same stable lifecycle
+  sequence as other hosts: `research-tree install`, `research-tree doctor`,
+  `research-tree run`, `research-tree resume`, `research-tree status`, and
+  `research-tree verify`. Pass a normal workspace and plain-language authority
+  fields; do not construct internal HostEvent or SQLite inputs. A prepared or
+  pending verification receipt does not grant completion authority.

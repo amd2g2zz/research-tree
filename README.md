@@ -472,25 +472,34 @@ need persisted and validated research artifacts. Its public API includes:
 - Technical Research Package and Human Research Report delivery;
 - feedback rounds.
 
-The `research-tree` console entrypoint exposes only four current SQLite
-coordinator operations. Every command requires the workspace that contains the
-canonical `.research-tree/run-ledger.sqlite3` database and emits one JSON
-result.
+The `research-tree` console entrypoint exposes a stable, host-neutral lifecycle
+contract. It never asks a user to construct a HostEvent envelope or point at a
+SQLite database. Every response is a versioned JSON object with the current
+authority revision and explicit readiness failure reasons. A prepared run is
+not an authorization to execute or complete work: the canonical coordinator
+and a human acceptance remain the only completion authority.
 
 ```bash
-research-tree run --workspace /path/to/workspace ingest --event host-event.json
-research-tree run --workspace /path/to/workspace recover --run-id run-id
-research-tree run --workspace /path/to/workspace why-not-complete --run-id run-id
-research-tree run --workspace /path/to/workspace complete \
-  --run-id run-id --actor human --expected-revision 42
+research-tree install --host all --source /path/to/research-tree --mode copy
+research-tree doctor --host all --source /path/to/research-tree
+research-tree run --workspace /path/to/project --host codex \
+  --project-id lifecycle-audit --run-id audit-001 \
+  --outcome "verify host lifecycle" --scope "installed skill behavior" \
+  --authority "research only" --success-oracle "independent host receipts"
+research-tree resume --workspace /path/to/project --host codex \
+  --project-id lifecycle-audit --run-id audit-001
+research-tree status --workspace /path/to/project --host codex \
+  --project-id lifecycle-audit --run-id audit-001
+research-tree verify --workspace /path/to/project --host codex \
+  --project-id lifecycle-audit --run-id audit-001
 ```
 
-`ingest` accepts one versioned HostEvent envelope and preserves its explicit
-ledger revision. `recover`, `why-not-complete`, and `complete` call their
-matching `ResearchRunCoordinator` operation directly. No legacy round, tree,
-profile, migration, alias, delivery, acceptance, reconciliation, or generic
-lifecycle command is published; use the `research_tree` Python API only when a
-composed workflow is required.
+`install` and `doctor` use digest-verified package status. `run` writes a
+durable request and project-local hook configuration; `resume` reopens that
+same request without widening its declared authority. `status` and `verify`
+remain fail-closed until the aligned authority, success-oracle evidence, and
+independent reviewer receipt are registered. Raw coordinator transport is an
+explicit internal contract and is not part of the advertised CLI surface.
 
 See [`src/research_tree/__init__.py`](src/research_tree/__init__.py) for the
 public API.

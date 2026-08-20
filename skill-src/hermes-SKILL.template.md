@@ -70,6 +70,15 @@ small; never eagerly load every supporting file.
 Do not load `references/research-quality-playbook.md` in Hermes; the three
 Hermes phase references are its context-bounded operational form.
 
+## Stable lifecycle contract
+
+When the checkout runtime is available, use `research-tree install`,
+`research-tree doctor`, `research-tree run`, `research-tree resume`,
+`research-tree status`, and `research-tree verify`. Pass an ordinary workspace
+and plain-language authority fields, never HostEvent or SQLite inputs. A
+prepared or pending verification receipt is fail-closed and does not grant
+completion authority.
+
 ## Phase 1: mutual alignment
 
 Before composing any question, update the internal Intent Model, open-gap
