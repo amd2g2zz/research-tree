@@ -66,7 +66,8 @@ python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspac
 python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . add-task --run-id <run-id> --task-id <task-id> --decision-slot <slot> --phase landscape --artifact <finding.json>
 python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . start --run-id <run-id> --task-id <task-id> --worker-id <agent-id>
 python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . finish --run-id <run-id> --task-id <task-id> --result submitted
-python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . verify --run-id <run-id> --task-id <task-id> --reviewer-id coordinator --checked-anchor <opened-ref> --review-note <evidence-check>
+python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . verify --run-id <run-id> --task-id <task-id> --reviewer-id <reviewer-agent> --reviewer-host codex --reviewer-session-id <reviewer-session> --reviewer-lease-id <reviewer-lease> --review-custody <reviewed-copy.json> --checked-anchor <opened-ref> --review-note <evidence-check>
+python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . sync-plan --run-id <run-id>
 python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . status --run-id <run-id>
 ```
 
@@ -85,6 +86,12 @@ Repeat `--checked-anchor` for every observation anchor actually inspected.
 `complete` also verifies artifact hashes, so later edits reopen the run.
 The coordinator serializes mutating adapter commands; do not update one state
 file from parallel tool calls.
+
+After every durable transition, call `sync-plan` and project its returned
+`items` through Codex `update_plan`. The mirror is idempotent and is never an
+authority: `status.plan_projection=current` means its snapshot digest and
+revision match durable state; `stale` or `unavailable` means refresh the
+mirror from `sync-plan` before treating visible todo items as actionable.
 
 ## Ingestion
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -1133,3 +1134,62 @@ def test_delivery_snapshot_rejects_33_passed_reported_as_30(tmp_path: Path) -> N
     )
     assert rejected.returncode == 1
     assert "validation_outcomes.passed" in rejected.stderr
+
+
+def test_codex_plan_mirror_is_revision_bound_idempotent_and_rebuildable(tmp_path: Path) -> None:
+    run_id = "plan-projection"
+    initialized = run_adapter(
+        tmp_path,
+        "codex",
+        "init",
+        "--run-id",
+        run_id,
+        "--handoff",
+        str(write_handoff(tmp_path)),
+    )
+    assert initialized.returncode == 0, initialized.stderr
+    initial = json.loads(run_adapter(tmp_path, "codex", "status", "--run-id", run_id).stdout)
+    assert initial["plan_projection"] == "unavailable"
+
+    first_sync = run_adapter(tmp_path, "codex", "sync-plan", "--run-id", run_id)
+    assert first_sync.returncode == 0, first_sync.stderr
+    assert json.loads(first_sync.stdout)["idempotent"] is False
+    assert json.loads(run_adapter(tmp_path, "codex", "status", "--run-id", run_id).stdout)["plan_projection"] == "current"
+    second_sync = run_adapter(tmp_path, "codex", "sync-plan", "--run-id", run_id)
+    assert second_sync.returncode == 0, second_sync.stderr
+    assert json.loads(second_sync.stdout)["idempotent"] is True
+
+    added = run_adapter(
+        tmp_path,
+        "codex",
+        "add-task",
+        "--run-id",
+        run_id,
+        "--task-id",
+        "task-plan",
+        "--decision-slot",
+        "slot-a",
+        "--phase",
+        "landscape",
+        "--artifact",
+        "findings/task-plan.json",
+    )
+    assert added.returncode == 0, added.stderr
+    stale = json.loads(run_adapter(tmp_path, "codex", "status", "--run-id", run_id).stdout)
+    assert stale["plan_projection"] == "stale"
+    assert stale["plan_snapshot"]["ready"] == ["task-plan"]
+
+    started = run_adapter(tmp_path, "codex", "start", "--run-id", run_id, "--task-id", "task-plan")
+    assert started.returncode == 0, started.stderr
+    recovered = run_adapter(tmp_path, "codex", "recover", "--run-id", run_id)
+    assert recovered.returncode == 0, recovered.stderr
+    assert json.loads(run_adapter(tmp_path, "codex", "status", "--run-id", run_id).stdout)["plan_projection"] == "stale"
+    rebuilt = run_adapter(tmp_path, "codex", "sync-plan", "--run-id", run_id)
+    assert rebuilt.returncode == 0, rebuilt.stderr
+    assert json.loads(rebuilt.stdout)["plan_projection"] == "current"
+
+    fork = tmp_path.parent / f"{tmp_path.name}-plan-projection-fork"
+    shutil.copytree(tmp_path, fork)
+    fork_status = run_adapter(fork, "codex", "status", "--run-id", run_id)
+    assert fork_status.returncode == 0, fork_status.stderr
+    assert json.loads(fork_status.stdout)["plan_projection"] == "current"
