@@ -2,6 +2,7 @@
   "schema": 1,
   "files": [
     "scripts/alignment_controller.py",
+    "scripts/context_ledger_contract.py",
     "scripts/hermes_event_adapter.py",
     "scripts/hermes_execution_adapter.py",
     "scripts/hermes_runtime_hook.py",
@@ -13,6 +14,7 @@
   ],
   "entrypoints": [
     {"path": "scripts/alignment_controller.py", "arguments": ["--help"]},
+    {"path": "scripts/context_ledger_contract.py", "arguments": []},
     {"path": "scripts/hermes_event_adapter.py", "arguments": []},
     {"path": "scripts/hermes_execution_adapter.py", "arguments": ["--help"]},
     {"path": "scripts/hermes_runtime_hook.py", "arguments": []},

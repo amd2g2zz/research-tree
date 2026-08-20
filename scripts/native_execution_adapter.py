@@ -38,6 +38,11 @@ except ImportError:
     )
 
 try:
+    from research_tree.context_ledger import ContextBudget, ContextLedgerError, ContextReadLedger
+except ImportError:
+    from context_ledger_contract import ContextBudget, ContextLedgerError, ContextReadLedger
+
+try:
     from research_tree.host_capabilities import (
         WorkflowContractError,
         probe_host,
@@ -103,6 +108,32 @@ def _run_dir(workspace: Path, run_id: str) -> Path:
     if len(candidates) != 1:
         raise AdapterError("run must resolve to exactly one project workspace")
     return _inside(workspace, candidates[0], "run directory")
+
+
+def _context_budget(args: argparse.Namespace) -> ContextBudget | None:
+    values = {
+        "max_fresh_input_tokens": getattr(args, "max_fresh_input_tokens", None),
+        "max_cached_input_tokens": getattr(args, "max_cached_input_tokens", None),
+        "max_replayed_input_tokens": getattr(args, "max_replayed_input_tokens", None),
+        "max_tool_output_tokens": getattr(args, "max_tool_output_tokens", None),
+        "max_process_output_tokens": getattr(args, "max_process_output_tokens", None),
+        "max_duplicate_read_ratio": getattr(args, "max_duplicate_read_ratio", None),
+    }
+    budget = ContextBudget(**values)
+    return None if budget.is_unbounded else budget
+
+
+def _context_ledger(workspace: Path, args: argparse.Namespace) -> ContextReadLedger:
+    return ContextReadLedger(workspace, _run_dir(workspace, args.run_id), args.run_id, budget=_context_budget(args))
+
+
+def _add_context_budget_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--max-fresh-input-tokens", type=int)
+    parser.add_argument("--max-cached-input-tokens", type=int)
+    parser.add_argument("--max-replayed-input-tokens", type=int)
+    parser.add_argument("--max-tool-output-tokens", type=int)
+    parser.add_argument("--max-process-output-tokens", type=int)
+    parser.add_argument("--max-duplicate-read-ratio", type=float)
 
 
 def _observed_agent_ids(workspace: Path, run_id: str, host: str) -> set[str]:
@@ -1295,6 +1326,29 @@ def _parser() -> argparse.ArgumentParser:
     status_parser = subparsers.add_parser("status")
     status_parser.add_argument("--run-id", required=True)
 
+    context_record_parser = subparsers.add_parser("context-record")
+    context_record_parser.add_argument("--run-id", required=True)
+    context_record_parser.add_argument("--source", type=Path, required=True)
+    context_record_parser.add_argument("--consumer", required=True)
+    context_record_parser.add_argument("--phase", required=True)
+    context_record_parser.add_argument("--byte-start", type=int, default=0)
+    context_record_parser.add_argument("--byte-end", type=int)
+    context_record_parser.add_argument("--input-tokens", type=int, default=0)
+    context_record_parser.add_argument("--tool-output-tokens", type=int, default=0)
+    context_record_parser.add_argument("--process-output-tokens", type=int, default=0)
+    _add_context_budget_arguments(context_record_parser)
+
+    context_seal_parser = subparsers.add_parser("context-seal")
+    context_seal_parser.add_argument("--run-id", required=True)
+    context_seal_parser.add_argument("--source", type=Path, required=True)
+
+    context_receipt_parser = subparsers.add_parser("context-receipt")
+    context_receipt_parser.add_argument("--run-id", required=True)
+
+    context_resume_parser = subparsers.add_parser("context-resume")
+    context_resume_parser.add_argument("--run-id", required=True)
+    _add_context_budget_arguments(context_resume_parser)
+
     sync_plan_parser = subparsers.add_parser("sync-plan")
     sync_plan_parser.add_argument("--run-id", required=True)
 
@@ -1342,6 +1396,7 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = _parser().parse_args()
     workspace = args.workspace.resolve()
+    exit_code = 0
     try:
         contract_host = "claude-code" if args.host == "claude" else args.host
         if args.command == "probe-host":
@@ -1374,6 +1429,25 @@ def main() -> int:
         elif args.command == "init":
             handoff = args.handoff if args.handoff.is_absolute() else workspace / args.handoff
             result = init_run(workspace, args.project_id, args.run_id, args.host, handoff)
+        elif args.command == "context-record":
+            result = _context_ledger(workspace, args).record_read(
+                args.source,
+                consumer=args.consumer,
+                phase=args.phase,
+                byte_start=args.byte_start,
+                byte_end=args.byte_end,
+                input_tokens=args.input_tokens,
+                tool_output_tokens=args.tool_output_tokens,
+                process_output_tokens=args.process_output_tokens,
+            )
+            if result["status"] == "budget_exceeded":
+                exit_code = 4
+        elif args.command == "context-seal":
+            result = _context_ledger(workspace, args).seal_source(args.source)
+        elif args.command == "context-receipt":
+            result = _context_ledger(workspace, args).receipt()
+        elif args.command == "context-resume":
+            result = _context_ledger(workspace, args).resume(_context_budget(args))
         elif args.command == "add-task":
             artifact = args.artifact
             if not artifact.is_absolute():
@@ -1468,11 +1542,11 @@ def main() -> int:
             result = render_delivery_reports(workspace, args.run_id, args.host, technical, human)
         else:
             result = validate_finding(args.path.resolve())
-    except (AdapterError, OSError, WorkflowContractError) as exc:
+    except (AdapterError, ContextLedgerError, OSError, WorkflowContractError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":
