@@ -213,7 +213,7 @@ def completion_observation(run_id: str) -> dict[str, Any]:
         "run_id": run_id,
         "status": "delivery_pending",
         "complete": False,
-        "observed_complete": True,
+        "observed_complete": False,
         "completion_authority": "coordinator_only",
         "authoritative": False,
     }

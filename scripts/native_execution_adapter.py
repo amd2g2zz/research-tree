@@ -112,11 +112,38 @@ def _observed_agent_ids(workspace: Path, run_id: str, host: str) -> set[str]:
             record = json.loads(hook_file.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if not isinstance(record, dict) or record.get("host") != host:
+        if (
+            not isinstance(record, dict)
+            or record.get("source") != "research-tree-lifecycle-hook"
+            or record.get("host") != host
+        ):
             continue
         agent_id = record.get("agent_id")
         if isinstance(agent_id, str) and agent_id:
             observed.add(agent_id)
+    return observed
+
+
+def _observed_agent_identities(workspace: Path, run_id: str, host: str) -> set[tuple[str, str, str]]:
+    """Return hook-observed agent, session, and lease identity tuples."""
+
+    observed: set[tuple[str, str, str]] = set()
+    for hook_file in sorted((_run_dir(workspace, run_id) / "events").glob("*.json")):
+        try:
+            record = json.loads(hook_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if (
+            not isinstance(record, dict)
+            or record.get("source") != "research-tree-lifecycle-hook"
+            or record.get("host") != host
+        ):
+            continue
+        agent_id = record.get("agent_id")
+        session_id = record.get("session_id")
+        lease_id = record.get("attempt_id")
+        if all(isinstance(value, str) and value for value in (agent_id, session_id, lease_id)):
+            observed.add((agent_id, session_id, lease_id))
     return observed
 
 
@@ -285,6 +312,11 @@ def add_task(
         "reviewed_by": None,
         "review_note": None,
         "checked_anchors": [],
+        "reviewer_host": None,
+        "reviewer_session_id": None,
+        "reviewer_lease_id": None,
+        "review_custody_path": None,
+        "review_custody_sha256": None,
     }
     state["status"] = "running"
     _save_state(workspace, state)
@@ -307,7 +339,7 @@ def _artifact_integrity_error(task: dict[str, Any]) -> str | None:
 
 def _dependencies_complete(state: dict[str, Any], task: dict[str, Any]) -> bool:
     return all(
-        state["tasks"][dependency]["status"] == "completed"
+        state["tasks"][dependency]["status"] in ("submitted", "completed")
         and state["tasks"][dependency]["verified"] is True
         and _artifact_integrity_error(state["tasks"][dependency]) is None
         for dependency in task["dependencies"]
@@ -344,6 +376,11 @@ def start_task(
     task["reviewed_by"] = None
     task["review_note"] = None
     task["checked_anchors"] = []
+    task["reviewer_host"] = None
+    task["reviewer_session_id"] = None
+    task["reviewer_lease_id"] = None
+    task["review_custody_path"] = None
+    task["review_custody_sha256"] = None
     _save_state(workspace, state)
     return task
 
@@ -504,7 +541,6 @@ def finish_task(
     task["status"] = "submitted"
     task["verified"] = False
     task["artifact_sha256"] = hashlib.sha256(artifact.read_bytes()).hexdigest()
-    task["worker_id"] = None
     task["submitted_at"] = _now()
     _save_state(workspace, state)
     return task
@@ -516,6 +552,10 @@ def verify_task(
     host: str,
     task_id: str,
     reviewer_id: str,
+    reviewer_host: str,
+    reviewer_session_id: str,
+    reviewer_lease_id: str,
+    review_custody: Path,
     review_note: str,
     checked_anchors: list[str],
 ) -> dict[str, Any]:
@@ -532,16 +572,48 @@ def verify_task(
     digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
     if digest != task["artifact_sha256"]:
         raise AdapterError("Finding Pack changed after submission")
+    validation = pack.get("validation_result")
+    if not isinstance(validation, dict) or validation.get("status") != "passed":
+        raise AdapterError("Finding Pack requires a passed validation result for review")
+
+    reviewer_id = _identifier(reviewer_id, "reviewer id")
+    reviewer_host = _identifier(reviewer_host, "reviewer host")
+    reviewer_session_id = _identifier(reviewer_session_id, "reviewer session id")
+    reviewer_lease_id = _identifier(reviewer_lease_id, "reviewer lease id")
+    if reviewer_host != host:
+        raise AdapterError("reviewer must use the same host as the worker")
+    worker_identity = (task.get("agent_id"), task.get("session_id"), task.get("attempt_id"))
+    if not all(isinstance(value, str) and value for value in worker_identity):
+        raise AdapterError("review requires a host-bound worker identity")
+    reviewer_identity = (reviewer_id, reviewer_session_id, reviewer_lease_id)
+    if reviewer_identity == worker_identity or any(
+        reviewer_identity[index] == worker_identity[index] for index in range(3)
+    ):
+        raise AdapterError("review requires an independent reviewer identity")
+    if reviewer_identity not in _observed_agent_identities(workspace, run_id, host):
+        raise AdapterError("reviewer identity was not observed by the project hook stream")
+    custody = _inside(workspace, review_custody, "review custody path")
+    if not custody.is_file():
+        raise AdapterError("review custody path must identify a file")
+    if custody == artifact.resolve():
+        raise AdapterError("review custody must be distinct from the worker artifact")
+    custody_digest = hashlib.sha256(custody.read_bytes()).hexdigest()
+    if custody_digest != digest:
+        raise AdapterError("review custody digest does not match the submitted artifact")
     expected_anchors = {observation["anchor"]["ref"] for observation in pack["observations"]}
     supplied_anchors = {_require_string(anchor, "checked anchor") for anchor in checked_anchors}
     missing = sorted(expected_anchors - supplied_anchors)
     if missing:
         raise AdapterError("evidence review is missing anchors: " + ", ".join(missing))
-    task["status"] = "completed"
     task["verified"] = True
-    task["reviewed_by"] = _identifier(reviewer_id, "reviewer id")
+    task["reviewed_by"] = reviewer_id
     task["review_note"] = _require_string(review_note, "review note")
     task["checked_anchors"] = sorted(supplied_anchors)
+    task["reviewer_host"] = reviewer_host
+    task["reviewer_session_id"] = reviewer_session_id
+    task["reviewer_lease_id"] = reviewer_lease_id
+    task["review_custody_path"] = str(custody)
+    task["review_custody_sha256"] = custody_digest
     task["reviewed_at"] = _now()
     _save_state(workspace, state)
     return task
@@ -584,6 +656,11 @@ def recover(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
         task["reviewed_by"] = None
         task["review_note"] = None
         task["checked_anchors"] = []
+        task["reviewer_host"] = None
+        task["reviewer_session_id"] = None
+        task["reviewer_lease_id"] = None
+        task["review_custody_path"] = None
+        task["review_custody_sha256"] = None
     if reasons:
         state["status"] = "running"
         _save_state(workspace, state)
@@ -606,7 +683,9 @@ def status(workspace: Path, run_id: str, host: str) -> dict[str, Any]:
         integrity_error = _artifact_integrity_error(task)
         if integrity_error is not None:
             integrity_errors.append(f"{task_id}: {integrity_error}")
-    observed_complete = bool(state["tasks"]) and counts["completed"] == len(state["tasks"])
+    observed_complete = bool(state["tasks"]) and all(
+        task["status"] == "submitted" and task["verified"] is True for task in state["tasks"].values()
+    )
     observed_complete = observed_complete and not integrity_errors
     return {
         "run_id": run_id,
@@ -753,6 +832,10 @@ def _parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--run-id", required=True)
     verify_parser.add_argument("--task-id", required=True)
     verify_parser.add_argument("--reviewer-id", required=True)
+    verify_parser.add_argument("--reviewer-host", required=True)
+    verify_parser.add_argument("--reviewer-session-id", required=True)
+    verify_parser.add_argument("--reviewer-lease-id", required=True)
+    verify_parser.add_argument("--review-custody", type=Path, required=True)
     verify_parser.add_argument("--review-note", required=True)
     verify_parser.add_argument("--checked-anchor", action="append", default=[])
 
@@ -870,12 +953,17 @@ def main() -> int:
                 args.reason,
             )
         elif args.command == "verify":
+            custody = args.review_custody if args.review_custody.is_absolute() else workspace / args.review_custody
             result = verify_task(
                 workspace,
                 args.run_id,
                 args.host,
                 args.task_id,
                 args.reviewer_id,
+                args.reviewer_host,
+                args.reviewer_session_id,
+                args.reviewer_lease_id,
+                custody,
                 args.review_note,
                 args.checked_anchor,
             )
