@@ -64,6 +64,7 @@ adapter. Use a unique run ID and workspace-relative Finding Pack paths:
 ```bash
 python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . init --project-id <project-id> --run-id <run-id> --handoff .research-tree/projects/<project-id>/runs/<alignment-run>/alignment/handoff.json
 python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . add-task --run-id <run-id> --task-id <task-id> --decision-slot <slot> --phase landscape --artifact <finding.json>
+python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . add-task --run-id <run-id> --task-id <validation-task> --decision-slot <slot> --phase validation --artifact <validation.json> --depends-on <producer-task> --dependency-kind artifact --dependency-rationale "validation consumes the producer Finding Pack" --dependency-evidence-ref <absolute-producer-artifact-path>
 python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . start --run-id <run-id> --task-id <task-id> --worker-id <agent-id>
 python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . finish --run-id <run-id> --task-id <task-id> --result submitted
 python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . verify --run-id <run-id> --task-id <task-id> --reviewer-id <reviewer-agent> --reviewer-host codex --reviewer-session-id <reviewer-session> --reviewer-lease-id <reviewer-lease> --review-custody <reviewed-copy.json> --checked-anchor <opened-ref> --review-note <evidence-check>
@@ -74,8 +75,12 @@ python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspac
 Resolve `<skill-dir>` from the host-supplied Skill path, never from the task
 workspace. `init` requires the persisted, digest-confirmed handoff and copies
 its Decision Slots, authority, scope, and success oracles into durable execution
-state. `add-task` rejects slots absent from that handoff. Add each dependency
-with `--depends-on`. Give the worker the
+state. `add-task` rejects slots absent from that handoff. Dispatch every task
+in the same ready wave in parallel across distinct strategy tracks. Add a
+dependency only with a machine-readable kind, rationale, and evidence reference:
+an `artifact` dependency cites its producer artifact, while an
+`authority_constraint` cites a confirmed authority or constraint from the
+handoff. Give the worker the
 `attempt_id` returned by `start`; its Finding Pack must repeat that ID. On
 restart, run `recover` before dispatch; it converts in-flight attempts to
 `unknown`. It also reopens a missing or hash-mismatched artifact and recursively

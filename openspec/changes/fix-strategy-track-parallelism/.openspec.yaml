@@ -1,0 +1,4 @@
+schema: 1
+change: fix-strategy-track-parallelism
+status: complete
+issue: 280

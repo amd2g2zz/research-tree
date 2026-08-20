@@ -62,6 +62,7 @@ NODE_STATUSES = frozenset(
 )
 EDGE_STATUSES = frozenset({"active", "superseded", "rejected"})
 CONFIDENCES = frozenset({"low", "medium", "high"})
+TRACK_PRIORITIES = frozenset({"P0", "P1", "P2"})
 SOURCES = frozenset({"human", "agent", "joint", "reconnaissance", "repository", "experiment"})
 OUTCOMES = frozenset({"answered", "changed", "unchanged", "deferred", "reopened"})
 REQUIRED_ALIGNMENT_TYPES = (
@@ -416,6 +417,13 @@ class AlignmentGraphStore:
                 and nodes[edge["target_id"]]["type"] in RESEARCHABLE_TYPES
             ):
                 superseded_by.setdefault(edge["target_id"], []).append(edge["source_id"])
+        strategy_node = next(
+            node
+            for node in nodes.values()
+            if node["type"] == "strategy" and node["status"] in ACCEPTED_STATUSES
+        )
+        strategy_tracks = _strategy_tracks(strategy_node)
+        tracks_by_id = {track["id"]: track for track in strategy_tracks}
         slots: dict[str, dict[str, Any]] = {}
         for node in nodes.values():
             if (
@@ -428,9 +436,16 @@ class AlignmentGraphStore:
             oracle = node.get("oracle")
             if not oracle:
                 raise AlignmentGraphError(f"research node {node['id']} has no closure oracle")
+            track_id = _research_track_id(node, tracks_by_id)
+            if track_id is None:
+                raise AlignmentGraphError(f"research node {node['id']} is not assigned to a strategy track")
+            track = tracks_by_id[track_id]
             slots[node["id"]] = {
                 "status": "open",
-                "priority": "P0" if node["impact"] >= 5 else "P1" if node["impact"] >= 3 else "P2",
+                "track_id": track_id,
+                "track_closure_oracle": track["closure_oracle"],
+                "evidence_boundary": track["evidence_boundary"],
+                "priority": track["priority"],
                 "uncertainty": {"low": "high", "medium": "medium", "high": "low"}[node["confidence"]],
                 "question": node["statement"],
                 "validation": {"oracle": oracle},
@@ -501,11 +516,7 @@ class AlignmentGraphStore:
             for node in nodes.values()
             if node["type"] == "outcome" and node["status"] in ACCEPTED_STATUSES
         )
-        strategy = next(
-            node["statement"]
-            for node in nodes.values()
-            if node["type"] == "strategy" and node["status"] in ACCEPTED_STATUSES
-        )
+        strategy = strategy_node["statement"]
         execution_context = {
             "objective": objective,
             "intended_use": _accepted_statements(nodes, "intended_use"),
@@ -516,6 +527,7 @@ class AlignmentGraphStore:
             "feasibility": _accepted_statements(nodes, "feasibility"),
             "constraints": _accepted_statements(nodes, "constraint"),
             "strategy": strategy,
+            "strategy_tracks": strategy_tracks,
         }
         return {
             "schema": 1,
@@ -932,6 +944,25 @@ def _alignment_readiness(
     for node in researchable:
         if not node.get("oracle"):
             reasons.append(f"research node {node['id']} has no closure oracle")
+    strategy_nodes = [
+        node for node in nodes if node["type"] == "strategy" and node["status"] in ACCEPTED_STATUSES
+    ]
+    if strategy_nodes:
+        try:
+            tracks = _strategy_tracks(strategy_nodes[0])
+            tracks_by_id = {track["id"]: track for track in tracks}
+            coverage = {track_id: 0 for track_id in tracks_by_id}
+            for node in researchable:
+                track_id = _research_track_id(node, tracks_by_id)
+                if track_id is None:
+                    reasons.append(f"research node {node['id']} is not assigned to a strategy track")
+                    continue
+                coverage[track_id] += 1
+            for track in tracks:
+                if track["active"] and coverage[track["id"]] == 0:
+                    reasons.append(f"strategy track {track['id']} has no executable research question")
+        except AlignmentGraphError as error:
+            reasons.append(str(error))
     researchable_ids = {node["id"] for node in researchable}
     for node in nodes:
         if node["type"] != "evidence" or node["status"] not in ACCEPTED_STATUSES:
@@ -951,6 +982,60 @@ def _alignment_readiness(
                 f"evidence node {node['id']} needs a current research edge or alignment_only disposition"
             )
     return {"ready": not reasons, "reasons": reasons}
+
+
+def _strategy_tracks(strategy: Mapping[str, Any]) -> list[dict[str, Any]]:
+    attributes = strategy.get("attributes")
+    if not isinstance(attributes, Mapping):
+        raise AlignmentGraphError("strategy attributes must be an object")
+    raw_tracks = attributes.get("tracks")
+    if raw_tracks is None:
+        return [
+            {
+                "id": f"track-{strategy['id']}",
+                "priority": "P0" if strategy["impact"] >= 5 else "P1" if strategy["impact"] >= 3 else "P2",
+                "closure_oracle": "Every slot mapped to this strategy track meets its closure oracle.",
+                "evidence_boundary": "confirmed alignment graph and bounded repository evidence",
+                "active": True,
+            }
+        ]
+    if isinstance(raw_tracks, (str, bytes)) or not isinstance(raw_tracks, Sequence) or not raw_tracks:
+        raise AlignmentGraphError("strategy tracks must be a non-empty list")
+    tracks: list[dict[str, Any]] = []
+    for raw_track in raw_tracks:
+        if not isinstance(raw_track, Mapping):
+            raise AlignmentGraphError("strategy track must be an object")
+        unknown = set(raw_track) - {"id", "priority", "closure_oracle", "evidence_boundary", "active"}
+        if unknown:
+            raise AlignmentGraphError("strategy track has unknown fields: " + ", ".join(sorted(unknown)))
+        tracks.append(
+            {
+                "id": _identifier(raw_track.get("id"), "strategy track id"),
+                "priority": _enum(raw_track.get("priority"), TRACK_PRIORITIES, "strategy track priority"),
+                "closure_oracle": _text(raw_track.get("closure_oracle"), "strategy track closure_oracle"),
+                "evidence_boundary": _text(raw_track.get("evidence_boundary"), "strategy track evidence_boundary"),
+                "active": bool(raw_track.get("active", True)),
+            }
+        )
+    if len({track["id"] for track in tracks}) != len(tracks):
+        raise AlignmentGraphError("strategy track ids must be unique")
+    return sorted(tracks, key=lambda track: track["id"])
+
+
+def _research_track_id(node: Mapping[str, Any], tracks_by_id: Mapping[str, Mapping[str, Any]]) -> str | None:
+    attributes = node.get("attributes")
+    if not isinstance(attributes, Mapping):
+        return None
+    track_id = attributes.get("track_id")
+    if track_id is None and len(tracks_by_id) == 1:
+        return next(iter(tracks_by_id))
+    if track_id is None:
+        return None
+    try:
+        track_id = _identifier(track_id, "research track id")
+    except AlignmentGraphError:
+        return None
+    return track_id if track_id in tracks_by_id else None
 
 
 def _accepted_statements(

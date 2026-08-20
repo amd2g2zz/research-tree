@@ -308,6 +308,101 @@ def test_refined_research_question_replaces_old_obligation_and_reanchors_evidenc
     assert [edge["direction"] for edge in path] == ["forward", "reverse"]
 
 
+def test_strategy_tracks_require_slot_coverage_and_compile_exact_track_metadata(tmp_path: Path) -> None:
+    module = controller()
+    module.init(tmp_path, "track-coverage-run")
+    update = complete_graph()
+    strategy = next(node for node in update["nodes"] if node["id"] == "strategy")
+    strategy["attributes"] = {
+        "tracks": [
+            {
+                "id": track_id,
+                "priority": priority,
+                "closure_oracle": f"{track_id} closes with independent evidence.",
+                "evidence_boundary": f"bounded {track_id} evidence",
+            }
+            for track_id, priority in (
+                ("track-architecture", "P0"),
+                ("track-evidence", "P1"),
+                ("track-adversarial", "P0"),
+                ("track-validation", "P0"),
+            )
+        ]
+    }
+    question = next(node for node in update["nodes"] if node["id"] == "question-architecture")
+    question["attributes"] = {"track_id": "track-architecture"}
+    for node_id, track_id in (
+        ("question-evidence", "track-evidence"),
+        ("question-adversarial", "track-adversarial"),
+        ("question-validation", "track-validation"),
+    ):
+        update["nodes"].append(
+            {
+                "id": node_id,
+                "type": "research_question",
+                "statement": f"Which bounded result closes {track_id}?",
+                "status": "candidate",
+                "impact": 4,
+                "human_only": False,
+                "confidence": "low",
+                "source": "joint",
+                "oracle": f"{track_id} is independently validated.",
+                "attributes": {"track_id": track_id},
+            }
+        )
+    graph = tmp_path / "tracks.json"
+    write_json(graph, update)
+    decision = module.plan(tmp_path, "track-coverage-run", graph)
+    assert decision["action"] == "await_human_confirmation"
+    module.confirm(
+        tmp_path,
+        "track-coverage-run",
+        "I confirm all four strategy tracks for autonomous research.",
+        decision["alignment_digest"],
+    )
+    compiled = module.AlignmentGraphStore(
+        module.database_path(tmp_path, "track-coverage-run")
+    ).compile_handoff()
+    assert {slot["track_id"] for slot in compiled["decision_slots"].values()} == {
+        "track-architecture",
+        "track-evidence",
+        "track-adversarial",
+        "track-validation",
+    }
+    assert all(slot["evidence_boundary"].startswith("bounded ") for slot in compiled["decision_slots"].values())
+    assert all(slot["track_closure_oracle"].endswith("independent evidence.") for slot in compiled["decision_slots"].values())
+
+
+def test_strategy_tracks_reject_uncovered_active_track(tmp_path: Path) -> None:
+    module = controller()
+    module.init(tmp_path, "track-gap-run")
+    update = complete_graph()
+    strategy = next(node for node in update["nodes"] if node["id"] == "strategy")
+    strategy["attributes"] = {
+        "tracks": [
+            {
+                "id": "track-covered",
+                "priority": "P0",
+                "closure_oracle": "Covered track closes.",
+                "evidence_boundary": "bounded source",
+            },
+            {
+                "id": "track-uncovered",
+                "priority": "P1",
+                "closure_oracle": "Uncovered track closes.",
+                "evidence_boundary": "bounded source",
+            },
+        ]
+    }
+    question = next(node for node in update["nodes"] if node["id"] == "question-architecture")
+    question["attributes"] = {"track_id": "track-covered"}
+    graph = tmp_path / "uncovered-track.json"
+    write_json(graph, update)
+    decision = module.plan(tmp_path, "track-gap-run", graph)
+    assert decision["action"] == "reconnaissance"
+    assert "strategy track track-uncovered has no executable research question" in decision["readiness"]["reasons"]
+
+
 def test_schema_command_writes_strict_utf8_and_rejects_unknown_fields(
     tmp_path: Path,
 ) -> None:
