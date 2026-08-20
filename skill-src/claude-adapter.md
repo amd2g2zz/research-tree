@@ -86,7 +86,7 @@ work, these repository paths are available:
 | --- | --- | --- |
 | `hooks/research_hook.py` | Lifecycle hook launcher | Run through `uv run` from the checkout; it imports `research_tree` and is not part of the installed skill package. |
 | `src/research_tree/` | Python artifact runtime | Edit only when the task changes runtime behavior; use the public API and run the full test suite. |
-| `scripts/` | Host package builder and Hermes staging/validation tools | Run `python scripts/build_skill_packages.py --check` after package-affecting changes. |
+| `scripts/` | Host package builder and Hermes staging/validation tools | Run `uv run --frozen python scripts/build_skill_packages.py --check` after package-affecting changes. |
 | `evaluation/` | Evaluation cases and forward-test material | Treat as development/evaluation input, not as a user research source or runtime dependency. |
 
 Before using these paths, verify the checkout with `pyproject.toml`, `src/`,
