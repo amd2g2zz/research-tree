@@ -94,7 +94,7 @@ def test_legacy_commands_are_non_authoritative_observations(tmp_path: Path) -> N
         "run_id": run_id,
         "status": "delivery_pending",
         "complete": False,
-        "observed_complete": True,
+        "observed_complete": False,
         "completion_authority": "coordinator_only",
         "authoritative": False,
     }

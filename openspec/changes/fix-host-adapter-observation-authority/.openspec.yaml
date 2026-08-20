@@ -1,0 +1,4 @@
+schema: spec-driven
+change_id: fix-host-adapter-observation-authority
+status: implementation
+issue: 277

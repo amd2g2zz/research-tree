@@ -72,9 +72,36 @@ def run_adapter(workspace: Path, host: str, command: str, *args: str) -> subproc
     )
 
 
+def write_lifecycle_observation(
+    workspace: Path,
+    host: str,
+    run_id: str,
+    agent_id: str,
+    session_id: str,
+    lease_id: str,
+) -> None:
+    events_root = workspace / ".research-tree" / "projects" / f"project-{host}" / "runs" / run_id / "events"
+    events_root.mkdir(parents=True, exist_ok=True)
+    (events_root / f"{agent_id}-{session_id}-{lease_id}.json").write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "source": "research-tree-lifecycle-hook",
+                "host": host,
+                "event": "SubagentStart",
+                "agent_id": agent_id,
+                "session_id": session_id,
+                "attempt_id": lease_id,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def bind_claude(workspace: Path, host: str, run_id: str, task: dict[str, object]) -> None:
-    if host != "claude":
-        return
+    agent_id = f"agent-{task['attempt_id']}"
+    attempt_id = str(task["attempt_id"])
+    write_lifecycle_observation(workspace, host, run_id, agent_id, "session-test", attempt_id)
     completed = run_adapter(
         workspace,
         host,
@@ -84,15 +111,44 @@ def bind_claude(workspace: Path, host: str, run_id: str, task: dict[str, object]
         "--task-id",
         str(task["task_id"]),
         "--attempt-id",
-        str(task["attempt_id"]),
+        attempt_id,
         "--agent-id",
-        f"agent-{task['attempt_id']}",
+        agent_id,
         "--session-id",
         "session-test",
         "--causation-id",
         f"tool-{task['attempt_id']}",
     )
     assert completed.returncode == 0, completed.stderr
+
+
+def review_args(
+    workspace: Path,
+    host: str,
+    run_id: str,
+    task_id: str,
+    artifact: Path,
+    *,
+    reviewer_id: str = "agent-reviewer",
+    session_id: str = "session-reviewer",
+    lease_id: str = "lease-reviewer",
+) -> tuple[str, ...]:
+    custody = workspace / "review-custody" / f"{task_id}-{reviewer_id}.json"
+    custody.parent.mkdir(parents=True, exist_ok=True)
+    custody.write_bytes(artifact.read_bytes())
+    write_lifecycle_observation(workspace, host, run_id, reviewer_id, session_id, lease_id)
+    return (
+        "--reviewer-id",
+        reviewer_id,
+        "--reviewer-host",
+        host,
+        "--reviewer-session-id",
+        session_id,
+        "--reviewer-lease-id",
+        lease_id,
+        "--review-custody",
+        str(custody),
+    )
 
 
 def finding(task_id: str, slot: str, phase: str, attempt_id: str) -> dict[str, object]:
@@ -117,6 +173,11 @@ def finding(task_id: str, slot: str, phase: str, attempt_id: str) -> dict[str, o
         "option_effects": [{"option": "candidate-a", "effect": "supports"}],
         "implementation_implications": [],
         "remaining_uncertainties": [],
+        "validation_result": {
+            "status": "passed",
+            "oracle": "The anchored source remains reproducible.",
+            "evidence_ref": "https://example.test/source",
+        },
     }
 
 
@@ -273,8 +334,7 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
         run_id,
         "--task-id",
         "landscape-1",
-        "--reviewer-id",
-        "coordinator",
+        *review_args(tmp_path, host, run_id, "landscape-1", artifact),
         "--review-note",
         "No anchor was actually checked.",
     )
@@ -288,8 +348,7 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
         run_id,
         "--task-id",
         "landscape-1",
-        "--reviewer-id",
-        "coordinator",
+        *review_args(tmp_path, host, run_id, "landscape-1", artifact),
         "--review-note",
         "Opened the cited source and checked the atomic observation.",
         "--checked-anchor",
@@ -338,8 +397,7 @@ def test_adapter_runs_dependency_wave_and_completes(tmp_path: Path, host: str) -
             run_id,
             "--task-id",
             "validation-1",
-            "--reviewer-id",
-            "coordinator",
+            *review_args(tmp_path, host, run_id, "validation-1", validation),
             "--review-note",
             "Reproduced the validation evidence and checked limitations.",
             "--checked-anchor",
@@ -417,7 +475,9 @@ def test_adapter_rejects_invalid_finding_and_detects_tampering(tmp_path: Path) -
         "task-1",
     )
     started = run_adapter(tmp_path, "codex", "start", "--run-id", run_id, "--task-id", "task-1")
-    attempt_id = json.loads(started.stdout)["attempt_id"]
+    started_task = json.loads(started.stdout)
+    attempt_id = started_task["attempt_id"]
+    bind_claude(tmp_path, "codex", run_id, started_task)
     artifact = tmp_path / "finding.json"
     artifact.write_text("{}", encoding="utf-8")
     invalid = run_adapter(
@@ -461,8 +521,7 @@ def test_adapter_rejects_invalid_finding_and_detects_tampering(tmp_path: Path) -
             run_id,
             "--task-id",
             "task-1",
-            "--reviewer-id",
-            "coordinator",
+            *review_args(tmp_path, "codex", run_id, "task-1", artifact),
             "--review-note",
             "Checked the source anchor and applicability.",
             "--checked-anchor",
@@ -493,6 +552,7 @@ def test_adapter_rejects_invalid_finding_and_detects_tampering(tmp_path: Path) -
         ).stdout
     )
     assert restarted["attempt"] == 2
+    bind_claude(tmp_path, "codex", run_id, restarted)
     artifact.write_text(
         json.dumps(finding("task-1", "slot-a", "deep_dive", restarted["attempt_id"])),
         encoding="utf-8",
@@ -520,8 +580,7 @@ def test_adapter_rejects_invalid_finding_and_detects_tampering(tmp_path: Path) -
             run_id,
             "--task-id",
             "task-1",
-            "--reviewer-id",
-            "coordinator",
+            *review_args(tmp_path, "codex", run_id, "task-1", artifact),
             "--review-note",
             "Rechecked the source after recovery.",
             "--checked-anchor",
@@ -739,12 +798,29 @@ def _codex_running_run(workspace: Path) -> tuple[str, dict]:
         ).returncode
         == 0
     )
-    started = run_adapter(workspace, "codex", "start", "--run-id", run_id, "--task-id", "task-codex-1")
+    started = run_adapter(
+        workspace,
+        "codex",
+        "start",
+        "--run-id",
+        run_id,
+        "--task-id",
+        "task-codex-1",
+        "--worker-id",
+        "worker-codex",
+    )
     assert started.returncode == 0, started.stderr
     return run_id, json.loads(started.stdout)
 
 
-def _write_codex_hook_observation(workspace: Path, run_id: str, agent_id: str) -> None:
+def _write_codex_hook_observation(
+    workspace: Path,
+    run_id: str,
+    agent_id: str,
+    *,
+    session_id: str = "session-codex-1",
+    attempt_id: str | None = None,
+) -> None:
     events_root = workspace / ".research-tree" / "projects" / "project-codex" / "runs" / run_id / "events"
     events_root.mkdir(parents=True, exist_ok=True)
     (events_root / "hook-codex-1.json").write_text(
@@ -755,8 +831,9 @@ def _write_codex_hook_observation(workspace: Path, run_id: str, agent_id: str) -
                 "host": "codex",
                 "event": "SubagentStart",
                 "agent_id": agent_id,
-                "session_id": "session-codex-1",
+                "session_id": session_id,
                 "turn_id": "turn-codex-1",
+                **({"attempt_id": attempt_id} if attempt_id is not None else {}),
             }
         ),
         encoding="utf-8",
@@ -859,3 +936,117 @@ def test_codex_bind_agent_rejects_identity_reuse(tmp_path: Path) -> None:
         "tool-codex-2",
     )
     assert stale.returncode == 1
+
+
+def test_adapter_records_only_an_independently_reviewed_submission(tmp_path: Path) -> None:
+    run_id, task = _codex_running_run(tmp_path)
+    worker_id = "agent-codex-worker"
+    _write_codex_hook_observation(
+        tmp_path,
+        run_id,
+        worker_id,
+        attempt_id=str(task["attempt_id"]),
+    )
+    bound = run_adapter(
+        tmp_path,
+        "codex",
+        "bind-agent",
+        "--run-id",
+        run_id,
+        "--task-id",
+        "task-codex-1",
+        "--attempt-id",
+        str(task["attempt_id"]),
+        "--agent-id",
+        worker_id,
+        "--session-id",
+        "session-codex-1",
+        "--causation-id",
+        "tool-codex-worker",
+    )
+    assert bound.returncode == 0, bound.stderr
+    artifact = tmp_path / "technical-research-package.md"
+    artifact.write_text(
+        json.dumps(finding("task-codex-1", "slot-a", "landscape", str(task["attempt_id"]))),
+        encoding="utf-8",
+    )
+    submitted = run_adapter(
+        tmp_path,
+        "codex",
+        "finish",
+        "--run-id",
+        run_id,
+        "--task-id",
+        "task-codex-1",
+        "--result",
+        "submitted",
+    )
+    assert submitted.returncode == 0, submitted.stderr
+    custody = tmp_path / "review-custody.json"
+    custody.write_bytes(artifact.read_bytes())
+    reviewer_id = "agent-codex-reviewer"
+    reviewer_lease = "review-lease-1"
+    _write_codex_hook_observation(
+        tmp_path,
+        run_id,
+        reviewer_id,
+        session_id="session-codex-reviewer",
+        attempt_id=reviewer_lease,
+    )
+
+    base = (
+        "verify",
+        "--run-id",
+        run_id,
+        "--task-id",
+        "task-codex-1",
+        "--reviewer-id",
+        reviewer_id,
+        "--reviewer-host",
+        "codex",
+        "--reviewer-session-id",
+        "session-codex-reviewer",
+        "--reviewer-lease-id",
+        reviewer_lease,
+        "--review-custody",
+        str(custody),
+        "--review-note",
+        "Checked an independently held copy of the evidence.",
+        "--checked-anchor",
+        "https://example.test/source",
+    )
+    cases = (
+        ("--reviewer-id", worker_id, "independent reviewer"),
+        ("--reviewer-session-id", "session-codex-1", "independent reviewer"),
+        ("--reviewer-lease-id", str(task["attempt_id"]), "independent reviewer"),
+        ("--reviewer-host", "claude", "same host"),
+        ("--reviewer-id", "agent-forged", "observed"),
+        ("--review-custody", str(artifact), "custody"),
+    )
+    for flag, value, message in cases:
+        arguments = list(base)
+        arguments[arguments.index(flag) + 1] = value
+        rejected = run_adapter(tmp_path, "codex", *arguments)
+        assert rejected.returncode == 1
+        assert message in rejected.stderr
+
+    verified = run_adapter(tmp_path, "codex", *base)
+    assert verified.returncode == 0, verified.stderr
+    reviewed_task = json.loads(verified.stdout)
+    assert reviewed_task["status"] == "submitted"
+    assert reviewed_task["worker_id"] == "worker-codex"
+    state = json.loads(
+        (
+            tmp_path
+            / ".research-tree"
+            / "projects"
+            / "project-codex"
+            / "runs"
+            / run_id
+            / "state.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert state["tasks"]["task-codex-1"]["agent_id"] == worker_id
+    summary = json.loads(run_adapter(tmp_path, "codex", "status", "--run-id", run_id).stdout)
+    assert summary["complete"] is False
+    assert summary["observed_complete"] is True
