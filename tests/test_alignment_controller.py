@@ -171,8 +171,8 @@ def test_controller_requires_explicit_handoff_confirmation(tmp_path: Path) -> No
     compiled = module.AlignmentGraphStore(
         module.database_path(tmp_path, "handoff-run")
     ).compile_handoff()
-    assert compiled["alignment_digest"] == decision["alignment_digest"]
-    assert compiled["compiled_graph_digest"] != compiled["alignment_digest"]
+    assert compiled["alignment_digest"] != decision["alignment_digest"]
+    assert compiled["compiled_graph_digest"] == compiled["alignment_digest"]
     assert set(compiled["decision_slots"]) == {"question-architecture"}
     assert len(compiled["baseline_findings"]) == 1
     assert compiled["execution_context"]["authority"] == [
@@ -375,6 +375,40 @@ def test_confirm_rejects_stale_displayed_graph(tmp_path: Path) -> None:
             "I accept this strategy and authorize autonomous research.",
             decision["alignment_digest"],
         )
+
+
+@pytest.mark.parametrize(
+    "node_id",
+    ["goal", "use", "scope", "authority", "strategy", "success", "feasibility"],
+)
+def test_post_confirmation_graph_change_stales_handoff(
+    tmp_path: Path, node_id: str
+) -> None:
+    module = controller()
+    run_id = f"post-confirm-{node_id}"
+    module.init(tmp_path, run_id)
+    graph = tmp_path / "graph.json"
+    write_json(graph, complete_graph())
+    decision = module.plan(tmp_path, run_id, graph)
+    module.confirm(
+        tmp_path,
+        run_id,
+        "I accept the displayed strategy and authorize autonomous research.",
+        decision["alignment_digest"],
+    )
+
+    update = complete_graph()
+    node = next(item for item in update["nodes"] if item["id"] == node_id)
+    node["statement"] = f"Updated {node_id} statement after confirmation."
+    store = module.AlignmentGraphStore(module.database_path(tmp_path, run_id))
+    store.merge(update)
+
+    state = store.status()
+    assert state["controller"]["status"] == "alignment"
+    assert state["controller"]["handoff"]["stale"] is True
+    assert state["controller"]["handoff"]["stale_reason"] == "alignment_graph_changed"
+    with pytest.raises(module.ControllerError, match="stale_handoff_confirmation"):
+        store.compile_handoff()
 
 
 def test_readiness_rejects_supported_evidence_that_handoff_would_drop(
