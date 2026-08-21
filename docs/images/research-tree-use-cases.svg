@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+  <title id="title">Research Tree use-case knowledge map</title>
+  <desc id="desc">Four research situations flow from messy signals through a structured knowledge model into a decision-ready outcome.</desc>
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#08111f"/>
+      <stop offset="1" stop-color="#101d2e"/>
+    </linearGradient>
+    <filter id="s" x="-10%" y="-30%" width="120%" height="170%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000713" flood-opacity=".38"/>
+    </filter>
+    <style>
+      .ui { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .eyebrow { font-size: 13px; font-weight: 800; letter-spacing: 1.7px; }
+      .title { font-size: 20px; font-weight: 720; fill: #f4f7fb; }
+      .body { font-size: 15px; fill: #b5c3d2; }
+      .muted { font-size: 13px; fill: #8498ad; }
+    </style>
+  </defs>
+  <rect width="1440" height="900" rx="28" fill="url(#bg2)"/>
+  <g class="ui">
+    <text x="68" y="72" fill="#f4f7fb" font-size="32" font-weight="750">Typical knowledge journeys</text>
+    <text x="68" y="106" class="body">Research Tree organizes uncertainty before it recommends action.</text>
+
+    <text x="354" y="157" class="eyebrow" fill="#7f95aa">MESSY SIGNALS</text>
+    <text x="750" y="157" class="eyebrow" fill="#7f95aa">KNOWLEDGE MODEL</text>
+    <text x="1122" y="157" class="eyebrow" fill="#7f95aa">DECISION OUTPUT</text>
+
+    <g filter="url(#s)">
+      <rect x="54" y="180" width="1332" height="150" rx="20" fill="#0e2030" stroke="#244255"/>
+      <rect x="54" y="180" width="8" height="150" rx="4" fill="#42dfbd"/>
+      <circle cx="110" cy="229" r="25" fill="#123b3d" stroke="#42dfbd"/>
+      <text x="110" y="236" text-anchor="middle" fill="#9affea" font-size="20" font-weight="800">01</text>
+      <text x="154" y="220" class="eyebrow" fill="#62e5c7">DIRECTION</text>
+      <text x="154" y="252" class="title">Build, buy, defer?</text>
+      <text x="154" y="280" class="muted">Needs · systems · constraints</text>
+
+      <rect x="338" y="204" width="300" height="102" rx="14" fill="#12283a"/>
+      <text x="362" y="239" class="body">Conflicting goals and options</text>
+      <text x="362" y="268" class="body">cost · risk · ownership · timing</text>
+      <path d="M650 255 H700" stroke="#3e6479" stroke-width="3"/>
+      <path d="M690 246 L702 255 L690 264" fill="none" stroke="#59b9b2" stroke-width="3"/>
+      <rect x="716" y="204" width="300" height="102" rx="14" fill="#112b37" stroke="#28575b"/>
+      <text x="740" y="239" class="body">Decision criteria + alternatives</text>
+      <text x="740" y="268" class="body">evidence · conditions · gaps</text>
+      <path d="M1028 255 H1078" stroke="#3e6479" stroke-width="3"/>
+      <path d="M1068 246 L1080 255 L1068 264" fill="none" stroke="#59b9b2" stroke-width="3"/>
+      <rect x="1094" y="204" width="260" height="102" rx="14" fill="#18303c"/>
+      <text x="1118" y="239" class="body">Selected direction</text>
+      <text x="1118" y="268" class="body">milestones + conditions</text>
+    </g>
+
+    <g filter="url(#s)">
+      <rect x="54" y="350" width="1332" height="150" rx="20" fill="#101f32" stroke="#28415c"/>
+      <rect x="54" y="350" width="8" height="150" rx="4" fill="#57b9ff"/>
+      <circle cx="110" cy="399" r="25" fill="#17334b" stroke="#57b9ff"/>
+      <text x="110" y="406" text-anchor="middle" fill="#b8e2ff" font-size="20" font-weight="800">02</text>
+      <text x="154" y="390" class="eyebrow" fill="#7ac9ff">INCIDENT</text>
+      <text x="154" y="422" class="title">What failed?</text>
+      <text x="154" y="450" class="muted">Logs · attempts · symptoms</text>
+
+      <rect x="338" y="374" width="300" height="102" rx="14" fill="#14293e"/>
+      <text x="362" y="409" class="body">Partial timeline and stories</text>
+      <text x="362" y="438" class="body">several plausible causes</text>
+      <path d="M650 425 H700" stroke="#42637e" stroke-width="3"/>
+      <path d="M690 416 L702 425 L690 434" fill="none" stroke="#65aee5" stroke-width="3"/>
+      <rect x="716" y="374" width="300" height="102" rx="14" fill="#142b42" stroke="#315879"/>
+      <text x="740" y="409" class="body">Timeline + hypotheses</text>
+      <text x="740" y="438" class="body">tests · contradictions · unknowns</text>
+      <path d="M1028 425 H1078" stroke="#42637e" stroke-width="3"/>
+      <path d="M1068 416 L1080 425 L1068 434" fill="none" stroke="#65aee5" stroke-width="3"/>
+      <rect x="1094" y="374" width="260" height="102" rx="14" fill="#183149"/>
+      <text x="1118" y="409" class="body">Root-cause position</text>
+      <text x="1118" y="438" class="body">containment + oracle</text>
+    </g>
+
+    <g filter="url(#s)">
+      <rect x="54" y="520" width="1332" height="150" rx="20" fill="#131e32" stroke="#35405e"/>
+      <rect x="54" y="520" width="8" height="150" rx="4" fill="#8f9dff"/>
+      <circle cx="110" cy="569" r="25" fill="#252c50" stroke="#8f9dff"/>
+      <text x="110" y="576" text-anchor="middle" fill="#d7ddff" font-size="20" font-weight="800">03</text>
+      <text x="154" y="560" class="eyebrow" fill="#a7b1ff">SELECTION</text>
+      <text x="154" y="592" class="title">Which option fits?</text>
+      <text x="154" y="620" class="muted">Claims · requirements · budget</text>
+
+      <rect x="338" y="544" width="300" height="102" rx="14" fill="#18263c"/>
+      <text x="362" y="579" class="body">Incomparable feature lists</text>
+      <text x="362" y="608" class="body">hidden lock-in and assumptions</text>
+      <path d="M650 595 H700" stroke="#4e5c83" stroke-width="3"/>
+      <path d="M690 586 L702 595 L690 604" fill="none" stroke="#8795e3" stroke-width="3"/>
+      <rect x="716" y="544" width="300" height="102" rx="14" fill="#1b2742" stroke="#454f78"/>
+      <text x="740" y="579" class="body">Criteria + evidence matrix</text>
+      <text x="740" y="608" class="body">prototype gaps · exit risk</text>
+      <path d="M1028 595 H1078" stroke="#4e5c83" stroke-width="3"/>
+      <path d="M1068 586 L1080 595 L1068 604" fill="none" stroke="#8795e3" stroke-width="3"/>
+      <rect x="1094" y="544" width="260" height="102" rx="14" fill="#242a49"/>
+      <text x="1118" y="579" class="body">Preferred option</text>
+      <text x="1118" y="608" class="body">conditions + exit path</text>
+    </g>
+
+    <g filter="url(#s)">
+      <rect x="54" y="690" width="1332" height="150" rx="20" fill="#171d2f" stroke="#493c5d"/>
+      <rect x="54" y="690" width="8" height="150" rx="4" fill="#c58cff"/>
+      <circle cx="110" cy="739" r="25" fill="#332748" stroke="#c58cff"/>
+      <text x="110" y="746" text-anchor="middle" fill="#edd8ff" font-size="20" font-weight="800">04</text>
+      <text x="154" y="730" class="eyebrow" fill="#d3a9ff">MIGRATION</text>
+      <text x="154" y="762" class="title">Safe migration?</text>
+      <text x="154" y="790" class="muted">Current state · target · failures</text>
+
+      <rect x="338" y="714" width="300" height="102" rx="14" fill="#20243a"/>
+      <text x="362" y="749" class="body">Coupled dependencies</text>
+      <text x="362" y="778" class="body">authority and recovery risk</text>
+      <path d="M650 765 H700" stroke="#625474" stroke-width="3"/>
+      <path d="M690 756 L702 765 L690 774" fill="none" stroke="#b487df" stroke-width="3"/>
+      <rect x="716" y="714" width="300" height="102" rx="14" fill="#24243c" stroke="#594b70"/>
+      <text x="740" y="749" class="body">Invariants + dependency graph</text>
+      <text x="740" y="778" class="body">slices · gates · failure modes</text>
+      <path d="M1028 765 H1078" stroke="#625474" stroke-width="3"/>
+      <path d="M1068 756 L1080 765 L1068 774" fill="none" stroke="#b487df" stroke-width="3"/>
+      <rect x="1094" y="714" width="260" height="102" rx="14" fill="#302642"/>
+      <text x="1118" y="749" class="body">Staged rollout</text>
+      <text x="1118" y="778" class="body">rollback + stop rules</text>
+    </g>
+
+    <text x="1386" y="874" text-anchor="end" fill="#7f93a8" font-size="13">The final action may be code, procurement, policy, operations, or no action.</text>
+  </g>
+</svg>

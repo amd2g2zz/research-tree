@@ -1,5 +1,9 @@
 # Documentation Authority
 
+Start at the [Documentation hub](README.md). It routes requesters, AI agents,
+operators, contributors, and evaluators to the smallest relevant set of active
+documents.
+
 The machine-readable authority index is
 [`documentation-authority-v1.json`](../openspec/changes/unify-research-runtime-alpha2/registries/documentation-authority-v1.json).
 It is the canonical inventory for each governed document root: its authority,
@@ -10,6 +14,10 @@ Use the registry precedence when documents conflict. `PRODUCT.md` governs
 current product behavior; ADRs govern accepted architecture; an active OpenSpec
 change governs its pending implementation contract. `docs/specs/` and
 `docs/reviews/` are historical records and cannot override an active contract.
+
+The consolidated `需求理解.md` and `方案设计.md` files are also historical.
+They preserve early delivery context but are not current product, architecture,
+or implementation authority.
 
 Edit `skill-src/`, `assets/`, `references/`, or registered scripts as authoring
 sources. Never edit `packages/` documentation directly: rebuild it with
