@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "research-tree",
-  "version": "0.1.0",
+  "version": "0.1.0a2",
   "description": "Evidence-backed technical research for ambiguous repositories, sources, and decisions.",
   "owner": {
     "name": "research-tree maintainers"
@@ -10,7 +10,7 @@
     {
       "name": "research-tree",
       "description": "Turn unclear technical context into evidence-backed, implementation-ready decisions.",
-      "version": "0.1.0",
+      "version": "0.1.0a2",
       "author": {
         "name": "research-tree maintainers"
       },
