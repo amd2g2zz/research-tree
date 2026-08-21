@@ -1,6 +1,6 @@
 {
   "name": "research-tree",
-  "version": "0.1.0",
+  "version": "0.1.0a2",
   "description": "Turn unclear technical context into evidence-backed, implementation-ready decisions.",
   "author": {
     "name": "research-tree maintainers"

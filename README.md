@@ -47,6 +47,10 @@ uv sync
 Requirements: Git, Python 3.11+, [uv](https://docs.astral.sh/uv/), and at
 least one supported host.
 
+Research Tree also provides a Python API for composed workflow services when
+you need to integrate its governed research workflow into an existing tool or
+application.
+
 ### 2. Install for your host
 
 ```bash
