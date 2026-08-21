@@ -20,15 +20,14 @@ substitute for local evidence.
 - [ ] 1.5 Register hidden-oracle boundaries so worker-visible fixtures cannot access eventual patches or expected answers.
 - [ ] 1.6 Link each fixture and acceptance oracle back to the corresponding alpha2 capability requirement and GitHub issue.
 
-## 2. SQLite RunLedger and Content-Addressed Storage (#53)
+## 2. SQLite RunLedger Foundation (#53)
 
 - [ ] 2.1 Introduce a storage protocol that preserves the existing ArtifactRevision, parent-reference, round, and event operations without coupling domain services to filesystem paths.
-- [ ] 2.2 Define and migrate SQLite schema version 1 for runs, artifact revisions, artifact parents, events, action attempts, evidence metadata, oracle runs, and host events.
+- [ ] 2.2 Define and migrate the SQLite schema for runs, artifact revisions, artifact parents, and immutable events.
 - [ ] 2.3 Configure foreign keys, WAL, full synchronization, busy timeout, short transactions, and expected-revision conflict handling on every connection.
 - [ ] 2.4 Implement immutable artifact append, exact revision resolution, round reconstruction, event append, and lineage integrity checks in the SQLite backend.
-- [ ] 2.5 Implement the SHA-256 content-addressed store with atomic writes, digest verification, media metadata, and workspace-boundary enforcement.
-- [ ] 2.6 Add concurrency, stale-write, dangling-parent, tamper, restart, and deterministic-replay tests for SQLite and the CAS.
-- [ ] 2.7 Add an idempotent importer for filesystem RunStore rounds and verify repeated import produces no duplicate revisions or events.
+- [ ] 2.5 Add concurrency, stale-write, dangling-parent, restart, and deterministic-replay tests for the SQLite ledger.
+- [ ] 2.6 Keep content-addressed storage in its dedicated group 33.
 
 ## 3. Resolvable Evidence Artifacts (#54)
 
@@ -72,14 +71,17 @@ substitute for local evidence.
 
 ## 7. Evidence-Bearing Mutual Alignment (#59)
 
-- [ ] 7.1 Extend alignment persistence with action attempts, pending-action identity, belief basis, confidence, disagreement disposition, and supersession lineage.
-- [ ] 7.2 Implement candidate scoring for reconnaissance, one open question, constructive disagreement, and confirmation using recorded semantic factors.
-- [ ] 7.3 Ensure agent-verifiable ambiguity consumes a reconnaissance attempt before requesting the technical fact from the user when reconnaissance has expected value.
-- [ ] 7.4 Implement candidate-understanding repair and supported/refuted/not-enough-information disagreement handling without overwriting either participant's belief.
-- [ ] 7.5 Enforce one short open prompt per user turn while preserving unresolved internal gaps across turns.
-- [ ] 7.6 Require semantic readiness, displayed digest freshness, and contextual user confirmation before autonomous handoff.
-- [ ] 7.7 Route material post-handoff target, priority, authority, or success changes through feedback lineage and successor-round creation.
-- [ ] 7.8 Add black-box alignment tests for vague briefs, impossible goals, wrong human premises, wrong agent premises, repeated planning, and generic acknowledgement.
+- [x] 7.1 Extend alignment persistence with action attempts, pending-action identity, belief basis, confidence, disagreement disposition, and supersession lineage.
+- [x] 7.2 Implement candidate scoring for reconnaissance, one open question, constructive disagreement, and confirmation using recorded semantic factors.
+- [x] 7.3 Ensure agent-verifiable ambiguity consumes a reconnaissance attempt before requesting the technical fact from the user when reconnaissance has expected value.
+- [x] 7.4 Implement candidate-understanding repair and supported/refuted/not-enough-information disagreement handling without overwriting either participant's belief.
+- [x] 7.5 Enforce one short open prompt per user turn while preserving unresolved internal gaps across turns.
+- [x] 7.6 Require semantic readiness, displayed digest freshness, and contextual user confirmation before autonomous handoff.
+- [x] 7.7 Route material post-handoff target, priority, authority, or success changes through feedback lineage and successor-round creation.
+- [x] 7.8 Add black-box alignment tests for vague briefs, impossible goals, wrong human premises, wrong agent premises, repeated planning, and generic acknowledgement.
+- [x] 7.9 Add focused action, belief, message, handoff, feedback, replay, and
+  authority-bypass tests; each slice records `pytest`, `ruff check`, and
+  `ruff format --check` evidence over its changed files.
 
 ## 8. Host Event Protocol and Native Adapters (#60, #82)
 
@@ -90,10 +92,12 @@ substitute for local evidence.
 - [ ] 8.5 Preserve open conversational alignment when a native question tool cannot express an unconstrained prompt.
 - [ ] 8.6 Add source-checkout, installed-package, Windows, POSIX, rebuild, and package-parity tests for both native adapters.
 - [ ] 8.7 Prove equivalent Codex and Claude event fixtures produce the same canonical semantic digest.
-- [ ] 8.8 Define activation evidence states for discovery, current installation, live body injection, and post-activation behavior; require explicit host receipts instead of inferring activation from a file read.
-- [ ] 8.9 Add host-specific activation markers, side-effect-free probes, package digests, and bounded receipts for Codex, Claude Code, and Hermes.
-- [ ] 8.10 Add stale-link classification and non-destructive refresh handling to setup/status, including the legacy repository-root path failure mode.
-- [ ] 8.11 Run native activation probes in isolated Codex, Claude Code, and Hermes fixtures; mark unavailable CLIs as unavailable evidence and retain exact outputs.
+- [x] 8.8 Define activation evidence states for discovery, current installation, live body injection, and post-activation behavior; require explicit host receipts instead of inferring activation from a file read.
+- [x] 8.9 Add host-specific activation markers, side-effect-free probes, package digests, and bounded receipts for Codex, Claude Code, and Hermes.
+- [x] 8.10 Replace the obsolete stale-link refresh protocol with current-only
+  setup/status behavior: every existing non-current target is unsupported and
+  remains unchanged.
+- [x] 8.11 Run native activation probes in isolated Codex, Claude Code, and Hermes fixtures; mark unavailable CLIs as unavailable evidence and retain exact outputs.
 
 ## 9. Hermes-Native Long-Horizon Adapter (#61, #82)
 
@@ -107,14 +111,14 @@ substitute for local evidence.
 
 ## 10. Semantic Dual Delivery and Acceptance (#62)
 
-- [ ] 10.1 Rename the canonical human-facing artifact and public contract from Human Brief to Human Research Report with an explicit legacy compatibility disposition.
-- [ ] 10.2 Remove adapter Markdown byte/heading verification and route all delivery creation through DeliveryCompiler and exact Decision Ledger lineage.
-- [ ] 10.3 Extend the Technical Research Package contract for applicable architecture, interfaces, state flows, permissions, implementation order, repository touchpoints, validation, observability, migration, rollout, and rollback.
-- [ ] 10.4 Extend the Human Research Report contract for evidence-backed reasoning, alternatives, trade-offs, expected capability, applicability, risks, uncertainties, and implementation meaning.
-- [ ] 10.5 Add semantic readiness diagnostics for orphan claims, missing implementation boundaries, unresolved P0 conditions, and shallow human reasoning.
-- [ ] 10.6 Define DeliveryAcceptance bound to exact technical and human artifact revisions and reject generic acknowledgement.
-- [ ] 10.7 Route rejection for intent or depth into same-round evidence work or a traceable successor round.
-- [ ] 10.8 Add filler-report, orphan-claim, stale-acceptance, legacy-Human-Brief, and independent-implementation tests.
+- [x] 10.1 Rename the canonical human-facing artifact and public contract from Human Brief to Human Research Report with an explicit legacy compatibility disposition.
+- [x] 10.2 Remove adapter Markdown byte/heading verification and route all delivery creation through DeliveryCompiler and exact Decision Ledger lineage.
+- [x] 10.3 Extend the Technical Research Package contract for applicable architecture, interfaces, state flows, permissions, implementation order, repository touchpoints, validation, observability, migration, rollout, and rollback.
+- [x] 10.4 Extend the Human Research Report contract for evidence-backed reasoning, alternatives, trade-offs, expected capability, applicability, risks, uncertainties, and implementation meaning.
+- [x] 10.5 Add semantic readiness diagnostics for orphan claims, missing implementation boundaries, unresolved P0 conditions, and shallow human reasoning.
+- [x] 10.6 Define DeliveryAcceptance bound to exact technical and human artifact revisions and reject generic acknowledgement.
+- [x] 10.7 Route rejection for intent or depth into same-round evidence work or a traceable successor round.
+- [x] 10.8 Add filler-report, orphan-claim, stale-acceptance, legacy-Human-Brief, and independent-implementation tests.
 
 ## 11. Causal Observability and Recovery Tools (#63)
 
@@ -129,37 +133,24 @@ substitute for local evidence.
 
 ## 12. Cross-Host Black-Box Evaluation (#64)
 
-- [ ] 12.1 Version cases for vague intent, wrong human premise, wrong agent premise, infeasible goal, repository research, conflicting sources, multimodal input, recursive discovery, unavailable tools, provider failure, crash recovery, and material feedback.
-- [ ] 12.2 Add hidden fact and implementation oracles that remain outside worker-visible requests and pin source permission, baseline revision, and environment digest.
-- [ ] 12.3 Extend BlueprintEvaluationSuite with intent fidelity, premature handoff, unsupported claim, P0 coverage, contradiction, oracle reproducibility, false completion, recovery, host parity, rediscovery burden, and acceptance metrics.
+- [x] 12.1 Version cases for vague intent, wrong human premise, wrong agent premise, infeasible goal, repository research, conflicting sources, multimodal input, recursive discovery, unavailable tools, provider failure, crash recovery, and material feedback.
+- [x] 12.2 Add hidden fact and implementation oracles that remain outside worker-visible requests and pin source permission, baseline revision, and environment digest.
+- [x] 12.3 Extend BlueprintEvaluationSuite with intent fidelity, premature handoff, unsupported claim, P0 coverage, contradiction, oracle reproducibility, false completion, recovery, host parity, rediscovery burden, and acceptance metrics.
 - [ ] 12.4 Run isolated implementation attempts against exact alpha2 packages, alpha1 packages, and a registered simpler-prompt baseline.
-- [ ] 12.5 Add blinded expert review for problem fidelity, evidence quality, professional depth, technical correctness, and implementation usefulness.
-- [ ] 12.6 Persist raw case artifacts, commands, results, comparisons, limitations, and component diagnoses for audit.
-- [ ] 12.7 Enforce zero false completion, fully resolvable P0 evidence/closure, recovery, and cross-host parity as non-negotiable release gates.
-- [ ] 12.8 Publish an alpha2 evaluation report that states improvements, regressions, residual uncertainty, and unsupported claims without proxy-based self-congratulation.
+- [x] 12.5 Add blinded expert review for problem fidelity, evidence quality, professional depth, technical correctness, and implementation usefulness.
+- [x] 12.6 Persist raw case artifacts, commands, results, comparisons, limitations, and component diagnoses for audit.
+- [x] 12.7 Enforce zero false completion, fully resolvable P0 evidence/closure, recovery, and cross-host parity as non-negotiable release gates.
+- [x] 12.8 Publish an alpha2 evaluation report that states improvements, regressions, residual uncertainty, and unsupported claims without proxy-based self-congratulation.
 - [ ] 12.9 Add black-box cases proving AnySearch multi-query remains one provider boundary, intent-derived implicit subquestions are researched, shallow first waves deepen, invalidated directions create successor strategies, and captured sources/checkpoints survive a crash.
 - [ ] 12.10 Add native-workflow fixtures for Claude Code dynamic phases/replan, Codex delegation fallback, and Hermes capability absence with canonical artifact parity.
 
-## 13. Migration, Packaging, and Cutover (#65)
+## 14. Ratified Architecture and Lifecycle Contract (#66)
 
-- [ ] 13.1 Inventory alpha1 filesystem RunStore, alignment SQLite, native checkpoint, Hermes checkpoint, Finding Pack, report, and package schema variants.
-- [ ] 13.2 Implement idempotent import dispositions for legacy evidence, validation, closure, completion, Technical Research Package, and Human Brief artifacts.
-- [ ] 13.3 Add read-only compatibility projections for shadow comparison without dual-writing canonical completion state.
-- [ ] 13.4 Update canonical build sources and generate separate Codex, Claude Code, and Hermes packages with host-specific manifests, references, scripts, and setup instructions.
-- [ ] 13.5 Add package hash/parity, stale-package, strict UTF-8 without BOM, runtime discoverability, and source/install launch tests.
-- [ ] 13.6 Run upgrade and rollback drills and verify alpha2 artifacts are never back-projected as trusted alpha1 closure.
-- [ ] 13.7 Stop writing `.research-tree-native` and `.research-tree-hermes` completion state only after all black-box release gates pass.
-- [ ] 13.8 Document unsupported schema behavior, recovery, migration, rollback, and final legacy-path removal.
-
-## 14. Canonical Schemas and Lifecycle Contract (#53, #56, #57, #60, #80, #82, #83)
-
-- [ ] 14.1 Create schemas/ with versioned JSON schemas, valid/invalid examples, owner metadata, and migration notes for every canonical entity.
-- [ ] 14.2 Define the exact InputRecord, PermissionProfile, AlignmentMessage, FeedbackEvent, ResearchRun, DecisionSlot, ResearchAction, SearchPortfolio, WorkItem, AttemptLease, SourceCapture, AcquisitionReceipt, AnalysisCheckpoint, EvidenceArtifact, EvidenceAnchor, OracleSpec, OracleRun, SlotClosureAssessment, InsightDigest, ReadinessRecord, HostEvent, NativeWorkflowRun, DeliveryManifest, DeliveryAcceptance, and ReleaseManifest fields.
-- [ ] 14.3 Publish the schema, protocol, package, template, and database compatibility matrix with reader/writer support, lossless migrators, deprecation, and rejection rules.
-- [ ] 14.4 Implement shared validators and contract-test generation so runtime ingestion and host emission use the same schemas.
-- [ ] 14.5 Publish the lifecycle matrix for alignment, handoff_pending, autonomous_research, synthesis, readiness, delivery_pending, awaiting_acceptance, completed, paused, blocked, superseded, authority_blocked, and failed.
-- [ ] 14.6 Define pause, resume, cancel, provider outage, safety violation, infeasible objective, acceptance rejection, and supersession transitions with guards, side effects, actors, and stable errors.
-- [ ] 14.7 Add replay tests for illegal, stale, duplicate, out-of-order, and terminal transitions and verify identical semantic digests on Windows and POSIX.
+- [x] 14.1 Publish ADR-002 through ADR-005 for completion authority, graph boundaries, SQLite/CAS storage, and host event translation.
+- [x] 14.2 Publish the Alpha2 lifecycle matrix and active capability-spec entry points used by the ratified architecture.
+- [x] 14.3 Bind issue #66 to group 14 and the `ratify-alpha2-runtime-contract` change in the execution registries.
+- [x] 14.4 Reject absent ADR sections, missing lifecycle/spec sources, and stale issue-to-change mappings through focused contract tests.
+- [x] 14.5 Run the tracked group 14 acceptance command and record a source-bound verification receipt.
 
 ## 15. Worker Orchestration and Acquisition (#54, #56, #58, #60, #61, #80, #83)
 
@@ -169,10 +160,10 @@ substitute for local evidence.
 - [ ] 15.4 Add typed empty, malformed, partial, provider-failed, and cancelled Finding Pack handling with persisted next actions.
 - [ ] 15.5 Create the method/tool registry for repository, web/search, document, image, experiment, and code-execution methods with capability, permission, timeout, retry, provenance, and limitation metadata.
 - [ ] 15.6 Implement SearchPortfolio generation from IntentModel/WorkingBrief/Decision Slot, including implicit subquestions, query rewrites, method/provider boundaries, and batch depth dispositions.
-- [ ] 15.7 Implement immutable SourceCapture and AcquisitionReceipt persistence, URL response digests, derivative provenance groups, license/access records, parser versions, and multimodal selector resolvers.
-- [ ] 15.8 Implement bounded AnalysisCheckpoint persistence and enforce capture/checkpoint-before-worker-finished ordering with crash recovery and successor resume.
+- [x] 15.7 Implement immutable SourceCapture and AcquisitionReceipt persistence, URL response digests, derivative provenance groups, license/access records, parser versions, and multimodal selector resolvers.
+- [x] 15.8 Implement bounded AnalysisCheckpoint persistence and enforce capture/checkpoint-before-worker-finished ordering with crash recovery and successor resume.
 - [ ] 15.9 Add acquisition fallback tests for no-result search, blocked URLs, parser errors, unsupported media, rate limits, unavailable tools, and changed source digests.
-- [ ] 15.10 Add scheduler-tick/no-progress traces and prove method switch or authority blocking when a P0 obligation survives the registered no-change threshold.
+- [ ] 15.10 Add coordinator-execution-tick/no-progress traces and prove method switch or authority blocking when a P0 obligation survives the registered no-change threshold.
 - [ ] 15.11 Enforce mandatory deep-dive/adversarial/validation phase coverage per consequential Slot; reject landscape-only delivery, missing OracleRun, and same-worker self-review.
 
 ## 16. Insight Synthesis and Policy Calibration (#58, #59)
@@ -193,14 +184,13 @@ substitute for local evidence.
 
 ## 18. Implementation Vertical Slices and Release Evidence (all Alpha2 P0 issues)
 
-- [x] 18.1 Create a machine-readable requirement-to-delivery matrix mapping every requirement to source owner, public surface, migration impact, focused tests, black-box case, evidence artifact, and GitHub issue.
+- [x] 18.1 Create a machine-readable requirement-to-delivery matrix mapping every requirement to source owner, public surface, current-only cutover impact, focused tests, black-box case, evidence artifact, and GitHub issue.
 - [ ] 18.2 Define public Python API, CLI JSON schemas, configuration precedence, supported Python/OS matrix, package manifests, and first-success smoke commands for all three hosts.
 - [ ] 18.10 Define the source-checkout launcher contract so documented test and subprocess commands resolve research_tree without an accidental PYTHONPATH dependency; test both direct interpreter and uv-managed invocation.
-- [ ] 18.3 Implement migration inventory, dry-run, apply, verify, rollback, and status commands with source digests, collision reports, operator confirmations, and non-destructive untracked-data handling.
 - [ ] 18.4 Define and emit an immutable release manifest containing source revision, host package hashes, schema versions, test/evaluation commands, baselines, environments, verifier identity, limitations, and gate results.
 - [ ] 18.5 Freeze evaluation cases, baselines, metric aggregation, missing-data handling, expert rubric, and thresholds before candidate runs and reject post-hoc changes.
-- [ ] 18.6 Add a Definition-of-Done checker that rejects tasks lacking code, focused tests, regression results, documentation, migration notes, and linked evidence where required.
-- [ ] 18.7 Add feature flags, compatibility aliases, observation-window metrics, rollback triggers, and final legacy-authority removal checks.
+- [ ] 18.6 Add a Definition-of-Done checker that rejects tasks lacking code, focused tests, regression results, documentation, current-only cutover notes, and linked evidence where required.
+- [ ] 18.7 Add removal checks, observation-window metrics, and rollback triggers without compatibility aliases.
 - [ ] 18.8 Run the complete vertical slice on clean Windows and POSIX checkouts and retain command output and manifest as release evidence.
 - [ ] 18.9 Export an offline-verifiable evidence bundle that resolves every release claim to case, command, environment, artifact, oracle, trace, comparison, and limitation.
 
@@ -216,53 +206,53 @@ substitute for local evidence.
 
 ## 20. Evaluation Asset Governance (#69)
 
-- [ ] 20.1 Inventory `evaluation/`, `evals/`, experience reports, session JSONL, raw evidence, case manifests, evaluator code, hidden-oracle interfaces, and release outputs by lifecycle class.
-- [ ] 20.2 Ratify one canonical evaluation namespace and a non-overlapping directory contract for cases, schemas, harnesses, fixtures, baselines, results, reviews, transcripts, and disposable output.
-- [ ] 20.3 Define tracked/ignored policy, provenance schema, retention, redaction, size limits, stable identifiers, and safe hidden-oracle references.
-- [ ] 20.4 Migrate or explicitly retire the ambiguous `evals/` root and preserve compatibility for `evaluation/cases/v1.json`.
-- [ ] 20.5 Classify retained alpha1 experience artifacts and migrate only release-relevant, redacted, provenance-complete evidence.
+- [x] 20.1 Inventory `evaluation/`, `evals/`, experience reports, session JSONL, raw evidence, case manifests, evaluator code, hidden-oracle interfaces, and release outputs by lifecycle class.
+- [x] 20.2 Ratify one canonical evaluation namespace and a non-overlapping directory contract for cases, schemas, harnesses, fixtures, baselines, results, reviews, transcripts, and disposable output.
+- [x] 20.3 Define tracked/ignored policy, provenance schema, retention, redaction, size limits, stable identifiers, and safe hidden-oracle references.
+- [x] 20.4 Migrate or explicitly retire the ambiguous `evals/` root and preserve compatibility for `evaluation/cases/v1.json`.
+- [x] 20.5 Classify retained alpha1 experience artifacts and migrate only release-relevant, redacted, provenance-complete evidence.
 - [x] 20.6 Add deterministic evaluation entry points and validators for misplaced output, schema drift, oracle leakage, missing provenance, and oversized transcripts.
 - [ ] 20.7 Update #55 and #64 implementations to consume the governed asset model and reject private local conventions.
 
 ## 21. Repository Layout Governance (#70)
 
-- [ ] 21.1 Inventory every top-level path and classify source, generated, installed, runtime, evaluation, build, cache, and historical ownership.
+- [x] 21.1 Inventory every top-level path and classify source, generated, installed, runtime, evaluation, build, cache, and historical ownership.
 - [x] 21.2 Define a machine-readable path registry with mutability, tracked status, distribution status, cleanup safety, owner, and canonical command.
-- [ ] 21.3 Reconcile `packages/`, `skill-src/`, shared resources, host overlays, and repository-local `.agents/.claude/.codex` installations with explicit source/generated/install boundaries.
-- [ ] 21.4 Reconcile `.gitignore`, package manifests, build/dist output, egg-info, caches, raw material, research runs, and evaluation output with the registry.
+- [x] 21.3 Reconcile `packages/`, `skill-src/`, shared resources, host overlays, and repository-local `.agents/.claude/.codex` installations with explicit source/generated/install boundaries.
+- [x] 21.4 Reconcile `.gitignore`, package manifests, build/dist output, egg-info, caches, raw material, research runs, and evaluation output with the registry.
 - [x] 21.5 Implement checks for unexpected roots, generated-source drift, host-package leakage, misplaced runtime output, and undocumented artifacts.
-- [ ] 21.6 Prove package build, tests, supported local install, and a sample run leave a clean checkout with no unexplained files.
-- [ ] 21.7 Provide a non-destructive migration map with collision detection and explicit confirmation for user-owned untracked artifacts.
-- [ ] 21.8 Update repository layout and contributor documentation from the enforced registry.
+- [x] 21.6 Prove package build, tests, supported local install, and a sample run leave a clean checkout with no unexplained files.
+- [x] 21.7 Provide a non-destructive migration map with collision detection and explicit confirmation for user-owned untracked artifacts.
+- [x] 21.8 Update repository layout and contributor documentation from the enforced registry.
 
 ## 22. Alpha2 Release Completion (#67)
 
-- [ ] 22.1 Run the full unit, integration, adversarial, migration, package, documentation, layout, evaluation-asset, and cross-host black-box suites from a clean checkout.
+- [ ] 22.1 Run the full unit, integration, adversarial, package, documentation, layout, evaluation-asset, and cross-host black-box suites from a clean checkout.
 - [ ] 22.2 Audit every OpenSpec requirement against exact test, runtime artifact, or evaluation evidence and record missing or indirect evidence as incomplete.
 - [ ] 22.3 Confirm every P0 GitHub issue in the alpha2 milestone, including #80, #82, and #83, is closed with linked implementation and verification evidence.
 - [ ] 22.4 Confirm the alpha2 milestone has zero false completion, fully resolvable P0 references, passing recovery/parity, governed evaluation evidence, a clean repository layout, current documentation, improved independent implementation, and accepted expert depth.
-- [ ] 22.5 Update release notes, installation and upgrade guidance, known limitations, documentation authority index, repository layout, evaluation entry points, and compatibility matrix for Codex, Claude Code, and Hermes.
+- [ ] 22.5 Update release notes, installation guidance, known limitations, documentation authority index, repository layout, and evaluation entry points for Codex, Claude Code, and Hermes.
 - [ ] 22.6 Tag and publish the alpha2 prerelease only after the milestone release definition is proven.
 
 ## 23. Transactional Correction Invalidation (#73)
 
 - [x] 23.1 Write failing unit tests showing `record` rejects a response that does not match the current pending action and agent-only evidence cannot resolve a human-only field.
-- [ ] 23.2 Write failing integration tests showing a material FeedbackEvent atomically preserves the prior revision, creates a successor interpretation, and invalidates dependent strategy, handoff, closure, readiness, delivery, and acceptance revisions.
-- [ ] 23.3 Extend the canonical FeedbackEvent and lifecycle contracts with contradicted refs, affected fields, invalidated refs, successor refs, impact class, and task-identity disposition.
+- [x] 23.2 Write failing integration tests showing a material FeedbackEvent atomically preserves the prior revision, creates a successor interpretation, and invalidates dependent strategy, handoff, closure, readiness, delivery, and acceptance revisions. Evidence: `test_material_correction_atomically_preserves_and_supersedes_exact_state` and `test_invalid_correction_binding_and_fault_leave_no_partial_prefix`.
+- [x] 23.3 Extend the canonical FeedbackEvent and lifecycle contracts with contradicted refs, affected fields, invalidated refs, successor refs, impact class, and task-identity disposition. Evidence: `CorrectionEvent`, `CorrectionBinding`, `correction-event-v1.json`, and the exact five-role affected binding contract.
 - [x] 23.4 Implement correction ingestion and stale-state quarantine through the single ResearchRunCoordinator without adding a second writable authority.
-- [ ] 23.5 Reject confirmation, dispatch, delivery, and completion commands that reference a digest invalidated by correction, with stable error and next-action fields.
+- [x] 23.5 Reject confirmation, dispatch, delivery, and completion commands that reference a digest invalidated by correction, with stable error and next-action fields. Evidence: `StaleStateError`, `_assert_current_authority`, and `test_stale_authority_is_quarantined_and_fresh_successor_can_dispatch`.
 - [x] 23.6 Add the diagnostic-subject/task-target contamination fixture and prove that old domain strategy cannot survive an explicit requester correction.
-- [ ] 23.7 Link the implementation, tests, replay trace, and migration disposition to issue #73 and the requirement-to-delivery matrix.
+- [x] 23.7 Link the implementation, tests, replay trace, and retirement disposition to issue #73 and the requirement-to-delivery matrix. Evidence: `invalidate-stale-alignment-state`, `evaluation/cases/correction-invalidation-v1.json`, and the group 23 source-bound receipt.
 
 ## 24. Claude Code and GLM5.2 Black-Box Regression (#72)
 
-- [x] 24.1 Register a redacted case manifest for the reported transcript with exact public turns, expected control transitions, hidden evaluator state, source permission, skill revision, and environment limitations.
-- [ ] 24.2 Write failing black-box assertions for activation-before-reference, one open prompt, correction invalidation, task identity, recursive continuation, unsupported attribution, and dual-delivery depth.
-- [ ] 24.3 Implement the fixture runner and retained evidence paths using the governed evaluation asset model from #69.
-- [ ] 24.4 Execute the same registered case against the alpha1 baseline and alpha2 candidate; record non-reproducibility instead of fabricating a baseline failure.
-- [ ] 24.5 Execute a controlled Claude Code native versus GLM5.2 comparison when both runtimes are available, otherwise persist an unavailable result with the external blocker.
-- [x] 24.6 Add an attribution validator that rejects model/host causal claims when more than the declared comparison factor changes or comparison evidence is missing.
-- [ ] 24.7 Link case artifacts, traces, reviewer disposition, and residual uncertainty to issue #72 and the alpha2 release manifest.
+- [x] 24.1 Replaced the unsupported historical-transcript task state with a clearly labelled synthetic, non-historical public case, opaque evaluator identifier, source limitations, and environment/comparison contract.
+- [x] 24.2 Captured failing fixture assertions for activation-before-reference, one open prompt, correction invalidation, task identity, recursive continuation, unsupported attribution, and dual-delivery depth in ignored local output before implementation.
+- [x] 24.3 Implemented the fixture runner and retained evidence paths using the governed evaluation asset model from #69.
+- [x] 24.4 Executed the deterministic synthetic control and recorded that it is not evidence of an alpha1 historical failure or live candidate parity.
+- [x] 24.5 Recorded the unavailable GLM5.2 comparison with the named external blocker `glm52-runtime-unavailable`; it is non-passing evidence.
+- [x] 24.6 Added an attribution validator that rejects model/host causal claims when more than the declared comparison factor changes or comparison evidence is missing.
+- [x] 24.7 Linked public case artifacts, the ignored source-bound receipt, reviewer disposition, and residual uncertainty to issue #72 without claiming historical replay or GLM causation.
 
 ## 25. Durable Source Capture and Analyst Checkpoints (#80)
 
@@ -276,22 +266,296 @@ substitute for local evidence.
 
 ## 26. Host-Native Dynamic Orchestration (#82)
 
-- [ ] 26.1 Define HostCapabilityMatrix and NativeWorkflowRun schemas, capability probe commands, versioned adapter manifests, and explicit fallback ids.
-- [ ] 26.2 Implement Claude Code dynamic workflow projection for phases, dynamic child delegation, replan, restart, and durable checkpoint resume.
-- [ ] 26.3 Implement Codex native delegation projection and coordinator-driven fallback when dynamic workflow support is absent.
-- [ ] 26.4 Implement Hermes capability negotiation for delegation, goals, Kanban, lifecycle hooks, and scheduled drain without granting hooks completion authority.
-- [ ] 26.5 Reconcile native workflow start/resume/phase/child events and quarantine stale projections after strategy revision.
-- [ ] 26.6 Add cross-host parity tests proving native and fallback executions produce equivalent canonical artifacts and completion guards.
-- [ ] 26.7 Add restart and provider-failure fixtures for each host with safe diagnostics and no lost obligations.
-- [ ] 26.8 Link adapter manifests, probe results, traces, and parity evidence to #82 and the alpha2 release manifest.
+- [x] 26.1 Define HostCapabilityMatrix and NativeWorkflowRun schemas, capability probe commands, versioned adapter manifests, and explicit fallback ids.
+- [x] 26.2 Implement Claude Code dynamic workflow projection for phases, dynamic child delegation, replan, restart, and durable checkpoint resume.
+- [x] 26.3 Implement Codex native delegation projection and coordinator-driven fallback when dynamic workflow support is absent.
+- [x] 26.4 Implement Hermes capability negotiation for delegation, goals, Kanban, lifecycle hooks, and scheduled drain without granting hooks completion authority.
+- [x] 26.5 Reconcile native workflow start/resume/phase/child events and quarantine stale projections after strategy revision.
+- [x] 26.6 Add cross-host parity tests proving native and fallback executions produce equivalent canonical artifacts and completion guards.
+- [x] 26.7 Add restart and provider-failure fixtures for each host with safe diagnostics and no lost obligations.
+- [x] 26.8 Link adapter manifests, probe results, traces, and parity evidence to #82 and the alpha2 release manifest.
 
 ## 27. Intent-Derived Search Portfolios (#83)
 
-- [ ] 27.1 Implement SearchPortfolio generation from IntentModel, WorkingBrief, Decision Slot deficits, and prior acquisition outcomes.
-- [ ] 27.2 Add explicit/implicit subquestion expansion and query rewriting with provenance to the originating slot and reason.
-- [ ] 27.3 Implement method/provider registry selection and distinguish provider, corpus, extraction, repository, primary-source, and experiment boundaries.
-- [ ] 27.4 Add post-batch coverage/depth/contradiction/implementation/oracle assessment with deepen, broaden, pivot, validate, and sufficient_for_slot dispositions.
-- [ ] 27.5 Add hidden-mechanism and shallow-search fixtures proving the portfolio does not stop at a single AnySearch query family.
-- [ ] 27.6 Add invalid-direction fixtures proving successor strategy/action lineage and autonomous continuation inside authority.
-- [ ] 27.7 Add a controlled comparison against the legacy direct-query behavior and publish rediscovery, coverage, depth, and decision-closure deltas.
-- [ ] 27.8 Link portfolio artifacts, query/method traces, comparison results, and limitations to #83 and the alpha2 release manifest.
+- [x] 27.1 Implement SearchPortfolio generation from IntentModel, WorkingBrief, Decision Slot deficits, and prior acquisition outcomes.
+- [x] 27.2 Add explicit/implicit subquestion expansion and query rewriting with provenance to the originating slot and reason.
+- [x] 27.3 Implement method/provider registry selection and distinguish provider, corpus, extraction, repository, primary-source, and experiment boundaries.
+- [x] 27.4 Add post-batch coverage/depth/contradiction/implementation/oracle assessment with deepen, broaden, pivot, validate, and sufficient_for_slot dispositions.
+- [x] 27.5 Add hidden-mechanism and shallow-search fixtures proving the portfolio does not stop at a single AnySearch query family.
+- [x] 27.6 Add invalid-direction fixtures proving successor strategy/action lineage and autonomous continuation inside authority.
+- [x] 27.7 Add a controlled comparison against the legacy direct-query behavior and publish rediscovery, coverage, depth, and decision-closure deltas.
+- [x] 27.8 Link portfolio artifacts, query/method traces, comparison results, and limitations to #83 and the alpha2 release manifest.
+
+## 28. Four-Stage Strategy Handoff (#85)
+
+- [ ] 28.1 Define StrategyProjection schema, exact digest binding, and four-stage lifecycle transitions.
+- [ ] 28.2 Require current displayed projection and explicit non-generic confirmation before autonomous dispatch.
+- [ ] 28.3 Preserve strategy revision, rejection, correction, pause/resume, and cross-host projection lineage.
+- [ ] 28.4 Add lifecycle, replay, migration, and cross-host parity tests for stale, incomplete, and generic handoff attempts.
+
+## 29. Project-Scoped User Preference Profiles (#86)
+
+- [x] 29.1 Define PreferenceObservation and project-local UserPreferenceProfile schemas with privacy boundaries.
+- [x] 29.2 Implement five-turn refresh, explicit-input precedence, hysteresis, shadow changes, aging, and supersession.
+- [x] 29.3 Bind material profile effects to StrategyProjection and expose inspection, correction, reset, and deletion controls.
+- [x] 29.4 Add deterministic preference recall, volatility, override, privacy, reload, and strategy-trace tests.
+
+## 30. Paired Alpha Benchmark (#84)
+
+- [ ] 30.1 Define a frozen paired benchmark manifest for alpha1, alpha2, and simpler-prompt executions.
+- [ ] 30.2 Implement stratified sampling, metric polarity, missing-data rules, paired uncertainty, and hard integrity gates.
+- [ ] 30.3 Retain raw artifacts, blinded review outcomes, budget diagnostics, regressions, and environmental variation evidence.
+- [ ] 30.4 Publish a reproducible comparison report only after the #64 candidate harness is verified.
+
+## 31. DecisionFrame Before Strategy (#87)
+
+- [ ] 31.1 Persist literal requester wording, competing hypotheses, ambiguity, ownership, consequence, and disposition.
+- [ ] 31.2 Choose bounded reconnaissance or one open requester prompt for material unresolved ambiguity.
+- [ ] 31.3 Require ready_for_strategy DecisionFrame before StrategyProjection, research plan, or autonomous dispatch.
+- [ ] 31.4 Add black-box intent-substitution, hypothesis fidelity, clarification appropriateness, and decision-surface tests.
+
+## 32. Cross-Host Skill Activation Integrity (#71)
+
+- [x] 32.1 Define discovered, static_ready, and live_verified activation evidence states and safe receipt schema.
+- [x] 32.2 Add host-native side-effect-free activation probes for Codex, Claude Code, and Hermes.
+- [x] 32.3 Diagnose missing, current, and unsupported installations without
+  rewriting user-owned non-current paths.
+- [x] 32.4 Add isolated host activation, malformed marker, wrong-host package,
+  unsupported-target, and package drift regression tests.
+
+## 42. Isolated Hermes Executable Bundle (#155)
+
+- [x] 42.1 Define and stage the executable closure for every documented Hermes entrypoint, including fallback dependencies.
+- [x] 42.2 Run the group-42 focused acceptance command and bind its source-bound receipt before treating package compatibility as verified.
+
+## 46. Closure Evidence Content Binding (#160)
+
+- [x] 46.1 Require SourceCapture, AcquisitionReceipt, EvidenceArtifact, and
+  declared origin relationships to resolve through exact available CAS bindings.
+- [x] 46.2 Derive and require the complete current decision-bound Finding set
+  before closure assessment, rejecting caller omission or substitution.
+- [x] 46.3 Run the focused closure acceptance command and record a
+  source-bound group-46 receipt before treating this child as verified.
+
+## 47. Closure Quality and Currentness (#161)
+
+- [x] 47.1 Derive method/provider independence and selected-option
+  contradiction coverage from strict current closure evidence and Oracle input
+  lineage rather than caller claims.
+- [x] 47.2 Persist a version-two closure assessment and replay it fail-closed
+  against exact current Finding, evidence, capture, and Oracle lineage.
+- [x] 47.3 Run the focused closure acceptance command and record a
+  source-bound group-47 receipt before treating this child as verified.
+
+## 39. Evidence-Graph Closure Quality Parent Acceptance (#152)
+
+- [x] 39.1 Verify the merged group-46 and group-47 source-bound receipts are
+  reachable from the parent acceptance baseline.
+- [x] 39.2 Run the parent acceptance command and record a source-bound
+  group-39 receipt before closing #152.
+
+## 36. Canonical Completion Integrity Parent Acceptance (#149)
+
+- [x] 36.1 Verify groups 43, 44, and 45 have reachable source-bound receipts
+  from the parent acceptance baseline.
+- [x] 36.2 Run the parent false-completion and reopen acceptance command, then
+  record a source-bound group-36 receipt before closing #149.
+
+## 40. Transitive Correction Invalidation (#153)
+
+- [ ] 40.1 Replace the static kind allowlist with conservative transitive
+  descendant traversal and preserve independent branches.
+- [ ] 40.2 Reject stale descendants at dispatch, ingestion, recovery, and
+  completion boundaries; record a source-bound group-40 receipt.
+
+## 54. Legacy CLI Surface Removal (#164)
+
+- [x] 54.1 Remove every published legacy round, tree, and profile command
+  before it can parse, discover a store, or call a runtime service.
+- [x] 54.2 Retire the standalone migration console surface, its implementation,
+  exports, tests, and maintained public guidance without a replacement route.
+- [x] 54.3 Run the focused breaking-removal acceptance command and record a
+  source-bound group-54 receipt before treating this child as verified.
+
+## 55. Legacy RunStore Import Authority Removal (#167)
+
+- [x] 55.1 Remove the importer module, root exports, importer tests, and
+  legacy receipt DDL/API without touching user-owned historical data.
+- [x] 55.2 Remove active import capability/issue ownership, compatibility
+  mappings, and the stale group-13 migration task while preserving only
+  historical implementation evidence through Git history.
+- [x] 55.3 Run the focused breaking-removal acceptance command and record a
+  source-bound group-55 receipt before treating this child as verified.
+
+## 57. Current-Only Skill Setup (#169)
+
+- [x] 57.1 Remove setup migration and refresh paths while retaining missing and
+  current Codex, Claude Code, and Hermes installation behavior.
+- [x] 57.2 Reject every existing non-current target without moving, unlinking,
+  replacing, or otherwise mutating its user-owned contents.
+- [x] 57.3 Run the focused setup acceptance command and record a source-bound
+  group-57 receipt before treating this child as verified.
+
+## 59. Current Strategy Projection Reader (#173)
+
+- [ ] 59.1 Remove strategy projection default inference and prior-shape
+  parsing so construction and loading require every canonical field.
+- [ ] 59.2 Retire active compatibility-read planning while preserving its
+  completed evidence only in the OpenSpec archive.
+- [ ] 59.3 Run the focused strict-reader acceptance command and record a
+  source-bound group-59 receipt before treating this child as verified.
+
+## 60. Current Insight Payload Reader (#174)
+
+- [x] 60.1 Remove prior minimal Insight Digest parsing so every runtime
+  boundary requires the complete current versioned payload.
+- [x] 60.2 Retire active schema/example language that publishes an unversioned
+  or minimal digest reader without reading or mutating user-owned data.
+- [x] 60.3 Run the focused strict-reader acceptance command and record a
+  source-bound group-60 receipt before treating this child as verified.
+
+## 62. Public RunStore Scheduler Surface Removal (#178)
+
+- [x] 62.1 Register this current-only deletion slice with only the merged
+  group-54 and group-55 dependencies.
+- [x] 62.2 Remove root scheduler publication, active authority claims, and the
+  dedicated scheduler behavior suite while leaving its source file for #179.
+- [ ] 62.3 Run the exact focused acceptance command and record a source-bound
+  group-62 receipt only after the source commit.
+
+## 48. Typed SearchPortfolio Contract (#163)
+
+- [x] 48.1 Define strict SearchPortfolio, method registration, and
+  method/provider-boundary value objects without planning or persistence.
+- [x] 48.2 Reject malformed, unknown, duplicate, unavailable, and
+  non-independent method selections; serialize stable query references only.
+- [x] 48.3 Run the focused group-48 acceptance command and record a
+  source-bound receipt before treating this child as verified.
+
+## 74. Intent-Derived SearchPortfolio Planning (#185)
+
+- [x] 74.1 Derive bounded decision-relevant portfolio coverage from exact
+  intent, brief, strategy, Decision Slot, and evidence-deficit revisions.
+- [x] 74.2 Bind stable rewrite references to assumptions, evidence class,
+  decision effect, closure oracle, and stop/replan triggers without retrieval.
+- [x] 74.3 Reopen human decisions only for material authority, safety, or
+  requester-outcome changes; keep execution and durable lineage out of scope.
+- [x] 74.4 Run group-74 acceptance and record a source-bound receipt after the
+  source commit.
+
+## 75. Multi-Method SearchPortfolio Execution (#186)
+
+- [x] 75.1 Add immutable method outcomes and dependency-ready batches bound to
+  the strict portfolio and method/provider registry.
+- [x] 75.2 Classify 404, no-result, parser-failure, rate-limit, and shallow
+  outcomes; select typed fallbacks and report degraded single-provider
+  capability without coordinator persistence.
+- [x] 75.3 Assess coverage, novelty, contradictions, source quality,
+  provenance independence, and unresolved decision risk after each batch, with
+  typed stop/rewrite/switch/deepen/experiment/pivot/blocked decisions.
+- [x] 75.4 Run the exact group-75 acceptance command and record a source-bound
+  receipt after the source commit.
+
+## 76. Unreachable RunStore Scheduler Source Purge (#179)
+
+- [x] 76.1 Delete the unreachable scheduler source and obsolete active
+  scheduler contract after the group-62 public-surface retirement.
+- [x] 76.2 Prove no runtime import, active contract, dedicated behavior test,
+  or generated package can resolve the retired boundary.
+- [x] 76.3 Run the exact group-76 acceptance command and record a source-bound
+  receipt after the rebased source and registry commits.
+
+## 77. Canonical SearchPortfolio Lineage (#187)
+
+- [x] 77.1 Persist settled SearchPortfolio execution values through the
+  coordinator with exact capture, receipt, checkpoint, and finding parents.
+- [x] 77.2 Require a portfolio-backed worker-finished HostEvent to reference
+  the exact current canonical lineage before it can be accepted.
+- [x] 77.3 Route authorized pivots through correction quarantine and
+  requester-controlled changes to pending human reopen records.
+- [x] 77.4 Run the exact group-77 acceptance command and record a source-bound
+  receipt after the source commit.
+
+## 78. RunStore Scheduler Retirement Parent Acceptance (#175)
+
+- [x] 78.1 Bind the parent-only acceptance boundary to the merged group-62 and
+  group-76 source-bound receipts.
+- [x] 78.2 Add focused parent evidence for receipt reachability, ownership, and
+  the completed scheduler source/contract absence.
+- [x] 78.3 Run the exact group-78 acceptance command and record a source-bound
+  receipt before closing #175.
+
+## 79. Canonical Finding Pack Test Fixtures (#180)
+
+- [x] 79.1 Move decision, delivery, and strict-delivery Finding Pack tests to
+  direct canonical ledger fixtures.
+- [x] 79.2 Preserve assurance and pre-#181 readiness behavior on the isolated
+  test-only legacy fixture without a runtime bridge.
+- [x] 79.3 Run the exact group-79 acceptance command and record a source-bound
+  receipt before closing #180.
+
+## 80. Canonical Readiness Finding Pack Test Fixtures (#181)
+
+- [x] 80.1 Move readiness and strict-evidence Finding Pack tests to direct
+  canonical ledger fixtures.
+- [x] 80.2 Preserve assurance coverage on the isolated test-only legacy fixture
+  without a runtime bridge.
+- [x] 80.3 Run the exact group-80 acceptance command and record a source-bound
+  receipt before closing #181.
+
+## 81. Canonical Finding Pack Parent Acceptance (#171)
+
+- [x] 81.1 Bind the parent-only acceptance boundary to the merged group-79 and
+  group-80 source-bound receipts.
+- [x] 81.2 Add focused parent evidence for receipt reachability, child lineage
+  checks, and exact ownership metadata.
+- [x] 81.3 Run the exact group-81 acceptance command and record a source-bound
+  receipt before closing #171.
+
+## 82. RunStore OpenSpec Projection Boundary Removal (#176)
+
+- [x] 82.1 Remove the isolated RunStore projection writer, root exports,
+  dedicated behavior suite, and E2E-only consumer after group 81.
+- [x] 82.2 Prove no runtime import, active authority, or generated package
+  advertises the retired projection boundary while canonical runtime interfaces
+  remain available.
+- [x] 82.3 Run the exact group-82 acceptance command and record a source-bound
+  receipt after the source-removal commit.
+
+## 83. Strict Evidence Admission (#168)
+
+- [x] 83.1 Remove legacy typed-anchor parsing, artifact-map resolution,
+  implicit evidence classification, obsolete public helper, and active schema
+  status without adding a compatibility path.
+- [x] 83.2 Preserve `FindingPackCompiler` and the #165 fixture while making its
+  typed evidence parser reject legacy anchors and retaining canonical evidence
+  coverage.
+- [x] 83.3 Run the exact group-83 acceptance command and record a source-bound
+  receipt after the strict-admission commit.
+
+## 85. Cross-host SKILL.md Loader Integrity (#269)
+
+- [ ] 85.1 Define one digest-bound loader receipt for Codex, Claude, and Hermes
+  with explicit unavailable and invalid states.
+- [ ] 85.2 Record session-start skill-load evidence through the shared observer
+  and Hermes package hook without prompts, provider payloads, or credentials.
+- [ ] 85.3 Verify host-message/full-content parity and mutation rejection,
+  including the official Hermes image probe when available.
+- [ ] 85.4 Run the exact group-85 acceptance command and record a source-bound
+  receipt before closing #269.
+
+## 86. Deterministic Cross-host Skill Activation (#270)
+
+- [ ] 86.1 Add the host-neutral activation gate and explicit blocked codes.
+- [ ] 86.2 Add ordered phases plus positive/negative triggers to all generated
+  host skill packages.
+- [ ] 86.3 Run the exact group-86 acceptance command and record a source-bound
+  receipt before closing #270.
+
+## 87. Cross-host Fault Injection (#271)
+
+- [ ] 87.1 Inject first/middle/tail mutation and truncation for all hosts.
+- [ ] 87.2 Inject stale/wrong-session/wrong-host receipts and pre-handoff
+  actions; require blocked outcomes.
+- [ ] 87.3 Run the exact group-87 acceptance command and record a source-bound
+  receipt before closing #271.

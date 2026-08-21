@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "claude-glm-regression-synthetic-result-v1",
+  "case_id": "claude-glm-regression-synthetic-v1",
+  "source_revision": "e04d26119eb3b965e8fc89aea2956c68244defb9",
+  "environment": "source commit e04d261; deterministic synthetic control; GLM5.2 runtime unavailable",
+  "producer": "evaluation/harness/run_claude_glm_regression.py",
+  "recorded_at": "2026-08-15T12:23:44.628619+00:00",
+  "artifact_refs": [
+    "evaluation/cases/claude-glm-regression-synthetic-v1.json",
+    "evaluation/harness/claude_glm_regression.py",
+    "local://.research-tree/evaluation-runs/issue-72/group-24-receipt.json"
+  ],
+  "limitations": [
+    "This is a synthetic, non-historical fixture; it does not reproduce a historical Claude Code session.",
+    "The named runtime blocker glm52-runtime-unavailable means no GLM5.2 comparison was executed.",
+    "Causal attribution is unresolved; passing control checks do not establish Claude/GLM behavior or parity."
+  ],
+  "content_digest": "sha256:5fc69df3584ef6294bd87a8c3e750680b2e53c2c9740fb462b13c097f0ea9812",
+  "fixture_class": "synthetic-regression",
+  "historical_status": "non-historical",
+  "semantic_control_status": "passed",
+  "execution_disposition": "unavailable",
+  "blocker_id": "glm52-runtime-unavailable",
+  "causal_attribution": "unresolved",
+  "comparison_counts_as_pass": false,
+  "review_disposition": "No independent reviewer evidence was collected; this result does not claim review."
+}

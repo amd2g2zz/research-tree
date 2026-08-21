@@ -2,12 +2,40 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from runpy import run_path
+import shutil
 import subprocess
 import sys
+
+from research_tree.skill_activation import HOST_MARKERS, package_digests
 
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILDER = ROOT / "scripts" / "build_skill_packages.py"
+validate_package = run_path(str(BUILDER))["validate_package"]
+BUILDER_GLOBALS = run_path(str(BUILDER))
+
+
+def _skill_dir(package: Path) -> Path:
+    return package / "skills" / "research-tree" if "claude-code" in package.parts else package
+
+
+def test_claude_code_plugin_registration_manifests_are_present() -> None:
+    marketplace = ROOT / ".claude-plugin" / "marketplace.json"
+    plugin = ROOT / "packages" / "claude-code" / "research-tree" / ".claude-plugin" / "plugin.json"
+    skill = ROOT / "packages" / "claude-code" / "research-tree" / "skills" / "research-tree" / "SKILL.md"
+
+    assert marketplace.is_file()
+    assert plugin.is_file()
+    assert skill.is_file()
+
+    marketplace_data = json.loads(marketplace.read_text(encoding="utf-8"))
+    plugin_data = json.loads(plugin.read_text(encoding="utf-8"))
+    entry = next(item for item in marketplace_data["plugins"] if item["name"] == "research-tree")
+    assert marketplace_data["owner"]["name"]
+    assert entry["source"] == "./packages/claude-code/research-tree"
+    assert plugin_data["name"] == "research-tree"
+    assert entry["version"] == plugin_data["version"] == marketplace_data["version"]
 
 
 def test_checked_in_host_packages_are_current_and_isolated() -> None:
@@ -27,6 +55,7 @@ def test_checked_in_host_packages_are_current_and_isolated() -> None:
         "hermes",
     }
     assert all(item["valid"] for item in result["packages"])
+    assert result["marketplace"]["valid"]
 
     codex = ROOT / "packages" / "codex" / "research-tree"
     claude = ROOT / "packages" / "claude-code" / "research-tree"
@@ -34,10 +63,79 @@ def test_checked_in_host_packages_are_current_and_isolated() -> None:
     assert codex.is_dir() and claude.is_dir() and hermes.is_dir()
     skill_bodies = {
         (codex / "SKILL.md").read_bytes(),
-        (claude / "SKILL.md").read_bytes(),
+        (_skill_dir(claude) / "SKILL.md").read_bytes(),
         (hermes / "SKILL.md").read_bytes(),
     }
     assert len(skill_bodies) == 3
+
+
+def test_alignment_controller_commands_require_uv_managed_python() -> None:
+    references = [
+        ROOT / "references" / "alignment-controller.md",
+        ROOT / "packages" / "codex" / "research-tree" / "references" / "alignment-controller.md",
+        ROOT
+        / "packages"
+        / "claude-code"
+        / "research-tree"
+        / "skills"
+        / "research-tree"
+        / "references"
+        / "alignment-controller.md",
+        ROOT / "packages" / "hermes" / "research-tree" / "references" / "alignment-controller.md",
+    ]
+
+    for reference in references:
+        text = reference.read_text(encoding="utf-8")
+        command_lines = [line.strip() for line in text.splitlines() if "alignment_controller.py" in line]
+        assert command_lines
+        assert all(not line.startswith("python scripts/alignment_controller.py") for line in command_lines)
+        assert "uv run --frozen python scripts/alignment_controller.py" in text
+        assert "uv run --project <checkout> --frozen python" in text
+
+
+def test_alignment_controller_help_runs_in_locked_uv_environment() -> None:
+    completed = subprocess.run(
+        ["uv", "run", "--frozen", "python", str(ROOT / "scripts" / "alignment_controller.py"), "--help"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr or completed.stdout
+    assert "usage:" in completed.stdout
+
+
+def test_host_skills_require_the_uv_python_execution_contract() -> None:
+    packages = (
+        ROOT / "packages" / "codex" / "research-tree",
+        ROOT / "packages" / "claude-code" / "research-tree",
+        ROOT / "packages" / "hermes" / "research-tree",
+    )
+
+    for package in packages:
+        skill = (_skill_dir(package) / "SKILL.md").read_text(encoding="utf-8")
+        assert "## Python execution contract" in skill
+        assert "uv run --frozen python" in skill
+        assert "uv run --project <checkout> --frozen python" in skill
+        assert "Never substitute the system `python`" in skill
+        assert "incompatible Python" in skill
+
+
+def test_all_host_packages_document_the_same_stable_lifecycle_contract() -> None:
+    packages = (
+        ROOT / "packages" / "codex" / "research-tree",
+        ROOT / "packages" / "claude-code" / "research-tree",
+        ROOT / "packages" / "hermes" / "research-tree",
+    )
+
+    for package in packages:
+        skill = (_skill_dir(package) / "SKILL.md").read_text(encoding="utf-8")
+        normalized_skill = " ".join(skill.split())
+        for command in ("install", "doctor", "run", "resume", "status", "verify"):
+            assert f"research-tree {command}" in skill
+        assert "HostEvent or SQLite inputs" in normalized_skill
+        assert "completion authority" in normalized_skill
 
 
 def test_only_hermes_package_contains_hermes_compatibility_material() -> None:
@@ -46,12 +144,14 @@ def test_only_hermes_package_contains_hermes_compatibility_material() -> None:
     hermes = ROOT / "packages" / "hermes" / "research-tree"
 
     for package in (codex, claude):
-        skill = (package / "SKILL.md").read_text(encoding="utf-8")
+        skill_root = _skill_dir(package)
+        skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
         assert "Hermes runtime adapter" not in skill
-        assert not (package / "references" / "hermes-agent-compatibility.md").exists()
-        assert not (package / "references" / "hermes-native-orchestration.md").exists()
-        assert not (package / "scripts" / "hermes_runtime_hook.py").exists()
-        assert not (package / "scripts" / "hermes_skill_adapter.py").exists()
+        assert not (skill_root / "references" / "hermes-agent-compatibility.md").exists()
+        assert not (skill_root / "references" / "hermes-native-orchestration.md").exists()
+        assert not (skill_root / "scripts" / "hermes_runtime_hook.py").exists()
+        assert not (skill_root / "scripts" / "hermes_skill_adapter.py").exists()
+        assert not (skill_root / "scripts" / "hermes_event_adapter.py").exists()
 
     hermes_skill = (hermes / "SKILL.md").read_text(encoding="utf-8")
     assert "Hermes runtime adapter" in hermes_skill
@@ -60,6 +160,15 @@ def test_only_hermes_package_contains_hermes_compatibility_material() -> None:
     assert (hermes / "references" / "hermes-native-orchestration.md").is_file()
     assert (hermes / "scripts" / "hermes_runtime_hook.py").is_file()
     assert (hermes / "scripts" / "hermes_skill_adapter.py").is_file()
+    assert (hermes / "scripts" / "host_event_protocol.py").read_bytes() == (
+        ROOT / "scripts" / "host_event_protocol.py"
+    ).read_bytes()
+    assert (hermes / "scripts" / "hermes_event_adapter.py").read_bytes() == (
+        ROOT / "scripts" / "hermes_event_adapter.py"
+    ).read_bytes()
+    assert (hermes / "scripts" / "hermes_execution_adapter.py").read_bytes() == (
+        ROOT / "scripts" / "hermes_execution_adapter.py"
+    ).read_bytes()
     assert len(hermes_skill) <= 20_000
     for phase in (
         "hermes-alignment.md",
@@ -82,11 +191,12 @@ def test_only_claude_package_contains_claude_compatibility_material() -> None:
         if package == hermes:
             assert not (package / "scripts" / "native_execution_adapter.py").exists()
 
-    claude_skill = (claude / "SKILL.md").read_text(encoding="utf-8")
+    claude_skill_root = _skill_dir(claude)
+    claude_skill = (claude_skill_root / "SKILL.md").read_text(encoding="utf-8")
     assert "Claude Code runtime adapter" in claude_skill
-    assert (claude / "references" / "claude-code-compatibility.md").is_file()
-    assert (claude / "references" / "claude-native-orchestration.md").is_file()
-    assert (claude / "scripts" / "native_execution_adapter.py").is_file()
+    assert (claude_skill_root / "references" / "claude-code-compatibility.md").is_file()
+    assert (claude_skill_root / "references" / "claude-native-orchestration.md").is_file()
+    assert (claude_skill_root / "scripts" / "native_execution_adapter.py").is_file()
 
 
 def test_only_codex_package_contains_codex_compatibility_material() -> None:
@@ -95,10 +205,11 @@ def test_only_codex_package_contains_codex_compatibility_material() -> None:
     hermes = ROOT / "packages" / "hermes" / "research-tree"
 
     for package in (claude, hermes):
-        skill = (package / "SKILL.md").read_text(encoding="utf-8")
+        skill_root = _skill_dir(package)
+        skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
         assert "Codex CLI runtime adapter" not in skill
-        assert not (package / "references" / "codex-cli-compatibility.md").exists()
-        assert not (package / "references" / "codex-native-orchestration.md").exists()
+        assert not (skill_root / "references" / "codex-cli-compatibility.md").exists()
+        assert not (skill_root / "references" / "codex-native-orchestration.md").exists()
 
     codex_skill = (codex / "SKILL.md").read_text(encoding="utf-8")
     assert "Codex CLI runtime adapter" in codex_skill
@@ -110,19 +221,11 @@ def test_only_codex_package_contains_codex_compatibility_material() -> None:
 
 
 def test_codex_and_claude_expose_distinct_native_orchestration() -> None:
-    codex = (
-        ROOT
-        / "packages"
-        / "codex"
-        / "research-tree"
-        / "references"
-        / "codex-native-orchestration.md"
-    ).read_text(encoding="utf-8")
+    codex = (ROOT / "packages" / "codex" / "research-tree" / "references" / "codex-native-orchestration.md").read_text(
+        encoding="utf-8"
+    )
     claude = (
-        ROOT
-        / "packages"
-        / "claude-code"
-        / "research-tree"
+        _skill_dir(ROOT / "packages" / "claude-code" / "research-tree")
         / "references"
         / "claude-native-orchestration.md"
     ).read_text(encoding="utf-8")
@@ -136,12 +239,7 @@ def test_codex_and_claude_expose_distinct_native_orchestration() -> None:
 
     for package_name in ("codex", "claude-code"):
         adapter = (
-            ROOT
-            / "packages"
-            / package_name
-            / "research-tree"
-            / "scripts"
-            / "native_execution_adapter.py"
+            _skill_dir(ROOT / "packages" / package_name / "research-tree") / "scripts" / "native_execution_adapter.py"
         ).read_text(encoding="utf-8")
         assert '"observations"' in adapter
         assert '"option_effects"' in adapter
@@ -154,24 +252,18 @@ def test_host_question_references_name_only_their_native_capability() -> None:
     claude = ROOT / "packages" / "claude-code" / "research-tree"
     hermes = ROOT / "packages" / "hermes" / "research-tree"
 
-    assert "AskUserQuestion" in (
-        claude / "references" / "claude-code-compatibility.md"
-    ).read_text(encoding="utf-8")
-    assert "clarify" in (
-        hermes / "references" / "hermes-agent-compatibility.md"
-    ).read_text(encoding="utf-8")
+    assert "AskUserQuestion" in (_skill_dir(claude) / "references" / "claude-code-compatibility.md").read_text(
+        encoding="utf-8"
+    )
+    assert "clarify" in (hermes / "references" / "hermes-agent-compatibility.md").read_text(encoding="utf-8")
     assert "Do not assume Claude's `AskUserQuestion`" in (
         codex / "references" / "codex-cli-compatibility.md"
     ).read_text(encoding="utf-8")
 
 
 def test_feedback_reopens_research_and_requires_evidence_progress() -> None:
-    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
-        encoding="utf-8"
-    )
-    claude = (
-        ROOT / "packages" / "claude-code" / "research-tree" / "SKILL.md"
-    ).read_text(encoding="utf-8")
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(encoding="utf-8")
+    claude = (_skill_dir(ROOT / "packages" / "claude-code" / "research-tree") / "SKILL.md").read_text(encoding="utf-8")
 
     for body in (template, claude):
         assert '"I don\'t know"' in body
@@ -192,21 +284,16 @@ def test_all_host_packages_expose_opt_in_debug_tracing() -> None:
     )
 
     for package in packages:
-        skill = (package / "SKILL.md").read_text(encoding="utf-8")
+        skill_root = _skill_dir(package)
+        skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
         assert "research-tree-debug" in skill
-        assert (package / "references" / "debug-tracing.md").is_file()
+        assert (skill_root / "references" / "debug-tracing.md").is_file()
 
 
 def test_host_adapters_direct_the_native_question_capability() -> None:
-    codex = (ROOT / "packages" / "codex" / "research-tree" / "SKILL.md").read_text(
-        encoding="utf-8"
-    )
-    claude = (
-        ROOT / "packages" / "claude-code" / "research-tree" / "SKILL.md"
-    ).read_text(encoding="utf-8")
-    hermes = (ROOT / "packages" / "hermes" / "research-tree" / "SKILL.md").read_text(
-        encoding="utf-8"
-    )
+    codex = (ROOT / "packages" / "codex" / "research-tree" / "SKILL.md").read_text(encoding="utf-8")
+    claude = (_skill_dir(ROOT / "packages" / "claude-code" / "research-tree") / "SKILL.md").read_text(encoding="utf-8")
+    hermes = (ROOT / "packages" / "hermes" / "research-tree" / "SKILL.md").read_text(encoding="utf-8")
 
     assert "request_user_input" in codex
     assert "AskUserQuestion" in claude
@@ -214,12 +301,8 @@ def test_host_adapters_direct_the_native_question_capability() -> None:
 
 
 def test_long_horizon_policy_is_cost_tolerant_and_resumable() -> None:
-    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
-        encoding="utf-8"
-    )
-    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
-        encoding="utf-8"
-    )
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(encoding="utf-8")
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(encoding="utf-8")
     assert "cost-tolerant" in template
     assert "monetary cost is non-gating" in playbook
     for body in (template, playbook):
@@ -228,8 +311,7 @@ def test_long_horizon_policy_is_cost_tolerant_and_resumable() -> None:
 
     for host in ("codex", "claude", "hermes"):
         skill = (
-            ROOT / "packages" / ("claude-code" if host == "claude" else host)
-            / "research-tree" / "SKILL.md"
+            _skill_dir(ROOT / "packages" / ("claude-code" if host == "claude" else host) / "research-tree") / "SKILL.md"
         ).read_text(encoding="utf-8")
         assert "cost-tolerant" in skill
         assert "Autonomy envelope after strategy handoff" in skill
@@ -237,32 +319,22 @@ def test_long_horizon_policy_is_cost_tolerant_and_resumable() -> None:
 
 def test_intent_understanding_remains_live_during_research() -> None:
     product = (ROOT / "PRODUCT.md").read_text(encoding="utf-8")
-    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
-        encoding="utf-8"
-    )
-    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
-        encoding="utf-8"
-    )
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(encoding="utf-8")
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(encoding="utf-8")
 
     assert "Intent understanding is a continuous product loop" in product
     assert "Intent understanding remains active throughout the round" in template
     assert "Intent understanding is never a one-time pre-research gate" in playbook
     for host in ("codex", "claude", "hermes"):
         package = "claude-code" if host == "claude" else host
-        skill = (ROOT / "packages" / package / "research-tree" / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
+        skill = (_skill_dir(ROOT / "packages" / package / "research-tree") / "SKILL.md").read_text(encoding="utf-8")
         assert "Intent understanding remains active throughout the round" in skill
 
 
 def test_strategy_handoff_requires_coevolutionary_debate() -> None:
     product = (ROOT / "PRODUCT.md").read_text(encoding="utf-8")
-    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
-        encoding="utf-8"
-    )
-    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
-        encoding="utf-8"
-    )
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(encoding="utf-8")
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(encoding="utf-8")
 
     assert "decision equilibrium" in product
     assert "Co-evolve cognition before strategy handoff" in template
@@ -272,12 +344,8 @@ def test_strategy_handoff_requires_coevolutionary_debate() -> None:
 
 def test_early_communication_is_human_centered_and_confusion_driven() -> None:
     product = (ROOT / "PRODUCT.md").read_text(encoding="utf-8")
-    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
-        encoding="utf-8"
-    )
-    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
-        encoding="utf-8"
-    )
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(encoding="utf-8")
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(encoding="utf-8")
 
     assert "Human-centered communication" in product
     assert "question-only" in template
@@ -288,12 +356,8 @@ def test_early_communication_is_human_centered_and_confusion_driven() -> None:
 
 def test_vague_briefs_trigger_short_guided_communication() -> None:
     product = (ROOT / "PRODUCT.md").read_text(encoding="utf-8")
-    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
-        encoding="utf-8"
-    )
-    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
-        encoding="utf-8"
-    )
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(encoding="utf-8")
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(encoding="utf-8")
 
     for body in (product, template, playbook):
         assert "1000" in body
@@ -304,12 +368,8 @@ def test_vague_briefs_trigger_short_guided_communication() -> None:
 
 def test_intent_elicitation_is_open_ended_and_context_first() -> None:
     product = (ROOT / "PRODUCT.md").read_text(encoding="utf-8")
-    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(
-        encoding="utf-8"
-    )
-    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
-        encoding="utf-8"
-    )
+    template = (ROOT / "skill-src" / "SKILL.template.md").read_text(encoding="utf-8")
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(encoding="utf-8")
 
     for body in (product, template, playbook):
         assert "open-ended" in body
@@ -322,12 +382,8 @@ def test_intent_elicitation_is_open_ended_and_context_first() -> None:
 
 def test_alignment_turns_are_traceable_without_transcripts() -> None:
     brief = (ROOT / "assets" / "brief-template.md").read_text(encoding="utf-8")
-    human_brief = (ROOT / "assets" / "human-brief-template.md").read_text(
-        encoding="utf-8"
-    )
-    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(
-        encoding="utf-8"
-    )
+    human_brief = (ROOT / "assets" / "human-brief-template.md").read_text(encoding="utf-8")
+    playbook = (ROOT / "references" / "research-quality-playbook.md").read_text(encoding="utf-8")
 
     assert "Alignment Turn Ledger" in brief
     assert "Human/agent belief delta" in brief
@@ -341,28 +397,160 @@ def test_each_package_uses_only_its_hosts_metadata_format() -> None:
     hermes = ROOT / "packages" / "hermes" / "research-tree"
 
     codex_skill = (codex / "SKILL.md").read_text(encoding="utf-8")
-    claude_skill = (claude / "SKILL.md").read_text(encoding="utf-8")
+    claude_skill = (_skill_dir(claude) / "SKILL.md").read_text(encoding="utf-8")
     hermes_skill = (hermes / "SKILL.md").read_text(encoding="utf-8")
 
     assert (codex / "agents" / "openai.yaml").is_file()
-    assert "$research-tree" in (
-        codex / "agents" / "openai.yaml"
-    ).read_text(encoding="utf-8")
+    assert "$research-tree" in (codex / "agents" / "openai.yaml").read_text(encoding="utf-8")
     assert "argument-hint:" not in codex_skill
     assert "argument-hint:" in claude_skill
     assert "disable-model-invocation: false" in claude_skill
     assert "user-invocable: true" in claude_skill
+    assert (claude / ".claude-plugin" / "plugin.json").is_file()
+    assert (_skill_dir(claude) / "SKILL.md").is_file()
+    assert not (claude / "SKILL.md").exists()
     assert not (claude / "agents" / "openai.yaml").exists()
+    assert not (codex / ".claude-plugin").exists()
+    assert not (hermes / ".claude-plugin").exists()
     assert "argument-hint:" not in hermes_skill
     assert not (hermes / "agents" / "openai.yaml").exists()
 
 
 def test_packages_expose_runtime_depth_and_insight_contract() -> None:
     for package_name in ("codex", "claude-code", "hermes"):
-        skill = (ROOT / "packages" / package_name / "research-tree" / "SKILL.md").read_text(
+        skill = (_skill_dir(ROOT / "packages" / package_name / "research-tree") / "SKILL.md").read_text(
             encoding="utf-8"
         )
         assert "plan-to-execute" in skill
         assert "Insight Digest" in skill
         assert "Do not hand a broad track to" in skill
         assert "workers re-delegate" in skill
+
+
+def test_host_packages_contain_only_their_activation_marker_and_shared_helper() -> None:
+    packages = {
+        "codex": ROOT / "packages" / "codex" / "research-tree",
+        "claude": ROOT / "packages" / "claude-code" / "research-tree",
+        "hermes": ROOT / "packages" / "hermes" / "research-tree",
+    }
+
+    for host, package in packages.items():
+        skill_root = _skill_dir(package)
+        body = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+        assert HOST_MARKERS[host] in body
+        assert all(marker not in body for name, marker in HOST_MARKERS.items() if name != host)
+        assert (skill_root / "references" / "skill-activation.md").is_file()
+        assert (skill_root / "scripts" / "skill_activation.py").read_bytes() == (
+            ROOT / "src" / "research_tree" / "skill_activation.py"
+        ).read_bytes()
+
+
+def test_package_validator_rejects_wrong_host_activation_marker(tmp_path: Path) -> None:
+    source = ROOT / "packages" / "codex" / "research-tree"
+    package = tmp_path / "research-tree"
+    shutil.copytree(source, package)
+    skill_file = package / "SKILL.md"
+    body = skill_file.read_text(encoding="utf-8")
+    skill_file.write_text(body.replace(HOST_MARKERS["codex"], HOST_MARKERS["claude"]), encoding="utf-8")
+
+    result = validate_package(package, "codex", ROOT)
+
+    assert result["valid"] is False
+    assert "wrong activation marker for codex" in result["errors"]
+
+
+def _hermes_validation_source(tmp_path: Path) -> Path:
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    source_files = [
+        *BUILDER_GLOBALS["COMMON_FILES"],
+        *BUILDER_GLOBALS["HERMES_FILES"],
+        *(source for source, _ in BUILDER_GLOBALS["COMMON_FILE_MAP"]),
+    ]
+    for relative in source_files:
+        target = source_root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, target)
+    template = source_root / "skill-src" / "hermes-SKILL.template.md"
+    template.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / "skill-src" / "hermes-SKILL.template.md", template)
+    return source_root
+
+
+def test_package_validator_rejects_omitted_hermes_executable_dependency(tmp_path: Path) -> None:
+    package = tmp_path / "package"
+    shutil.copytree(ROOT / "packages" / "hermes" / "research-tree", package)
+    source_root = _hermes_validation_source(tmp_path)
+    manifest = source_root / "scripts" / "hermes_executable_closure.json"
+    closure = json.loads(manifest.read_text(encoding="utf-8"))
+    closure["files"].remove("scripts/hermes_event_adapter.py")
+    manifest.write_text(json.dumps(closure), encoding="utf-8")
+
+    result = validate_package(package, "hermes", source_root)
+
+    assert result["valid"] is False
+    assert (
+        "Hermes executable closure is missing packaged dependency: scripts/hermes_event_adapter.py" in result["errors"]
+    )
+
+
+def test_package_validator_rejects_omitted_hermes_executable_entrypoint(tmp_path: Path) -> None:
+    package = tmp_path / "package"
+    shutil.copytree(ROOT / "packages" / "hermes" / "research-tree", package)
+    source_root = _hermes_validation_source(tmp_path)
+    for manifest in (
+        package / "scripts" / "hermes_executable_closure.json",
+        source_root / "scripts" / "hermes_executable_closure.json",
+    ):
+        closure = json.loads(manifest.read_text(encoding="utf-8"))
+        closure["entrypoints"] = [
+            entrypoint
+            for entrypoint in closure["entrypoints"]
+            if entrypoint["path"] != "scripts/hermes_execution_adapter.py"
+        ]
+        manifest.write_text(json.dumps(closure), encoding="utf-8")
+
+    result = validate_package(package, "hermes", source_root)
+
+    assert result["valid"] is False
+    assert (
+        "Hermes executable package validation failed: Hermes executable closure is missing entrypoint: scripts/hermes_execution_adapter.py"
+        in result["errors"]
+    )
+
+
+def test_package_validator_rejects_unstartable_hermes_entrypoint(tmp_path: Path) -> None:
+    package = tmp_path / "package"
+    shutil.copytree(ROOT / "packages" / "hermes" / "research-tree", package)
+    source_root = _hermes_validation_source(tmp_path)
+
+    execution_adapter = package / "scripts" / "hermes_execution_adapter.py"
+    broken = execution_adapter.read_text(encoding="utf-8").replace(
+        "from hermes_event_adapter import (",
+        "from missing_hermes_event_adapter import (",
+    )
+    execution_adapter.write_text(broken, encoding="utf-8")
+    (source_root / "scripts" / "hermes_execution_adapter.py").write_text(
+        broken,
+        encoding="utf-8",
+    )
+
+    result = validate_package(package, "hermes", source_root)
+
+    assert result["valid"] is False
+    assert (
+        "Hermes executable package validation failed: Hermes executable cold start failed: scripts/hermes_execution_adapter.py (exit 1)"
+        in result["errors"]
+    )
+
+
+def test_package_and_skill_body_digests_detect_generated_drift(tmp_path: Path) -> None:
+    source = ROOT / "packages" / "hermes" / "research-tree"
+    package = tmp_path / "research-tree"
+    shutil.copytree(source, package)
+    before = package_digests(package)
+    reference = package / "references" / "skill-activation.md"
+    reference.write_text(reference.read_text(encoding="utf-8") + "\ndrift\n", encoding="utf-8")
+    drifted = package_digests(package)
+    assert drifted["package_digest"] != before["package_digest"]
+    assert drifted["skill_body_digest"] == before["skill_body_digest"]

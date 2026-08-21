@@ -63,6 +63,8 @@ Hermes also supports `/skill research-tree` for explicit loading. A name
 collision between a local skill and this external directory must be resolved;
 Hermes intentionally refuses to guess between duplicate names.
 
+Live verification requires the native probe in `references/skill-activation.md`; discovery, doctor, files, URLs, and package checks are never `live_verified`.
+
 Validate the Hermes package before loading it:
 
 ```bash

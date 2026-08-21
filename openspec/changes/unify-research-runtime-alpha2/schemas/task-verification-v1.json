@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Alpha2 task verification record v1",
+  "type": "object",
+  "required": ["schema_version", "groups"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["group", "state"],
+        "properties": {
+          "group": { "type": "integer", "minimum": 1 },
+          "state": { "enum": ["planned", "in_progress", "blocked", "unavailable", "verified", "superseded"] },
+          "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "command_receipt": { "type": "object" },
+          "rollback": { "type": "string", "minLength": 1 },
+          "blocker": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

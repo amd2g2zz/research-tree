@@ -206,3 +206,59 @@ CREATE TABLE audit_exports (
   output_locator TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+
+-- Migration v4 (#87): canonical DecisionFrame projection. Legacy rows are
+-- intentionally not backfilled; generic artifacts remain the source lineage.
+CREATE TABLE decision_frames (
+  run_id TEXT NOT NULL REFERENCES runs(run_id),
+  frame_id TEXT NOT NULL,
+  artifact_revision INTEGER NOT NULL,
+  schema_version INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  primary_decision_id TEXT NOT NULL,
+  requester_wording_digest TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(run_id, frame_id, artifact_revision),
+  FOREIGN KEY(run_id, frame_id, artifact_revision)
+    REFERENCES artifacts(run_id, artifact_id, revision)
+);
+
+-- Migration v5 (#85): immutable StrategyProjection read model. Legacy rows
+-- are intentionally not backfilled; artifacts remain the lineage authority.
+CREATE TABLE strategy_projections (
+  run_id TEXT NOT NULL REFERENCES runs(run_id),
+  projection_id TEXT NOT NULL,
+  artifact_revision INTEGER NOT NULL,
+  strategy_revision INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  display_digest TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(run_id, projection_id, artifact_revision),
+  FOREIGN KEY(run_id, projection_id, artifact_revision)
+    REFERENCES artifacts(run_id, artifact_id, revision)
+);
+
+-- Migration v6 (#86): immutable project preference observations and revisioned
+-- profiles. No raw transcript or cross-project identity is stored.
+CREATE TABLE preference_observations (
+  project_id TEXT NOT NULL,
+  observation_id TEXT NOT NULL,
+  turn_number INTEGER NOT NULL CHECK (turn_number > 0),
+  observation_json TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(project_id, observation_id)
+);
+
+CREATE TABLE user_preference_profiles (
+  project_id TEXT NOT NULL,
+  revision INTEGER NOT NULL CHECK (revision > 0),
+  profile_json TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(project_id, revision)
+);

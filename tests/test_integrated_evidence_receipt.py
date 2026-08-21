@@ -1,0 +1,179 @@
+"""Acceptance checks for the source-bound #112 integration receipt."""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+from research_tree.openspec_governance import (
+    default_registry_paths,
+    load_governance_inputs,
+    validate_governance,
+)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+REGISTRY_ROOT = ROOT / "openspec" / "changes" / "unify-research-runtime-alpha2" / "registries"
+RECEIPT = (
+    ROOT
+    / "openspec"
+    / "changes"
+    / "reconcile-foundation-verification-receipts"
+    / "evidence"
+    / "integrated-strict-slices.json"
+)
+BYTE_PROVENANCE = (
+    ROOT
+    / "openspec"
+    / "changes"
+    / "reconcile-foundation-verification-receipts"
+    / "evidence"
+    / "integrated-receipt-byte-preservation-v1.json"
+)
+CI_LOCATOR = "ci://delivery-governance/delivery-gate"
+
+
+def test_integrated_receipt_records_merged_slices_and_boundary() -> None:
+    payload = json.loads(RECEIPT.read_text(encoding="utf-8"))
+
+    assert payload["schema_version"] == 1
+    assert payload["kind"] == "integrated_verification_receipt"
+    assert re.fullmatch(r"[0-9a-f]{40}", payload["source_revision"])
+
+    merged = {(item["issue"], item["pull_request"]): item["merge_revision"] for item in payload["merged_slices"]}
+    assert merged == {
+        (111, 115): "6bb8cfa",
+        (108, 116): "5539e92",
+        (110, 122): "540014f",
+        (109, 123): "63164fb",
+    }
+
+    boundary = payload["boundary"]
+    assert boundary == {
+        "current_issue": 112,
+        "legacy_worker_validation_guard_issue": 109,
+        "oracle_slot_closure_issue": 56,
+        "parent_tracker_issue": 106,
+    }
+
+    for command in payload["commands"]:
+        assert command["exit_code"] == 0
+        assert command["raw_output_ref"] == CI_LOCATOR
+        assert re.fullmatch(r"[0-9a-f]{64}", command["output_digest"])
+
+
+def test_integrated_byte_preservation_remains_provenance_only() -> None:
+    payload = json.loads(BYTE_PROVENANCE.read_text(encoding="utf-8"))
+
+    assert payload["scope"]["historical_commands_rerun"] is False
+    assert payload["scope"]["receipt_fields_changed"] is False
+    assert payload["scope"]["runtime_code_changed"] is False
+    for entry in payload["entries"]:
+        assert entry["raw_output_ref"] == CI_LOCATOR
+        for digest_name in ("declared_digest", "normalized_lf_digest", "restored_crlf_digest"):
+            assert re.fullmatch(r"[0-9a-f]{64}", entry[digest_name])
+        assert entry["declared_digest"] == entry["restored_crlf_digest"]
+
+
+def test_group_35_owns_integrated_receipt_and_preserves_historical_future_gap_evidence() -> None:
+    inputs = load_governance_inputs(*default_registry_paths(ROOT))
+    report = validate_governance(inputs)
+
+    assert report.valid is True
+    assert report.verified_groups == (
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        14,
+        16,
+        20,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        31,
+        32,
+        33,
+        35,
+        36,
+        39,
+        40,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        54,
+        55,
+        57,
+        59,
+        60,
+        61,
+        62,
+        63,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        87,
+    )
+    assert report.unverified_groups == (
+        *(
+            group
+            for group in range(6, 33)
+            if group not in {6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 20, 23, 24, 25, 26, 27, 28, 29, 31, 32}
+        ),
+    )
+
+    verification = json.loads((REGISTRY_ROOT / "task-verification-v1.json").read_text(encoding="utf-8"))
+    group_35 = next(item for item in verification["groups"] if item["group"] == 35)
+    receipt = group_35["command_receipt"]
+    assert receipt["command"] == "uv run pytest -q tests/test_integrated_evidence_receipt.py"
+    assert receipt["exit_code"] == 0
+    assert re.fullmatch(r"[0-9a-f]{40}", receipt["source_revision"])
+    assert re.fullmatch(r"[0-9a-f]{64}", receipt["output_digest"])
+    assert receipt["output_digest"] != "0" * 64
+    assert receipt["raw_output_ref"] == CI_LOCATOR
+
+    issue_map = json.loads((REGISTRY_ROOT / "issue-execution-map-v1.json").read_text(encoding="utf-8"))
+    row = next(item for item in issue_map["issues"] if item["issue"] == 112)
+    assert row["primary_group"] == 35
+    assert "integrated-evidence-reconciliation" in row["capabilities"]
+
+    gaps = json.loads(
+        (
+            ROOT
+            / "openspec"
+            / "changes"
+            / "reconcile-foundation-verification-receipts"
+            / "evidence"
+            / "future-evidence-gaps.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert gaps["schema_version"] == 1
+    assert {item["group"] for item in gaps["gaps"]} == set(range(6, 33))
+    assert all(item["state"] == "planned" for item in gaps["gaps"])

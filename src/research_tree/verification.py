@@ -112,7 +112,7 @@ class IsolatedVerificationAdapter(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class RiskVerificationAssessment:
-    """Internal evidence and normalized failures returned to ReadinessVerifier."""
+    """Internal evidence and normalized failures returned to canonical readiness."""
 
     evidence: Mapping[str, Any]
     failures: tuple[VerificationFailure, ...]

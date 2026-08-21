@@ -19,6 +19,9 @@ Live web search requires the current surface to expose it; in the CLI it can be
 enabled with `--search`. Sandbox and approval policy still apply to all other
 tools and cannot be widened by a Skill.
 
+## Activation integrity
+Codex verification requires the exact text and typed `skill` input defined in `references/skill-activation.md`; text, paths, links, and package checks alone are not live evidence.
+
 ## User questions
 
 Codex's app-server protocol defines an experimental `request_user_input`

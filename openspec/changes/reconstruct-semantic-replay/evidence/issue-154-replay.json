@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "issue": 154,
+  "group": 63,
+  "status": "verified",
+  "source_revision": "f2997c6c384b0a48d55e298309678eaf9c8dc9e0",
+  "checks": [
+    {
+      "name": "replay-focused",
+      "command": "uv run pytest -q tests/test_replay.py tests/test_debug_trace.py",
+      "exit_code": 0,
+      "output_digest": "0c54b24f560882dabd5f6a8d7d1f7a04aeecb589783775bf9699be32fcaf0f12",
+      "raw_output_ref": "ci://issue-154/replay-focused",
+      "recorded_at": "2026-08-14T12:42:46+08:00"
+    }
+  ],
+  "rollback": "revert the semantic replay change; retain immutable events and report only chain_intact until replay is restored"
+}

@@ -171,8 +171,8 @@ def test_controller_requires_explicit_handoff_confirmation(tmp_path: Path) -> No
     compiled = module.AlignmentGraphStore(
         module.database_path(tmp_path, "handoff-run")
     ).compile_handoff()
-    assert compiled["alignment_digest"] == decision["alignment_digest"]
-    assert compiled["compiled_graph_digest"] != compiled["alignment_digest"]
+    assert compiled["alignment_digest"] != decision["alignment_digest"]
+    assert compiled["compiled_graph_digest"] == compiled["alignment_digest"]
     assert set(compiled["decision_slots"]) == {"question-architecture"}
     assert len(compiled["baseline_findings"]) == 1
     assert compiled["execution_context"]["authority"] == [
@@ -187,6 +187,8 @@ def test_controller_requires_explicit_handoff_confirmation(tmp_path: Path) -> No
             str(ROOT / "scripts" / "alignment_controller.py"),
             "--workspace",
             str(tmp_path),
+            "--project-id",
+            "alignment-handoff-run",
             "compile",
             "--run-id",
             "handoff-run",
@@ -200,6 +202,15 @@ def test_controller_requires_explicit_handoff_confirmation(tmp_path: Path) -> No
     assert completed.returncode == 0, completed.stderr
     assert not output.read_bytes().startswith(b"\xef\xbb\xbf")
     assert json.loads(output.read_text(encoding="utf-8"))["kind"] == "alignment-handoff"
+
+
+def test_alignment_database_uses_project_run_authority(tmp_path: Path) -> None:
+    module = controller()
+
+    database = module.database_path(tmp_path, "run-1", "topic-1")
+
+    assert database == tmp_path / ".research-tree" / "projects" / "topic-1" / "runs" / "run-1" / "alignment" / "alignment.db"
+    assert not (tmp_path / ".research-tree-alignment").exists()
 
 
 def test_handoff_preserves_indirect_evidence_paths(tmp_path: Path) -> None:
@@ -297,6 +308,101 @@ def test_refined_research_question_replaces_old_obligation_and_reanchors_evidenc
     assert [edge["direction"] for edge in path] == ["forward", "reverse"]
 
 
+def test_strategy_tracks_require_slot_coverage_and_compile_exact_track_metadata(tmp_path: Path) -> None:
+    module = controller()
+    module.init(tmp_path, "track-coverage-run")
+    update = complete_graph()
+    strategy = next(node for node in update["nodes"] if node["id"] == "strategy")
+    strategy["attributes"] = {
+        "tracks": [
+            {
+                "id": track_id,
+                "priority": priority,
+                "closure_oracle": f"{track_id} closes with independent evidence.",
+                "evidence_boundary": f"bounded {track_id} evidence",
+            }
+            for track_id, priority in (
+                ("track-architecture", "P0"),
+                ("track-evidence", "P1"),
+                ("track-adversarial", "P0"),
+                ("track-validation", "P0"),
+            )
+        ]
+    }
+    question = next(node for node in update["nodes"] if node["id"] == "question-architecture")
+    question["attributes"] = {"track_id": "track-architecture"}
+    for node_id, track_id in (
+        ("question-evidence", "track-evidence"),
+        ("question-adversarial", "track-adversarial"),
+        ("question-validation", "track-validation"),
+    ):
+        update["nodes"].append(
+            {
+                "id": node_id,
+                "type": "research_question",
+                "statement": f"Which bounded result closes {track_id}?",
+                "status": "candidate",
+                "impact": 4,
+                "human_only": False,
+                "confidence": "low",
+                "source": "joint",
+                "oracle": f"{track_id} is independently validated.",
+                "attributes": {"track_id": track_id},
+            }
+        )
+    graph = tmp_path / "tracks.json"
+    write_json(graph, update)
+    decision = module.plan(tmp_path, "track-coverage-run", graph)
+    assert decision["action"] == "await_human_confirmation"
+    module.confirm(
+        tmp_path,
+        "track-coverage-run",
+        "I confirm all four strategy tracks for autonomous research.",
+        decision["alignment_digest"],
+    )
+    compiled = module.AlignmentGraphStore(
+        module.database_path(tmp_path, "track-coverage-run")
+    ).compile_handoff()
+    assert {slot["track_id"] for slot in compiled["decision_slots"].values()} == {
+        "track-architecture",
+        "track-evidence",
+        "track-adversarial",
+        "track-validation",
+    }
+    assert all(slot["evidence_boundary"].startswith("bounded ") for slot in compiled["decision_slots"].values())
+    assert all(slot["track_closure_oracle"].endswith("independent evidence.") for slot in compiled["decision_slots"].values())
+
+
+def test_strategy_tracks_reject_uncovered_active_track(tmp_path: Path) -> None:
+    module = controller()
+    module.init(tmp_path, "track-gap-run")
+    update = complete_graph()
+    strategy = next(node for node in update["nodes"] if node["id"] == "strategy")
+    strategy["attributes"] = {
+        "tracks": [
+            {
+                "id": "track-covered",
+                "priority": "P0",
+                "closure_oracle": "Covered track closes.",
+                "evidence_boundary": "bounded source",
+            },
+            {
+                "id": "track-uncovered",
+                "priority": "P1",
+                "closure_oracle": "Uncovered track closes.",
+                "evidence_boundary": "bounded source",
+            },
+        ]
+    }
+    question = next(node for node in update["nodes"] if node["id"] == "question-architecture")
+    question["attributes"] = {"track_id": "track-covered"}
+    graph = tmp_path / "uncovered-track.json"
+    write_json(graph, update)
+    decision = module.plan(tmp_path, "track-gap-run", graph)
+    assert decision["action"] == "reconnaissance"
+    assert "strategy track track-uncovered has no executable research question" in decision["readiness"]["reasons"]
+
+
 def test_schema_command_writes_strict_utf8_and_rejects_unknown_fields(
     tmp_path: Path,
 ) -> None:
@@ -364,6 +470,40 @@ def test_confirm_rejects_stale_displayed_graph(tmp_path: Path) -> None:
             "I accept this strategy and authorize autonomous research.",
             decision["alignment_digest"],
         )
+
+
+@pytest.mark.parametrize(
+    "node_id",
+    ["goal", "use", "scope", "authority", "strategy", "success", "feasibility"],
+)
+def test_post_confirmation_graph_change_stales_handoff(
+    tmp_path: Path, node_id: str
+) -> None:
+    module = controller()
+    run_id = f"post-confirm-{node_id}"
+    module.init(tmp_path, run_id)
+    graph = tmp_path / "graph.json"
+    write_json(graph, complete_graph())
+    decision = module.plan(tmp_path, run_id, graph)
+    module.confirm(
+        tmp_path,
+        run_id,
+        "I accept the displayed strategy and authorize autonomous research.",
+        decision["alignment_digest"],
+    )
+
+    update = complete_graph()
+    node = next(item for item in update["nodes"] if item["id"] == node_id)
+    node["statement"] = f"Updated {node_id} statement after confirmation."
+    store = module.AlignmentGraphStore(module.database_path(tmp_path, run_id))
+    store.merge(update)
+
+    state = store.status()
+    assert state["controller"]["status"] == "alignment"
+    assert state["controller"]["handoff"]["stale"] is True
+    assert state["controller"]["handoff"]["stale_reason"] == "alignment_graph_changed"
+    with pytest.raises(module.ControllerError, match="stale_handoff_confirmation"):
+        store.compile_handoff()
 
 
 def test_readiness_rejects_supported_evidence_that_handoff_would_drop(
@@ -441,7 +581,7 @@ def test_confirmed_graph_initializes_persisted_tree_with_zero_delta_baseline(
 ) -> None:
     from research_tree import (
         ResearchTreeStateError,
-        RunStore,
+        RunLedger,
         initialize_research_from_alignment,
     )
 
@@ -457,13 +597,14 @@ def test_confirmed_graph_initializes_persisted_tree_with_zero_delta_baseline(
         decision["alignment_digest"],
     )
 
-    run_store = RunStore(tmp_path / "run-store")
-    run_store.create_round("round-alignment")
+    ledger = RunLedger(tmp_path / "run-ledger")
+    ledger.create_run("round-alignment")
     tree = initialize_research_from_alignment(
-        run_store,
+        ledger,
         round_id="round-alignment",
         tree_id="research-tree",
         alignment_database=module.database_path(tmp_path, "integration-run"),
+        expected_revision=ledger.get_revision("round-alignment"),
     )
 
     assert tree.payload["transition_index"] == 0
@@ -482,15 +623,53 @@ def test_confirmed_graph_initializes_persisted_tree_with_zero_delta_baseline(
     assert len(parent_ids) == 2
     assert any(artifact_id.startswith("alignment-handoff-") for artifact_id in parent_ids)
 
-    artifact_count = len(run_store.load_round("round-alignment").artifacts)
+    artifact_count = len(ledger.load_run("round-alignment").artifacts)
     with pytest.raises(ResearchTreeStateError, match="already exists"):
         initialize_research_from_alignment(
-            run_store,
+            ledger,
             round_id="round-alignment",
             tree_id="research-tree",
             alignment_database=module.database_path(tmp_path, "integration-run"),
+            expected_revision=ledger.get_revision("round-alignment"),
         )
-    assert len(run_store.load_round("round-alignment").artifacts) == artifact_count
+    assert len(ledger.load_run("round-alignment").artifacts) == artifact_count
+
+
+def test_alignment_handoff_batch_rolls_back_every_artifact_on_commit_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from research_tree import RunLedger, initialize_research_from_alignment
+
+    module = controller()
+    module.init(tmp_path, "atomic-run")
+    graph = tmp_path / "atomic-graph.json"
+    write_json(graph, complete_graph())
+    decision = module.plan(tmp_path, "atomic-run", graph)
+    module.confirm(
+        tmp_path,
+        "atomic-run",
+        "I accept the displayed strategy and authorize autonomous research.",
+        decision["alignment_digest"],
+    )
+    ledger = RunLedger(tmp_path / "run-ledger")
+    ledger.create_run("round-alignment")
+
+    def fail_commit() -> None:
+        raise RuntimeError("injected alignment handoff failure")
+
+    monkeypatch.setattr(RunLedger, "_before_commit", staticmethod(fail_commit))
+    with pytest.raises(RuntimeError, match="injected alignment handoff failure"):
+        initialize_research_from_alignment(
+            ledger,
+            round_id="round-alignment",
+            tree_id="research-tree",
+            alignment_database=module.database_path(tmp_path, "atomic-run"),
+            expected_revision=ledger.get_revision("round-alignment"),
+        )
+
+    assert ledger.get_revision("round-alignment") == 0
+    assert ledger.load_run("round-alignment").artifacts == ()
 
 
 def test_controller_rejects_utf8_bom_instead_of_silently_using_utf8_sig(

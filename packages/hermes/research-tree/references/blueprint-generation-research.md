@@ -201,7 +201,7 @@ priority = (decision_impact * uncertainty * downstream_leverage * irreversibilit
 information gain. After execution, calibrate it against the persisted evidence
 delta and Decision Slot changes.
 
-The scheduler additionally enforces coverage deficits, tool capacity, source
+The coordinator additionally enforces coverage deficits, tool capacity, source
 diversity, duplicate suppression, and dependency readiness. It starts with a
 small broad landscape and repository pass, then concentrates budget on critical
 unclosed decisions. This is a decision policy, not a claim of a universally
@@ -266,8 +266,6 @@ Input Registry / Repository Inspector
  Intent Model / Working Brief / Strategy / Decision Map Store
                  |
                  v
-         Adaptive Portfolio Scheduler
-                 |
       +----------+-----------+----------+
       v          v           v          v
    web/docs    repo scan   prototype  evaluation
@@ -282,8 +280,6 @@ Input Registry / Repository Inspector
         +--------+--------+
         v                 v
 Technical Research Package  Human Brief
-        |
-        +--> explicit request --> OpenSpec exporter
 ```
 
 The product maintains two deliberately different graph-like views:

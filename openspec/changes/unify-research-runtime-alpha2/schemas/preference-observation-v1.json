@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://research-tree.local/schemas/preference-observation-v1.json",
+  "title": "Alpha2 PreferenceObservation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "observation_id", "project_id", "turn_number", "key", "value", "basis", "source_ref", "privacy", "reversal_condition", "supersedes_observation_id", "content_hash"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "kind": { "const": "preference-observation" },
+    "observation_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "project_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "turn_number": { "type": "integer", "minimum": 1 },
+    "key": { "type": "string", "minLength": 1 },
+    "value": { "type": "string", "minLength": 1 },
+    "basis": { "type": "string", "enum": ["explicit", "inferred"] },
+    "source_ref": { "type": "string", "minLength": 1 },
+    "privacy": { "const": "project-local" },
+    "reversal_condition": { "type": "string", "minLength": 1 },
+    "supersedes_observation_id": { "type": ["string", "null"], "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "content_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

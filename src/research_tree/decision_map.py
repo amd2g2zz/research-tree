@@ -14,7 +14,7 @@ from .domain import (
 )
 from .intake import INPUT_LEDGER_ARTIFACT_KIND
 from .intent import INTENT_MODEL_KIND, WORKING_BRIEF_KIND
-from .storage import RunStore
+from .run_ledger import RunLedger
 
 
 BLUEPRINT_TARGET_KIND = "blueprint-target"
@@ -44,11 +44,13 @@ class InvalidBlueprintTargetError(BlueprintTargetError):
     """Raised before a Decision Map contract violation can be persisted."""
 
 
-class BlueprintTargetCompiler:
-    """Persist immutable decision maps with explicit revision-change records."""
+class CanonicalBlueprintTargetCompiler:
+    """Persist immutable Blueprint Targets directly in the canonical ledger."""
 
-    def __init__(self, store: RunStore) -> None:
-        self._store = store
+    def __init__(self, ledger: RunLedger) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidBlueprintTargetError("canonical Blueprint Target compiler requires a RunLedger")
+        self._ledger = ledger
 
     def compile(
         self,
@@ -58,11 +60,12 @@ class BlueprintTargetCompiler:
         working_brief: ArtifactRevision,
         slots: Sequence[Mapping[str, Any]],
         change: Mapping[str, Any],
+        expected_revision: int,
     ) -> ArtifactRevision:
-        """Validate a bounded map before atomically appending a target revision."""
+        """Append one lineage-bound target revision with an explicit precondition."""
 
         try:
-            snapshot = self._store.load_round(round_id)
+            snapshot = self._ledger.load_run(round_id)
             validate_identifier(target_id, "target_id")
             foreign_kinds = {
                 artifact.kind
@@ -81,22 +84,15 @@ class BlueprintTargetCompiler:
 
             model = _resolve_brief_model(snapshot.artifacts, brief)
             brief_inputs = _resolve_brief_inputs(snapshot.artifacts, brief)
-            repository_anchors = _repository_anchors(brief_inputs)
-            visible_hypotheses = _brief_hypothesis_ids(brief, model)
             normalized_slots = _normalize_slots(
                 slots,
-                visible_hypotheses=visible_hypotheses,
+                visible_hypotheses=_brief_hypothesis_ids(brief, model),
                 selected_input_ids=_brief_selected_input_ids(brief),
-                repository_anchors=repository_anchors,
+                repository_anchors=_repository_anchors(brief_inputs),
             )
             _validate_dependencies(normalized_slots)
-
             previous_target = _latest_target(snapshot.artifacts, target_id)
-            if previous_target is not None and not _shares_exact_brief_model_lineage(
-                previous_target,
-                brief,
-                model,
-            ):
+            if previous_target is not None and not _shares_exact_brief_model_lineage(previous_target, brief, model):
                 raise InvalidBlueprintTargetError(
                     "later Blueprint Target revisions must retain the prior Brief and Intent Model lineage"
                 )
@@ -115,17 +111,18 @@ class BlueprintTargetCompiler:
         }
         brief_ref = ArtifactRef(round_id, brief.id, brief.revision)
         model_ref = ArtifactRef(round_id, model.id, model.revision)
-        if previous_target is None:
-            parent_refs = (brief_ref, model_ref)
-        else:
-            previous_ref = ArtifactRef(round_id, previous_target.id, previous_target.revision)
-            parent_refs = (previous_ref, brief_ref, model_ref)
-        return self._store.append_artifact(
+        parent_refs = (
+            (brief_ref, model_ref)
+            if previous_target is None
+            else (ArtifactRef(round_id, previous_target.id, previous_target.revision), brief_ref, model_ref)
+        )
+        return self._ledger.append_artifact(
             round_id,
             target_id,
             BLUEPRINT_TARGET_KIND,
             payload,
             parent_refs=parent_refs,
+            expected_revision=expected_revision,
         )
 
 
@@ -139,7 +136,7 @@ def _resolve_exact_artifact(
             if stored != artifact:
                 raise InvalidBlueprintTargetError("working_brief does not match its stored revision")
             return stored
-    raise InvalidBlueprintTargetError("working_brief has not been persisted in this RunStore")
+    raise InvalidBlueprintTargetError("working_brief has not been persisted in the active run ledger")
 
 
 def _resolve_brief_model(

@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-08-10
+goal: "Deliver #110 as a narrow strict DeliveryCompiler boundary without
+  absorbing OracleRun or semantic delivery work."

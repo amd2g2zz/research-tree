@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json
+import importlib.util
 import os
 import subprocess
 import sys
@@ -19,39 +19,49 @@ def _run_cli(*arguments: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_documented_first_use_and_recovery_path(tmp_path: Path) -> None:
-    root = tmp_path / "research-tree-demo"
-
-    created = _run_cli(
-        "create-round", "--store", str(root), "--round-id", "round-first"
-    )
-    assert created.returncode == 0, created.stderr
-    assert json.loads(created.stdout)["id"] == "round-first"
-
-    recovered = _run_cli(
-        "show-round", "--store", str(root), "--round-id", "round-first"
-    )
-    assert recovered.returncode == 0, recovered.stderr
-    assert json.loads(recovered.stdout)["record"]["id"] == "round-first"
-
-
-def test_readme_and_cli_help_make_runtime_scope_discoverable() -> None:
+def test_readme_and_cli_help_do_not_advertise_retired_runtime_scope() -> None:
     readme = Path(__file__).parents[1] / "README.md"
     content = readme.read_text(encoding="utf-8")
 
-    for expected in (
-        "uv sync",
-        "uv run python -m research_tree create-round",
-        "uv run python -m research_tree show-round",
-            "uv run python -m research_tree tree-init",
-            "uv run python -m research_tree tree-init-alignment",
-        "uv run python -m research_tree tree-next",
-        "persisted recursive",
-        "`research_tree` Python API",
+    assert "uv sync" in content
+    assert "Python API for composed workflow services" in content
+    for retired in (
+        "create-round",
+        "show-round",
+        "tree-init",
+        "tree-init-alignment",
+        "tree-next",
+        "tree-ingest",
+        "tree-recover",
+        "tree-deliver",
+        "profile-inspect",
+        "profile-correct",
+        "profile-reset",
+        "profile-delete",
+        "research-tree-migrate",
     ):
-        assert expected in content
+        assert retired not in content
 
     help_output = _run_cli("--help")
     assert help_output.returncode == 0, help_output.stderr
-    assert "recursive research-tree state" in help_output.stdout.lower()
-    assert "tree-recover" in help_output.stdout
+    assert "canonical" in help_output.stdout.lower()
+    assert "tree-recover" not in help_output.stdout
+
+
+def test_legacy_application_facade_is_not_importable() -> None:
+    assert importlib.util.find_spec("research_tree.application") is None
+
+
+def test_legacy_feedback_service_is_not_published() -> None:
+    import research_tree
+    import research_tree.feedback as feedback
+
+    assert not hasattr(research_tree, "FeedbackRoundService")
+    assert not hasattr(feedback, "FeedbackRoundService")
+
+
+def test_legacy_runstore_is_not_importable_or_published() -> None:
+    import research_tree
+
+    assert not hasattr(research_tree, "RunStore")
+    assert importlib.util.find_spec("research_tree.storage") is None

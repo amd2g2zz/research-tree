@@ -113,3 +113,74 @@ record operation SHALL NOT resolve an arbitrary node or human-only field.
 #### Scenario: Agent-authored support targets a human-only field
 - **WHEN** agent evidence or an agent interpretation is marked supported for a preference, permission, or acceptance field reserved to the requester
 - **THEN** the field remains unresolved and handoff readiness reports the missing requester decision
+
+### Requirement: Alignment action candidates are revision-bound and replayable
+
+Every alignment candidate SHALL have an immutable action identity, run id,
+kind, exact belief and evidence references, semantic score factors, selected
+ordering, expected ambiguity reduction, created revision, status, outcome, and
+idempotency identity. Planning SHALL return the current pending attempt
+unchanged when its outcome is absent; a new attempt requires an explicit
+consumption or recovery disposition. Candidate selection SHALL be deterministic
+from the current canonical digest, versioned weights, and seed.
+
+#### Scenario: Researchable ambiguity precedes a requester question
+
+- **WHEN** a high-impact uncertainty is researchable by the agent and no
+  requester-only authority is missing
+- **THEN** the planner creates and returns one reconnaissance action before an
+  open question
+
+#### Scenario: Repeated planning has a pending action
+
+- **WHEN** the same canonical state is planned again before the pending outcome
+  is recorded
+- **THEN** the same action and attempt identity are returned without a new
+  zero-work action
+
+### Requirement: Alignment messages are bounded and digest-bound
+
+Each user-facing turn SHALL persist an `AlignmentMessage` containing a message
+id, run id, displayed belief or strategy digest, selected action id, a short
+mirror, at most one relevant evidence fact or counterargument, consequence,
+zero or one open prompt, evidence references, timestamp, and response binding.
+The displayed digest SHALL be the only digest accepted for contextual
+confirmation, and generic acknowledgements SHALL remain non-authorizing.
+
+#### Scenario: Multiple internal gaps remain
+
+- **WHEN** several unresolved gaps exist for one alignment turn
+- **THEN** the message contains at most one open prompt and retains other gaps
+  as internal candidates
+
+### Requirement: Canonical alignment handoff carries exact lineage
+
+An explicit current-digest confirmation SHALL compile one immutable
+`alignment-handoff` artifact with the selected action, message, beliefs,
+evidence, field-level readiness, and strategy lineage, then request the
+`ResearchRunCoordinator` transition. Graph-local status, reports, host
+observations, generic responses, or an unconsumed reconnaissance SHALL NOT
+transition a run to autonomous research.
+
+#### Scenario: Contextual confirmation is current
+
+- **WHEN** all required readiness fields pass and the requester explicitly
+  accepts the displayed strategy digest in context
+- **THEN** one exact-revision handoff is persisted and the coordinator is the
+  only component allowed to advance lifecycle state
+
+### Requirement: Feedback classification separates successor and replan
+
+Material target, priority, authority, or success-definition feedback SHALL be
+recorded as typed lineage and routed to `ResearchRunCoordinator.create_successor`.
+Depth, method, or evidence corrections SHALL become same-round replan records.
+Stale displayed digests, duplicate responses, and unresolved feedback SHALL
+remain blocked; full dependent-artifact invalidation is owned by the correction
+boundary.
+
+#### Scenario: Material target changes after handoff
+
+- **WHEN** requester feedback changes the confirmed target or success
+  definition
+- **THEN** the active run remains historically immutable and a typed successor
+  request is created with the feedback lineage

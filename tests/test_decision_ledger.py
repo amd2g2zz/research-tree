@@ -4,32 +4,27 @@ from pathlib import Path
 
 import pytest
 
+from canonical_finding_fixture import canonical_context
+from research_tree import ArtifactRef
+from research_tree.claims import Claim, ClaimGrounding
+from research_tree.evidence import EvidenceAnchor, EvidenceArtifact
+
 
 def api():
     from research_tree import (
-        BlueprintTargetCompiler,
-        DecisionLedgerCompiler,
-        FindingPackCompiler,
-        InputIntakeService,
-        IntentModelCompiler,
+        CanonicalDecisionLedgerCompiler,
+        CanonicalFindingPackCompiler,
         InvalidDecisionLedgerError,
         InvalidFindingPackError,
-        RunStore,
-        WorkItemPlanner,
-        WorkingBriefCompiler,
+        RunLedger,
     )
 
     return {
-        "BlueprintTargetCompiler": BlueprintTargetCompiler,
-        "DecisionLedgerCompiler": DecisionLedgerCompiler,
-        "FindingPackCompiler": FindingPackCompiler,
-        "InputIntakeService": InputIntakeService,
-        "IntentModelCompiler": IntentModelCompiler,
+        "CanonicalDecisionLedgerCompiler": CanonicalDecisionLedgerCompiler,
+        "CanonicalFindingPackCompiler": CanonicalFindingPackCompiler,
         "InvalidDecisionLedgerError": InvalidDecisionLedgerError,
         "InvalidFindingPackError": InvalidFindingPackError,
-        "RunStore": RunStore,
-        "WorkItemPlanner": WorkItemPlanner,
-        "WorkingBriefCompiler": WorkingBriefCompiler,
+        "RunLedger": RunLedger,
     }
 
 
@@ -79,107 +74,14 @@ def slot() -> dict[str, object]:
 
 def context(tmp_path: Path):
     modules = api()
-    store = modules["RunStore"](tmp_path / "store")
-    round_record = store.create_round("round-ledger")
-    intake = modules["InputIntakeService"](store)
-    intake.ingest_text(
-        round_id=round_record.id,
-        input_id="input-brief",
-        kind="brief",
-        content="Build an implementation-ready autonomous reverse-engineering agent.",
-        origin_type="user",
-        origin_locator="conversation:1",
-        role="signal",
+    store, resolver, round_record, _model, _brief, target, work, _finding, _decision, _evidence, anchor = (
+        canonical_context(
+            tmp_path,
+            include_decision=False,
+        )
     )
-    intake.ingest_repository(
-        round_id=round_record.id,
-        input_id="input-repository",
-        repository_root=repository(tmp_path / "repository"),
-        origin_type="workspace",
-        role="baseline",
-    )
-    intake.create_context_bundle(
-        round_id=round_record.id,
-        input_id="input-context",
-        member_input_ids=("input-brief", "input-repository"),
-        origin_type="user",
-        origin_locator="conversation:1",
-        role="baseline",
-    )
-    model = modules["IntentModelCompiler"](store).compile(
-        round_id=round_record.id,
-        intent_id="intent-model",
-        context_bundle_ids=("input-context",),
-        input_ids=("input-brief", "input-repository"),
-        analysis={
-            "signals": [
-                {
-                    "input_id": "input-brief",
-                    "observation": "The requester needs an autonomous agent.",
-                    "kind": "stated_goal",
-                    "authority_boundary": "It does not select the implementation architecture.",
-                },
-                {
-                    "input_id": "input-repository",
-                    "observation": "The repository has a src/agent.py run boundary.",
-                    "kind": "repository_fact",
-                    "authority_boundary": "It describes current code, not a recommendation.",
-                },
-            ],
-            "hypotheses": [
-                {
-                    "id": "intent-agent",
-                    "interpretation": "Deliver a safe implementation-ready agent path.",
-                    "status": "leading",
-                    "signal_refs": ["input-brief", "input-repository"],
-                    "confidence": "medium",
-                    "decision_consequence": "Isolation boundaries need research.",
-                    "validation": "repository_inspection",
-                }
-            ],
-            "desired_outcomes": ["implementation-ready technical blueprint"],
-            "success_signals": ["an implementation agent can start without rediscovery"],
-            "decision_drivers": [
-                {
-                    "dimension": "technical",
-                    "statement": "The first implementation must be safely isolated.",
-                    "signal_refs": ["input-brief"],
-                }
-            ],
-            "hard_constraints": ["Do not execute untrusted binaries during intake."],
-            "non_goals": ["Do not require a user questionnaire."],
-            "unresolved_interpretations": [],
-        },
-    )
-    brief = modules["WorkingBriefCompiler"](store).compile(
-        round_id=round_record.id,
-        brief_id="working-brief",
-        intent_model=model,
-        triggers=[{"kind": "initial_request", "text": "Start", "input_ids": ["input-brief"]}],
-        context_bundle_ids=("input-context",),
-        selected_input_ids=("input-brief", "input-repository"),
-        input_roles={"input-brief": "primary", "input-repository": "baseline"},
-        material_conflicts=[],
-        working_interpretation="A safe implementation-ready agent path is leading.",
-        technical_outcome="Choose the first agent architecture and integration boundary.",
-    )
-    target = modules["BlueprintTargetCompiler"](store).compile(
-        round_id=round_record.id,
-        target_id="blueprint-target",
-        working_brief=brief,
-        slots=[slot()],
-        change={
-            "kind": "initial",
-            "reason": "Map the isolation decision.",
-            "from_slot_ids": [],
-            "to_slot_ids": ["slot-isolation"],
-        },
-    )
-    work = modules["WorkItemPlanner"](store).plan(
-        round_id=round_record.id,
-        blueprint_target=target,
-        work_item_ids={"slot-isolation": "work-isolation"},
-    )[0]
+    modules["resolver"] = resolver
+    modules["anchor"] = anchor
     return modules, store, round_record, target, work
 
 
@@ -201,11 +103,62 @@ def finding_payload(option: str, effect: str, claim: str) -> dict[str, object]:
 
 
 def compile_finding(modules, store, round_record, work, finding_id: str, **payload):
-    return modules["FindingPackCompiler"](store).compile(
+    claim = Claim(
+        claim_id=f"claim-{finding_id}",
+        subject="source",
+        predicate="supports",
+        value="the isolated worker boundary",
+        polarity="positive",
+        scope="fixture boundary",
+        version="fixture-v1",
+        time_range="fixture-time",
+    )
+    observations = []
+    for value in payload["observations"]:
+        observation = dict(value)
+        observation["claim_id"] = claim.claim_id
+        observation["anchor"] = modules["anchor"].to_dict()
+        observations.append(observation)
+    independent_ref = ArtifactRef(round_record.id, "strict-source-independent", 1)
+    independent = EvidenceArtifact.from_revision(independent_ref, store.get_artifact(independent_ref))
+    independent_anchor = EvidenceAnchor(
+        artifact_ref=independent_ref,
+        artifact_digest=independent.content_digest,
+        artifact_revision=1,
+        selector_type="line",
+        selector_value={"start": 1, "end": 1},
+        extractor_version="fixture-reader-v1",
+        applicability="direct support",
+        confidence="high",
+        limitations=(),
+    )
+    effects = []
+    for value in payload["option_effects"]:
+        effect = dict(value)
+        effect["claim_ids"] = [claim.claim_id]
+        effects.append(effect)
+    return modules["CanonicalFindingPackCompiler"](store, modules["resolver"]).compile(
         round_id=round_record.id,
         finding_id=finding_id,
         work_item=work,
-        **payload,
+        observations=observations,
+        expected_revision=store.get_revision(round_record.id),
+        option_effects=effects,
+        implementation_implications=payload["implementation_implications"],
+        remaining_uncertainties=payload["remaining_uncertainties"],
+        claims=[claim],
+        claim_groundings=[
+            ClaimGrounding(f"grounding-{finding_id}", claim.claim_id, modules["anchor"].to_dict()),
+            ClaimGrounding(f"grounding-{finding_id}-independent", claim.claim_id, independent_anchor.to_dict()),
+        ],
+    )
+
+
+def converge(modules, store, round_record, **kwargs):
+    return modules["CanonicalDecisionLedgerCompiler"](store, modules["resolver"]).converge(
+        round_id=round_record.id,
+        expected_revision=store.get_revision(round_record.id),
+        **kwargs,
     )
 
 
@@ -282,8 +235,10 @@ def test_conflicting_findings_remain_inspectable_under_conditional_decision(tmp_
         "finding-contradiction",
         **finding_payload("isolated-worker", "contradicts", "Startup cost may exceed the first-demo budget."),
     )
-    decision = modules["DecisionLedgerCompiler"](store).converge(
-        round_id=round_record.id,
+    decision = converge(
+        modules,
+        store,
+        round_record,
         decision_id="decision-isolation",
         **decision_kwargs(target, [support, contradiction]),
     )
@@ -329,13 +284,17 @@ def test_p0_decision_requires_traceable_alternatives_and_reversal(
     invalid[field] = value
 
     with pytest.raises(modules["InvalidDecisionLedgerError"]):
-        modules["DecisionLedgerCompiler"](store).converge(
-            round_id=round_record.id,
+        converge(
+            modules,
+            store,
+            round_record,
             decision_id="decision-isolation",
             **invalid,
         )
 
-    assert [artifact for artifact in store.load_round(round_record.id).artifacts if artifact.kind == "decision-ledger-entry"] == []
+    assert [
+        artifact for artifact in store.load_run(round_record.id).artifacts if artifact.kind == "decision-ledger-entry"
+    ] == []
 
 
 def test_blocked_p0_can_record_fallback_without_finding_packs(tmp_path: Path) -> None:
@@ -358,8 +317,10 @@ def test_blocked_p0_can_record_fallback_without_finding_packs(tmp_path: Path) ->
         }
     )
 
-    decision = modules["DecisionLedgerCompiler"](_store).converge(
-        round_id=round_record.id,
+    decision = converge(
+        modules,
+        _store,
+        round_record,
         decision_id="decision-isolation",
         **blocked,
     )
@@ -379,8 +340,10 @@ def test_p0_selected_option_requires_a_finding_effect_for_that_option(tmp_path: 
     )
 
     with pytest.raises(modules["InvalidDecisionLedgerError"]):
-        modules["DecisionLedgerCompiler"](store).converge(
-            round_id=round_record.id,
+        converge(
+            modules,
+            store,
+            round_record,
             decision_id="decision-isolation",
             **decision_kwargs(target, [unrelated]),
         )
@@ -396,8 +359,10 @@ def test_reversed_decision_appends_revision_without_mutating_prior_conclusion(tm
         "finding-first",
         **finding_payload("isolated-worker", "supports", "The worker boundary isolates execution."),
     )
-    first = modules["DecisionLedgerCompiler"](store).converge(
-        round_id=round_record.id,
+    first = converge(
+        modules,
+        store,
+        round_record,
         decision_id="decision-isolation",
         **decision_kwargs(target, [first_finding]),
     )
@@ -424,17 +389,17 @@ def test_reversed_decision_appends_revision_without_mutating_prior_conclusion(tm
             "revision_reason": "New spike evidence reverses the conditional choice.",
         }
     )
-    second = modules["DecisionLedgerCompiler"](store).converge(
-        round_id=round_record.id,
+    second = converge(
+        modules,
+        store,
+        round_record,
         decision_id="decision-isolation",
         **revised,
     )
 
-    artifacts = modules["RunStore"](store.root).load_round(round_record.id).artifacts
+    artifacts = modules["RunLedger"](tmp_path / "ledger").load_run(round_record.id).artifacts
     stored_first = next(
-        artifact
-        for artifact in artifacts
-        if artifact.id == first.id and artifact.revision == first.revision
+        artifact for artifact in artifacts if artifact.id == first.id and artifact.revision == first.revision
     )
     assert [first.revision, second.revision] == [1, 2]
     assert second.parent_refs[0].revision == first.revision

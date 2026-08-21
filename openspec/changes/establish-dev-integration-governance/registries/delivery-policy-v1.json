@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "repository_default_branch": "master",
+  "integration_branch": "dev",
+  "release_branch": "master",
+  "delivery_branch_pattern": "^(?:feat|fix|docs|test|chore)/issue-(?P<issue>[0-9]+)-[a-z0-9]+(?:-[a-z0-9]+)*$",
+  "release_branch_pattern": "^release/[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$",
+  "delivery_issue_pattern": "(?i)(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\s+#(?P<issue>[0-9]+)",
+  "review_limits": {
+    "split_review": {
+      "files": 25,
+      "non_generated_lines": 800
+    },
+    "hard_limit": {
+      "files": 50,
+      "non_generated_lines": 1500
+    }
+  },
+  "generated_paths": [
+    "packages/**"
+  ],
+  "canonical_generation_inputs": [
+    "assets/**",
+    "references/**",
+    "scripts/build_skill_packages.py",
+    "scripts/hermes_event_adapter.py",
+    "scripts/hermes_execution_adapter.py",
+    "scripts/host_event_protocol.py",
+    "scripts/native_execution_adapter.py",
+    "scripts/hermes_skill_adapter.py",
+    "scripts/hermes_runtime_hook.py",
+    "src/research_tree/skill_activation.py",
+    "src/research_tree/lifecycle_hook.py",
+    "src/research_tree/project_workspace.py",
+    "skill-src/**"
+  ],
+  "ephemeral_verification_paths": [
+    ".research-tree/verification-runs/**",
+    "openspec/changes/**/evidence/*-output.txt",
+    "openspec/changes/**/evidence/*-output.log",
+    "openspec/changes/**/evidence/*-receipt.json",
+    "openspec/changes/**/evidence/verification-*.md",
+    "openspec/changes/**/evidence/future-evidence-gaps.json",
+    "openspec/changes/**/evidence/integrated-strict-slices.json",
+    "openspec/changes/**/evidence/integrated-receipt-byte-preservation-v*.json",
+    "openspec/changes/**/evidence/worktree-recovery-inventory-v*.json"
+  ],
+  "protected_branches": {
+    "dev": {
+      "required_pull_request": true,
+      "allow_force_pushes": false,
+      "allow_deletions": false,
+      "required_conversation_resolution": true
+    },
+    "master": {
+      "required_pull_request": true,
+      "allow_force_pushes": false,
+      "allow_deletions": false,
+      "required_conversation_resolution": true
+    }
+  }
+}

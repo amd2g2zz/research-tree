@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "comparison_id": "search-portfolio-historical-baseline-v1",
+  "comparison_kind": "static_historical_baseline",
+  "issue_ref": "#83",
+  "reference_input": {
+    "case_id": "mechanism-implementation-risk",
+    "subquestion_ids": [
+      "mechanism",
+      "counterevidence",
+      "implementation",
+      "validation"
+    ]
+  },
+  "reference_input_digest": "36eef423374d770100daf8974b1282068290d372a613678865dc7ae57ca37f12",
+  "retired_direct_query": {
+    "observation_ids": [
+      "secondary-summary",
+      "secondary-summary",
+      "secondary-summary"
+    ],
+    "covered_subquestion_ids": ["mechanism"],
+    "depth": "snippet",
+    "decision_closure": "open",
+    "metrics": {
+      "rediscovery": 2,
+      "coverage": 0.25,
+      "depth": 1,
+      "decision_closure": 0
+    }
+  },
+  "portfolio": {
+    "observation_ids": [
+      "secondary-summary",
+      "primary-source",
+      "repository-inspection"
+    ],
+    "covered_subquestion_ids": [
+      "mechanism",
+      "counterevidence",
+      "implementation"
+    ],
+    "depth": "full-source",
+    "decision_closure": "closed",
+    "metrics": {
+      "rediscovery": 0,
+      "coverage": 0.75,
+      "depth": 3,
+      "decision_closure": 1
+    }
+  },
+  "deltas": {
+    "rediscovery": -2,
+    "coverage": 0.5,
+    "depth": 2,
+    "decision_closure": 1
+  },
+  "child_groups": [74, 75, 77],
+  "trace_refs": [
+    "tests/test_search_portfolio.py::test_intent_derived_planner_adds_bounded_non_keyword_decision_coverage",
+    "tests/test_search_portfolio.py::test_batch_assessment_records_all_decision_metrics_and_pivots_on_contradiction",
+    "tests/test_research_run_coordinator.py::test_portfolio_pivot_uses_correction_quarantine_and_human_reopen_stays_pending",
+    "tests/test_worker_orchestration.py::test_portfolio_worker_finish_requires_durable_lineage"
+  ],
+  "release_manifest_link": "evaluation/results/alpha2-release-candidate-v1.json",
+  "release_decision_claim": "none",
+  "limitations": [
+    "This is a deterministic static historical-baseline fixture, not a live-provider execution.",
+    "The retired side is data only and does not provide a reader, fallback, migration, or runtime command.",
+    "The forward release-manifest link is contextual and does not alter the retained manifest or claim release approval."
+  ]
+}

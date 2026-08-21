@@ -19,7 +19,14 @@ from .domain import (
 )
 from .intent import INTENT_MODEL_KIND, WORKING_BRIEF_KIND
 from .ledger import DECISION_LEDGER_KIND, FINDING_PACK_KIND
-from .storage import RunStore
+from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
+from .contradictions import (
+    blocking_contradictions,
+    claim_from_mapping,
+    invalidating_contradictions,
+    unresolved_claim_ids,
+)
+from .run_ledger import RunLedger
 from .verification import (
     FAILURE_CATEGORY_GATES,
     InvalidVerificationError,
@@ -57,11 +64,22 @@ class InvalidReadinessError(ReadinessError):
     """Raised before an invalid readiness record can be appended."""
 
 
-class ReadinessVerifier:
+class CanonicalReadinessVerifier:
     """Check an immutable technical package without changing its research target."""
 
-    def __init__(self, store: RunStore) -> None:
-        self._store = store
+    def __init__(
+        self,
+        ledger: RunLedger,
+        evidence_resolver: EvidenceResolver,
+    ) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidReadinessError("canonical readiness requires a RunLedger")
+        if not isinstance(evidence_resolver, EvidenceResolver) or evidence_resolver.ledger is not ledger:
+            raise InvalidReadinessError(
+                "canonical readiness requires a matching ledger-backed EvidenceResolver"
+            )
+        self._ledger = ledger
+        self._evidence_resolver = evidence_resolver
 
     def verify(
         self,
@@ -72,6 +90,7 @@ class ReadinessVerifier:
         repository_roots: Mapping[str, str | Path] | None = None,
         risk_tier: str = "default",
         verification_adapter: IsolatedVerificationAdapter | None = None,
+        expected_revision: int,
     ) -> ArtifactRevision:
         """Append one diagnostic readiness record for an exact package revision.
 
@@ -81,7 +100,7 @@ class ReadinessVerifier:
         """
 
         try:
-            snapshot = self._store.load_round(round_id)
+            snapshot = self._ledger.load_run(round_id)
             validate_identifier(readiness_id, "readiness_id")
             _ensure_id_compatibility(snapshot.artifacts, readiness_id)
             tier = _enum(risk_tier, "risk_tier", RISK_TIERS)
@@ -107,6 +126,7 @@ class ReadinessVerifier:
                 sources,
                 root_map,
                 tier,
+                evidence_resolver=self._evidence_resolver,
             )
             assessment = assess_risk_verification(
                 round_id=round_id,
@@ -143,17 +163,27 @@ class ReadinessVerifier:
             (ArtifactRef(round_id, package.id, package.revision),)
             + tuple(ArtifactRef(round_id, item.id, item.revision) for item in sources["artifacts"])
         )
-        return self._store.append_artifact(
-            round_id,
-            readiness_id,
-            READINESS_RECORD_KIND,
-            payload,
+        if not all(self._ledger.is_latest_artifact(reference) for reference in parent_refs):
+            return self._ledger.append_artifact(
+                round_id=round_id,
+                readiness_id=readiness_id,
+                payload=payload,
+                parent_refs=parent_refs,
+                expected_revision=expected_revision,
+            )
+        from .completion_inputs import CompletionInputRegistrar
+
+        return CompletionInputRegistrar(self._ledger).write_readiness(
+            round_id=round_id,
+            readiness_id=readiness_id,
+            payload=payload,
             parent_refs=parent_refs,
+            expected_revision=expected_revision,
         )
 
 
 def readiness_for_delivery(record: ArtifactRevision) -> Mapping[str, Any]:
-    """Return the exact readiness mapping accepted by ``DeliveryCompiler``."""
+    """Return the exact readiness mapping accepted by canonical delivery."""
 
     if not isinstance(record, ArtifactRevision) or record.kind != READINESS_RECORD_KIND:
         raise InvalidReadinessError("record must be a readiness-record ArtifactRevision")
@@ -359,6 +389,8 @@ def _evaluate_package(
     sources: Mapping[str, Any],
     roots: Mapping[str, Path],
     tier: str,
+    *,
+    evidence_resolver: EvidenceResolver | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, str]]:
     target = sources["target"]
     slots = _slots(target)
@@ -389,10 +421,272 @@ def _evaluate_package(
     )
     states["traceability"] = trace_state
     states["implementation_readiness"] = implementation_state
+    if evidence_resolver is not None and not _strict_findings_are_authoritative(
+        sources["findings"],
+        sources["decisions"],
+        evidence_resolver,
+        diagnostics,
+        package_target=target,
+    ):
+        states["decision_closure"] = "fail"
+        states["implementation_readiness"] = "fail"
     repository_state, checks = _evaluate_repository_fit(slots, records, sources, roots, diagnostics)
     states["repository_fit"] = repository_state
     states["operational_quality"] = _evaluate_operational(document, slots, tier, diagnostics)
     return diagnostics, checks, states
+
+
+def _strict_findings_are_authoritative(
+    findings: Sequence[ArtifactRevision],
+    decisions: Sequence[ArtifactRevision],
+    resolver: EvidenceResolver,
+    diagnostics: list[dict[str, Any]],
+    *,
+    package_target: ArtifactRevision,
+) -> bool:
+    authoritative = True
+    package_target_id = package_target.id
+    package_target_ref = ArtifactRef(
+        package_target.round_id,
+        package_target.id,
+        package_target.revision,
+    )
+    evidence_by_finding: dict[ArtifactRef, tuple[ArtifactRef, ...]] = {}
+    findings_by_ref: dict[ArtifactRef, ArtifactRevision] = {}
+    for finding in findings:
+        slot_id = finding.payload.get("decision_slot_id")
+        if (
+            finding.payload.get("blueprint_target_id") != package_target_id
+            or package_target_ref not in finding.parent_refs
+        ):
+            diagnostics.append(
+                _diagnostic(
+                    "decision_closure",
+                    "fail",
+                    f"Finding Pack {finding.id} is not rooted in exact package Blueprint "
+                    f"Target {package_target_id!r}@{package_target.revision}.",
+                    slot_id=slot_id if isinstance(slot_id, str) else None,
+                )
+            )
+            authoritative = False
+            continue
+        if finding.payload.get("evidence_mode") != "strict":
+            diagnostics.append(
+                _diagnostic(
+                    "decision_closure",
+                    "fail",
+                    f"Finding Pack {finding.id} uses non-authoritative legacy evidence.",
+                    slot_id=slot_id if isinstance(slot_id, str) else None,
+                )
+            )
+            authoritative = False
+            continue
+        observations = finding.payload.get("observations")
+        if (
+            isinstance(observations, (str, bytes))
+            or not isinstance(observations, Sequence)
+            or not observations
+        ):
+            diagnostics.append(
+                _diagnostic(
+                    "decision_closure",
+                    "fail",
+                    f"Finding Pack {finding.id} has no strict observations.",
+                    slot_id=slot_id if isinstance(slot_id, str) else None,
+                )
+            )
+            authoritative = False
+            continue
+        references: list[ArtifactRef] = []
+        for index, observation in enumerate(observations):
+            try:
+                if not isinstance(observation, Mapping):
+                    raise EvidenceValidationError("observation is not a mapping")
+                anchor = EvidenceAnchor.from_dict(observation["anchor"])
+                if anchor.artifact_ref is None or anchor.artifact_ref not in finding.parent_refs:
+                    raise EvidenceValidationError("Finding Pack lacks exact evidence parent lineage")
+                resolver.resolve(anchor)
+                if anchor.artifact_ref not in references:
+                    references.append(anchor.artifact_ref)
+            except (KeyError, TypeError, ValueError, EvidenceValidationError) as error:
+                diagnostics.append(
+                    _diagnostic(
+                        "decision_closure",
+                        "fail",
+                        f"Finding Pack {finding.id} observation {index} is not authoritative: {error}",
+                        slot_id=slot_id if isinstance(slot_id, str) else None,
+                    )
+                )
+                authoritative = False
+        finding_ref = ArtifactRef(finding.round_id, finding.id, finding.revision)
+        evidence_by_finding[finding_ref] = tuple(references)
+        findings_by_ref[finding_ref] = finding
+    for decision in decisions:
+        linked_findings = [
+            reference for reference in decision.parent_refs if reference in evidence_by_finding
+        ]
+        status = decision.payload.get("status")
+        slot_id = decision.payload.get("decision_slot_id")
+        target_id = decision.payload.get("blueprint_target_id")
+        selected_option = decision.payload.get("selected_option")
+        if status in {"selected", "conditional"} and (
+            target_id != package_target_id or package_target_ref not in decision.parent_refs
+        ):
+            diagnostics.append(
+                _diagnostic(
+                    "decision_closure",
+                    "fail",
+                    f"Decision {decision.id} is not rooted in exact package Blueprint "
+                    f"Target {package_target_id!r}@{package_target.revision}.",
+                    slot_id=slot_id if isinstance(slot_id, str) else None,
+                    decision_id=decision.id,
+                )
+            )
+            authoritative = False
+            continue
+        if status in {"selected", "conditional"} and not linked_findings:
+            diagnostics.append(
+                _diagnostic(
+                    "decision_closure",
+                    "fail",
+                    f"Decision {decision.id} lacks a strict Finding Pack parent lineage.",
+                    slot_id=slot_id if isinstance(slot_id, str) else None,
+                    decision_id=decision.id,
+                )
+            )
+            authoritative = False
+            continue
+        if status in {"selected", "conditional"}:
+            matching_finding = False
+            supports_selected_option = False
+            for finding_ref in linked_findings:
+                finding = findings_by_ref[finding_ref]
+                if (
+                    not isinstance(target_id, str)
+                    or not isinstance(slot_id, str)
+                    or finding.payload.get("blueprint_target_id") != target_id
+                    or finding.payload.get("decision_slot_id") != slot_id
+                ):
+                    diagnostics.append(
+                        _diagnostic(
+                            "decision_closure",
+                            "fail",
+                            f"Decision {decision.id} and Finding Pack {finding.id} do not share a Blueprint Target and Decision Slot.",
+                            slot_id=slot_id if isinstance(slot_id, str) else None,
+                            decision_id=decision.id,
+                        )
+                    )
+                    authoritative = False
+                    continue
+                matching_finding = True
+                if isinstance(selected_option, str) and any(
+                    isinstance(effect, Mapping)
+                    and effect.get("option") == selected_option
+                    and effect.get("effect") == "supports"
+                    for effect in finding.payload.get("option_effects", ())
+                ):
+                    supports_selected_option = True
+            if not matching_finding or not supports_selected_option:
+                diagnostics.append(
+                    _diagnostic(
+                        "decision_closure",
+                        "fail",
+                        f"Decision {decision.id} lacks strict Finding Pack support for its selected option.",
+                        slot_id=slot_id if isinstance(slot_id, str) else None,
+                        decision_id=decision.id,
+                    )
+                )
+                authoritative = False
+            candidate_claims = []
+            for candidate in findings:
+                if (
+                    candidate.payload.get("blueprint_target_id") == target_id
+                    and candidate.payload.get("decision_slot_id") == slot_id
+                ):
+                    try:
+                        candidate_claims.extend(
+                            claim_from_mapping(value) for value in candidate.payload.get("claims", ())
+                        )
+                    except (TypeError, ValueError) as error:
+                        diagnostics.append(
+                            _diagnostic(
+                                "decision_closure",
+                                "fail",
+                                f"Finding Pack {candidate.id} has invalid canonical claims: {error}",
+                                slot_id=slot_id if isinstance(slot_id, str) else None,
+                                decision_id=decision.id,
+                            )
+                        )
+                        authoritative = False
+            contested = unresolved_claim_ids(candidate_claims)
+            contradiction_artifacts = [
+                item
+                for item in resolver.ledger.load_run(decision.round_id).artifacts
+                if item.kind in {"contradiction-packet", "contradiction-resolution", "contradiction-retraction"}
+            ]
+            packet_payloads = [
+                item.payload for item in contradiction_artifacts if item.kind == "contradiction-packet"
+            ]
+            resolution_payloads = [
+                item.payload for item in contradiction_artifacts if item.kind == "contradiction-resolution"
+            ]
+            retraction_payloads = [
+                item.payload for item in contradiction_artifacts if item.kind == "contradiction-retraction"
+            ]
+            active_packets = blocking_contradictions(
+                packet_payloads, contested, resolution_payloads=resolution_payloads
+            )
+            packet_detail = "; ".join(
+                f"contradiction packet {identifier} claims {','.join(claim_ids)}"
+                for identifier, claim_ids in active_packets
+            )
+            invalidating = invalidating_contradictions(
+                retraction_payloads,
+                round_id=decision.round_id,
+                artifact_id=decision.id,
+                revision=decision.revision,
+            )
+            if invalidating:
+                raise InvalidReadinessError(
+                    f"Decision {decision.id} was invalidated by {packet_detail or 'contradiction retraction'}; "
+                    "create fresh decision lineage from a terminal resolution."
+                )
+            selected_claim_ids = {
+                claim_id
+                for finding_ref in linked_findings
+                for effect in findings_by_ref[finding_ref].payload.get("option_effects", ())
+                if isinstance(effect, Mapping)
+                and effect.get("option") == selected_option
+                and effect.get("effect") == "supports"
+                for claim_id in effect.get("claim_ids", ())
+                if isinstance(claim_id, str)
+            }
+            if contested.intersection(selected_claim_ids):
+                detail = packet_detail or "no persisted contradiction packet"
+                diagnostics.append(
+                    _diagnostic(
+                        "decision_closure",
+                        "fail",
+                        f"Decision {decision.id} relies on an unresolved canonical contradiction: {detail}.",
+                        slot_id=slot_id if isinstance(slot_id, str) else None,
+                        decision_id=decision.id,
+                    )
+                )
+                authoritative = False
+        for finding_ref in linked_findings:
+            missing = set(evidence_by_finding[finding_ref]) - set(decision.parent_refs)
+            if missing:
+                diagnostics.append(
+                    _diagnostic(
+                        "decision_closure",
+                        "fail",
+                        f"Decision {decision.id} lacks strict evidence parent lineage from {finding_ref.artifact_id}.",
+                        slot_id=slot_id if isinstance(slot_id, str) else None,
+                        decision_id=decision.id,
+                    )
+                )
+                authoritative = False
+    return authoritative
 
 
 def _apply_risk_verification(
@@ -1201,7 +1495,7 @@ def _resolve_exact(
             if item.kind != expected_kind:
                 raise InvalidReadinessError(f"{label} must be a {expected_kind}")
             return item
-    raise InvalidReadinessError(f"{label} has not been persisted in this RunStore")
+    raise InvalidReadinessError(f"{label} has not been persisted in this RunLedger")
 
 
 def _slots(target: ArtifactRevision) -> dict[str, Mapping[str, Any]]:

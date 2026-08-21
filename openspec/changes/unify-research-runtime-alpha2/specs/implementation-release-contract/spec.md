@@ -2,7 +2,7 @@
 
 ### Requirement: Every capability maps to implementation and verification surfaces
 
-The change SHALL publish a delivery matrix mapping each requirement to source modules, public API or CLI surface, migration impact, unit/integration/black-box tests, expected evidence artifact, and owning GitHub issue. A task is not complete when only prose or a passing structural test exists.
+The change SHALL publish a delivery matrix mapping each requirement to source modules, public API or CLI surface, current-only cutover impact, unit/integration/black-box tests, expected evidence artifact, and owning GitHub issue. A task is not complete when only prose or a passing structural test exists.
 
 #### Scenario: Requirement has no executable owner
 
@@ -30,23 +30,20 @@ The source-checkout contract SHALL provide one supported launcher that resolves 
 - **WHEN** package validation or installation resolves a referenced resource that is absent or belongs to another host
 - **THEN** the operation fails before installation and identifies the source/package mismatch
 
-### Requirement: Migration is dry-run, idempotent, and reversible
+### Requirement: Current-only cutover preserves user data
 
-The migration tool SHALL expose inventory, dry-run, apply, verify, rollback, and status operations; record source digests, destination mappings, schema dispositions, collisions, and operator confirmation; and never delete untracked user data implicitly.
+The release process SHALL remove retired runtime authority through source
+deletion and release verification. It SHALL not inspect, import, project,
+migrate, or delete user-owned runtime data implicitly.
 
-#### Scenario: Migration is run twice
+#### Scenario: A retired artifact is presented to a current surface
 
-- **WHEN** the same legacy input is imported twice
-- **THEN** the second run reports `already_imported` by source digest and creates no duplicate canonical artifacts
-
-#### Scenario: Migration verification fails
-
-- **WHEN** a required lineage, digest, or compatibility check fails after apply
-- **THEN** rollback restores the prior canonical pointer while preserving imported artifacts as quarantined evidence
+- **WHEN** a caller attempts to use a retired legacy import or projection path
+- **THEN** no runtime route resolves it and user-owned data remains unchanged
 
 ### Requirement: Release evidence is a signed, reproducible manifest
 
-Every release candidate SHALL produce a machine-readable manifest containing source revision, package hashes for all hosts, schema versions, test commands and results, evaluation corpus and baseline identifiers, migration result, documentation/layout checks, known failures, and verifier identity. The manifest SHALL be immutable after publication.
+Every release candidate SHALL produce a machine-readable manifest containing source revision, package hashes for all hosts, schema versions, test commands and results, evaluation corpus and baseline identifiers, documentation/layout checks, known failures, and verifier identity. The manifest SHALL be immutable after publication.
 
 #### Scenario: Release notes claim a passing gate
 
@@ -74,7 +71,7 @@ The evaluation manifest SHALL freeze case versions, baselines, metrics, aggregat
 
 ### Requirement: Definition of Done requires observable evidence
 
-Each implementation task SHALL close only after code, focused tests, full regression results, documentation updates, migration notes, and a linked evidence manifest are present where applicable. "Implemented" or "tests pass" without artifact references is insufficient.
+Each implementation task SHALL close only after code, focused tests, full regression results, documentation updates, current-only cutover notes, and a linked evidence manifest are present where applicable. "Implemented" or "tests pass" without artifact references is insufficient.
 
 #### Scenario: Feature passes unit tests but lacks black-box proof
 
@@ -86,11 +83,14 @@ Each implementation task SHALL close only after code, focused tests, full regres
 - **WHEN** a capability cannot be fully supported on one host or environment
 - **THEN** the release records the limitation, fallback, affected scenarios, and explicit non-claim instead of silently marking it complete
 
-### Requirement: Rollout has an explicit compatibility and rollback window
+### Requirement: Rollout has an explicit current-only rollback boundary
 
-The release plan SHALL define alpha1 import compatibility, package versioning, schema migration order, feature flags, observability period, rollback trigger, and final removal criteria for every replaced authority.
+The release plan SHALL define package versioning, observability period,
+rollback trigger, and the release-revision boundary for every removed authority.
+Rollback SHALL be a Git or release-version revert, never a runtime compatibility
+or import route.
 
 #### Scenario: Host parity fails after cutover
 
 - **WHEN** a host produces a divergent semantic digest during the observation window
-- **THEN** rollout is halted or rolled back according to the manifest and legacy state remains read-only and recoverable
+- **THEN** rollout is halted or rolled back according to the manifest without reintroducing a retired runtime route

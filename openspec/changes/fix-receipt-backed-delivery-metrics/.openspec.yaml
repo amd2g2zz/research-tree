@@ -1,0 +1,4 @@
+schema: 1
+change: fix-receipt-backed-delivery-metrics
+status: complete
+issue: 278

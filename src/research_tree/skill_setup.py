@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from typing import Iterable, Sequence
+
+from .skill_activation import package_digests
 
 
 SKILL_NAME = "research-tree"
@@ -29,6 +33,45 @@ class HostLayout:
     user_parts: tuple[str, ...]
     project_parts: tuple[str, ...] | None
     discovery: str
+
+
+HERMES_DEPENDENCY_SCHEMA = 1
+# Pinned against the upstream artifact: anysearch-ai/anysearch-skill tag
+# v2.1.0 = 6ff6aa958ad9747659d669b5e9984f07c896f2aa. The digest covers every
+# tracked payload file in sorted order (name\0 content\0 per file).
+ANYSEARCH_PINNED_SHA256 = "f06c1a94a0cf8eca345cde609e62deb47907cb3b24889a0a37f5e1fdd0279d37"
+ANYSEARCH_PAYLOAD_FILES = (
+    ".env.example",
+    ".gitignore",
+    "README.md",
+    "SKILL.md",
+    "runtime.conf.example",
+    "scripts/anysearch_cli.js",
+    "scripts/anysearch_cli.ps1",
+    "scripts/anysearch_cli.py",
+    "scripts/anysearch_cli.sh",
+    "scripts/generate.py",
+    "scripts/shared/constants.json",
+    "scripts/shared/doc_spec.md",
+)
+ANYSEARCH_SOURCE_REPO = "https://github.com/anysearch-ai/anysearch-skill.git"
+
+
+def hermes_dependency_manifest() -> dict[str, object]:
+    """Return the pinned run-local Hermes dependency manifest."""
+
+    return {
+        "schema": HERMES_DEPENDENCY_SCHEMA,
+        "dependencies": {
+            "anysearch": {
+                "version": "2.1.0",
+                "revision": "6ff6aa958ad9747659d669b5e9984f07c896f2aa",
+                "install_path": "skills/anysearch",
+                "payload_files": list(ANYSEARCH_PAYLOAD_FILES),
+                "payload_sha256": ANYSEARCH_PINNED_SHA256,
+            }
+        },
+    }
 
 
 HOST_LAYOUTS = {
@@ -119,12 +162,27 @@ def resolve_package(repository: Path, host: str) -> Path:
     except KeyError as exc:
         raise SkillSetupError(f"unsupported host: {host}") from exc
     package = repository.expanduser().resolve().joinpath(*layout.package_parts)
-    if not (package / "SKILL.md").is_file():
-        raise SkillSetupError(
-            f"{host} package is missing; run python scripts/build_skill_packages.py: "
-            f"{package}"
-        )
+    skill_source = package / "skills" / SKILL_NAME if host == "claude" else package
+    if host == "claude":
+        manifest = package / ".claude-plugin" / "plugin.json"
+        if not manifest.is_file():
+            raise SkillSetupError(
+                f"Claude plugin manifest is missing; run python scripts/build_skill_packages.py: {manifest}"
+            )
+        try:
+            metadata = json.loads(manifest.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise SkillSetupError(f"Claude plugin manifest is invalid JSON: {manifest}") from exc
+        if not isinstance(metadata, dict) or metadata.get("name") != SKILL_NAME:
+            raise SkillSetupError(f"Claude plugin manifest does not name {SKILL_NAME!r}: {manifest}")
+    if not (skill_source / "SKILL.md").is_file():
+        raise SkillSetupError(f"{host} package is missing; run python scripts/build_skill_packages.py: {package}")
     return package
+
+
+def resolve_skill_source(repository: Path, host: str) -> Path:
+    package = resolve_package(repository, host)
+    return package / "skills" / SKILL_NAME if host == "claude" else package
 
 
 def _read_payload(source: Path) -> tuple[Path, ...]:
@@ -167,19 +225,59 @@ def _same_source(target: Path, source: Path) -> bool:
         return False
 
 
+def _is_link_like(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    try:
+        attributes = getattr(path.stat(follow_symlinks=False), "st_file_attributes", 0)
+    except OSError:
+        return False
+    return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
+def _same_payload(target: Path, source: Path) -> bool:
+    if not target.is_dir() or not source.is_dir():
+        return False
+    try:
+        return package_digests(target) == package_digests(source)
+    except (OSError, ValueError):
+        return False
+
+
+def _payload_digest(root: Path) -> str | None:
+    try:
+        return package_digests(root)["package_digest"]
+    except (OSError, ValueError):
+        return None
+
+
+def _installation_status_detail(target: Path, source: Path) -> tuple[str, str, str | None, str | None]:
+    if not _lexists(target):
+        return "missing", "target_missing", _payload_digest(source), None
+    if _same_source(target, source):
+        source_digest = _payload_digest(source)
+        return "current", "link_target_current", source_digest, source_digest
+    if _is_link_like(target):
+        return "conflict", "link_target_mismatch", None, None
+    source_digest = _payload_digest(source)
+    if not target.is_dir():
+        return "conflict", "target_not_directory", source_digest, None
+    try:
+        _read_payload(target)
+    except SkillSetupError as error:
+        reason = "missing_referenced_resource" if "referenced resource is missing" in str(error) else "legacy_payload"
+        return "conflict", reason, source_digest, _payload_digest(target)
+    target_digest = _payload_digest(target)
+    if source_digest is not None and target_digest == source_digest:
+        return "current", "payload_digest_match", source_digest, target_digest
+    return "conflict", "payload_digest_mismatch", source_digest, target_digest
+
+
 def installation_status(
     target: Path,
     source: Path,
-    *,
-    legacy_source: Path | None = None,
 ) -> str:
-    if not _lexists(target):
-        return "missing"
-    if _same_source(target, source):
-        return "current"
-    if legacy_source is not None and _same_source(target, legacy_source):
-        return "legacy"
-    return "conflict"
+    return _installation_status_detail(target, source)[0]
 
 
 def _create_link(source: Path, target: Path) -> None:
@@ -225,16 +323,6 @@ def _remove_created_target(target: Path, mode: str) -> None:
     raise SkillSetupError(f"created link is not removable as a link: {target}")
 
 
-def _remove_link_target(target: Path) -> None:
-    if target.is_symlink():
-        target.unlink()
-        return
-    if os.name == "nt":
-        target.rmdir()
-        return
-    raise SkillSetupError(f"legacy installation is not a removable link: {target}")
-
-
 def install_skill(
     hosts: Sequence[str],
     *,
@@ -251,80 +339,66 @@ def install_skill(
         raise SkillSetupError(f"unsupported install mode: {mode}")
 
     ordered_hosts = tuple(dict.fromkeys(hosts))
-    sources = {host: resolve_package(repository, host) for host in ordered_hosts}
+    packages = {host: resolve_package(repository, host) for host in ordered_hosts}
+    sources = {
+        host: package / "skills" / SKILL_NAME if host == "claude" else package for host, package in packages.items()
+    }
     payloads = {host: _read_payload(package) for host, package in sources.items()}
     targets = {
-        host: _absolute(resolve_target(
-            host,
-            scope=scope,
-            home=home,
-            project_root=project_root,
-            codex_home=codex_home,
-        ))
+        host: _absolute(
+            resolve_target(
+                host,
+                scope=scope,
+                home=home,
+                project_root=project_root,
+                codex_home=codex_home,
+            )
+        )
         for host in ordered_hosts
     }
     if mode == "link":
-        recursive = [
-            host for host, target in targets.items()
-            if _lexically_inside(sources[host], target)
-        ]
+        recursive = [host for host, target in targets.items() if _lexically_inside(sources[host], target)]
         if recursive:
             names = ", ".join(recursive)
             raise SkillSetupError(
-                f"link target for {names} is inside the source checkout; use --mode copy "
-                "for a project-scoped install"
+                f"link target for {names} is inside the source checkout; use --mode copy for a project-scoped install"
             )
 
-    statuses = {
-        host: installation_status(
-            target, sources[host], legacy_source=repository
-        )
-        for host, target in targets.items()
-    }
+    statuses = {host: installation_status(target, sources[host]) for host, target in targets.items()}
     conflicts = [host for host, status in statuses.items() if status == "conflict"]
     if conflicts:
-        details = ", ".join(f"{host}={targets[host]}" for host in conflicts)
-        raise SkillSetupError(
-            "refusing to overwrite existing non-source skill installation(s): " + details
-        )
+        details = ", ".join(f"{host}={statuses[host]}:{targets[host]}" for host in conflicts)
+        raise SkillSetupError("refusing to modify conflicting user-owned skill installation(s): " + details)
 
     results: list[dict[str, str]] = []
-    created: list[tuple[Path, Path | None]] = []
+    created: list[Path] = []
     try:
         for host, target in targets.items():
             status = statuses[host]
             action = "unchanged" if status == "current" else "planned"
-            if status in {"missing", "legacy"} and not dry_run:
-                previous = repository if status == "legacy" else None
-                if status == "legacy":
-                    _remove_link_target(target)
-                created.append((target, previous))
+            if status == "missing" and not dry_run:
+                created.append(target)
                 if mode == "link":
                     _create_link(sources[host], target)
                 else:
                     _copy_payload(sources[host], target, payloads[host])
-                action = "migrated" if status == "legacy" else "installed"
-            elif status == "legacy":
-                action = "planned_migration"
+                action = "installed"
             results.append(
                 {
                     "host": host,
                     "scope": scope,
                     "mode": mode,
                     "target": str(target),
-                    "package": str(sources[host]),
+                    "package": str(packages[host]),
+                    "skill_source": str(sources[host]),
                     "action": action,
                     "discovery": HOST_LAYOUTS[host].discovery,
-                    "payload_files": [
-                        item.as_posix() for item in payloads[host]
-                    ],
+                    "payload_files": [item.as_posix() for item in payloads[host]],
                 }
             )
     except (OSError, SkillSetupError) as exc:
-        for target, previous in reversed(created):
+        for target in reversed(created):
             _remove_created_target(target, mode)
-            if previous is not None:
-                _create_link(previous, target)
         if isinstance(exc, SkillSetupError):
             raise
         raise SkillSetupError(str(exc)) from exc
@@ -351,23 +425,31 @@ def skill_status(
     installations = []
     for host in tuple(dict.fromkeys(hosts)):
         package = resolve_package(repository, host)
-        _read_payload(package)
-        target = _absolute(resolve_target(
-            host,
-            scope=scope,
-            home=home,
-            project_root=project_root,
-            codex_home=codex_home,
-        ))
+        skill_source = package / "skills" / SKILL_NAME if host == "claude" else package
+        _read_payload(skill_source)
+        target = _absolute(
+            resolve_target(
+                host,
+                scope=scope,
+                home=home,
+                project_root=project_root,
+                codex_home=codex_home,
+            )
+        )
+        status, reason, source_digest, target_digest = _installation_status_detail(target, skill_source)
         installations.append(
             {
                 "host": host,
                 "scope": scope,
                 "target": str(target),
                 "package": str(package),
-                "status": installation_status(
-                    target, package, legacy_source=repository
-                ),
+                "skill_source": str(skill_source),
+                "status": status,
+                "reason": reason,
+                "source_payload_digest": source_digest,
+                "target_payload_digest": target_digest,
+                "activation_state": "static_ready" if status == "current" else "discovered",
+                "live_activation": "unproven",
                 "discovery": HOST_LAYOUTS[host].discovery,
             }
         )
@@ -382,6 +464,99 @@ def _selected_hosts(raw_hosts: Sequence[str] | None) -> tuple[str, ...]:
     if not raw_hosts or "all" in raw_hosts:
         return tuple(HOST_LAYOUTS)
     return tuple(dict.fromkeys(raw_hosts))
+
+
+def _dependency_payload_digest(root: Path, payload_files: Sequence[str]) -> str:
+    digest = hashlib.sha256()
+    for name in payload_files:
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update((root / name).read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def install_hermes_dependencies(*, home: Path, source_root: Path | None = None) -> dict[str, object]:
+    """Install pinned run-local Hermes dependencies before Hermes starts.
+
+    Fail closed when the payload at ``source_root`` does not match the pinned
+    manifest revision or an already-installed dependency drifted.
+    """
+
+    manifest = hermes_dependency_manifest()
+    resolved_home = _absolute(home)
+    dependencies: dict[str, dict[str, object]] = {}
+    for name, spec in manifest["dependencies"].items():
+        assert isinstance(spec, dict)
+        install_root = resolved_home / str(spec["install_path"])
+        payload_files = tuple(str(item) for item in spec["payload_files"])
+        pinned_digest = str(spec["payload_sha256"])
+        source = _absolute(source_root / "skills" / name) if source_root else None
+        if source is not None:
+            missing = [item for item in payload_files if not (source / item).is_file()]
+            if missing:
+                raise SkillSetupError(f"{name} source is missing pinned payload files: {', '.join(missing)}")
+            source_digest = _dependency_payload_digest(source, payload_files)
+            if source_digest != pinned_digest:
+                raise SkillSetupError(
+                    f"{name} source payload digest {source_digest} does not match the pinned manifest digest"
+                )
+        if install_root.is_dir():
+            installed_digest = _dependency_payload_digest(install_root, payload_files)
+        elif source is not None:
+            installed_digest = None
+        else:
+            raise SkillSetupError(f"{name} is not installed and no source was provided")
+        if source is not None:
+            if installed_digest is not None and installed_digest != pinned_digest:
+                raise SkillSetupError(
+                    f"{name} payload drift: installed dependency does not match the pinned manifest digest"
+                )
+            if not install_root.exists():
+                install_root.mkdir(parents=True)
+                for item in payload_files:
+                    destination = install_root / item
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source / item, destination)
+                installed_digest = _dependency_payload_digest(install_root, payload_files)
+        dependencies[name] = {
+            "version": spec["version"],
+            "revision": spec["revision"],
+            "status": "current",
+            "payload_sha256": installed_digest,
+        }
+    return {
+        "home": str(resolved_home),
+        "status": "installed",
+        "manifest_schema": HERMES_DEPENDENCY_SCHEMA,
+        "dependencies": dependencies,
+    }
+
+
+def hermes_dependency_status(*, home: Path) -> dict[str, object]:
+    """Report installed dependency revisions without mutating anything."""
+
+    manifest = hermes_dependency_manifest()
+    resolved_home = _absolute(home)
+    dependencies: dict[str, dict[str, object]] = {}
+    for name, spec in manifest["dependencies"].items():
+        assert isinstance(spec, dict)
+        install_root = resolved_home / str(spec["install_path"])
+        payload_files = tuple(str(item) for item in spec["payload_files"])
+        if install_root.is_dir() and all((install_root / item).is_file() for item in payload_files):
+            dependencies[name] = {
+                "version": spec["version"],
+                "revision": spec["revision"],
+                "status": "current",
+                "payload_sha256": _dependency_payload_digest(install_root, payload_files),
+            }
+        else:
+            dependencies[name] = {"version": spec["version"], "revision": spec["revision"], "status": "missing"}
+    return {
+        "home": str(resolved_home),
+        "manifest_schema": HERMES_DEPENDENCY_SCHEMA,
+        "dependencies": dependencies,
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -410,6 +585,11 @@ def build_parser() -> argparse.ArgumentParser:
     install = commands.choices["install"]
     install.add_argument("--mode", choices=("link", "copy"), default="link")
     install.add_argument("--dry-run", action="store_true")
+    install.add_argument(
+        "--hermes-dependency-source",
+        type=Path,
+        help="directory holding pinned run-local Hermes dependency payloads",
+    )
     return parser
 
 
@@ -418,6 +598,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     hosts = _selected_hosts(arguments.host)
     try:
+        dependency_result: dict[str, object] | None = None
+        if "hermes" in hosts and getattr(arguments, "hermes_dependency_source", None):
+            hermes_home = arguments.home / ".hermes"
+            if arguments.command == "install" and not arguments.dry_run:
+                dependency_result = install_hermes_dependencies(
+                    home=hermes_home, source_root=arguments.hermes_dependency_source
+                )
+            else:
+                dependency_result = hermes_dependency_status(home=hermes_home)
         if arguments.command == "install":
             result = install_skill(
                 hosts,
@@ -441,6 +630,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SkillSetupError as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2), file=sys.stderr)
         return 2
+    if dependency_result is not None and isinstance(result, dict):
+        result["hermes_dependencies"] = dependency_result
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 

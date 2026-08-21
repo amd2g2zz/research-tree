@@ -8,7 +8,7 @@ The default retry policy SHALL be explicit per method: at most three attempts fo
 
 #### Scenario: Assignment is dispatched without an oracle
 
-- **WHEN** the scheduler compiles an assignment lacking a closure oracle or explicit human-only outcome
+- **WHEN** the coordinator compiles an assignment lacking a closure oracle or explicit human-only outcome
 - **THEN** dispatch is rejected and the Slot remains open
 
 ### Requirement: Leases and heartbeats prevent orphaned work
@@ -68,18 +68,18 @@ A worker SHALL persist SourceCapture refs as material is acquired and SHALL comm
 
 ### Requirement: Successor workers resume before reacquiring
 
-Before scheduling duplicate acquisition, the coordinator SHALL expose reusable SourceCaptures, AcquisitionReceipts, AnalysisCheckpoints, and accepted partial observations from predecessor attempts and SHALL record why any reusable artifact is rejected or reacquired.
+Before dispatching duplicate acquisition, the coordinator SHALL expose reusable SourceCaptures, AcquisitionReceipts, AnalysisCheckpoints, and accepted partial observations from predecessor attempts and SHALL record why any reusable artifact is rejected or reacquired.
 
 #### Scenario: Successor can continue from a valid checkpoint
 
 - **WHEN** the prior capture digest and checkpoint schema validate under current permissions
 - **THEN** the successor starts from those refs and rediscovery burden is recorded if it repeats the same acquisition
 
-### Requirement: Scheduler ticks detect no progress and replan
+### Requirement: Coordinator execution ticks detect no progress and replan
 
-Each scheduling tick SHALL persist frontier size, open P0 obligations, last realized-delta vector, active leases, stale attempts, and selected/rejected actions. Repeated no-change ticks SHALL trigger method switch, recovery, or explicit blocker according to a registered policy.
+Each coordinator execution tick SHALL persist frontier size, open P0 obligations, last realized-delta vector, active leases, stale attempts, and selected/rejected actions. Repeated no-change ticks SHALL trigger method switch, recovery, or explicit blocker according to a registered policy.
 
 #### Scenario: Several rounds repeat the same evidence
 
 - **WHEN** the no-change threshold is reached while a P0 obligation remains
-- **THEN** the scheduler changes method or records an authority blocker and never emits completion merely because the queue is drained
+- **THEN** the coordinator changes method or records an authority blocker and never emits completion merely because the queue is drained

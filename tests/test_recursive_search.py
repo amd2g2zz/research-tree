@@ -1,21 +1,15 @@
 from __future__ import annotations
 
-import json
-import os
 from pathlib import Path
-import subprocess
-import sys
 
 import pytest
-
-
 def finding(
     finding_id: str,
     *,
     anchor: str,
     uncertainty: str | None = None,
     continuation: dict[str, object] | None = None,
-    validation: dict[str, str] | None = None,
+    validation: object | None = None,
     node_id: str | None = None,
 ) -> dict[str, object]:
     return {
@@ -45,6 +39,33 @@ def slots(*, priority: str = "P0") -> dict[str, dict[str, object]]:
             "validation": {"oracle": "restart and replay preserves the active frontier"},
         }
     }
+
+
+def worker_validation(status: object = "passed") -> dict[str, object]:
+    return {
+        "status": status,
+        "oracle": "restart and replay preserves the active frontier",
+        "evidence_ref": f"runs/restart-replay-{status}.json",
+    }
+
+
+def active_validation_nodes(state: dict[str, object]) -> list[dict[str, object]]:
+    nodes = state["nodes"]
+    assert isinstance(nodes, dict)
+    return [
+        node
+        for node in nodes.values()
+        if isinstance(node, dict)
+        and node["status"] in {"frontier", "running"}
+        and node["action_kind"] == "validation"
+    ]
+
+
+def worker_verifier_question(epoch: int = 1) -> str:
+    return (
+        "Produce verifier-needed proof for the worker-reported validation pass "
+        f"(continuation epoch {epoch})."
+    )
 
 
 def test_existing_findings_seed_growth_without_claiming_initial_gain() -> None:
@@ -145,7 +166,7 @@ def test_finding_pack_grows_successor_and_duplicate_evidence_has_zero_delta() ->
     )
 
 
-def test_stop_requires_independent_evidence_and_validation(tmp_path: Path) -> None:
+def test_worker_reported_pass_cannot_close_validation_or_delivery() -> None:
     from research_tree import (
         apply_research_results,
         finalize_research_delivery,
@@ -189,22 +210,348 @@ def test_stop_requires_independent_evidence_and_validation(tmp_path: Path) -> No
             ),
         ),
     )
-    assert second["status"] == "delivery_pending"
-    assert second["stop_reason"] == (
-        "decision slots closed; both research deliverables are still pending"
+    slot = second["decision_slots"]["slot-architecture"]
+    assert second["status"] == "searching"
+    assert slot["validation_passed"] is False
+    assert slot["validation_status"] == "reported_passed_untrusted"
+    verifier_nodes = [
+        second["nodes"][node_id]
+        for node_id in second["frontier_node_ids"]
+        if second["nodes"][node_id]["action_kind"] == "validation"
+    ]
+    assert len(verifier_nodes) == 1
+    assert verifier_nodes[0]["mandatory"] is True
+    assert "verifier-needed" in verifier_nodes[0]["question"]
+    with pytest.raises(ValueError, match="decision-slot closure"):
+        finalize_research_delivery(
+            second,
+            technical_report=Path("technical.md"),
+            human_report=Path("human.md"),
+        )
+
+
+def test_worker_pass_with_unrelated_frontier_still_emits_verifier_needed_node() -> None:
+    from research_tree import apply_research_results, initialize_research_state
+
+    state = initialize_research_state(
+        round_id="round-pass-with-frontier",
+        tree_id="research-tree",
+        decision_slots=slots(),
     )
-    technical = tmp_path / "technical.md"
-    technical.write_text("# Technical Package\n\n## Evidence\n\n## Validation\n", encoding="utf-8")
-    technical.write_text(technical.read_text(encoding="utf-8") + ("x" * 1100), encoding="utf-8")
-    human = tmp_path / "human.md"
-    human.write_text("# Human Report\n\n## Findings\n\n" + ("x" * 600), encoding="utf-8")
-    delivered = finalize_research_delivery(
-        second,
-        technical_report=technical,
-        human_report=human,
+    result = apply_research_results(
+        state,
+        (
+            finding(
+                "finding-pass-with-frontier",
+                anchor="source:primary",
+                node_id="root:slot-architecture",
+                continuation={
+                    "kind": "deep_dive",
+                    "question": "Trace the implementation boundary independently.",
+                    "trigger": "The worker exposed an implementation gap.",
+                    "evidence_needed": "A source-bound implementation trace.",
+                    "oracle": "The implementation boundary is resolved.",
+                },
+                validation=worker_validation(),
+            ),
+        ),
     )
-    assert delivered["status"] == "complete"
-    assert delivered["deliverables"]["technical_research_package"]["status"] == "verified"
+
+    verifier_nodes = active_validation_nodes(result)
+    assert len(verifier_nodes) == 1
+    assert verifier_nodes[0]["mandatory"] is True
+    assert "verifier-needed" in verifier_nodes[0]["question"]
+    assert any(
+        node["question"] == "Trace the implementation boundary independently."
+        for node in result["nodes"].values()
+        if isinstance(node, dict) and node["status"] == "frontier"
+    )
+
+
+def test_repeated_fresh_worker_passes_keep_one_active_verifier_node() -> None:
+    from research_tree import apply_research_results, initialize_research_state
+
+    state = initialize_research_state(
+        round_id="round-repeated-worker-pass",
+        tree_id="research-tree",
+        decision_slots=slots(),
+    )
+    first = apply_research_results(
+        state,
+        (
+            finding(
+                "finding-pass-one",
+                anchor="source:primary",
+                node_id="root:slot-architecture",
+                continuation={
+                    "kind": "deep_dive",
+                    "question": "Inspect the first report independently.",
+                    "trigger": "The first report needs a separate trace.",
+                    "evidence_needed": "A source-bound implementation trace.",
+                    "oracle": "The first report is independently bounded.",
+                },
+                validation=worker_validation(),
+            ),
+        ),
+    )
+    first_verifier = active_validation_nodes(first)[0]
+    unrelated_node = [
+        node
+        for node in first["nodes"].values()
+        if isinstance(node, dict)
+        and node["status"] == "frontier"
+        and node["action_kind"] == "deep_dive"
+    ][0]
+
+    second = apply_research_results(
+        first,
+        (
+            finding(
+                "finding-pass-two",
+                anchor="experiment:restart-replay-two",
+                node_id=unrelated_node["id"],
+                validation=worker_validation(),
+            ),
+        ),
+    )
+
+    verifier_nodes = active_validation_nodes(second)
+    assert len(verifier_nodes) == 1
+    assert verifier_nodes[0]["id"] == first_verifier["id"]
+    assert second["decision_slots"]["slot-architecture"]["validation_attempts"] == 2
+
+
+def test_completed_verifier_node_is_replaced_for_later_untrusted_pass() -> None:
+    from research_tree import apply_research_results, initialize_research_state
+
+    state = initialize_research_state(
+        round_id="round-pass-recovery",
+        tree_id="research-tree",
+        decision_slots=slots(),
+    )
+    first = apply_research_results(
+        state,
+        (
+            finding(
+                "finding-recovery-one",
+                anchor="source:primary",
+                node_id="root:slot-architecture",
+                validation=worker_validation(),
+            ),
+        ),
+    )
+    completed_verifier = active_validation_nodes(first)[0]
+    completed_verifier["status"] = "completed"
+    completed_verifier["terminal_reason"] = "worker submitted another untrusted pass"
+
+    second = apply_research_results(
+        first,
+        (
+            finding(
+                "finding-recovery-two",
+                anchor="experiment:restart-replay-two",
+                node_id=completed_verifier["id"],
+                validation=worker_validation(),
+            ),
+        ),
+    )
+
+    verifier_nodes = active_validation_nodes(second)
+    assert len(verifier_nodes) == 1
+    assert verifier_nodes[0]["id"] != completed_verifier["id"]
+    assert second["decision_slots"]["slot-architecture"]["validation_attempts"] == 2
+
+
+def test_running_verifier_node_is_reused_for_later_untrusted_pass() -> None:
+    from research_tree import apply_research_results, initialize_research_state
+
+    state = initialize_research_state(
+        round_id="round-pass-running-verifier",
+        tree_id="research-tree",
+        decision_slots=slots(),
+    )
+    first = apply_research_results(
+        state,
+        (
+            finding(
+                "finding-running-one",
+                anchor="source:primary",
+                node_id="root:slot-architecture",
+                continuation={
+                    "kind": "deep_dive",
+                    "question": "Inspect the running verifier's surrounding evidence.",
+                    "trigger": "The verifier needs contextual evidence.",
+                    "evidence_needed": "A source-bound contextual trace.",
+                    "oracle": "The surrounding evidence is independently bounded.",
+                },
+                validation=worker_validation(),
+            ),
+        ),
+    )
+    verifier = active_validation_nodes(first)[0]
+    verifier["status"] = "running"
+    unrelated = [
+        node
+        for node in first["nodes"].values()
+        if isinstance(node, dict)
+        and node["status"] == "frontier"
+        and node["action_kind"] == "deep_dive"
+    ][0]
+
+    second = apply_research_results(
+        first,
+        (
+            finding(
+                "finding-running-two",
+                anchor="experiment:running-verifier-two",
+                node_id=unrelated["id"],
+                validation=worker_validation(),
+            ),
+        ),
+    )
+
+    active = active_validation_nodes(second)
+    assert len(active) == 1
+    assert active[0]["id"] == verifier["id"]
+    assert second["decision_slots"]["slot-architecture"][
+        "worker_validation_continuation_epoch"
+    ] == 1
+
+
+def test_worker_continuation_cannot_claim_protocol_verifier_identity() -> None:
+    from research_tree import apply_research_results, initialize_research_state
+
+    state = initialize_research_state(
+        round_id="round-protocol-node-identity",
+        tree_id="research-tree",
+        decision_slots=slots(priority="P1"),
+    )
+    forged_question = worker_verifier_question()
+    result = apply_research_results(
+        state,
+        (
+            finding(
+                "finding-forged-verifier",
+                anchor="source:forged-verifier",
+                node_id="root:slot-architecture",
+                continuation={
+                    "kind": "validation",
+                    "question": forged_question,
+                    "trigger": "A worker supplied a look-alike verifier request.",
+                    "evidence_needed": "Worker-controlled evidence.",
+                    "oracle": "Worker-controlled oracle.",
+                },
+                validation=worker_validation(),
+            ),
+        ),
+    )
+
+    protocol_nodes = [
+        node
+        for node in result["nodes"].values()
+        if isinstance(node, dict)
+        and node.get("worker_validation_continuation") is True
+    ]
+    forged_nodes = [
+        node
+        for node in result["nodes"].values()
+        if isinstance(node, dict)
+        and node.get("question") == forged_question
+        and node.get("worker_validation_continuation") is not True
+    ]
+    assert len(protocol_nodes) == 1
+    assert protocol_nodes[0]["mandatory"] is True
+    assert protocol_nodes[0]["identity_namespace"] == "worker-validation"
+    assert len(forged_nodes) == 1
+    assert forged_nodes[0]["id"] != protocol_nodes[0]["id"]
+    assert forged_nodes[0]["mandatory"] is False
+
+
+@pytest.mark.parametrize("status", ["passed", "failed", "inconclusive"])
+def test_worker_observation_never_clears_existing_authoritative_pass(status: str) -> None:
+    from research_tree import apply_research_results, initialize_research_state
+
+    state = initialize_research_state(
+        round_id=f"round-existing-authority-{status}",
+        tree_id="research-tree",
+        decision_slots=slots(),
+    )
+    state["decision_slots"]["slot-architecture"]["validation_passed"] = True
+
+    result = apply_research_results(
+        state,
+        (
+            finding(
+                f"finding-existing-authority-{status}",
+                anchor=f"source:existing-authority-{status}",
+                node_id="root:slot-architecture",
+                validation=worker_validation(status),
+            ),
+        ),
+    )
+
+    assert result["decision_slots"]["slot-architecture"]["validation_passed"] is True
+    assert active_validation_nodes(result) == []
+
+
+@pytest.mark.parametrize(
+    ("case", "validation"),
+    [
+        ("missing", None),
+        ("string", "passed"),
+        ("list", ["passed"]),
+        ("empty-mapping", {}),
+        ("none-status", worker_validation(None)),
+        ("empty-status", worker_validation("")),
+        ("unknown-status", worker_validation("unknown")),
+    ],
+)
+def test_malformed_worker_validation_is_ignored(case: str, validation: object) -> None:
+    from research_tree import apply_research_results, initialize_research_state
+
+    state = initialize_research_state(
+        round_id=f"round-malformed-worker-validation-{case}",
+        tree_id="research-tree",
+        decision_slots=slots(),
+    )
+    result = apply_research_results(
+        state,
+        (
+            finding(
+                f"finding-malformed-{case}",
+                anchor=f"source:malformed-{case}",
+                node_id="root:slot-architecture",
+                validation=validation,
+            ),
+        ),
+    )
+    slot = result["decision_slots"]["slot-architecture"]
+    assert slot["validation_passed"] is False
+    assert slot["validation_status"] == "pending"
+    assert slot["validation_attempts"] == 0
+    assert slot["validation_failures"] == 0
+
+
+def test_baseline_worker_pass_cannot_close_slot() -> None:
+    from research_tree import initialize_research_state
+
+    state = initialize_research_state(
+        round_id="round-baseline-worker-pass",
+        tree_id="research-tree",
+        decision_slots=slots(),
+        baseline_findings=(
+            finding(
+                "finding-baseline-worker-pass",
+                anchor="source:baseline",
+                validation=worker_validation(),
+            ),
+        ),
+    )
+
+    slot = state["decision_slots"]["slot-architecture"]
+    assert slot["validation_passed"] is False
+    assert slot["validation_status"] == "reported_passed_untrusted"
+    assert len(active_validation_nodes(state)) == 1
 
 
 def test_branch_complexity_suppresses_unconstrained_sibling_growth() -> None:
@@ -318,39 +665,42 @@ def test_tree_state_persists_and_replays_unconsumed_finding_after_restart(
     tmp_path: Path,
 ) -> None:
     from research_tree import (
+        CanonicalResearchTreeStateService,
         ResearchTreeStateError,
-        ResearchTreeStateService,
-        RunStore,
+        RunLedger,
         apply_research_results,
         initialize_research_state,
     )
 
-    root = tmp_path / "run-store"
-    store = RunStore(root)
-    round_record = store.create_round("round-recursive")
+    root = tmp_path / "run-ledger"
+    ledger = RunLedger(root)
+    ledger.create_run("round-recursive")
+    round_id = "round-recursive"
     baseline_payload = finding(
         "finding-baseline",
         anchor="source:baseline",
         uncertainty="The independent replay experiment is missing.",
     )
-    baseline = store.append_artifact(
-        round_record.id,
+    baseline = ledger.append_artifact(
+        round_id,
         "finding-baseline",
         "finding-pack",
         baseline_payload,
+        expected_revision=ledger.get_revision(round_id),
     )
     initial_state = initialize_research_state(
-        round_id=round_record.id,
+        round_id=round_id,
         tree_id="research-tree",
         decision_slots=slots(),
         baseline_findings=(baseline,),
     )
-    service = ResearchTreeStateService(store)
+    service = CanonicalResearchTreeStateService(ledger)
     first = service.initialize(
-        round_id=round_record.id,
+        round_id=round_id,
         tree_id="research-tree",
         state=initial_state,
         baseline_findings=(baseline,),
+        expected_revision=ledger.get_revision(round_id),
     )
 
     pending_payload = finding(
@@ -362,16 +712,18 @@ def test_tree_state_persists_and_replays_unconsumed_finding_after_restart(
             "evidence_ref": "runs/restart-replay/result.json",
         },
     )
-    pending = store.append_artifact(
-        round_record.id,
+    pending = ledger.append_artifact(
+        round_id,
         "finding-pending",
         "finding-pack",
         pending_payload,
+        expected_revision=ledger.get_revision(round_id),
     )
 
-    rehydrated_service = ResearchTreeStateService(RunStore(root))
+    rehydrated_ledger = RunLedger(root)
+    rehydrated_service = CanonicalResearchTreeStateService(rehydrated_ledger)
     checkpoint, unconsumed = rehydrated_service.recover_unconsumed(
-        round_id=round_record.id,
+        round_id=round_id,
         tree_id="research-tree",
     )
     assert checkpoint == first
@@ -379,13 +731,14 @@ def test_tree_state_persists_and_replays_unconsumed_finding_after_restart(
 
     next_state = apply_research_results(checkpoint.payload, unconsumed)
     second = rehydrated_service.transition(
-        round_id=round_record.id,
+        round_id=round_id,
         previous=checkpoint,
         state=next_state,
         consumed_findings=unconsumed,
+        expected_revision=rehydrated_ledger.get_revision(round_id),
     )
-    latest, remaining = ResearchTreeStateService(RunStore(root)).recover_unconsumed(
-        round_id=round_record.id,
+    latest, remaining = CanonicalResearchTreeStateService(RunLedger(root)).recover_unconsumed(
+        round_id=round_id,
         tree_id="research-tree",
     )
     assert latest == second
@@ -398,29 +751,32 @@ def test_tree_state_persists_and_replays_unconsumed_finding_after_restart(
 
     with pytest.raises(ResearchTreeStateError, match="stale"):
         rehydrated_service.transition(
-            round_id=round_record.id,
+            round_id=round_id,
             previous=first,
             state=next_state,
             consumed_findings=unconsumed,
+            expected_revision=rehydrated_ledger.get_revision(round_id),
         )
 
 
 def test_persisted_coordinator_exposes_successor_actions_across_processes(
     tmp_path: Path,
 ) -> None:
-    from research_tree import RecursiveResearchCoordinator, RunStore
+    from research_tree import CanonicalRecursiveResearchCoordinator, RunLedger
 
-    root = tmp_path / "run-store"
-    store = RunStore(root)
-    round_record = store.create_round("round-coordinator")
-    coordinator = RecursiveResearchCoordinator(store)
+    root = tmp_path / "run-ledger"
+    ledger = RunLedger(root)
+    ledger.create_run("round-coordinator")
+    round_id = "round-coordinator"
+    coordinator = CanonicalRecursiveResearchCoordinator(ledger)
     coordinator.initialize(
-        round_id=round_record.id,
+        round_id=round_id,
         tree_id="research-tree",
         decision_slots=slots(),
+        expected_revision=ledger.get_revision(round_id),
     )
     first_action = coordinator.next_actions(
-        round_id=round_record.id,
+        round_id=round_id,
         tree_id="research-tree",
         max_parallelism=1,
     )[0]
@@ -428,8 +784,8 @@ def test_persisted_coordinator_exposes_successor_actions_across_processes(
         "restart and replay preserves the active frontier"
     )
     assert first_action["execution_context"] == {}
-    persisted_finding = store.append_artifact(
-        round_record.id,
+    persisted_finding = ledger.append_artifact(
+        round_id,
         "finding-coordinator",
         "finding-pack",
         finding(
@@ -438,98 +794,23 @@ def test_persisted_coordinator_exposes_successor_actions_across_processes(
             node_id=first_action["id"],
             uncertainty="An independent execution check is still required.",
         ),
+        expected_revision=ledger.get_revision(round_id),
     )
-    RecursiveResearchCoordinator(RunStore(root)).ingest(
-        round_id=round_record.id,
+    rehydrated_ledger = RunLedger(root)
+    CanonicalRecursiveResearchCoordinator(rehydrated_ledger).ingest(
+        round_id=round_id,
         tree_id="research-tree",
         finding_packs=(persisted_finding,),
+        expected_revision=rehydrated_ledger.get_revision(round_id),
     )
 
-    actions_after_restart = RecursiveResearchCoordinator(RunStore(root)).next_actions(
-        round_id=round_record.id,
+    actions_after_restart = CanonicalRecursiveResearchCoordinator(RunLedger(root)).next_actions(
+        round_id=round_id,
         tree_id="research-tree",
         max_parallelism=2,
     )
     assert actions_after_restart
     assert actions_after_restart[0]["parent_id"] == first_action["id"]
-    assert actions_after_restart[0]["question"] == "An independent execution check is still required."
-
-
-def test_cli_runs_persisted_recursive_growth_across_processes(tmp_path: Path) -> None:
-    from research_tree import RunStore
-
-    root = tmp_path / "run-store"
-    slots_path = tmp_path / "decision-slots.json"
-    slots_path.write_text(json.dumps(slots()), encoding="utf-8")
-
-    def cli(*arguments: str) -> dict[str, object]:
-        completed = subprocess.run(
-            [sys.executable, "-m", "research_tree", *arguments],
-            text=True,
-            capture_output=True,
-            check=False,
-            env={
-                **os.environ,
-                "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src"),
-            },
-        )
-        assert completed.returncode == 0, completed.stderr
-        return json.loads(completed.stdout)
-
-    cli("create-round", "--store", str(root), "--round-id", "round-cli-tree")
-    cli(
-        "tree-init",
-        "--store",
-        str(root),
-        "--round-id",
-        "round-cli-tree",
-        "--decision-slots",
-        str(slots_path),
-    )
-    first = cli(
-        "tree-next",
-        "--store",
-        str(root),
-        "--round-id",
-        "round-cli-tree",
-        "--max-parallelism",
-        "1",
-    )
-    first_action = first["actions"][0]
-    store = RunStore(root)
-    stored = store.append_artifact(
-        "round-cli-tree",
-        "finding-cli-one",
-        "finding-pack",
-        finding(
-            "finding-cli-one",
-            anchor="source:cli-primary",
-            node_id=first_action["id"],
-            uncertainty="The CLI recovery path still needs independent execution.",
-        ),
-    )
-    ingest = cli(
-        "tree-ingest",
-        "--store",
-        str(root),
-        "--round-id",
-        "round-cli-tree",
-        "--finding",
-        stored.id,
-    )
-    assert ingest["revision"] == 2
-
-    successor = cli(
-        "tree-next",
-        "--store",
-        str(root),
-        "--round-id",
-        "round-cli-tree",
-        "--max-parallelism",
-        "2",
-    )
-    assert successor["actions"]
-    assert successor["actions"][0]["parent_id"] == first_action["id"]
-    assert successor["actions"][0]["question"] == (
-        "The CLI recovery path still needs independent execution."
+    assert actions_after_restart[0]["question"] == (
+        "An independent execution check is still required."
     )

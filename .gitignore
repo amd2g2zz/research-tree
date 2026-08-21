@@ -21,3 +21,115 @@ Desktop.ini
 .research-tree-hooks/
 .research-tree-debug/
 .research-tree-alignment/
+
+# Local test and coverage reports
+.coverage
+.coverage.*
+coverage.xml
+coverage.lcov
+coverage.json
+htmlcov/
+junit.xml
+junit-*.xml
+pytestdebug.log
+
+# Local type-checking, benchmarking, and profiling state
+.mypy_cache/
+.pyright/
+.basedpyright/
+.pyre/
+.pytype/
+.dmypy.json
+.benchmarks/
+.hypothesis/
+*.prof
+*.pstats
+
+# Rebuildable code-intelligence state
+.gitnexus/
+
+# GitNexus-generated local agent context
+/AGENTS.md
+/CLAUDE.md
+
+# IDE and editor-local state
+.idea/
+.vscode-test/
+.ropeproject/
+.history/
+*~
+*.swp
+*.swo
+*.swn
+.*.swp
+.*.swo
+.#*
+\#*\#
+.research-tree-native/
+.research-tree-hermes/
+
+# Repository-local installed skills and runtime state. These paths are never
+# cleaned by repository tooling; see the governed path registry.
+.agents/
+.claude/
+.codex/
+.research-tree/
+
+# Rebuildable or operator-owned local output.
+build/
+dist/
+raw/
+research-runs/
+evaluation/experiences/
+.pytest_cache/
+.ruff_cache/
+
+# Local verification output and test reporting. These are regenerated from the
+# current checkout and must not become source-controlled evidence.
+.research-tree/verification-runs/
+openspec/changes/**/evidence/*-output.txt
+openspec/changes/**/evidence/*-output.log
+openspec/changes/**/evidence/*-receipt.json
+openspec/changes/**/evidence/verification-*.md
+openspec/changes/**/evidence/future-evidence-gaps.json
+openspec/changes/**/evidence/integrated-strict-slices.json
+openspec/changes/**/evidence/integrated-receipt-byte-preservation-v*.json
+openspec/changes/**/evidence/worktree-recovery-inventory-v*.json
+.coverage
+.coverage.*
+coverage.xml
+coverage.lcov
+coverage.json
+htmlcov/
+junit.xml
+junit-*.xml
+pytestdebug.log
+
+# Local type-checking, test, and profiling state.
+.mypy_cache/
+.pyright/
+.basedpyright/
+.pyre/
+.pytype/
+.dmypy.json
+.tox/
+.nox/
+.hypothesis/
+.benchmarks/
+*.prof
+*.pstats
+
+# Local code-intelligence, IDE-private state, and editor recovery files.
+.gitnexus/
+.idea/
+.vscode-test/
+.ropeproject/
+.history/
+*.swp
+*.swo
+*.swn
+.*.swp
+.*.swo
+*~
+.#*
+\#*#

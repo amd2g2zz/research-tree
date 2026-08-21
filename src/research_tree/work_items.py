@@ -13,7 +13,7 @@ from .domain import (
     thaw_json,
     validate_identifier,
 )
-from .storage import RunStore
+from .run_ledger import RunLedger
 
 
 WORK_ITEM_KIND = "work-item"
@@ -41,11 +41,13 @@ class InvalidWorkItemError(WorkItemError):
     """Raised before a Work Item can escape its Decision Slot boundary."""
 
 
-class WorkItemCompiler:
-    """Persist one exact Decision Slot research task as an immutable artifact."""
+class CanonicalWorkItemCompiler:
+    """Persist bounded research work directly in the canonical RunLedger."""
 
-    def __init__(self, store: RunStore) -> None:
-        self._store = store
+    def __init__(self, ledger: RunLedger) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidWorkItemError("canonical Work Item compiler requires a RunLedger")
+        self._ledger = ledger
 
     def compile(
         self,
@@ -62,14 +64,15 @@ class WorkItemCompiler:
         methods: Sequence[str],
         budget: Mapping[str, Any],
         completion_rule: str,
+        expected_revision: int,
         intent_hypothesis_ids: Sequence[str] | None = None,
         status: str | None = None,
         exception_reason: str | None = None,
     ) -> ArtifactRevision:
-        """Validate a bounded task against the exact target before appending it."""
+        """Validate a bounded task before appending it with an exact revision."""
 
         try:
-            snapshot = self._store.load_round(round_id)
+            snapshot = self._ledger.load_run(round_id)
             _ensure_round_accepts_normal_work(snapshot.artifacts)
             validate_identifier(work_item_id, "work_item_id")
             _ensure_work_id_compatibility(snapshot.artifacts, work_item_id)
@@ -131,21 +134,24 @@ class WorkItemCompiler:
             ArtifactRef(round_id, artifact.id, artifact.revision)
             for artifact in dependency_artifacts
         )
-        return self._store.append_artifact(
+        return self._ledger.append_artifact(
             round_id,
             work_item_id,
             WORK_ITEM_KIND,
             payload,
             parent_refs=(target_ref, *dependency_refs),
+            expected_revision=expected_revision,
         )
 
 
-class WorkItemPlanner:
-    """Generate one deterministic bounded task graph for active target slots."""
+class CanonicalWorkItemPlanner:
+    """Generate bounded work through the canonical ledger only."""
 
-    def __init__(self, store: RunStore) -> None:
-        self._store = store
-        self._compiler = WorkItemCompiler(store)
+    def __init__(self, ledger: RunLedger) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidWorkItemError("canonical Work Item planner requires a RunLedger")
+        self._ledger = ledger
+        self._compiler = CanonicalWorkItemCompiler(ledger)
 
     def plan(
         self,
@@ -155,10 +161,8 @@ class WorkItemPlanner:
         work_item_ids: Mapping[str, str],
         mode: str = "dependency_respecting",
     ) -> tuple[ArtifactRevision, ...]:
-        """Plan active slots in a stable topological order without executing work."""
-
         try:
-            snapshot = self._store.load_round(round_id)
+            snapshot = self._ledger.load_run(round_id)
             _ensure_round_accepts_normal_work(snapshot.artifacts)
             target = _resolve_exact_target(snapshot.artifacts, blueprint_target)
             if target.round_id != round_id:
@@ -178,33 +182,30 @@ class WorkItemPlanner:
         previous_work_id: str | None = None
         for slot_id in ordered_slot_ids:
             slot = active_slots[slot_id]
-            if planning_mode == "serial":
-                dependencies = () if previous_work_id is None else (previous_work_id,)
-            else:
-                dependencies = tuple(
-                    normalized_ids[dependency]
-                    for dependency in slot["depends_on"]
-                    if dependency in active_slots
+            dependencies = (
+                ()
+                if planning_mode == "serial" and previous_work_id is None
+                else (
+                    (previous_work_id,)
+                    if planning_mode == "serial"
+                    else tuple(
+                        normalized_ids[dependency]
+                        for dependency in slot["depends_on"]
+                        if dependency in active_slots
+                    )
                 )
+            )
             work = self._compiler.compile(
                 round_id=round_id,
                 work_item_id=normalized_ids[slot_id],
                 blueprint_target=target,
                 decision_slot_id=slot_id,
-                kind=(
-                    "repository_analysis"
-                    if slot["repository_touchpoints"]
-                    else "external_research"
-                ),
+                kind="repository_analysis" if slot["repository_touchpoints"] else "external_research",
                 scope=slot["question"],
-                exclusions=(
-                    "Do not close the Decision Slot, select an alternative, or add unrelated scope."
-                ),
-                decision_change_reason=(
-                    "Findings can change the decision among: "
-                    + ", ".join(slot["alternatives"])
-                    + "."
-                ),
+                exclusions="Do not close the Decision Slot, select an alternative, or add unrelated scope.",
+                decision_change_reason="Findings can change the decision among: "
+                + ", ".join(slot["alternatives"])
+                + ".",
                 depends_on=dependencies,
                 methods=(
                     ("repository_inspection",)
@@ -218,17 +219,20 @@ class WorkItemPlanner:
                     "why evidence is unavailable."
                 ),
                 intent_hypothesis_ids=tuple(slot["intent_hypothesis_ids"]),
+                expected_revision=self._ledger.get_revision(round_id),
             )
             emitted.append(work)
             previous_work_id = work.id
         return tuple(emitted)
 
 
-class WorkItemStatusService:
-    """Append a cancellation or deferral revision with an explicit reason."""
+class CanonicalWorkItemStatusService:
+    """Append controlled Work Item status revisions in the canonical ledger."""
 
-    def __init__(self, store: RunStore) -> None:
-        self._store = store
+    def __init__(self, ledger: RunLedger) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidWorkItemError("canonical Work Item status service requires a RunLedger")
+        self._ledger = ledger
 
     def update(
         self,
@@ -238,11 +242,10 @@ class WorkItemStatusService:
         blueprint_target: ArtifactRevision,
         status: str,
         reason: str,
+        expected_revision: int,
     ) -> ArtifactRevision:
-        """Retain work history while recording a controlled terminal adjustment."""
-
         try:
-            snapshot = self._store.load_round(round_id)
+            snapshot = self._ledger.load_run(round_id)
             stored_work = _resolve_exact_work_item(snapshot.artifacts, work_item)
             target = _resolve_exact_target(snapshot.artifacts, blueprint_target)
             if stored_work.round_id != round_id or target.round_id != round_id:
@@ -272,12 +275,13 @@ class WorkItemStatusService:
 
         previous_ref = ArtifactRef(round_id, stored_work.id, stored_work.revision)
         target_ref = ArtifactRef(round_id, target.id, target.revision)
-        return self._store.append_artifact(
+        return self._ledger.append_artifact(
             round_id,
             stored_work.id,
             WORK_ITEM_KIND,
             payload,
             parent_refs=(previous_ref, target_ref),
+            expected_revision=expected_revision,
         )
 
 
@@ -331,7 +335,7 @@ def _resolve_exact_target(
             if stored.kind != BLUEPRINT_TARGET_KIND:
                 raise InvalidWorkItemError("blueprint_target must be a blueprint-target artifact")
             return stored
-    raise InvalidWorkItemError("blueprint_target has not been persisted in this RunStore")
+    raise InvalidWorkItemError("blueprint_target has not been persisted in the active run ledger")
 
 
 def _resolve_exact_work_item(
@@ -346,7 +350,7 @@ def _resolve_exact_work_item(
             if stored.kind != WORK_ITEM_KIND:
                 raise InvalidWorkItemError("work_item must be a work-item artifact")
             return stored
-    raise InvalidWorkItemError("work_item has not been persisted in this RunStore")
+    raise InvalidWorkItemError("work_item has not been persisted in the active run ledger")
 
 
 def _target_slots(target: ArtifactRevision) -> list[Mapping[str, Any]]:

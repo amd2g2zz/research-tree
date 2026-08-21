@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "alpha1-adversarial-v1",
+  "baseline": {
+    "tag": "0.0.1-a1",
+    "commit": "8ab91ea4eb55c98441b5ee6001b80922a56ecdd1",
+    "host_packages": {
+      "codex": "packages/codex/research-tree@0.0.1-a1",
+      "claude-code": "packages/claude-code/research-tree@0.0.1-a1",
+      "hermes": "packages/hermes/research-tree@0.0.1-a1"
+    }
+  },
+  "cases": [
+    {"id": "forged-validation", "category": "evidence-closure", "host": "codex", "execution_disposition": "unavailable", "unavailability_reason": "The Alpha1 tag has no oracle-closure test or persisted oracle runner.", "oracle_id": "alpha1-forged-validation"},
+    {"id": "missing-evidence", "category": "evidence-closure", "host": "codex", "execution_disposition": "unavailable", "unavailability_reason": "The Alpha1 tag has no evidence-anchor enforcement test.", "oracle_id": "alpha1-missing-evidence"},
+    {"id": "filler-report", "category": "delivery", "host": "claude-code", "execution_disposition": "unavailable", "unavailability_reason": "Alpha1 delivery tests do not isolate a semantic filler-report oracle.", "oracle_id": "alpha1-filler-report"},
+    {"id": "empty-frontier", "category": "research-policy", "host": "codex", "execution_disposition": "unavailable", "unavailability_reason": "Alpha1 recursive-search tests do not retain an empty-frontier completion trace.", "oracle_id": "alpha1-empty-frontier"},
+    {"id": "active-contradiction", "category": "alignment", "host": "claude-code", "execution_disposition": "unavailable", "unavailability_reason": "Alpha1 lacks a contradiction-to-closure replay fixture.", "oracle_id": "alpha1-active-contradiction"},
+    {"id": "repeated-reconnaissance", "category": "alignment", "host": "hermes", "execution_disposition": "unavailable", "unavailability_reason": "Alpha1 has no persisted Hermes reconnaissance-attempt trace.", "oracle_id": "alpha1-repeated-reconnaissance"},
+    {"id": "adapter-only-completion", "category": "host-completion", "host": "hermes", "execution_disposition": "unavailable", "unavailability_reason": "Alpha1 has no canonical completion-gate replay for adapter events.", "oracle_id": "alpha1-adapter-only-completion"},
+    {"id": "provider-failure", "category": "recovery", "host": "claude-code", "execution_disposition": "unavailable", "unavailability_reason": "Alpha1 provider failure diagnostics did not preserve a recovery successor fixture.", "oracle_id": "alpha1-provider-failure"},
+    {"id": "crash-recovery", "category": "recovery", "host": "codex", "execution_disposition": "unavailable", "unavailability_reason": "Alpha1 did not have a SQLite ledger or a crash-recovery obligation fixture.", "oracle_id": "alpha1-crash-recovery"}
+  ]
+}

@@ -41,7 +41,7 @@ control handoff gives the Research Agent full autonomy for routine execution,
 replanning, delegation, and continuous intent correction within the granted
 authority and environment. The requester is not needed for routine research,
 but final delivery and any dependent implementation remain blocked until the
-requester accepts the Human Brief and has no unresolved dissatisfaction.
+requester accepts the Human Research Report and has no unresolved dissatisfaction.
 
 ## 3. Context Pack
 
@@ -98,7 +98,7 @@ Research Strategy + autonomy handoff
 Autonomous deep technical research
     |
     v
-Technical Research Package + Human Brief
+Technical Research Package + Human Research Report
     |
     +--> explicit request only --> OpenSpec conversion
 ```
@@ -318,7 +318,7 @@ The Research Strategy is the core product decision. It determines:
 | Decision value | Why each track can change the recommended design or implementation plan. |
 | Method | Repository analysis, primary documentation, implementation experiments, benchmarks, standards, or other appropriate evidence. |
 | Depth and exit criteria | How much research is needed before a design choice is actionable. |
-| Delivery boundary | Technical Research Package and Human Brief, plus optional OpenSpec conversion if explicitly requested. |
+| Delivery boundary | Technical Research Package and Human Research Report, plus optional OpenSpec conversion if explicitly requested. |
 | Autonomy policy | Assumptions the agent will carry and rare circumstances that justify a user question. |
 | Prior-material disposition | For each relevant prior item: `reuse`, `revalidate`, `downgrade`, `ignore`, or `overturn`. |
 
@@ -414,7 +414,7 @@ rediscovery for the implementation agent. A recommendation without a concrete
 repository boundary or an explicitly labeled greenfield assumption is not a
 blueprint element.
 
-### 7.2 Human Brief
+### 7.2 Human Research Report
 
 The human-facing output is equally important, not a courtesy summary. It
 explains what the agent understood,
@@ -431,7 +431,7 @@ dependent round until both co-primary deliverables pass their own gates:
 
 - the Technical Research Package is evidence-complete, decision-complete, and
   actionable for an implementation agent; and
-- the Human Brief is understandable, faithful to the requester's intent, and
+- the Human Research Report is understandable, faithful to the requester's intent, and
   accepted by the requester as a satisfactory basis for continuing.
 
 Human dissatisfaction, correction, or a request for more depth reopens the
@@ -442,6 +442,11 @@ post-handoff research decisions remain autonomous, but final delivery and any
 dependent implementation require this human gate.
 
 ### 7.4 Optional OpenSpec conversion
+
+The active architecture decisions that constrain this conversion are the
+[Alpha2 ADR index](docs/adr/). OpenSpec capability specifications define
+behavior; ADRs record the accepted architectural boundaries; generated host
+packages are derived distribution artifacts and do not override either source.
 
 OpenSpec generation happens only when requested. The Technical Research Package
 maps to the standard OpenSpec flow:
@@ -507,10 +512,10 @@ The result is complete only when:
   oracle, and a reversal condition;
 - implementation work has dependencies and verification, not only headings;
 - unknowns are converted into assumptions, risks, or validation tasks;
-- the Human Brief is intelligible without reading the agent package; and
-- the requester has accepted the Human Brief as a satisfactory basis for
+- the Human Research Report is intelligible without reading the agent package; and
+- the requester has accepted the Human Research Report as a satisfactory basis for
   continuing, with no unresolved dissatisfaction or depth objection;
-- the Technical Research Package and Human Brief agree on outcome, scope,
+- the Technical Research Package and Human Research Report agree on outcome, scope,
   feasibility, important choices, and what actually exists; and
 - OpenSpec artifacts appear only when explicitly requested.
 
@@ -570,11 +575,10 @@ of low-value details.
 
 The runtime implements this as a **plan-to-execute drain loop**, not as a large
 single worker prompt. `compile_orchestration_plan` expands active Work Items into
-bounded landscape, deep-dive, adversarial, and validation phase tasks.
-`AdaptivePortfolioScheduler.advance_execution` persists completed, failed, and
-blocked phase results as a new portfolio revision, requires a Finding Pack for
-every claimed completion, and releases only the next dependency-ready batch.
-This state survives host turns and process restarts.
+bounded landscape, deep-dive, adversarial, and validation phase tasks. The
+coordinator records completed, failed, and blocked phase results and releases
+only the next dependency-ready batch. This state survives host turns and
+process restarts.
 
 A first implementation may use this explainable heuristic to prioritize a
 ready work item:
@@ -599,7 +603,7 @@ creates a new Intent Model and Working Brief.
 
 ### 10.2 Work Items, Findings, and Decisions
 
-A **Research Track** is only an execution grouping. The scheduler creates
+A **Research Track** is only an execution grouping. The coordinator creates
 small Work Items that each answer one Decision Slot under an explicit boundary:
 
 - decision question, repository scope, dependencies, and expected design
@@ -654,10 +658,7 @@ Input Registry / Context Inventory / Repository Inspector
       Context Facts + Intent Modeler + Blueprint Target Compiler
                          |
                          v
-Intent Model / Working Brief / Strategy / Decision Map / Round Store
-                         |
-                         v
-              Adaptive Portfolio Scheduler
+Intent Model / Working Brief / Strategy / Decision Map
                          |
        +-----------------+------------------+----------------+
        v                 v                  v                v
@@ -672,16 +673,14 @@ Intent Model / Working Brief / Strategy / Decision Map / Round Store
                          |
              +-----------+-----------+
              v                       v
-Technical Research Package       Human Brief
-             |
-             +--> explicit request --> OpenSpec Exporter
+Technical Research Package       Human Research Report
 ```
 
-The `Intent Modeler`, `Blueprint Target Compiler`, `Decision Ledger`, `Adaptive
-Portfolio Scheduler`, and `Readiness Verifier` are first-class components. They must not
-be aliases for the retired intent contract, global workspace state, or
-frontier-ranking helper. A source-provenance or high-assurance review adapter is
-strategy-selected when appropriate; it is not the top-level state machine.
+The `Intent Modeler`, `Blueprint Target Compiler`, `Decision Ledger`, and
+`Readiness Verifier` are first-class components. They must not be aliases for
+the retired intent contract, global workspace state, or frontier-ranking helper.
+A source-provenance or high-assurance review adapter is strategy-selected when
+appropriate; it is not the top-level state machine.
 
 ### 10.5 Readiness Verification and Evaluation
 
@@ -747,12 +746,11 @@ Build the new product in this order:
    deterministic structural and traceability validation.
 4. Add a strategy compiler that converts Decision Slots into bounded research
    tracks and work-item contracts.
-5. Add the adaptive portfolio scheduler, batch dependency graph, Finding Pack
-   ingestion, conflict detection, and event-driven replanning.
+5. Add the batch dependency graph, Finding Pack ingestion, conflict detection,
+   and event-driven replanning.
 6. Add a blueprint compiler that renders the two target artifacts from the
    Decision Ledger, including repository change surfaces and validation work.
 7. Add risk-tiered readiness verification and a small real-world evaluation set
    that compares the adaptive loop with simpler baselines.
-8. Add an explicit OpenSpec export adapter that produces repository deltas.
-9. Add source acquisition, provenance integrity, or high-assurance review only
+8. Add source acquisition, provenance integrity, or high-assurance review only
    when a strategy explicitly selects them.

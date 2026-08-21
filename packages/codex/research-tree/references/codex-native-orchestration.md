@@ -62,19 +62,25 @@ After strategy handoff, initialize and advance durable state with the bundled
 adapter. Use a unique run ID and workspace-relative Finding Pack paths:
 
 ```bash
-python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . init --run-id <run-id> --handoff .research-tree-alignment/<alignment-run>/handoff.json
+python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . init --project-id <project-id> --run-id <run-id> --handoff .research-tree/projects/<project-id>/runs/<alignment-run>/alignment/handoff.json
 python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . add-task --run-id <run-id> --task-id <task-id> --decision-slot <slot> --phase landscape --artifact <finding.json>
+python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . add-task --run-id <run-id> --task-id <validation-task> --decision-slot <slot> --phase validation --artifact <validation.json> --depends-on <producer-task> --dependency-kind artifact --dependency-rationale "validation consumes the producer Finding Pack" --dependency-evidence-ref <absolute-producer-artifact-path>
 python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . start --run-id <run-id> --task-id <task-id> --worker-id <agent-id>
 python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . finish --run-id <run-id> --task-id <task-id> --result submitted
-python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . verify --run-id <run-id> --task-id <task-id> --reviewer-id coordinator --checked-anchor <opened-ref> --review-note <evidence-check>
+python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . verify --run-id <run-id> --task-id <task-id> --reviewer-id <reviewer-agent> --reviewer-host codex --reviewer-session-id <reviewer-session> --reviewer-lease-id <reviewer-lease> --review-custody <reviewed-copy.json> --checked-anchor <opened-ref> --review-note <evidence-check>
+python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . sync-plan --run-id <run-id>
 python "<skill-dir>/scripts/native_execution_adapter.py" --host codex --workspace . status --run-id <run-id>
 ```
 
 Resolve `<skill-dir>` from the host-supplied Skill path, never from the task
 workspace. `init` requires the persisted, digest-confirmed handoff and copies
 its Decision Slots, authority, scope, and success oracles into durable execution
-state. `add-task` rejects slots absent from that handoff. Add each dependency
-with `--depends-on`. Give the worker the
+state. `add-task` rejects slots absent from that handoff. Dispatch every task
+in the same ready wave in parallel across distinct strategy tracks. Add a
+dependency only with a machine-readable kind, rationale, and evidence reference:
+an `artifact` dependency cites its producer artifact, while an
+`authority_constraint` cites a confirmed authority or constraint from the
+handoff. Give the worker the
 `attempt_id` returned by `start`; its Finding Pack must repeat that ID. On
 restart, run `recover` before dispatch; it converts in-flight attempts to
 `unknown`. It also reopens a missing or hash-mismatched artifact and recursively
@@ -85,6 +91,12 @@ Repeat `--checked-anchor` for every observation anchor actually inspected.
 `complete` also verifies artifact hashes, so later edits reopen the run.
 The coordinator serializes mutating adapter commands; do not update one state
 file from parallel tool calls.
+
+After every durable transition, call `sync-plan` and project its returned
+`items` through Codex `update_plan`. The mirror is idempotent and is never an
+authority: `status.plan_projection=current` means its snapshot digest and
+revision match durable state; `stale` or `unavailable` means refresh the
+mirror from `sync-plan` before treating visible todo items as actionable.
 
 ## Ingestion
 
@@ -124,3 +136,14 @@ boundary and never bypass them from the Skill.
 Record only sanitized identifiers, phase transitions, durations, and statuses.
 Do not store prompts, assistant messages, transcript content, tool arguments,
 secrets, or research evidence in debug telemetry.
+
+## Executable workflow contract
+
+Before dispatching collaboration children, write explicit current-session
+capability observations to workspace JSON and run
+`probe-host --observations <json>`. Use its digest in
+`project-workflow --request <json>` so each ready action has a bounded phase and
+child attempt identity. After resume, fork, cancellation, provider failure, or
+permission/namespace limits, use `reconcile-host --request <json>` before any
+retry. `update_plan`, child completion, and an empty collaboration queue are
+session mirrors only; the coordinator still assesses checkpoints and evidence.

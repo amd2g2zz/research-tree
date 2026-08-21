@@ -7,31 +7,32 @@ import pytest
 
 def api():
     from research_tree import (
-        InputIntakeService,
-        IntentModelCompiler,
+        CanonicalInputIntakeService,
+        CanonicalIntentModelCompiler,
+        CanonicalWorkingBriefCompiler,
         InvalidIntentModelError,
         InvalidWorkingBriefError,
         QuestionPolicy,
-        RunStore,
-        WorkingBriefCompiler,
+        RunLedger,
     )
 
     return {
-        "InputIntakeService": InputIntakeService,
-        "IntentModelCompiler": IntentModelCompiler,
+        "CanonicalInputIntakeService": CanonicalInputIntakeService,
+        "CanonicalIntentModelCompiler": CanonicalIntentModelCompiler,
+        "CanonicalWorkingBriefCompiler": CanonicalWorkingBriefCompiler,
         "InvalidIntentModelError": InvalidIntentModelError,
         "InvalidWorkingBriefError": InvalidWorkingBriefError,
         "QuestionPolicy": QuestionPolicy,
-        "RunStore": RunStore,
-        "WorkingBriefCompiler": WorkingBriefCompiler,
+        "RunLedger": RunLedger,
     }
 
 
-def context(tmp_path: Path):
+def canonical_context(tmp_path: Path):
     modules = api()
-    store = modules["RunStore"](tmp_path / "store")
-    round_record = store.create_round("round-intent")
-    intake = modules["InputIntakeService"](store)
+    ledger = modules["RunLedger"](tmp_path / "ledger")
+    ledger.initialize()
+    round_record = ledger.create_run("round-intent")
+    intake = modules["CanonicalInputIntakeService"](ledger)
     for input_id, kind, content, role in (
         ("input-brief", "brief", "Build an autonomous reverse-engineering agent.", "signal"),
         ("input-local", "note", "The first demo must run locally.", "constraint"),
@@ -45,6 +46,7 @@ def context(tmp_path: Path):
             origin_type="user",
             origin_locator="conversation:1",
             role=role,
+            expected_revision=ledger.get_revision(round_record.id),
         )
     intake.create_context_bundle(
         round_id=round_record.id,
@@ -53,8 +55,9 @@ def context(tmp_path: Path):
         origin_type="user",
         origin_locator="conversation:1",
         role="baseline",
+        expected_revision=ledger.get_revision(round_record.id),
     )
-    return modules, store, round_record
+    return modules, ledger, round_record
 
 
 def analysis(*, unresolved: list[dict[str, object]] | None = None) -> dict[str, object]:
@@ -114,19 +117,20 @@ def analysis(*, unresolved: list[dict[str, object]] | None = None) -> dict[str, 
     }
 
 
-def compile_model(modules, store, round_record, payload: dict[str, object] | None = None):
-    return modules["IntentModelCompiler"](store).compile(
+def compile_canonical_model(modules, ledger, round_record, payload: dict[str, object] | None = None):
+    return modules["CanonicalIntentModelCompiler"](ledger).compile(
         round_id=round_record.id,
         intent_id="intent-model",
         context_bundle_ids=("input-context",),
         input_ids=("input-brief", "input-local", "input-cloud"),
         analysis=payload or analysis(),
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
 
 def test_conflicting_context_compiles_traceable_leading_and_viable_intent(tmp_path: Path) -> None:
-    modules, store, round_record = context(tmp_path)
-    model = compile_model(modules, store, round_record)
+    modules, ledger, round_record = canonical_context(tmp_path)
+    model = compile_canonical_model(modules, ledger, round_record)
 
     assert model.kind == "intent-model"
     assert model.payload["input_ids"] == ("input-brief", "input-local", "input-cloud")
@@ -144,9 +148,10 @@ def test_conflicting_context_compiles_traceable_leading_and_viable_intent(tmp_pa
 
 def test_independent_input_does_not_require_a_context_bundle(tmp_path: Path) -> None:
     modules = api()
-    store = modules["RunStore"](tmp_path / "store")
-    round_record = store.create_round("round-independent")
-    modules["InputIntakeService"](store).ingest_text(
+    ledger = modules["RunLedger"](tmp_path / "ledger")
+    ledger.initialize()
+    round_record = ledger.create_run("round-independent")
+    modules["CanonicalInputIntakeService"](ledger).ingest_text(
         round_id=round_record.id,
         input_id="input-brief",
         kind="brief",
@@ -154,50 +159,52 @@ def test_independent_input_does_not_require_a_context_bundle(tmp_path: Path) -> 
         origin_type="user",
         origin_locator="conversation:1",
         role="signal",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     payload = analysis()
     payload["signals"] = [payload["signals"][0]]
     payload["hypotheses"] = [payload["hypotheses"][0]]
     payload["hypotheses"][0]["signal_refs"] = ["input-brief"]
     payload["decision_drivers"][0]["signal_refs"] = ["input-brief"]
-    model = modules["IntentModelCompiler"](store).compile(
+    model = modules["CanonicalIntentModelCompiler"](ledger).compile(
         round_id=round_record.id,
         intent_id="intent-model",
         context_bundle_ids=(),
         input_ids=("input-brief",),
         analysis=payload,
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
     assert model.payload["context_bundle_ids"] == ()
 
 
 def test_invalid_signal_anchor_is_rejected_without_artifact(tmp_path: Path) -> None:
-    modules, store, round_record = context(tmp_path)
+    modules, ledger, round_record = canonical_context(tmp_path)
     invalid = analysis()
     invalid["signals"][0]["input_id"] = "input-unknown"
 
     with pytest.raises(modules["InvalidIntentModelError"]):
-        compile_model(modules, store, round_record, invalid)
+        compile_canonical_model(modules, ledger, round_record, invalid)
 
-    assert [artifact for artifact in store.load_round(round_record.id).artifacts if artifact.kind == "intent-model"] == []
+    assert [artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "intent-model"] == []
 
 
 def test_invalid_hypothesis_anchor_is_rejected_without_artifact(tmp_path: Path) -> None:
-    modules, store, round_record = context(tmp_path)
+    modules, ledger, round_record = canonical_context(tmp_path)
     invalid = analysis()
     invalid["hypotheses"][0]["signal_refs"] = ["input-unknown"]
 
     with pytest.raises(modules["InvalidIntentModelError"]):
-        compile_model(modules, store, round_record, invalid)
+        compile_canonical_model(modules, ledger, round_record, invalid)
 
-    assert [artifact for artifact in store.load_round(round_record.id).artifacts if artifact.kind == "intent-model"] == []
+    assert [artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "intent-model"] == []
 
 
 def test_partial_ambiguity_generates_nonblocking_question_and_brief(tmp_path: Path) -> None:
-    modules, store, round_record = context(tmp_path)
-    model = compile_model(
+    modules, ledger, round_record = canonical_context(tmp_path)
+    model = compile_canonical_model(
         modules,
-        store,
+        ledger,
         round_record,
         analysis(
             unresolved=[
@@ -215,7 +222,7 @@ def test_partial_ambiguity_generates_nonblocking_question_and_brief(tmp_path: Pa
     assert recommendation is not None
     assert recommendation.question.startswith("Should the initial demo")
 
-    brief = modules["WorkingBriefCompiler"](store).compile(
+    brief = modules["CanonicalWorkingBriefCompiler"](ledger).compile(
         round_id=round_record.id,
         brief_id="working-brief",
         intent_model=model,
@@ -237,6 +244,7 @@ def test_partial_ambiguity_generates_nonblocking_question_and_brief(tmp_path: Pa
         working_interpretation="Local-first is leading while cloud hosting remains viable.",
         technical_outcome="Choose an implementation-ready safe reverse-engineering path.",
         assumptions=["Proceed with local-first research until evidence ranks alternatives."],
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
     assert brief.payload["intent_model_id"] == model.id
@@ -250,10 +258,10 @@ def test_partial_ambiguity_generates_nonblocking_question_and_brief(tmp_path: Pa
 
 
 def test_question_policy_stays_silent_when_evidence_can_rank_ambiguity(tmp_path: Path) -> None:
-    modules, store, round_record = context(tmp_path)
-    model = compile_model(
+    modules, ledger, round_record = canonical_context(tmp_path)
+    model = compile_canonical_model(
         modules,
-        store,
+        ledger,
         round_record,
         analysis(
             unresolved=[
@@ -305,18 +313,18 @@ def test_unresolved_question_candidates_require_active_alternatives(
     unresolved: list[dict[str, object]],
     status: str,
 ) -> None:
-    modules, store, round_record = context(tmp_path)
+    modules, ledger, round_record = canonical_context(tmp_path)
     payload = analysis(unresolved=unresolved)
     payload["hypotheses"][1]["status"] = status
 
     with pytest.raises(modules["InvalidIntentModelError"]):
-        compile_model(modules, store, round_record, payload)
+        compile_canonical_model(modules, ledger, round_record, payload)
 
 
 def test_working_brief_rejects_newer_or_unmodeled_input_revisions(tmp_path: Path) -> None:
-    modules, store, round_record = context(tmp_path)
-    model = compile_model(modules, store, round_record)
-    intake = modules["InputIntakeService"](store)
+    modules, ledger, round_record = canonical_context(tmp_path)
+    model = compile_canonical_model(modules, ledger, round_record)
+    intake = modules["CanonicalInputIntakeService"](ledger)
     intake.ingest_text(
         round_id=round_record.id,
         input_id="input-brief",
@@ -325,6 +333,7 @@ def test_working_brief_rejects_newer_or_unmodeled_input_revisions(tmp_path: Path
         origin_type="user",
         origin_locator="conversation:2",
         role="signal",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     intake.ingest_text(
         round_id=round_record.id,
@@ -334,8 +343,9 @@ def test_working_brief_rejects_newer_or_unmodeled_input_revisions(tmp_path: Path
         origin_type="user",
         origin_locator="conversation:2",
         role="constraint",
+        expected_revision=ledger.get_revision(round_record.id),
     )
-    compiler = modules["WorkingBriefCompiler"](store)
+    compiler = modules["CanonicalWorkingBriefCompiler"](ledger)
     common = {
         "round_id": round_record.id,
         "brief_id": "working-brief",
@@ -353,32 +363,33 @@ def test_working_brief_rejects_newer_or_unmodeled_input_revisions(tmp_path: Path
         "technical_outcome": "Produce a technical blueprint.",
     }
     with pytest.raises(modules["InvalidWorkingBriefError"]):
-        compiler.compile(**common)
+        compiler.compile(**common, expected_revision=ledger.get_revision(round_record.id))
 
-    refreshed_model = compile_model(modules, store, round_record)
+    refreshed_model = compile_canonical_model(modules, ledger, round_record)
     common["intent_model"] = refreshed_model
     common["selected_input_ids"] = ("input-brief", "input-local", "input-cloud", "input-extra")
     common["input_roles"] = {**common["input_roles"], "input-extra": "constraint"}
     with pytest.raises(modules["InvalidWorkingBriefError"]):
-        compiler.compile(**common)
+        compiler.compile(**common, expected_revision=ledger.get_revision(round_record.id))
 
-    assert [artifact for artifact in store.load_round(round_record.id).artifacts if artifact.kind == "working-brief"] == []
+    assert [artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "working-brief"] == []
 
 
 def test_working_brief_rejects_a_newer_context_bundle_revision(tmp_path: Path) -> None:
-    modules, store, round_record = context(tmp_path)
-    model = compile_model(modules, store, round_record)
-    modules["InputIntakeService"](store).create_context_bundle(
+    modules, ledger, round_record = canonical_context(tmp_path)
+    model = compile_canonical_model(modules, ledger, round_record)
+    modules["CanonicalInputIntakeService"](ledger).create_context_bundle(
         round_id=round_record.id,
         input_id="input-context",
         member_input_ids=("input-brief", "input-local", "input-cloud"),
         origin_type="user",
         origin_locator="conversation:2",
         role="baseline",
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
     with pytest.raises(modules["InvalidWorkingBriefError"]):
-        modules["WorkingBriefCompiler"](store).compile(
+        modules["CanonicalWorkingBriefCompiler"](ledger).compile(
             round_id=round_record.id,
             brief_id="working-brief",
             intent_model=model,
@@ -393,13 +404,14 @@ def test_working_brief_rejects_a_newer_context_bundle_revision(tmp_path: Path) -
             material_conflicts=[],
             working_interpretation="Local-first is the leading interpretation.",
             technical_outcome="Produce a technical blueprint.",
+            expected_revision=ledger.get_revision(round_record.id),
         )
 
 
 def test_rehydrated_brief_preserves_exact_intent_and_input_references(tmp_path: Path) -> None:
-    modules, store, round_record = context(tmp_path)
-    model = compile_model(modules, store, round_record)
-    brief = modules["WorkingBriefCompiler"](store).compile(
+    modules, ledger, round_record = canonical_context(tmp_path)
+    model = compile_canonical_model(modules, ledger, round_record)
+    brief = modules["CanonicalWorkingBriefCompiler"](ledger).compile(
         round_id=round_record.id,
         brief_id="working-brief",
         intent_model=model,
@@ -414,9 +426,10 @@ def test_rehydrated_brief_preserves_exact_intent_and_input_references(tmp_path: 
         material_conflicts=[],
         working_interpretation="Local-first is the leading interpretation.",
         technical_outcome="Produce a technical blueprint.",
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
-    rehydrated = modules["RunStore"](store.root).load_round(round_record.id)
+    rehydrated = modules["RunLedger"](ledger.workspace).load_run(round_record.id)
     stored_brief = next(artifact for artifact in rehydrated.artifacts if artifact == brief)
     assert stored_brief.parent_refs[0].to_dict() == {
         "round_id": round_record.id,
@@ -433,9 +446,9 @@ def test_rehydrated_brief_preserves_exact_intent_and_input_references(tmp_path: 
 def test_recompilation_appends_intent_and_brief_revisions_without_mutating_history(
     tmp_path: Path,
 ) -> None:
-    modules, store, round_record = context(tmp_path)
-    first_model = compile_model(modules, store, round_record)
-    compiler = modules["WorkingBriefCompiler"](store)
+    modules, ledger, round_record = canonical_context(tmp_path)
+    first_model = compile_canonical_model(modules, ledger, round_record)
+    compiler = modules["CanonicalWorkingBriefCompiler"](ledger)
     first_brief = compiler.compile(
         round_id=round_record.id,
         brief_id="working-brief",
@@ -451,10 +464,11 @@ def test_recompilation_appends_intent_and_brief_revisions_without_mutating_histo
         material_conflicts=[],
         working_interpretation="Local-first is the leading interpretation.",
         technical_outcome="Produce a technical blueprint.",
+        expected_revision=ledger.get_revision(round_record.id),
     )
     second_payload = analysis()
     second_payload["desired_outcomes"] = ["a revised implementation-ready technical blueprint"]
-    second_model = compile_model(modules, store, round_record, second_payload)
+    second_model = compile_canonical_model(modules, ledger, round_record, second_payload)
     second_brief = compiler.compile(
         round_id=round_record.id,
         brief_id="working-brief",
@@ -470,9 +484,10 @@ def test_recompilation_appends_intent_and_brief_revisions_without_mutating_histo
         material_conflicts=[],
         working_interpretation="Local-first remains the leading interpretation.",
         technical_outcome="Produce a technical blueprint.",
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
-    artifacts = modules["RunStore"](store.root).load_round(round_record.id).artifacts
+    artifacts = modules["RunLedger"](ledger.workspace).load_run(round_record.id).artifacts
     first_stored_model = next(
         artifact
         for artifact in artifacts

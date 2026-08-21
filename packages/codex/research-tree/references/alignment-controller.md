@@ -6,7 +6,7 @@ it does not create or display a Research Tree during alignment.
 
 ## Storage model
 
-One run owns `.research-tree-alignment/<run-id>/alignment.db`. SQLite uses WAL,
+One run owns `.research-tree/projects/<project-id>/runs/<run-id>/alignment/alignment.db`. SQLite uses WAL,
 foreign keys, full transaction synchronization, and a busy timeout. The schema
 contains:
 
@@ -79,23 +79,34 @@ Only this compilation boundary creates the Research Tree. Normal research after
 handoff remains autonomous unless new evidence crosses authority or safety
 boundaries.
 
+## Python runtime
+
+The commands below are source-checkout commands and must run in the repository's
+locked `uv` environment. Run them from the checkout root with
+`uv run --frozen python`; never replace that prefix with the system `python`
+executable. If the controller is loaded from an installed skill directory,
+locate the `research-tree` checkout first and pass it to
+`uv run --project <checkout> --frozen python <skill-dir>/scripts/alignment_controller.py`.
+Without a discoverable `uv` project, stop with an environment diagnostic rather
+than invoking the bundled script under an arbitrary interpreter.
+
 ## Commands
 
 ```bash
-python scripts/alignment_controller.py --workspace . schema \
+uv run --frozen python scripts/alignment_controller.py --workspace . schema \
   --output alignment-update.example.json
-python scripts/alignment_controller.py --workspace . init --run-id r1
-python scripts/alignment_controller.py --workspace . plan \
-  --run-id r1 --graph-file alignment-update.json
-python scripts/alignment_controller.py --workspace . record \
-  --run-id r1 --node-id intended-use --outcome answered \
+uv run --frozen python scripts/alignment_controller.py --workspace . --project-id <project-id> init --run-id r1
+uv run --frozen python scripts/alignment_controller.py --workspace . plan \
+  --project-id <project-id> --run-id r1 --graph-file alignment-update.json
+uv run --frozen python scripts/alignment_controller.py --workspace . record \
+  --project-id <project-id> --run-id r1 --node-id intended-use --outcome answered \
   --fingerprint compact-model-state-v2
-python scripts/alignment_controller.py --workspace . confirm \
-  --run-id r1 --expected-digest <displayed-digest> \
+uv run --frozen python scripts/alignment_controller.py --workspace . confirm \
+  --project-id <project-id> --run-id r1 --expected-digest <displayed-digest> \
   --confirmation "I accept this strategy and authorize autonomous research."
-python scripts/alignment_controller.py --workspace . compile --run-id r1 \
-  --output .research-tree-alignment/r1/handoff.json
-python scripts/alignment_controller.py --workspace . rebuild --run-id r1
+uv run --frozen python scripts/alignment_controller.py --workspace . --project-id <project-id> compile --run-id r1 \
+  --output .research-tree/projects/<project-id>/runs/r1/alignment/handoff.json
+uv run --frozen python scripts/alignment_controller.py --workspace . --project-id <project-id> rebuild --run-id r1
 ```
 
 Use `schema --output` on Windows PowerShell 5 instead of `Set-Content -Encoding
@@ -103,5 +114,7 @@ utf8`, which writes a BOM. Inputs and generated artifacts use strict UTF-8
 without BOM. Unknown node or edge fields and unsupported enum values fail with
 the accepted contract instead of being ignored.
 
-In a source checkout, use `uv run python`. Installed host packages contain a
-standalone copy backed only by Python's standard library.
+The installed host packages contain a standalone copy backed only by Python's
+standard library, but the agent must still select a supported interpreter or
+the repository-managed `uv` project explicitly; a bare `python` invocation is
+not a supported execution path.

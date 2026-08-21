@@ -10,13 +10,18 @@ from pathlib import Path
 import re
 from typing import Any, Mapping, Sequence
 
-from .domain import thaw_json
+from .domain import ArtifactRevision, thaw_json
 from .evidence_delta import (
     EvidenceBaseline,
     baseline_from_finding_packs,
     measure_realized_delta,
 )
-from .tree_state import ResearchTreeStateService
+from .run_ledger import RunLedger
+from .tree_state import CanonicalResearchTreeStateService
+
+
+_WORKER_VALIDATION_STATUSES = frozenset({"passed", "failed", "inconclusive"})
+_WORKER_VALIDATION_NODE_MARKER = "worker_validation_continuation"
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,14 +212,10 @@ def prune_research_state(state: Mapping[str, Any]) -> dict[str, Any]:
 
     result = _mutable_state(state)
     cfg = RecursiveSearchConfig(**result["config"])
-    seen: dict[tuple[str, str, str], dict[str, Any]] = {}
+    seen: dict[tuple[str, str, str, str], dict[str, Any]] = {}
     for node_id in list(result["frontier_node_ids"]):
         node = result["nodes"][node_id]
-        key = (
-            node["decision_slot_id"],
-            node["action_kind"],
-            _normalize(node["question"]),
-        )
+        key = _node_equivalence_key(node)
         prior = seen.get(key)
         if prior is None:
             seen[key] = node
@@ -281,11 +282,11 @@ def select_research_actions(
     )
 
 
-class RecursiveResearchCoordinator:
-    """Persisted facade for the initialize/select/ingest/recover loop."""
+class CanonicalRecursiveResearchCoordinator:
+    """Persist recursive research transitions in one canonical RunLedger."""
 
-    def __init__(self, store: Any) -> None:
-        self._states = ResearchTreeStateService(store)
+    def __init__(self, ledger: RunLedger) -> None:
+        self._states = CanonicalResearchTreeStateService(ledger)
 
     def initialize(
         self,
@@ -293,11 +294,12 @@ class RecursiveResearchCoordinator:
         round_id: str,
         tree_id: str,
         decision_slots: Mapping[str, Mapping[str, Any]],
-        baseline_findings: Sequence[Any] = (),
+        expected_revision: int,
+        baseline_findings: Sequence[ArtifactRevision] = (),
         execution_context: Mapping[str, Any] | None = None,
-        parent_artifacts: Sequence[Any] = (),
+        parent_artifacts: Sequence[ArtifactRevision] = (),
         config: RecursiveSearchConfig | None = None,
-    ) -> Any:
+    ) -> ArtifactRevision:
         state = initialize_research_state(
             round_id=round_id,
             tree_id=tree_id,
@@ -312,6 +314,7 @@ class RecursiveResearchCoordinator:
             state=state,
             parent_artifacts=parent_artifacts,
             baseline_findings=baseline_findings,
+            expected_revision=expected_revision,
         )
 
     def next_actions(
@@ -329,8 +332,9 @@ class RecursiveResearchCoordinator:
         *,
         round_id: str,
         tree_id: str,
-        finding_packs: Sequence[Any],
-    ) -> Any:
+        finding_packs: Sequence[ArtifactRevision],
+        expected_revision: int,
+    ) -> ArtifactRevision:
         previous = self._states.latest(round_id=round_id, tree_id=tree_id)
         state = apply_research_results(previous.payload, finding_packs)
         if state["transition_index"] == previous.payload["transition_index"]:
@@ -340,9 +344,16 @@ class RecursiveResearchCoordinator:
             previous=previous,
             state=state,
             consumed_findings=finding_packs,
+            expected_revision=expected_revision,
         )
 
-    def recover(self, *, round_id: str, tree_id: str) -> Any:
+    def recover(
+        self,
+        *,
+        round_id: str,
+        tree_id: str,
+        expected_revision: int,
+    ) -> ArtifactRevision:
         previous, pending = self._states.recover_unconsumed(
             round_id=round_id,
             tree_id=tree_id,
@@ -355,6 +366,7 @@ class RecursiveResearchCoordinator:
             previous=previous,
             state=state,
             consumed_findings=pending,
+            expected_revision=expected_revision,
         )
 
     def finalize_delivery(
@@ -364,7 +376,8 @@ class RecursiveResearchCoordinator:
         tree_id: str,
         technical_report: Path,
         human_report: Path,
-    ) -> Any:
+        expected_revision: int,
+    ) -> ArtifactRevision:
         previous = self._states.latest(round_id=round_id, tree_id=tree_id)
         state = finalize_research_delivery(
             previous.payload,
@@ -377,6 +390,7 @@ class RecursiveResearchCoordinator:
             previous=previous,
             state=state,
             consumed_findings=(),
+            expected_revision=expected_revision,
         )
 
 
@@ -401,8 +415,10 @@ def finalize_research_delivery(
             human_report, kind="human_research_report", minimum_bytes=512, minimum_headings=2
         ),
     }
-    result["status"] = "complete"
-    result["stop_reason"] = "decision-slot closure and both research deliverables verified"
+    for manifest in result["deliverables"].values():
+        manifest["status"] = "observed"
+    result["status"] = "delivery_pending"
+    result["stop_reason"] = "report manifests observed; coordinator must verify delivery and acceptance"
     return result
 
 
@@ -417,27 +433,22 @@ def evaluate_research_stop(state: Mapping[str, Any]) -> dict[str, Any]:
             for node in result["nodes"].values()
             if node["decision_slot_id"] == slot_id and node["status"] == "frontier"
         ]
+        slot["status"] = "researching"
         if _slot_has_minimum_evidence(slot) and not open_nodes and (
             not slot["validation_required"] or slot["validation_passed"]
         ):
-            slot["status"] = "closed"
-        else:
-            slot["status"] = "researching"
-            if not _slot_has_minimum_evidence(slot):
-                blockers.append(f"{slot_id}: independent evidence is insufficient")
-            if slot["validation_required"] and not slot["validation_passed"]:
-                blockers.append(f"{slot_id}: validation oracle has not passed")
-            if open_nodes:
-                blockers.append(f"{slot_id}: {len(open_nodes)} frontier action(s) remain")
+            blockers.append(f"{slot_id}: closure candidate requires coordinator assessment")
+        if not _slot_has_minimum_evidence(slot):
+            blockers.append(f"{slot_id}: independent evidence is insufficient")
+        if slot["validation_required"] and not slot["validation_passed"]:
+            blockers.append(f"{slot_id}: validation oracle has not passed")
+        if open_nodes:
+            blockers.append(f"{slot_id}: {len(open_nodes)} frontier action(s) remain")
     if result["decision_slots"] and all(
         slot["status"] == "closed" for slot in result["decision_slots"].values()
     ):
-        if _deliverables_ready(result["deliverables"]):
-            result["status"] = "complete"
-            result["stop_reason"] = "decision-slot closure and both research deliverables verified"
-        else:
-            result["status"] = "delivery_pending"
-            result["stop_reason"] = "decision slots closed; both research deliverables are still pending"
+        result["status"] = "delivery_pending"
+        result["stop_reason"] = "coordinator must assess slot closure and delivery obligations"
     elif result["frontier_node_ids"]:
         result["status"] = "searching"
         result["stop_reason"] = None
@@ -467,6 +478,7 @@ def _slot_state(slot_id: str, slot: Mapping[str, Any]) -> dict[str, Any]:
         "validation_status": "pending",
         "validation_attempts": 0,
         "validation_failures": 0,
+        "worker_validation_continuation_epoch": 0,
         "stagnation_count": 0,
         "residual_risk": _priority_value(priority),
     }
@@ -574,13 +586,81 @@ def _grow_from_finding(
             estimated_cost=_positive_float(continuation.get("estimated_cost", 1.0)),
         )
     validation = payload.get("validation_result")
-    if isinstance(validation, Mapping):
-        status = str(validation.get("status", "inconclusive"))
-        slot["validation_status"] = status
-        slot["validation_attempts"] = int(slot.get("validation_attempts", 0)) + 1
-        slot["validation_passed"] = status == "passed"
-        if status == "failed":
-            slot["validation_failures"] = int(slot.get("validation_failures", 0)) + 1
+    if not isinstance(validation, Mapping):
+        return
+    raw_status = validation.get("status")
+    if not isinstance(raw_status, str):
+        return
+    status = raw_status.strip()
+    if status not in _WORKER_VALIDATION_STATUSES:
+        return
+    slot["validation_status"] = (
+        "reported_passed_untrusted" if status == "passed" else status
+    )
+    slot["validation_attempts"] = int(slot.get("validation_attempts", 0)) + 1
+    if status == "failed":
+        slot["validation_failures"] = int(slot.get("validation_failures", 0)) + 1
+    if status == "passed" and not bool(slot.get("validation_passed", False)):
+        _ensure_worker_validation_continuation(
+            state,
+            parent=parent,
+            slot=slot,
+            trigger_ref=(
+                f"baseline:{_finding_id(finding)}:worker-reported-pass"
+                if baseline_event
+                else f"finding:{_finding_id(finding)}:worker-reported-pass"
+            ),
+        )
+
+
+def _ensure_worker_validation_continuation(
+    state: dict[str, Any],
+    *,
+    parent: Mapping[str, Any],
+    slot: Mapping[str, Any],
+    trigger_ref: str,
+) -> None:
+    """Keep a worker pass as an active, independently verifiable obligation."""
+
+    active = [
+        node
+        for node in state["nodes"].values()
+        if (
+            node.get("decision_slot_id") == slot["id"]
+            and node.get("action_kind") == "validation"
+            and node.get(_WORKER_VALIDATION_NODE_MARKER) is True
+            and node.get("status") in {"frontier", "running"}
+        )
+    ]
+    if active:
+        return
+    epoch = int(slot.get("worker_validation_continuation_epoch", 0)) + 1
+    slot["worker_validation_continuation_epoch"] = epoch
+    _add_node(
+        state,
+        parent=parent,
+        slot=slot,
+        question=(
+            "Produce verifier-needed proof for the worker-reported validation pass "
+            f"(continuation epoch {epoch})."
+        ),
+        action_kind="validation",
+        trigger_ref=trigger_ref,
+        evidence_needed=(
+            "An evaluator-owned or independently verified receipt bound to the "
+            "reported claim."
+        ),
+        oracle=slot["validation_oracle"] or (
+            "An independent validation oracle produces a source-bound result."
+        ),
+        estimated_cost=1.0,
+        mandatory=True,
+        identity_namespace="worker-validation",
+        metadata={
+            _WORKER_VALIDATION_NODE_MARKER: True,
+            "worker_validation_continuation_epoch": epoch,
+        },
+    )
 
 
 def _add_node(
@@ -595,17 +675,23 @@ def _add_node(
     oracle: str,
     estimated_cost: float,
     mandatory: bool = False,
-) -> None:
+    identity_namespace: str = "question",
+    metadata: Mapping[str, Any] | None = None,
+) -> dict[str, Any] | None:
     normalized_kind = action_kind if action_kind in {
         "deep_dive", "adversarial", "validation", "method_switch"
     } else "deep_dive"
+    namespace = str(identity_namespace).strip() or "question"
+    identity = _normalize(question)
+    if namespace != "question":
+        identity = f"{namespace}:{identity}"
     digest = hashlib.sha256(
-        f"{slot['id']}:{normalized_kind}:{_normalize(question)}".encode("utf-8")
+        f"{slot['id']}:{normalized_kind}:{identity}".encode("utf-8")
     ).hexdigest()[:16]
     node_id = f"node:{slot['id']}:{digest}"
     if node_id in state["nodes"]:
-        return
-    state["nodes"][node_id] = _node(
+        return state["nodes"][node_id]
+    node = _node(
         node_id=node_id,
         parent_id=parent["id"],
         slot_id=slot["id"],
@@ -617,8 +703,13 @@ def _add_node(
         depth=int(parent["depth"]) + 1,
         estimated_cost=estimated_cost,
         mandatory=mandatory,
+        identity_namespace=namespace,
     )
-    state["nodes"][node_id]["decision_oracle"] = slot["validation_oracle"]
+    if metadata:
+        node.update(copy.deepcopy(dict(metadata)))
+    node["decision_oracle"] = slot["validation_oracle"]
+    state["nodes"][node_id] = node
+    return node
 
 
 def _ensure_slot_frontier(
@@ -682,6 +773,7 @@ def _node(**values: Any) -> dict[str, Any]:
         "decision_slot_id": values["slot_id"],
         "question": values["question"],
         "action_kind": values["action_kind"],
+        "identity_namespace": values.get("identity_namespace", "question"),
         "trigger_ref": values["trigger_ref"],
         "evidence_needed": values["evidence_needed"],
         "oracle": values["oracle"],
@@ -731,12 +823,21 @@ def _resolve_parent(
 
 
 def _has_completed_equivalent(state: Mapping[str, Any], node: Mapping[str, Any]) -> bool:
-    key = (node["decision_slot_id"], node["action_kind"], _normalize(node["question"]))
+    key = _node_equivalence_key(node)
     return any(
         other["id"] != node["id"]
         and other["status"] == "completed"
-        and (other["decision_slot_id"], other["action_kind"], _normalize(other["question"])) == key
+        and _node_equivalence_key(other) == key
         for other in state["nodes"].values()
+    )
+
+
+def _node_equivalence_key(node: Mapping[str, Any]) -> tuple[str, str, str, str]:
+    return (
+        str(node["decision_slot_id"]),
+        str(node["action_kind"]),
+        str(node.get("identity_namespace", "question")),
+        _normalize(str(node["question"])),
     )
 
 
@@ -792,7 +893,8 @@ def _slot_has_minimum_evidence(slot: Mapping[str, Any]) -> bool:
 
 def _has_open_node(state: Mapping[str, Any], slot_id: str) -> bool:
     return any(
-        node["decision_slot_id"] == slot_id and node["status"] == "frontier"
+        node["decision_slot_id"] == slot_id
+        and node["status"] in {"frontier", "running"}
         for node in state["nodes"].values()
     )
 

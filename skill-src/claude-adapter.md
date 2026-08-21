@@ -4,6 +4,10 @@ This is the Claude Code package of `research-tree`. Invoke with `/research-tree`
 and use only capabilities exposed by the current session; never call tools from
 another host merely because they appear in examples.
 
+### Activation probe
+`research-tree-activation-contract:v1:claude`
+Follow `references/skill-activation.md`: only exact `/research-tree activation-probe v1 <correlation-id>` or its plugin-qualified form may return only `research-tree-activation:v1:claude:<correlation-id>` without tools; paths and links are `activation_unverified`.
+
 - Resolve bundled resources from the active skill directory, including
   `${CLAUDE_SKILL_DIR}` when the host provides it. Do not resolve
   `references/` or `assets/` from the user's working directory.
@@ -40,10 +44,34 @@ another host merely because they appear in examples.
   inspect decisive evidence, and reconcile contradictions before updating the
   shared ledger. Keep auto-memory and conversation resume as secondary context;
   the workspace checkpoint is authoritative after compaction or restart.
+- Dispatch an Agent only after `start`, then bind the exact returned child
+  identity with `bind-agent`. Claude Finding Pack submission fails without the
+  active attempt binding, and one child identity cannot bind two attempts. The
+  `PostToolUse:Agent` and `SubagentStop` hooks retain only sanitized opaque
+  identity fields; unmatched identity remains `unknown_outcome`.
 - After handoff, use `scripts/native_execution_adapter.py` with host argument
   `claude` for atomic task attempts, crash recovery, Finding Pack validation,
   and completion checks when Python is available. The native task list mirrors
   this state; it does not replace it.
+- In source-checkout development, use `context-record` and `context-receipt` to
+  bound source reads. Unchanged rereads are explicitly `cached` or `replayed`;
+  active run outputs require digest-bound `context-seal` before use. A
+  `budget_exceeded` checkpoint only permits `context-resume` and remains
+  `unknown`, not complete.
+- When the checkout runtime is available, use the stable lifecycle sequence
+  `research-tree install`, `research-tree doctor`, `research-tree run`,
+  `research-tree resume`, `research-tree status`, and `research-tree verify`.
+  Supply ordinary workspace and plain-language authority inputs, never
+  HostEvent or SQLite inputs. `prepared` and
+  `verification_pending` remain non-authoritative receipts with no completion
+  authority.
+- Before selecting dynamic phases, run `probe-host` with explicit session
+  capability observations. Build bounded phase/child projections with
+  `project-workflow`, explicitly selecting Agent, Workflow, or hybrid mode. A
+  failed or denied native surface selects `coordinator-dispatch-v1`; never infer
+  availability from a task-list UI or reuse a stale capability digest. Live
+  Workflow and hybrid claims additionally require native run/task/script
+  identity, a script digest, phase IDs, and hybrid child IDs.
 - The installed package contains `SKILL.md`, bundled references/assets, and the
   dependency-free native execution adapter. It does not contain the repository
   Python runtime, lifecycle hooks, builder, or evaluation corpus.
@@ -58,7 +86,7 @@ work, these repository paths are available:
 | --- | --- | --- |
 | `hooks/research_hook.py` | Lifecycle hook launcher | Run through `uv run` from the checkout; it imports `research_tree` and is not part of the installed skill package. |
 | `src/research_tree/` | Python artifact runtime | Edit only when the task changes runtime behavior; use the public API and run the full test suite. |
-| `scripts/` | Host package builder and Hermes staging/validation tools | Run `python scripts/build_skill_packages.py --check` after package-affecting changes. |
+| `scripts/` | Host package builder and Hermes staging/validation tools | Run `uv run --frozen python scripts/build_skill_packages.py --check` after package-affecting changes. |
 | `evaluation/` | Evaluation cases and forward-test material | Treat as development/evaluation input, not as a user research source or runtime dependency. |
 
 Before using these paths, verify the checkout with `pyproject.toml`, `src/`,

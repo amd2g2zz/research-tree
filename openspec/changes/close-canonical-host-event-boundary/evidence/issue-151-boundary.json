@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "issue": 151,
+  "group": 61,
+  "status": "verified",
+  "source_revision": "1917debbba387226ecc502bcecdd88971602f8c7",
+  "checks": [
+    {
+      "name": "host-event-boundary-focused",
+      "command": "uv run pytest -q tests/test_host_event_protocol.py tests/test_native_execution_adapter.py tests/test_research_run_coordinator.py tests/test_hermes_execution_adapter.py tests/test_hermes_host_events.py tests/test_skill_packages.py && uv run ruff check src/research_tree/coordinator.py src/research_tree/host_events.py src/research_tree/native_workflows.py scripts/host_event_protocol.py scripts/native_execution_adapter.py scripts/hermes_event_adapter.py scripts/hermes_execution_adapter.py tests/test_host_event_protocol.py tests/test_native_execution_adapter.py tests/test_research_run_coordinator.py && uv run ruff format --check src/research_tree/coordinator.py src/research_tree/host_events.py src/research_tree/native_workflows.py scripts/host_event_protocol.py scripts/native_execution_adapter.py scripts/hermes_event_adapter.py scripts/hermes_execution_adapter.py tests/test_host_event_protocol.py tests/test_native_execution_adapter.py tests/test_research_run_coordinator.py && uv run python scripts/build_skill_packages.py --check",
+      "exit_code": 0,
+      "output_digest": "239504d4f08fbdaa4466d9474e8ca0d59feb7c0992c1c4774b1de6a80dfd4c0e",
+      "raw_output_ref": "ci://issue-151/acceptance"
+    },
+    {
+      "name": "package-rebuild",
+      "command": "uv run python scripts/build_skill_packages.py --check",
+      "exit_code": 0,
+      "output_digest": "239504d4f08fbdaa4466d9474e8ca0d59feb7c0992c1c4774b1de6a80dfd4c0e",
+      "raw_output_ref": "ci://issue-151/package-rebuild"
+    }
+  ],
+  "rollback": "revert the issue-151 PR; retain accepted immutable events and do not restore generic ingestion"
+}

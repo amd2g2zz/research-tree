@@ -62,6 +62,7 @@ NODE_STATUSES = frozenset(
 )
 EDGE_STATUSES = frozenset({"active", "superseded", "rejected"})
 CONFIDENCES = frozenset({"low", "medium", "high"})
+TRACK_PRIORITIES = frozenset({"P0", "P1", "P2"})
 SOURCES = frozenset({"human", "agent", "joint", "reconnaissance", "repository", "experiment"})
 OUTCOMES = frozenset({"answered", "changed", "unchanged", "deferred", "reopened"})
 REQUIRED_ALIGNMENT_TYPES = (
@@ -134,9 +135,11 @@ def _atomic_write_json(path: Path, value: Mapping[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def _run_dir(workspace: Path, run_id: str) -> Path:
+def _run_dir(workspace: Path, run_id: str, project_id: str | None = None) -> Path:
     root = workspace.resolve()
-    target = (root / ".research-tree-alignment" / _identifier(run_id, "run id")).resolve()
+    run_id = _identifier(run_id, "run id")
+    resolved_project = _identifier(project_id or f"alignment-{run_id}", "project id")
+    target = (root / ".research-tree" / "projects" / resolved_project / "runs" / run_id / "alignment").resolve()
     try:
         target.relative_to(root)
     except ValueError as exc:
@@ -144,8 +147,9 @@ def _run_dir(workspace: Path, run_id: str) -> Path:
     return target
 
 
-def database_path(workspace: Path, run_id: str) -> Path:
-    return _run_dir(workspace, run_id) / "alignment.db"
+def database_path(workspace: Path, run_id: str, project_id: str | None = None) -> Path:
+    """Resolve one alignment database under the sole project/run authority."""
+    return _run_dir(workspace, run_id, project_id) / "alignment.db"
 
 
 class AlignmentGraphStore:
@@ -191,10 +195,15 @@ class AlignmentGraphStore:
                 self._upsert_node(connection, node)
             for edge in edges:
                 self._upsert_edge(connection, edge)
+            handoff_invalidated = self._invalidate_handoff_if_confirmed(connection)
             self._commit_event(
                 connection,
                 "graph_merged",
-                {"node_ids": [node["id"] for node in nodes], "edge_ids": [edge["id"] for edge in edges]},
+                {
+                    "node_ids": [node["id"] for node in nodes],
+                    "edge_ids": [edge["id"] for edge in edges],
+                    "handoff_invalidated": handoff_invalidated,
+                },
             )
         return self.status()
 
@@ -316,10 +325,16 @@ class AlignmentGraphStore:
                 """,
                 (turn, stagnant, hashed),
             )
+            handoff_invalidated = self._invalidate_handoff_if_confirmed(connection)
             state = self._commit_event(
                 connection,
                 "response_recorded",
-                {"node_id": node_id, "outcome": outcome, "state_changed": changed},
+                {
+                    "node_id": node_id,
+                    "outcome": outcome,
+                    "state_changed": changed,
+                    "handoff_invalidated": handoff_invalidated,
+                },
             )
         return {
             "turn": state["controller"]["turn"],
@@ -357,10 +372,12 @@ class AlignmentGraphStore:
                 "UPDATE nodes SET status='accepted', updated_at=? WHERE node_type='strategy' AND status IN ('supported','resolved')",
                 (_now(),),
             )
+            confirmed_state = self._materialize(connection)
             handoff = {
                 "confirmed_at": _now(),
                 "confirmation_digest": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-                "alignment_digest": state["graph_digest"],
+                "alignment_digest": confirmed_state["graph_digest"],
+                "stale": False,
             }
             connection.execute(
                 """
@@ -379,8 +396,13 @@ class AlignmentGraphStore:
 
     def compile_handoff(self) -> dict[str, Any]:
         state = self.status()
+        handoff = state["controller"].get("handoff")
+        if not isinstance(handoff, Mapping) or handoff.get("stale"):
+            raise AlignmentGraphError("stale_handoff_confirmation")
         if state["controller"]["status"] != "autonomous":
             raise AlignmentGraphError("alignment must be explicitly confirmed before compilation")
+        if handoff.get("alignment_digest") != state["graph_digest"]:
+            raise AlignmentGraphError("stale_handoff_confirmation")
         nodes = {node["id"]: node for node in state["graph"]["nodes"]}
         active_edges = [
             edge for edge in state["graph"]["edges"] if edge["status"] == "active"
@@ -395,6 +417,13 @@ class AlignmentGraphStore:
                 and nodes[edge["target_id"]]["type"] in RESEARCHABLE_TYPES
             ):
                 superseded_by.setdefault(edge["target_id"], []).append(edge["source_id"])
+        strategy_node = next(
+            node
+            for node in nodes.values()
+            if node["type"] == "strategy" and node["status"] in ACCEPTED_STATUSES
+        )
+        strategy_tracks = _strategy_tracks(strategy_node)
+        tracks_by_id = {track["id"]: track for track in strategy_tracks}
         slots: dict[str, dict[str, Any]] = {}
         for node in nodes.values():
             if (
@@ -407,9 +436,16 @@ class AlignmentGraphStore:
             oracle = node.get("oracle")
             if not oracle:
                 raise AlignmentGraphError(f"research node {node['id']} has no closure oracle")
+            track_id = _research_track_id(node, tracks_by_id)
+            if track_id is None:
+                raise AlignmentGraphError(f"research node {node['id']} is not assigned to a strategy track")
+            track = tracks_by_id[track_id]
             slots[node["id"]] = {
                 "status": "open",
-                "priority": "P0" if node["impact"] >= 5 else "P1" if node["impact"] >= 3 else "P2",
+                "track_id": track_id,
+                "track_closure_oracle": track["closure_oracle"],
+                "evidence_boundary": track["evidence_boundary"],
+                "priority": track["priority"],
                 "uncertainty": {"low": "high", "medium": "medium", "high": "low"}[node["confidence"]],
                 "question": node["statement"],
                 "validation": {"oracle": oracle},
@@ -480,11 +516,7 @@ class AlignmentGraphStore:
             for node in nodes.values()
             if node["type"] == "outcome" and node["status"] in ACCEPTED_STATUSES
         )
-        strategy = next(
-            node["statement"]
-            for node in nodes.values()
-            if node["type"] == "strategy" and node["status"] in ACCEPTED_STATUSES
-        )
+        strategy = strategy_node["statement"]
         execution_context = {
             "objective": objective,
             "intended_use": _accepted_statements(nodes, "intended_use"),
@@ -495,13 +527,14 @@ class AlignmentGraphStore:
             "feasibility": _accepted_statements(nodes, "feasibility"),
             "constraints": _accepted_statements(nodes, "constraint"),
             "strategy": strategy,
+            "strategy_tracks": strategy_tracks,
         }
         return {
             "schema": 1,
             "kind": "alignment-handoff",
             "run_id": state["controller"]["run_id"],
             "alignment_revision": state["controller"]["revision"],
-            "alignment_digest": state["controller"]["handoff"]["alignment_digest"],
+            "alignment_digest": handoff["alignment_digest"],
             "compiled_graph_digest": state["graph_digest"],
             "objective": objective,
             "strategy": strategy,
@@ -664,6 +697,31 @@ class AlignmentGraphStore:
             )
         except sqlite3.IntegrityError as exc:
             raise AlignmentGraphError(f"edge {edge['id']} references an unknown node") from exc
+
+    @staticmethod
+    def _invalidate_handoff_if_confirmed(connection: sqlite3.Connection) -> bool:
+        controller = connection.execute(
+            "SELECT status, handoff_json FROM controller WHERE singleton=1"
+        ).fetchone()
+        if controller is None or controller["status"] != "autonomous":
+            return False
+        handoff = json.loads(controller["handoff_json"]) if controller["handoff_json"] else {}
+        handoff.update(
+            {
+                "stale": True,
+                "stale_at": _now(),
+                "stale_reason": "alignment_graph_changed",
+            }
+        )
+        connection.execute(
+            """
+            UPDATE controller
+            SET status='alignment', phase='alignment', handoff_json=?
+            WHERE singleton=1
+            """,
+            (_json(handoff),),
+        )
+        return True
 
     def _commit_event(
         self, connection: sqlite3.Connection, event_type: str, details: Mapping[str, Any]
@@ -886,6 +944,25 @@ def _alignment_readiness(
     for node in researchable:
         if not node.get("oracle"):
             reasons.append(f"research node {node['id']} has no closure oracle")
+    strategy_nodes = [
+        node for node in nodes if node["type"] == "strategy" and node["status"] in ACCEPTED_STATUSES
+    ]
+    if strategy_nodes:
+        try:
+            tracks = _strategy_tracks(strategy_nodes[0])
+            tracks_by_id = {track["id"]: track for track in tracks}
+            coverage = {track_id: 0 for track_id in tracks_by_id}
+            for node in researchable:
+                track_id = _research_track_id(node, tracks_by_id)
+                if track_id is None:
+                    reasons.append(f"research node {node['id']} is not assigned to a strategy track")
+                    continue
+                coverage[track_id] += 1
+            for track in tracks:
+                if track["active"] and coverage[track["id"]] == 0:
+                    reasons.append(f"strategy track {track['id']} has no executable research question")
+        except AlignmentGraphError as error:
+            reasons.append(str(error))
     researchable_ids = {node["id"] for node in researchable}
     for node in nodes:
         if node["type"] != "evidence" or node["status"] not in ACCEPTED_STATUSES:
@@ -905,6 +982,60 @@ def _alignment_readiness(
                 f"evidence node {node['id']} needs a current research edge or alignment_only disposition"
             )
     return {"ready": not reasons, "reasons": reasons}
+
+
+def _strategy_tracks(strategy: Mapping[str, Any]) -> list[dict[str, Any]]:
+    attributes = strategy.get("attributes")
+    if not isinstance(attributes, Mapping):
+        raise AlignmentGraphError("strategy attributes must be an object")
+    raw_tracks = attributes.get("tracks")
+    if raw_tracks is None:
+        return [
+            {
+                "id": f"track-{strategy['id']}",
+                "priority": "P0" if strategy["impact"] >= 5 else "P1" if strategy["impact"] >= 3 else "P2",
+                "closure_oracle": "Every slot mapped to this strategy track meets its closure oracle.",
+                "evidence_boundary": "confirmed alignment graph and bounded repository evidence",
+                "active": True,
+            }
+        ]
+    if isinstance(raw_tracks, (str, bytes)) or not isinstance(raw_tracks, Sequence) or not raw_tracks:
+        raise AlignmentGraphError("strategy tracks must be a non-empty list")
+    tracks: list[dict[str, Any]] = []
+    for raw_track in raw_tracks:
+        if not isinstance(raw_track, Mapping):
+            raise AlignmentGraphError("strategy track must be an object")
+        unknown = set(raw_track) - {"id", "priority", "closure_oracle", "evidence_boundary", "active"}
+        if unknown:
+            raise AlignmentGraphError("strategy track has unknown fields: " + ", ".join(sorted(unknown)))
+        tracks.append(
+            {
+                "id": _identifier(raw_track.get("id"), "strategy track id"),
+                "priority": _enum(raw_track.get("priority"), TRACK_PRIORITIES, "strategy track priority"),
+                "closure_oracle": _text(raw_track.get("closure_oracle"), "strategy track closure_oracle"),
+                "evidence_boundary": _text(raw_track.get("evidence_boundary"), "strategy track evidence_boundary"),
+                "active": bool(raw_track.get("active", True)),
+            }
+        )
+    if len({track["id"] for track in tracks}) != len(tracks):
+        raise AlignmentGraphError("strategy track ids must be unique")
+    return sorted(tracks, key=lambda track: track["id"])
+
+
+def _research_track_id(node: Mapping[str, Any], tracks_by_id: Mapping[str, Mapping[str, Any]]) -> str | None:
+    attributes = node.get("attributes")
+    if not isinstance(attributes, Mapping):
+        return None
+    track_id = attributes.get("track_id")
+    if track_id is None and len(tracks_by_id) == 1:
+        return next(iter(tracks_by_id))
+    if track_id is None:
+        return None
+    try:
+        track_id = _identifier(track_id, "research track id")
+    except AlignmentGraphError:
+        return None
+    return track_id if track_id in tracks_by_id else None
 
 
 def _accepted_statements(
@@ -973,18 +1104,18 @@ def _load_update(path: Path) -> Mapping[str, Any]:
     return value
 
 
-def init(workspace: Path, run_id: str) -> dict[str, Any]:
-    return AlignmentGraphStore(database_path(workspace, run_id)).initialize(run_id)
+def init(workspace: Path, run_id: str, *, project_id: str | None = None) -> dict[str, Any]:
+    return AlignmentGraphStore(database_path(workspace, run_id, project_id)).initialize(run_id)
 
 
-def plan(workspace: Path, run_id: str, update_file: Path) -> dict[str, Any]:
-    return AlignmentGraphStore(database_path(workspace, run_id)).plan(_load_update(update_file))
+def plan(workspace: Path, run_id: str, update_file: Path, *, project_id: str | None = None) -> dict[str, Any]:
+    return AlignmentGraphStore(database_path(workspace, run_id, project_id)).plan(_load_update(update_file))
 
 
 def record(
-    workspace: Path, run_id: str, node_id: str, outcome: str, fingerprint: str
+    workspace: Path, run_id: str, node_id: str, outcome: str, fingerprint: str, *, project_id: str | None = None
 ) -> dict[str, Any]:
-    return AlignmentGraphStore(database_path(workspace, run_id)).record(
+    return AlignmentGraphStore(database_path(workspace, run_id, project_id)).record(
         node_id, outcome, fingerprint
     )
 
@@ -994,8 +1125,10 @@ def confirm(
     run_id: str,
     confirmation: str,
     expected_digest: str | None = None,
+    *,
+    project_id: str | None = None,
 ) -> dict[str, Any]:
-    return AlignmentGraphStore(database_path(workspace, run_id)).confirm(
+    return AlignmentGraphStore(database_path(workspace, run_id, project_id)).confirm(
         confirmation, expected_digest
     )
 
@@ -1003,6 +1136,7 @@ def confirm(
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
+    parser.add_argument("--project-id")
     commands = parser.add_subparsers(dest="command", required=True)
     initialize = commands.add_parser("init")
     initialize.add_argument("--run-id", required=True)
@@ -1053,7 +1187,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 result = {**result, "persisted_path": str(output)}
             print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
             return 0
-        store = AlignmentGraphStore(database_path(workspace, args.run_id))
+        if not args.project_id:
+            raise AlignmentGraphError("--project-id is required for a project-scoped alignment run")
+        store = AlignmentGraphStore(database_path(workspace, args.run_id, args.project_id))
         if args.command == "init":
             result = store.initialize(args.run_id)
         elif args.command == "plan":

@@ -5,16 +5,19 @@
   "status_values": ["planned", "in_progress", "verified", "blocked", "not_applicable"],
   "generation_rule": "scripts/generate_delivery_matrix.py parses every spec.md Requirement heading and emits exactly one row; release validation rejects missing, duplicate, or orphan rows",
   "capability_rows": [
+    { "capability": "alpha2-contract-ratification", "source_modules": ["docs/adr/", "openspec/changes/ratify-alpha2-runtime-contract/"], "public_surface": [], "task_groups": [14], "github_issue": "#66", "owner": "architecture" },
     { "capability": "canonical-runtime-contract", "source_modules": ["src/research_tree/coordinator.py", "src/research_tree/contracts/", "src/research_tree/ledger.py"], "public_surface": ["research-tree run"], "task_groups": [5, 14, 18], "github_issue": "#57", "owner": "runtime" },
-    { "capability": "durable-research-runtime", "source_modules": ["src/research_tree/ledger.py", "src/research_tree/cas.py", "src/research_tree/migrations.py"], "public_surface": ["run-recover", "run-replay"], "task_groups": [2, 13], "github_issue": "#53", "owner": "runtime" },
-    { "capability": "evidence-verification", "source_modules": ["src/research_tree/evidence.py", "src/research_tree/oracles.py", "src/research_tree/closure.py"], "public_surface": ["run ingest", "run verify"], "task_groups": [3, 4], "github_issue": "#54", "owner": "evidence" },
-    { "capability": "adaptive-research-execution", "source_modules": ["src/research_tree/policy.py", "src/research_tree/scheduler.py"], "public_surface": ["run next"], "task_groups": [6, 16], "github_issue": "#58", "owner": "research" },
+    { "capability": "durable-research-runtime", "source_modules": ["src/research_tree/run_ledger.py"], "public_surface": ["run-ledger"], "task_groups": [2], "github_issue": "#53", "owner": "runtime" },
+    { "capability": "content-addressed-artifacts", "source_modules": ["src/research_tree/content_store.py", "src/research_tree/run_ledger.py"], "public_surface": ["run-artifact"], "task_groups": [33], "github_issue": "#98", "owner": "runtime" },
+    { "capability": "evidence-verification", "source_modules": ["src/research_tree/evidence.py", "src/research_tree/ledger.py"], "public_surface": ["run ingest"], "task_groups": [3], "github_issue": "#54", "owner": "evidence" },
+    { "capability": "oracle-slot-closure", "source_modules": ["src/research_tree/oracles.py", "src/research_tree/closure.py"], "public_surface": ["run verify"], "task_groups": [4], "github_issue": "#56", "owner": "evidence" },
+    { "capability": "adaptive-research-execution", "source_modules": ["src/research_tree/policy.py"], "public_surface": ["run next"], "task_groups": [6, 16], "github_issue": "#58", "owner": "research" },
     { "capability": "mutual-alignment", "source_modules": ["src/research_tree/alignment.py", "src/research_tree/handoff.py"], "public_surface": ["run init", "run next"], "task_groups": [7], "github_issue": "#59", "owner": "alignment" },
-    { "capability": "worker-orchestration", "source_modules": ["src/research_tree/scheduler.py", "src/research_tree/leases.py", "src/research_tree/checkpoints.py"], "public_surface": ["run next", "run recover"], "task_groups": [15, 25], "github_issue": "#80", "owner": "research" },
-    { "capability": "research-acquisition", "source_modules": ["src/research_tree/acquisition.py", "src/research_tree/methods.py", "src/research_tree/search_portfolio.py"], "public_surface": ["run ingest", "run plan-search"], "task_groups": [15, 27], "github_issue": "#83", "owner": "research" },
+    { "capability": "worker-orchestration", "source_modules": ["src/research_tree/leases.py", "src/research_tree/checkpoints.py"], "public_surface": ["run next", "run recover"], "task_groups": [15, 25], "github_issue": "#80", "owner": "research" },
+    { "capability": "research-acquisition", "source_modules": ["src/research_tree/search_portfolio.py", "src/research_tree/source_capture.py", "src/research_tree/coordinator.py"], "public_surface": ["SearchPortfolioExecutor", "DurableSourceCaptureService", "ResearchRunCoordinator.persist_search_portfolio_lineage"], "task_groups": [15, 27], "github_issue": "#83", "owner": "research" },
     { "capability": "insight-synthesis", "source_modules": ["src/research_tree/insights.py"], "public_surface": ["run synthesize", "run explain"], "task_groups": [16], "github_issue": "#58", "owner": "research" },
-    { "capability": "host-event-protocol", "source_modules": ["src/research_tree/events.py", "scripts/native_execution_adapter.py", "scripts/hermes_execution_adapter.py"], "public_surface": ["run ingest", "run reconcile-host"], "task_groups": [8, 9], "github_issue": "#82", "owner": "host-adapter" },
-    { "capability": "host-native-orchestration", "source_modules": ["src/research_tree/host_capabilities.py", "src/research_tree/native_workflows.py", "scripts/native_execution_adapter.py", "scripts/hermes_execution_adapter.py"], "public_surface": ["run probe-host", "run reconcile-host"], "task_groups": [8, 9, 26], "github_issue": "#82", "owner": "host-adapter" },
+    { "capability": "host-event-protocol", "source_modules": ["src/research_tree/events.py", "scripts/native_execution_adapter.py", "scripts/hermes_execution_adapter.py"], "public_surface": ["run ingest", "run reconcile-host"], "task_groups": [8], "github_issue": "#60", "owner": "host-adapter" },
+    { "capability": "host-native-orchestration", "source_modules": ["src/research_tree/host_capabilities.py", "src/research_tree/native_workflows.py", "scripts/native_execution_adapter.py", "scripts/hermes_execution_adapter.py"], "public_surface": ["run probe-host", "run reconcile-host"], "task_groups": [26], "github_issue": "#82", "owner": "host-adapter" },
     { "capability": "semantic-research-delivery", "source_modules": ["src/research_tree/delivery.py", "src/research_tree/acceptance.py"], "public_surface": ["run deliver", "run accept"], "task_groups": [10], "github_issue": "#62", "owner": "delivery" },
     { "capability": "runtime-observability", "source_modules": ["src/research_tree/debug_trace.py", "src/research_tree/replay.py"], "public_surface": ["run explain", "run why-action", "run why-not-complete", "run replay"], "task_groups": [11], "github_issue": "#63", "owner": "observability" },
     { "capability": "autonomous-tool-and-interaction", "source_modules": ["src/research_tree/intake.py", "src/research_tree/interaction.py"], "public_surface": ["run init", "run next"], "task_groups": [7, 15], "github_issue": "#59", "owner": "alignment" },
@@ -26,7 +29,120 @@
     { "capability": "release-evidence", "source_modules": ["evaluation/harness/", "scripts/verify_alpha2_release.py"], "public_surface": ["run export-audit"], "task_groups": [18, 22], "github_issue": "#67", "owner": "quality" },
     { "capability": "documentation-governance", "source_modules": ["registries/documentation-authority-v1.json", "scripts/check_docs.py"], "public_surface": [], "task_groups": [19], "github_issue": "#68", "owner": "documentation" },
     { "capability": "evaluation-asset-governance", "source_modules": ["registries/evaluation-paths-v1.json", "scripts/check_evaluation_assets.py"], "public_surface": [], "task_groups": [20], "github_issue": "#69", "owner": "quality" },
-    { "capability": "repository-layout-governance", "source_modules": ["registries/repository-paths-v1.json", "scripts/check_repository_layout.py"], "public_surface": [], "task_groups": [21], "github_issue": "#70", "owner": "release" }
+    { "capability": "repository-layout-governance", "source_modules": ["registries/repository-paths-v1.json", "schemas/path-registry-v1.json", "scripts/check_repository_layout.py"], "public_surface": [], "task_groups": [21], "github_issue": "#70", "owner": "release" },
+    { "capability": "skill-activation-integrity", "source_modules": ["src/research_tree/skill_setup.py", "src/research_tree/activation.py"], "public_surface": ["research-tree-setup status"], "task_groups": [32], "github_issue": "#71", "owner": "host-adapter" },
+    { "capability": "claude-glm-black-box-regression", "source_modules": ["evaluation/cases/", "evaluation/harness/"], "public_surface": [], "task_groups": [24], "github_issue": "#72", "owner": "quality" },
+    { "capability": "transactional-correction-invalidation", "source_modules": ["src/research_tree/feedback.py", "src/research_tree/alignment_handoff.py"], "public_surface": ["research-tree run"], "task_groups": [23], "github_issue": "#73", "owner": "alignment" },
+    { "capability": "durable-source-capture", "source_modules": ["src/research_tree/acquisition.py", "src/research_tree/checkpoints.py"], "public_surface": ["research-tree run ingest"], "task_groups": [25], "github_issue": "#80", "owner": "research" },
+    { "capability": "search-portfolios", "source_modules": ["src/research_tree/search_portfolio.py", "src/research_tree/coordinator.py"], "public_surface": ["SearchPortfolio", "MethodRegistry", "IntentDerivedSearchPortfolioPlanner", "SearchPortfolioExecutor", "ResearchRunCoordinator.persist_search_portfolio_lineage"], "task_groups": [27], "github_issue": "#83", "owner": "research" },
+    { "capability": "search-portfolio-aggregate-acceptance", "source_modules": ["openspec/changes/accept-intent-derived-search-portfolios/", "tests/test_search_portfolio_parent_acceptance.py"], "public_surface": [], "task_groups": [27], "github_issue": "#83", "owner": "research" },
+    { "capability": "paired-alpha-benchmark", "source_modules": ["evaluation/harness/", "evaluation/benchmarks/"], "public_surface": ["run paired-benchmark"], "task_groups": [30], "github_issue": "#84", "owner": "quality" },
+    { "capability": "strategy-projection-handoff", "source_modules": ["src/research_tree/strategy_projection.py", "src/research_tree/coordinator.py", "src/research_tree/run_ledger.py", "src/research_tree/alignment_handoff.py"], "public_surface": ["ResearchRunCoordinator.display_strategy", "ResearchRunCoordinator.confirm_handoff"], "task_groups": [28], "github_issue": "#85", "owner": "alignment" },
+    { "capability": "project-user-preference-profile", "source_modules": ["src/research_tree/preferences.py"], "public_surface": ["PreferenceService"], "task_groups": [29], "github_issue": "#86", "owner": "alignment" },
+    { "capability": "decision-frame", "source_modules": ["src/research_tree/intent.py", "src/research_tree/decision_frame.py"], "public_surface": ["research-tree run init"], "task_groups": [31], "github_issue": "#87", "owner": "alignment" },
+    { "capability": "integrated-evidence-reconciliation", "source_modules": ["openspec/changes/reconcile-foundation-verification-receipts/evidence/", "openspec/changes/unify-research-runtime-alpha2/registries/"], "public_surface": [], "task_groups": [35], "github_issue": "#112", "owner": "governance" },
+    { "capability": "canonical-completion-integrity-acceptance", "source_modules": ["openspec/changes/unify-research-runtime-alpha2/registries/", "tests/test_canonical_completion_parent_acceptance.py", "tests/test_completion_manifold.py"], "public_surface": [], "task_groups": [36], "github_issue": "#149", "owner": "runtime" },
+    { "capability": "evidence-graph-closure-quality-acceptance", "source_modules": ["openspec/changes/unify-research-runtime-alpha2/registries/", "tests/test_closure_quality_parent_acceptance.py"], "public_surface": [], "task_groups": [39], "github_issue": "#152", "owner": "evidence" },
+    { "capability": "transitive-correction-invalidation", "source_modules": ["src/research_tree/coordinator.py"], "public_surface": ["ResearchRunCoordinator.apply_correction", "ResearchRunCoordinator.dispatch", "ResearchRunCoordinator.ingest_host_events"], "task_groups": [40], "github_issue": "#153", "owner": "runtime" },
+    { "capability": "isolated-hermes-executable-bundle", "source_modules": ["scripts/build_skill_packages.py", "scripts/hermes_skill_adapter.py", "scripts/hermes_executable_closure.json"], "public_surface": ["hermes_skill_adapter.py validate", "hermes_skill_adapter.py stage", "build_skill_packages.py --check"], "task_groups": [42], "github_issue": "#155", "owner": "host-adapter" },
+    { "capability": "closure-evidence-content-binding", "source_modules": ["src/research_tree/closure.py", "src/research_tree/source_capture.py", "src/research_tree/evidence.py"], "public_surface": ["SlotClosureAssessor.assess"], "task_groups": [46], "github_issue": "#160", "owner": "evidence" },
+    { "capability": "closure-quality-currentness", "source_modules": ["src/research_tree/closure.py", "src/research_tree/oracles.py", "src/research_tree/evidence.py", "src/research_tree/source_capture.py"], "public_surface": ["SlotClosureAssessor.assess", "SlotClosureAssessor.is_current"], "task_groups": [47], "github_issue": "#161", "owner": "evidence" },
+    { "capability": "canonical-host-event-boundary", "source_modules": ["src/research_tree/coordinator.py", "src/research_tree/host_events.py", "src/research_tree/native_workflows.py", "scripts/native_execution_adapter.py", "scripts/hermes_execution_adapter.py"], "public_surface": ["ResearchRunCoordinator.ingest_host_event", "ResearchRunCoordinator.ingest_host_events"], "task_groups": [61], "github_issue": "#151", "owner": "runtime" },
+    { "capability": "legacy-cli-surface-removal", "source_modules": ["src/research_tree/cli.py", "pyproject.toml", "scripts/check_repository_layout.py"], "public_surface": ["research-tree reserved canonical boundary"], "task_groups": [54], "github_issue": "#164", "owner": "runtime" },
+    { "capability": "legacy-runstore-import-removal", "source_modules": ["src/research_tree/run_ledger.py", "src/research_tree/__init__.py"], "public_surface": [], "task_groups": [55], "github_issue": "#167", "owner": "runtime" },
+    { "capability": "current-only-skill-setup", "source_modules": ["src/research_tree/skill_setup.py"], "public_surface": ["research-tree-setup install", "research-tree-setup status"], "task_groups": [57], "github_issue": "#169", "owner": "host-adapter" },
+    { "capability": "current-strategy-projection-reader", "source_modules": ["src/research_tree/strategy_projection.py"], "public_surface": ["StrategyProjection.create", "StrategyProjection.from_dict"], "task_groups": [59], "github_issue": "#173", "owner": "alignment" },
+    { "capability": "current-insight-payload-reader", "source_modules": ["src/research_tree/insights.py"], "public_surface": ["validate_insight_digest"], "task_groups": [60], "github_issue": "#174", "owner": "research" },
+    { "capability": "public-runstore-scheduler-surface-removal", "source_modules": ["src/research_tree/__init__.py"], "public_surface": [], "task_groups": [62], "github_issue": "#178", "owner": "runtime" },
+    { "capability": "semantic-replay-reconstruction", "source_modules": ["src/research_tree/debug_trace.py", "src/research_tree/coordinator.py", "src/research_tree/run_ledger.py"], "public_surface": ["CausalTraceService.replay"], "task_groups": [63], "github_issue": "#154", "owner": "observability" },
+    { "capability": "typed-search-portfolio-contract", "source_modules": ["src/research_tree/search_portfolio.py", "openspec/changes/unify-research-runtime-alpha2/schemas/search-portfolio-v2.json", "openspec/changes/unify-research-runtime-alpha2/schemas/method-registry-v1.json"], "public_surface": ["SearchPortfolio", "MethodRegistry"], "task_groups": [48], "github_issue": "#163", "owner": "research" },
+    { "capability": "intent-derived-search-portfolio-planning", "source_modules": ["src/research_tree/search_portfolio.py"], "public_surface": ["IntentDerivedSearchPortfolioPlanner", "derive_search_portfolio"], "task_groups": [74], "github_issue": "#185", "owner": "research" },
+    { "capability": "multi-method-portfolio-execution", "source_modules": ["src/research_tree/search_portfolio.py", "tests/test_search_portfolio.py", "tests/test_acquisition.py"], "public_surface": ["SearchPortfolioExecutor", "MethodExecutionOutcome", "BatchCoverageAssessment", "assess_acquisition_batch"], "task_groups": [75], "github_issue": "#186", "owner": "research" },
+    { "capability": "registered-completion-manifold", "source_modules": ["src/research_tree/coordinator.py", "src/research_tree/run_ledger.py", "tests/test_completion_manifold.py"], "public_surface": ["ResearchRunCoordinator.complete", "ResearchRunCoordinator.why_not_complete"], "task_groups": [45], "github_issue": "#158", "owner": "runtime" },
+    { "capability": "unreachable-runstore-scheduler-source-removal", "source_modules": ["tests/test_runstore_scheduler_surface_removal.py"], "public_surface": [], "task_groups": [76], "github_issue": "#179", "owner": "runtime" },
+    { "capability": "canonical-search-portfolio-lineage", "source_modules": ["src/research_tree/coordinator.py", "tests/test_search_portfolio_lineage.py"], "public_surface": ["ResearchRunCoordinator.persist_search_portfolio_lineage"], "task_groups": [77], "github_issue": "#187", "owner": "runtime" },
+    { "capability": "runstore-scheduler-retirement-acceptance", "source_modules": ["tests/test_runstore_scheduler_parent_acceptance.py"], "public_surface": [], "task_groups": [78], "github_issue": "#175", "owner": "runtime" },
+    { "capability": "canonical-findingpack-test-fixtures", "source_modules": ["tests/canonical_finding_fixture.py", "tests/test_decision_ledger.py", "tests/test_deliveries.py", "tests/test_strict_delivery_lineage.py"], "public_surface": [], "task_groups": [79], "github_issue": "#180", "owner": "runtime" },
+    { "capability": "canonical-readiness-test-fixtures", "source_modules": ["tests/canonical_finding_fixture.py", "tests/test_readiness.py", "tests/test_strict_evidence_decision_boundary.py", "tests/test_readiness_findingpack_lineage.py", "tests/test_risk_verification.py", "tests/test_evaluation_suite.py"], "public_surface": [], "task_groups": [80], "github_issue": "#181", "owner": "runtime" },
+    { "capability": "canonical-findingpack-parent-acceptance", "source_modules": ["tests/test_findingpack_parent_acceptance.py"], "public_surface": [], "task_groups": [81], "github_issue": "#171", "owner": "runtime" },
+    { "capability": "runstore-openspec-export-removal", "source_modules": ["src/research_tree/__init__.py", "tests/test_runstore_openspec_export_removal.py"], "public_surface": [], "task_groups": [82], "github_issue": "#176", "owner": "runtime" }
+    , {
+      "capability": "strict-evidence-admission",
+      "source_modules": [
+        "src/research_tree/evidence.py",
+        "src/research_tree/ledger.py",
+        "tests/test_strict_evidence_admission.py",
+        "tests/test_evidence_contract.py"
+      ],
+      "public_surface": [
+        "research_tree.EvidenceAnchor",
+        "research_tree.EvidenceArtifact",
+        "research_tree.EvidenceResolver"
+      ],
+      "task_groups": [83],
+      "github_issue": "#168",
+      "owner": "runtime"
+    },
+    {
+      "capability": "cross-host-fault-injection",
+      "source_modules": [
+        "tests/test_cross_host_fault_injection.py",
+        "src/research_tree/skill_activation.py"
+      ],
+      "public_surface": [],
+      "task_groups": [87],
+      "github_issue": "#271",
+      "owner": "quality"
+    },
+    {
+      "capability": "deterministic-cross-host-skill-activation",
+      "source_modules": [
+        "src/research_tree/skill_activation.py",
+        "skill-src/SKILL.template.md",
+        "skill-src/hermes-SKILL.template.md",
+        "tests/test_skill_activation.py"
+      ],
+      "public_surface": ["evaluate_activation_gate"],
+      "task_groups": [86],
+      "github_issue": "#270",
+      "owner": "host-adapter"
+    },
+    {
+      "capability": "cross-host-skill-loader-integrity",
+      "source_modules": [
+        "src/research_tree/skill_activation.py",
+        "src/research_tree/lifecycle_hook.py",
+        "scripts/hermes_skill_adapter.py",
+        "scripts/hermes_runtime_hook.py",
+        "tests/test_skill_loader_integrity.py"
+      ],
+      "public_surface": [
+        "build_loader_receipt",
+        "validate_loader_receipt",
+        "loader_integrity_status"
+      ],
+      "task_groups": [85],
+      "github_issue": "#269",
+      "owner": "host-adapter"
+    },
+    {
+      "capability": "canonical-coordinator-cli",
+      "source_modules": [
+        "src/research_tree/cli.py",
+        "src/research_tree/coordinator.py",
+        "src/research_tree/run_ledger.py",
+        "tests/test_cli.py"
+      ],
+      "public_surface": [
+        "research-tree run ingest",
+        "research-tree run recover",
+        "research-tree run why-not-complete",
+        "research-tree run complete"
+      ],
+      "task_groups": [84],
+      "github_issue": "#150",
+      "owner": "runtime"
+    }
   ],
   "release_rule": "A capability row is not evidence of implementation. The generated requirement rows, tests, and immutable release manifest must all resolve before status becomes verified."
 }

@@ -4,31 +4,48 @@
   "title": "Alpha2 InsightDigest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["digest_id", "producer_version", "source_refs", "slot_refs", "statements", "contradictions", "gaps", "recommended_actions", "limitations", "previous_digest_ref"],
+  "required": ["schema_version", "producer_version", "digest_id", "source_refs", "slot_refs", "classified_statements", "covered_evidence_classes", "confirmed_facts", "hypotheses", "contradictions", "gaps", "recommendations", "limitations", "previous_digest_ref", "parent_refs", "realized_delta", "recommended_actions", "evidence_baseline", "transition_index", "confidence", "calibration", "changed_beliefs", "insights", "next_actions", "closure", "finding_pack_count"],
   "properties": {
-    "digest_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+    "schema_version": { "type": "integer", "const": 1 },
     "producer_version": { "type": "string", "minLength": 1 },
+    "digest_id": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "source_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
     "slot_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-    "statements": {
+    "classified_statements": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "class", "text", "evidence_refs", "confidence"],
+        "required": ["finding_pack_id", "decision_slot_id", "classification", "claim", "source_refs", "evidence_class"],
         "properties": {
-          "id": { "type": "string", "minLength": 1 },
-          "class": { "type": "string", "enum": ["fact", "inference", "recommendation", "unknown"] },
-          "text": { "type": "string", "minLength": 1 },
-          "evidence_refs": { "type": "array", "items": { "type": "string" } },
-          "confidence": { "type": "string", "enum": ["low", "medium", "high"] }
+          "finding_pack_id": { "type": "string", "minLength": 1 },
+          "decision_slot_id": { "type": "string", "minLength": 1 },
+          "classification": { "type": "string", "minLength": 1 },
+          "claim": { "type": "string", "minLength": 1 },
+          "source_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "evidence_class": { "type": "string", "minLength": 1 }
         }
       }
     },
+    "covered_evidence_classes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "confirmed_facts": { "type": "array", "items": { "type": "object" } },
+    "hypotheses": { "type": "array", "items": { "type": "object" } },
     "contradictions": { "type": "array", "items": { "type": "object" } },
     "gaps": { "type": "array", "items": { "type": "object" } },
     "recommended_actions": { "type": "array", "items": { "type": "object" } },
-    "limitations": { "type": "array", "items": { "type": "string" } },
-    "previous_digest_ref": { "type": ["string", "null"] }
+    "recommendations": { "type": "array", "items": { "type": "object" } },
+    "limitations": { "type": "array", "items": { "type": "object" } },
+    "previous_digest_ref": { "type": ["string", "null"] },
+    "parent_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "realized_delta": { "type": "object" },
+    "evidence_baseline": { "type": "object" },
+    "transition_index": { "type": "integer", "minimum": 1 },
+    "confidence": { "type": "object" },
+    "calibration": { "type": "object" },
+    "changed_beliefs": { "type": "array" },
+    "insights": { "type": "array", "items": { "type": "object" } },
+    "next_actions": { "type": "array", "items": { "type": "object" } },
+    "closure": { "type": "string", "enum": ["blocked_by_uncovered_or_contested_slots", "ready_for_decision_ledger_review"] },
+    "finding_pack_count": { "type": "integer", "minimum": 0 }
   }
 }

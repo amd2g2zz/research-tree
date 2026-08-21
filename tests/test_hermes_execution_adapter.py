@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -11,6 +12,8 @@ ADAPTER = ROOT / "scripts" / "hermes_execution_adapter.py"
 
 
 def run_adapter(workspace: Path, command: str, *args: str) -> subprocess.CompletedProcess[str]:
+    if command == "init" and "--project-id" not in args:
+        args = ("--project-id", "project-hermes", *args)
     return subprocess.run(
         [sys.executable, str(ADAPTER), "--workspace", str(workspace), command, *args],
         cwd=workspace,
@@ -20,109 +23,710 @@ def run_adapter(workspace: Path, command: str, *args: str) -> subprocess.Complet
     )
 
 
-def write_fixture(workspace: Path) -> tuple[Path, Path, Path]:
-    handoff = workspace / "handoff.json"
-    handoff.write_text(
+def test_context_budget_receipt_is_resumable_and_non_authoritative(tmp_path: Path) -> None:
+    run_id = "context-hermes"
+    initialized = run_adapter(tmp_path, "init", "--run-id", run_id, "--handoff", str(write_handoff(tmp_path)))
+    assert initialized.returncode == 0, initialized.stdout + initialized.stderr
+    source = tmp_path / "source.md"
+    source.write_text("bounded source", encoding="utf-8")
+
+    exhausted = run_adapter(
+        tmp_path,
+        "context-record",
+        "--run-id",
+        run_id,
+        "--source",
+        str(source),
+        "--consumer",
+        "coordinator",
+        "--phase",
+        "landscape",
+        "--input-tokens",
+        "11",
+        "--max-fresh-input-tokens",
+        "10",
+    )
+
+    assert exhausted.returncode == 4, exhausted.stdout + exhausted.stderr
+    receipt = json.loads(exhausted.stdout)
+    assert receipt["status"] == "budget_exceeded"
+    assert receipt["execution_state"] == "unknown"
+    assert receipt["completion_authority"] == "none"
+
+    resumed = run_adapter(
+        tmp_path,
+        "context-resume",
+        "--run-id",
+        run_id,
+        "--max-fresh-input-tokens",
+        "100",
+    )
+    assert resumed.returncode == 0, resumed.stdout + resumed.stderr
+    assert json.loads(resumed.stdout)["status"] == "active"
+
+
+def write_handoff(workspace: Path) -> Path:
+    path = workspace / "handoff.json"
+    path.write_text(
         json.dumps(
             {
                 "schema": 1,
                 "kind": "alignment-handoff",
                 "run_id": "alignment-hermes",
+                "alignment_digest": "a" * 64,
+                "compiled_graph_digest": "a" * 64,
                 "decision_slots": {"slot-a": {"question": "Bound the decision."}},
                 "execution_context": {"authority": ["Autonomous research within scope."]},
             }
         ),
         encoding="utf-8",
     )
-    finding = workspace / "finding.json"
-    finding.write_text('{"id":"finding-1"}', encoding="utf-8")
-    technical = workspace / "technical.md"
-    technical.write_text("# Technical\n\n## Evidence\n\n## Validation\n" + "x" * 1100, encoding="utf-8")
-    human = workspace / "human.md"
-    human.write_text("# Human\n\n## Findings\n\n" + "x" * 600, encoding="utf-8")
-    return handoff, finding, (technical, human)
+    return path
 
 
-def test_hermes_adapter_persists_waves_recovers_and_requires_reports(tmp_path: Path) -> None:
-    handoff, finding, reports = write_fixture(tmp_path)
+def test_legacy_commands_are_non_authoritative_observations(tmp_path: Path) -> None:
+    run_id = "hermes-run"
     initialized = run_adapter(
         tmp_path,
         "init",
         "--run-id",
-        "hermes-run",
+        run_id,
+        "--handoff",
+        str(write_handoff(tmp_path)),
+    )
+    assert initialized.returncode == 0, initialized.stdout + initialized.stderr
+    init_result = json.loads(initialized.stdout)
+    assert init_result["status"] == "observed"
+    assert init_result["project_id"] == "project-hermes"
+    assert init_result["lifecycle_hooks"] == "available"
+    assert (tmp_path / ".research-tree" / "projects" / "project-hermes" / "runs" / run_id).is_dir()
+    assert init_result["authoritative"] is False
+    assert init_result["completion_authority"] == "coordinator_only"
+
+    # record-batch is fail-closed since the delegation lifecycle contract: it
+    # requires observed delegation identities and rejects missing Finding Packs.
+    batch = run_adapter(
+        tmp_path,
+        "record-batch",
+        "--run-id",
+        run_id,
+        "--batch-id",
+        "wave-1",
+        "--status",
+        "verified",
+        "--finding",
+        str(tmp_path / "missing-finding.json"),
+    )
+    assert batch.returncode == 1
+    assert "delegation" in batch.stdout
+
+    completed = run_adapter(
+        tmp_path,
+        "complete",
+        "--run-id",
+        run_id,
+        "--technical-report",
+        str(tmp_path / "missing-technical.md"),
+        "--human-report",
+        str(tmp_path / "missing-human.md"),
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    summary = json.loads(completed.stdout)
+    assert summary == {
+        "run_id": run_id,
+        "status": "delivery_pending",
+        "complete": False,
+        "observed_complete": False,
+        "completion_authority": "coordinator_only",
+        "authoritative": False,
+    }
+    assert not (tmp_path / ".research-tree-hermes" / run_id / "state.json").exists()
+
+
+def test_hermes_init_rejects_stale_handoff_before_creating_project_authority(
+    tmp_path: Path,
+) -> None:
+    handoff = write_handoff(tmp_path)
+    payload = json.loads(handoff.read_text(encoding="utf-8"))
+    payload["compiled_graph_digest"] = "b" * 64
+    handoff.write_text(json.dumps(payload), encoding="utf-8")
+
+    rejected = run_adapter(
+        tmp_path,
+        "init",
+        "--run-id",
+        "stale-hermes-run",
         "--handoff",
         str(handoff),
     )
-    assert initialized.returncode == 0, initialized.stderr
-    running = run_adapter(
-        tmp_path,
-        "record-batch",
-        "--run-id",
-        "hermes-run",
-        "--batch-id",
-        "wave-1",
-        "--status",
-        "running",
-        "--delegation-id",
-        "delegation-1",
-    )
-    assert running.returncode == 0, running.stderr
-    recovered = json.loads(run_adapter(tmp_path, "recover", "--run-id", "hermes-run").stdout)
-    assert recovered["recovered_batches"] == ["wave-1"]
-    verified = run_adapter(
-        tmp_path,
-        "record-batch",
-        "--run-id",
-        "hermes-run",
-        "--batch-id",
-        "wave-2",
-        "--status",
-        "verified",
-        "--delegation-id",
-        "delegation-2",
-        "--finding",
-        str(finding),
-    )
-    assert verified.returncode == 0, verified.stderr
-    blocked = run_adapter(
-        tmp_path,
-        "complete",
-        "--run-id",
-        "hermes-run",
-        "--technical-report",
-        str(reports[0]),
-        "--human-report",
-        str(reports[1]),
-    )
-    assert blocked.returncode == 1
-    assert "verified" in blocked.stdout
 
-    # A fresh run proves the terminal gate accepts only verified waves and both reports.
-    run_id = "hermes-complete"
-    assert run_adapter(
-        tmp_path, "init", "--run-id", run_id, "--handoff", str(handoff)
-    ).returncode == 0
-    assert run_adapter(
+    assert rejected.returncode == 1
+    assert "stale alignment confirmation" in rejected.stdout
+    assert not list(tmp_path.glob(".research-tree/projects/*/runs/stale-hermes-run"))
+
+
+def test_recover_requires_canonical_attempt_snapshot(tmp_path: Path) -> None:
+    missing = run_adapter(tmp_path, "recover", "--run-id", "hermes-run")
+    assert missing.returncode == 1
+    assert "canonical attempt" in missing.stdout
+
+    snapshot = tmp_path / "attempt.json"
+    snapshot.write_text(
+        json.dumps(
+            {
+                "run_id": "hermes-run",
+                "action_id": "action-1",
+                "attempt_id": "attempt-1",
+                "expected_revision": 12,
+                "next_sequence": 3,
+                "authorized_methods": ["documentation"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    recovered = run_adapter(
+        tmp_path,
+        "recover",
+        "--run-id",
+        "hermes-run",
+        "--canonical-attempt",
+        str(snapshot),
+        "--unknown-event-id",
+        "unknown-1",
+        "--retry-event-id",
+        "retry-1",
+        "--retry-category",
+        "transient",
+        "--method",
+        "documentation",
+        "--created-at",
+        "2026-08-11T00:00:00+00:00",
+    )
+    assert recovered.returncode == 0, recovered.stdout + recovered.stderr
+    events = json.loads(recovered.stdout)["events"]
+    assert [event["kind"] for event in events] == ["unknown_outcome", "retry"]
+    assert [event["sequence"] for event in events] == [3, 4]
+    assert not (tmp_path / ".research-tree-hermes" / "hermes-run" / "state.json").exists()
+
+
+def _write_finding(workspace: Path, name: str, body: dict) -> Path:
+    path = workspace / name
+    path.write_text(json.dumps(body), encoding="utf-8")
+    return path
+
+
+def _write_hook_observation(tmp_path: Path, run_id: str, delegation_id: str = "deleg-observed") -> None:
+    events_root = tmp_path / ".research-tree" / "projects" / "project-hermes" / "runs" / run_id / "events"
+    events_root.mkdir(parents=True, exist_ok=True)
+    (events_root / "hook-1.json").write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "source": "research-tree-hermes-hook",
+                "event": "post_tool_call",
+                "tool_name": "delegate_task",
+                "delegation_id": delegation_id,
+                "task_id": "task-observed",
+                "child_subagent_id": "child-observed",
+                "agent_id": "child-observed",
+                "task_count": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_record_batch_fails_closed_on_missing_finding(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    _write_hook_observation(tmp_path, "hermes-run")
+
+    batch = run_adapter(
         tmp_path,
         "record-batch",
         "--run-id",
-        run_id,
+        "hermes-run",
+        "--batch-id",
+        "wave-1",
+        "--status",
+        "verified",
+        "--delegation-id",
+        "deleg-observed",
+        "--finding",
+        str(tmp_path / "missing-finding.json"),
+    )
+    assert batch.returncode == 1
+    assert "finding" in batch.stdout
+
+
+def test_record_batch_fails_closed_on_empty_finding(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    _write_hook_observation(tmp_path, "hermes-run")
+    (tmp_path / "empty-finding.json").write_text("", encoding="utf-8")
+
+    batch = run_adapter(
+        tmp_path,
+        "record-batch",
+        "--run-id",
+        "hermes-run",
+        "--batch-id",
+        "wave-1",
+        "--status",
+        "verified",
+        "--delegation-id",
+        "deleg-observed",
+        "--finding",
+        str(tmp_path / "empty-finding.json"),
+    )
+    assert batch.returncode == 1
+    assert "finding" in batch.stdout
+
+
+def test_record_batch_fails_closed_on_non_object_finding(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    _write_hook_observation(tmp_path, "hermes-run")
+    (tmp_path / "array-finding.json").write_text("[]", encoding="utf-8")
+
+    batch = run_adapter(
+        tmp_path,
+        "record-batch",
+        "--run-id",
+        "hermes-run",
+        "--batch-id",
+        "wave-1",
+        "--status",
+        "verified",
+        "--delegation-id",
+        "deleg-observed",
+        "--finding",
+        str(tmp_path / "array-finding.json"),
+    )
+    assert batch.returncode == 1
+    assert "finding" in batch.stdout
+
+
+def test_record_batch_rejects_unbound_delegation_identity(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    _write_hook_observation(tmp_path, "hermes-run")
+    finding = _write_finding(tmp_path, "finding.json", {"schema": 1, "kind": "finding-pack"})
+
+    batch = run_adapter(
+        tmp_path,
+        "record-batch",
+        "--run-id",
+        "hermes-run",
+        "--batch-id",
+        "wave-1",
+        "--status",
+        "verified",
+        "--delegation-id",
+        "deleg-invented",
+        "--finding",
+        str(finding),
+    )
+    assert batch.returncode == 1
+    assert "identity" in batch.stdout or "delegation" in batch.stdout
+
+
+def test_record_batch_accepts_observed_identity_with_intact_finding(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    _write_hook_observation(tmp_path, "hermes-run")
+    finding = _write_finding(
+        tmp_path,
+        "finding.json",
+        {"schema": 1, "kind": "finding-pack", "run_id": "hermes-run"},
+    )
+
+    batch = run_adapter(
+        tmp_path,
+        "record-batch",
+        "--run-id",
+        "hermes-run",
+        "--batch-id",
+        "wave-1",
+        "--status",
+        "verified",
+        "--delegation-id",
+        "deleg-observed",
+        "--finding",
+        str(finding),
+    )
+    assert batch.returncode == 0, batch.stdout + batch.stderr
+    result = json.loads(batch.stdout)
+    assert result["batch_status"] == "verified"
+    assert result["delegation_ids"] == ["deleg-observed"]
+    assert result["authoritative"] is False
+    finding_sha = hashlib.sha256(finding.read_bytes()).hexdigest()
+    assert result["finding_digests"][0] == finding_sha
+
+
+def _write_wave(workspace: Path, attempts: list[dict]) -> Path:
+    path = workspace / "wave.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "kind": "delegation-wave",
+                "attempts": attempts,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _attempt(n: int, **extra: object) -> dict:
+    return {
+        "action_id": f"action-{n}",
+        "attempt_id": f"attempt-{n}",
+        "event_id_prefix": f"evt-{n}",
+        "expected_revision": 10 + n,
+        "next_sequence": 20 + n,
+        "objective": f"Objective {n}",
+        "created_at": "2026-08-18T00:00:00+00:00",
+        **extra,
+    }
+
+
+def test_run_delegation_requires_wave_attempts(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    empty_wave = tmp_path / "wave.json"
+    empty_wave.write_text(json.dumps({"schema": 1, "kind": "delegation-wave", "attempts": []}), encoding="utf-8")
+
+    result = run_adapter(tmp_path, "run-delegation", "--run-id", "hermes-run", "--wave", str(empty_wave))
+
+    assert result.returncode == 1
+    assert "attempt" in result.stdout
+
+
+def test_run_delegation_requires_observed_hook_identities(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    # No hook observation written: every identity is unbound.
+    wave = _write_wave(tmp_path, [_attempt(1), _attempt(2)])
+
+    result = run_adapter(tmp_path, "run-delegation", "--run-id", "hermes-run", "--wave", str(wave))
+
+    assert result.returncode == 1
+    assert "observed" in result.stdout
+
+
+def test_run_delegation_binds_observed_children_to_attempts(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    events_root = tmp_path / ".research-tree" / "projects" / "project-hermes" / "runs" / "hermes-run" / "events"
+    events_root.mkdir(parents=True, exist_ok=True)
+    (events_root / "hook-1.json").write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "source": "research-tree-hermes-hook",
+                "event": "post_tool_call",
+                "tool_name": "delegate_task",
+                "delegation_id": "deleg-b1",
+                "task_id": "task-alpha",
+                "child_subagent_id": "child-alpha",
+                "agent_id": "child-alpha",
+                "status": "completed",
+                "task_count": 2,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (events_root / "hook-2.json").write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "source": "research-tree-hermes-hook",
+                "event": "subagent_stop",
+                "delegation_id": "deleg-b1",
+                "task_id": "task-beta",
+                "child_subagent_id": "child-beta",
+                "agent_id": "child-beta",
+                "status": "completed",
+            }
+        ),
+        encoding="utf-8",
+    )
+    wave = _write_wave(tmp_path, [_attempt(1), _attempt(2)])
+
+    result = run_adapter(tmp_path, "run-delegation", "--run-id", "hermes-run", "--wave", str(wave))
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "observed"
+    assert payload["authoritative"] is False
+    bindings = {b["attempt_id"]: b for b in payload["bindings"]}
+    assert set(bindings) == {"attempt-1", "attempt-2"}
+    observed_children = {b["child_id"] for b in payload["bindings"]}
+    assert observed_children == {"child-alpha", "child-beta"}
+    kinds = [event["kind"] for event in payload["events"]]
+    assert kinds.count("attempt_started") == 2
+    assert kinds.count("worker_finished") == 2
+    # Deterministic binding: child identity maps to exactly one attempt.
+    assert len({b["child_id"] for b in payload["bindings"]}) == 2
+
+
+def test_run_delegation_rejects_child_identity_reuse(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    events_root = tmp_path / ".research-tree" / "projects" / "project-hermes" / "runs" / "hermes-run" / "events"
+    events_root.mkdir(parents=True, exist_ok=True)
+    record = {
+        "schema": 1,
+        "source": "research-tree-hermes-hook",
+        "event": "post_tool_call",
+        "tool_name": "delegate_task",
+        "delegation_id": "deleg-b1",
+        "task_id": "task-alpha",
+        "child_subagent_id": "child-alpha",
+        "agent_id": "child-alpha",
+        "task_count": 2,
+    }
+    (events_root / "hook-1.json").write_text(json.dumps(record), encoding="utf-8")
+    (events_root / "hook-2.json").write_text(json.dumps(record), encoding="utf-8")
+    wave = _write_wave(tmp_path, [_attempt(1), _attempt(2)])
+
+    result = run_adapter(tmp_path, "run-delegation", "--run-id", "hermes-run", "--wave", str(wave))
+
+    # Two attempts but only one distinct observed child identity: fail closed.
+    assert result.returncode == 1
+    assert "bind" in result.stdout or "identity" in result.stdout
+
+
+def test_run_delegation_interruption_emits_unknown_and_retry(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    events_root = tmp_path / ".research-tree" / "projects" / "project-hermes" / "runs" / "hermes-run" / "events"
+    events_root.mkdir(parents=True, exist_ok=True)
+    (events_root / "hook-1.json").write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "source": "research-tree-hermes-hook",
+                "event": "post_tool_call",
+                "tool_name": "delegate_task",
+                "delegation_id": "deleg-b1",
+                "task_id": "task-alpha",
+                "child_subagent_id": "child-alpha",
+                "agent_id": "child-alpha",
+                "status": "interrupted",
+                "task_count": 2,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (events_root / "hook-2.json").write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "source": "research-tree-hermes-hook",
+                "event": "subagent_stop",
+                "delegation_id": "deleg-b1",
+                "task_id": "task-beta",
+                "child_subagent_id": "child-beta",
+                "agent_id": "child-beta",
+                "status": "completed",
+            }
+        ),
+        encoding="utf-8",
+    )
+    wave = _write_wave(tmp_path, [_attempt(1), _attempt(2), _attempt(3, retry_of="attempt-1")])
+
+    result = run_adapter(tmp_path, "run-delegation", "--run-id", "hermes-run", "--wave", str(wave))
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    kinds = [event["kind"] for event in payload["events"]]
+    assert "unknown_outcome" in kinds
+    assert "retry" in kinds
+    unknown = next(e for e in payload["events"] if e["kind"] == "unknown_outcome")
+    retry = next(e for e in payload["events"] if e["kind"] == "retry")
+    assert unknown["attempt_id"] == "attempt-1"
+    assert retry["payload"]["retry_of"] == "attempt-1"
+    assert retry["attempt_id"] != "attempt-1"
+    completed = next(e for e in payload["events"] if e["kind"] == "worker_finished" and e["attempt_id"] == "attempt-2")
+    assert completed["payload"]["outcome"] != "failed"
+
+
+def test_run_delegation_non_completed_status_never_completes(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    events_root = tmp_path / ".research-tree" / "projects" / "project-hermes" / "runs" / "hermes-run" / "events"
+    events_root.mkdir(parents=True, exist_ok=True)
+    for i, status in enumerate(("cancelled", "failed", "error", "timeout"), start=1):
+        (events_root / f"hook-{i}.json").write_text(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "source": "research-tree-hermes-hook",
+                    "event": "post_tool_call",
+                    "tool_name": "delegate_task",
+                    "delegation_id": f"deleg-b{i}",
+                    "task_id": f"task-x{i}",
+                    "child_subagent_id": f"child-x{i}",
+                    "agent_id": f"child-x{i}",
+                    "status": status,
+                }
+            ),
+            encoding="utf-8",
+        )
+    wave = _write_wave(tmp_path, [_attempt(n) for n in range(1, 5)])
+
+    result = run_adapter(tmp_path, "run-delegation", "--run-id", "hermes-run", "--wave", str(wave))
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    kinds = [event["kind"] for event in payload["events"]]
+    assert "worker_finished" not in kinds
+    assert kinds.count("unknown_outcome") == 4
+    outcomes = [e["payload"].get("outcome") for e in payload["events"] if e["kind"] == "worker_finished"]
+    assert outcomes == []
+
+
+def test_run_delegation_absent_status_is_not_completion(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    events_root = tmp_path / ".research-tree" / "projects" / "project-hermes" / "runs" / "hermes-run" / "events"
+    events_root.mkdir(parents=True, exist_ok=True)
+    (events_root / "hook-1.json").write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "source": "research-tree-hermes-hook",
+                "event": "post_tool_call",
+                "tool_name": "delegate_task",
+                "delegation_id": "deleg-b1",
+                "task_id": "task-y",
+                "child_subagent_id": "child-y",
+                "agent_id": "child-y",
+            }
+        ),
+        encoding="utf-8",
+    )
+    wave = _write_wave(tmp_path, [_attempt(1)])
+
+    result = run_adapter(tmp_path, "run-delegation", "--run-id", "hermes-run", "--wave", str(wave))
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    kinds = [event["kind"] for event in payload["events"]]
+    assert kinds == ["attempt_started", "unknown_outcome"]
+
+
+def test_run_delegation_surplus_observations_fail_closed(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    events_root = tmp_path / ".research-tree" / "projects" / "project-hermes" / "runs" / "hermes-run" / "events"
+    events_root.mkdir(parents=True, exist_ok=True)
+    for i in (1, 2, 3):
+        (events_root / f"hook-{i}.json").write_text(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "source": "research-tree-hermes-hook",
+                    "event": "post_tool_call",
+                    "tool_name": "delegate_task",
+                    "delegation_id": f"deleg-b{i}",
+                    "child_subagent_id": f"child-z{i}",
+                    "agent_id": f"child-z{i}",
+                    "status": "completed",
+                }
+            ),
+            encoding="utf-8",
+        )
+    wave = _write_wave(tmp_path, [_attempt(1), _attempt(2)])
+
+    result = run_adapter(tmp_path, "run-delegation", "--run-id", "hermes-run", "--wave", str(wave))
+
+    assert result.returncode == 1
+    assert "observed" in result.stdout
+
+
+def test_record_batch_requires_at_least_one_delegation_id(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    finding = _write_finding(tmp_path, "finding.json", {"schema": 1, "kind": "finding-pack"})
+
+    result = run_adapter(
+        tmp_path,
+        "record-batch",
+        "--run-id",
+        "hermes-run",
         "--batch-id",
         "wave-1",
         "--status",
         "verified",
         "--finding",
         str(finding),
-    ).returncode == 0
-    complete = run_adapter(
-        tmp_path,
-        "complete",
-        "--run-id",
-        run_id,
-        "--technical-report",
-        str(reports[0]),
-        "--human-report",
-        str(reports[1]),
     )
-    assert complete.returncode == 0, complete.stdout + complete.stderr
-    assert json.loads(complete.stdout)["status"] == "complete"
+
+    assert result.returncode == 1
+    assert "delegation" in result.stdout
+
+
+def test_record_batch_fails_closed_on_declared_digest_mismatch(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    _write_hook_observation(tmp_path, "hermes-run")
+    finding = _write_finding(tmp_path, "finding.json", {"schema": 1, "kind": "finding-pack"})
+
+    batch = run_adapter(
+        tmp_path,
+        "record-batch",
+        "--run-id",
+        "hermes-run",
+        "--batch-id",
+        "wave-1",
+        "--status",
+        "verified",
+        "--delegation-id",
+        "deleg-observed",
+        "--finding",
+        str(finding),
+        "--finding-digest",
+        "0" * 64,
+    )
+    assert batch.returncode == 1
+    assert "digest" in batch.stdout
+
+    good_digest = hashlib.sha256(finding.read_bytes()).hexdigest()
+    ok = run_adapter(
+        tmp_path,
+        "record-batch",
+        "--run-id",
+        "hermes-run",
+        "--batch-id",
+        "wave-1",
+        "--status",
+        "verified",
+        "--delegation-id",
+        "deleg-observed",
+        "--finding",
+        str(finding),
+        "--finding-digest",
+        good_digest,
+    )
+    assert ok.returncode == 0, ok.stdout + ok.stderr
+
+
+def test_record_batch_fails_closed_on_attempt_ancestry_mismatch(tmp_path: Path) -> None:
+    run_adapter(tmp_path, "init", "--run-id", "hermes-run", "--handoff", str(write_handoff(tmp_path)))
+    _write_hook_observation(tmp_path, "hermes-run")
+    finding = _write_finding(
+        tmp_path,
+        "finding.json",
+        {"schema": 1, "kind": "finding-pack", "attempt_id": "attempt-other"},
+    )
+    digest = hashlib.sha256(finding.read_bytes()).hexdigest()
+
+    batch = run_adapter(
+        tmp_path,
+        "record-batch",
+        "--run-id",
+        "hermes-run",
+        "--batch-id",
+        "wave-1",
+        "--status",
+        "verified",
+        "--attempt-id",
+        "attempt-1",
+        "--delegation-id",
+        "deleg-observed",
+        "--finding",
+        str(finding),
+        "--finding-digest",
+        digest,
+    )
+    assert batch.returncode == 1
+    assert "attempt" in batch.stdout

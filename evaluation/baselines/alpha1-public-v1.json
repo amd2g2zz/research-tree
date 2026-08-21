@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "alpha1-public-v1",
+  "case_id": "alpha1-adversarial-v1",
+  "source_revision": "8ab91ea4eb55c98441b5ee6001b80922a56ecdd1",
+  "environment": "clean-checkout; python>=3.11; uv",
+  "producer": "scripts/check_evaluation_assets.py --public-alpha1",
+  "recorded_at": "2026-08-12T00:00:00Z",
+  "artifact_refs": [
+    "evaluation/cases/alpha1-adversarial-v1.json"
+  ],
+  "limitations": [
+    "The public baseline validates registered fixtures and reports hidden execution components as unavailable."
+  ],
+  "content_digest": "sha256:186193aa3b644dd5a633258d980f3995feeebf54f7bb97dec62989e83a46aaae"
+}

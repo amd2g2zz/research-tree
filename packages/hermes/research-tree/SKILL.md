@@ -5,6 +5,10 @@ description: "Use when explicit deep technical research must align a vague or ev
 
 # research-tree
 
+## Activation probe
+`research-tree-activation-contract:v1:hermes`
+Follow `references/skill-activation.md`: only exact `/research-tree activation-probe v1 <correlation-id>` or `/skill research-tree` equivalent may return only `research-tree-activation:v1:hermes:<correlation-id>` without tools; paths, links, and bare names are `activation_unverified`.
+
 ## Outcome
 
 Turn a research request into two co-primary deliverables:
@@ -19,6 +23,18 @@ The requester and agent co-evolve the intent before strategy handoff. The
 requester controls outcomes, preferences, and authority, but both human and
 agent technical claims remain falsifiable. After handoff, the agent owns the
 long-horizon research inside the agreed autonomy envelope.
+
+## Activation contract
+
+Use the ordered state machine `verified_load -> bounded_reconnaissance ->
+alignment_question -> explicit_handoff -> autonomous_dispatch`. Deep research
+requests trigger this contract. Ordinary explanation, small edits, one-shot
+questions, and unrelated requests do not trigger it.
+
+No dispatch, delegation, external research, or final artifact is allowed before
+explicit handoff. Missing or stale loader evidence, unavailable resources,
+incomplete alignment, and implicit acknowledgement return a bounded `blocked`
+disposition naming the failed phase and next safe action.
 
 ## Progressive loading
 
@@ -53,6 +69,25 @@ small; never eagerly load every supporting file.
 
 Do not load `references/research-quality-playbook.md` in Hermes; the three
 Hermes phase references are its context-bounded operational form.
+
+## Python execution contract
+
+When operating in a `research-tree` source checkout, run every bundled Python
+script through the locked project environment: `uv run --frozen python ...`.
+Discover the checkout containing `pyproject.toml` and `uv.lock` before invoking
+the script, and use `uv run --project <checkout> --frozen python ...` when the
+current working directory is elsewhere. Never substitute the system `python`
+executable. If no `uv` project can be found, report an actionable environment
+blocker instead of producing a parser-level error from an incompatible Python.
+
+## Stable lifecycle contract
+
+When the checkout runtime is available, use `research-tree install`,
+`research-tree doctor`, `research-tree run`, `research-tree resume`,
+`research-tree status`, and `research-tree verify`. Pass an ordinary workspace
+and plain-language authority fields, never HostEvent or SQLite inputs. A
+prepared or pending verification receipt is fail-closed and does not grant
+completion authority.
 
 ## Phase 1: mutual alignment
 
@@ -161,7 +196,7 @@ attempted.
 
 Decision-slot closure is not final completion. Persist `delivery_pending` and
 continue to the delivery phase until both deep reports exist; register them
-with `tree-deliver` so their UTF-8, depth, and digest checks are recorded.
+with the canonical delivery authority so their UTF-8, depth, and digest checks are recorded.
 
 Load `references/hermes-research-execution.md` for task states, Finding Packs,
 insight generation, contradiction handling, recovery, and convergence gates.
@@ -204,11 +239,11 @@ evaluation.
   behavior; trace failure must never block research.
 - Use `scripts/hermes_skill_adapter.py` only for package validation, prompt-risk
   diagnosis, gateway-log diagnosis, hook rendering, or staging.
-- After handoff, use `scripts/hermes_execution_adapter.py` to initialize from
-  the persisted handoff, record each verified `delegate_task` wave, recover
-  in-flight waves as `unknown`, and register both deep reports before marking
-  the run complete. Hermes still owns delegation; this adapter owns durable
-  state and does not invent Hermes tool calls.
+- After handoff, use `scripts/hermes_execution_adapter.py` to translate
+  delegation/provider observations, project coordinator actions into Hermes,
+  and emit `unknown_outcome` before retrying interrupted attempts. The
+  coordinator ledger owns durable state and completion; the adapter never
+  infers either from waves, hooks, cards, empty work, or report shape.
 
 ## Completion standard
 

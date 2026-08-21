@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "issue": 186,
+  "group": 75,
+  "status": "verified",
+  "source_revision": "d18a0a915b8bf88f3edf5e8de320d4a6b4410300",
+  "checks": [
+    {
+      "name": "portfolio-execution-focused-suite",
+      "command": "uv run pytest -q tests/test_search_portfolio.py tests/test_acquisition.py && uv run ruff check src/research_tree/search_portfolio.py src/research_tree/__init__.py tests/test_search_portfolio.py tests/test_acquisition.py && uv run ruff format --check src/research_tree/search_portfolio.py src/research_tree/__init__.py tests/test_search_portfolio.py tests/test_acquisition.py && uv run python scripts/check_openspec_governance.py",
+      "exit_code": 0,
+      "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
+      "output_digest": "4b11f3dfea52661cba70a16b37773f925d14391b5aa1943d5e2003a9c87eae5d",
+      "raw_output_ref": "ci://issue-186/group-75-focused",
+      "recorded_at": "2026-08-14T16:30:00+08:00"
+    }
+  ],
+  "rollback": "revert the pure execution projection in Git; mark the batch unavailable or degraded and retain captures without restoring a second persistence plane"
+}

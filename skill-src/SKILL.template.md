@@ -32,6 +32,23 @@ Produce two final outputs:
 
 Create OpenSpec artifacts only when explicitly requested.
 
+## Activation contract
+
+Use this ordered state machine on Codex, Claude, and Hermes:
+
+`verified_load -> bounded_reconnaissance -> alignment_question -> explicit_handoff -> autonomous_dispatch`
+
+Positive trigger: a request for deep technical research, evidence, and a
+decision-ready deliverable. Negative triggers: ordinary explanation, a small
+edit, a one-shot factual answer, or an unrelated request. Negative triggers
+must not start reconnaissance or dispatch.
+
+Before `explicit_handoff`, do not dispatch, delegate, call external research,
+or write a final research artifact. If the loader receipt is missing or stale,
+alignment is not at equilibrium, a resource is unavailable, or handoff is not
+explicit, return a bounded blocked disposition with the failed phase and next
+safe action.
+
 ## Load the bundled resources
 
 - Resolve every relative path against the skill directory supplied by the host.
@@ -50,6 +67,16 @@ Create OpenSpec artifacts only when explicitly requested.
 - Read `references/research-tree-architecture.md` before initializing,
   expanding, pruning, or closing a recursive research tree.
 - Read `references/debug-tracing.md` only for explicit behavior diagnosis or debug mode.
+
+## Python execution contract
+
+When operating in a `research-tree` source checkout, run every bundled Python
+script through the locked project environment: `uv run --frozen python ...`.
+Discover the checkout containing `pyproject.toml` and `uv.lock` before invoking
+the script, and use `uv run --project <checkout> --frozen python ...` when the
+current working directory is elsewhere. Never substitute the system `python`
+executable. If no `uv` project can be found, report an actionable environment
+blocker instead of producing a parser-level error from an incompatible Python.
 
 <!-- HOST_ADAPTER -->
 
@@ -565,7 +592,7 @@ advance to Decision Ledger review, and final delivery remains blocked while an
 active P0 slot lacks completed depth, counterevidence, or validation evidence.
 Even after all slots close, keep the persisted tree in `delivery_pending` until
 both the Technical Research Package and Human Research Report are present and
-verified through `tree-deliver`; a closed tree without the two reports is not a
+verified through the canonical delivery authority; a closed tree without the two reports is not a
 completed research round.
 
 ## Produce the deliveries

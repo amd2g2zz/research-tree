@@ -3,25 +3,36 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-import shutil
-import tempfile
-from typing import Any, Mapping, Sequence
+from hashlib import sha256
+from types import MappingProxyType
+from typing import Any, Iterable, Mapping, Sequence
 
 from .domain import (
     ArtifactRef,
     ArtifactRevision,
     InvalidIdentifierError,
-    RoundNotFoundError,
     RoundRecord,
     RuntimeStoreError,
+    canonical_json_bytes,
     thaw_json,
+    utc_now,
     validate_identifier,
 )
-from .intake import INPUT_LEDGER_ARTIFACT_KIND, InputIntakeService
-from .intent import IntentModelCompiler, WorkingBriefCompiler
+from .intake import INPUT_LEDGER_ARTIFACT_KIND
+from .intent import (
+    INTENT_MODEL_KIND,
+    WORKING_BRIEF_KIND,
+    _json_ready,
+    _normalize_conflicts,
+    _normalize_delivery_targets,
+    _normalize_disposition,
+    _normalize_input_roles,
+    _normalize_intent_analysis,
+    _normalize_triggers,
+    _string_tuple,
+)
 from .ledger import DECISION_LEDGER_KIND, FINDING_PACK_KIND
-from .storage import RunStore
+from .run_ledger import RunLedger
 from .work_items import WORK_ITEM_KIND
 
 
@@ -29,15 +40,32 @@ FEEDBACK_LINEAGE_KIND = "feedback-lineage"
 RESEARCH_STRATEGY_KIND = "research-strategy"
 ROUND_SUPERSESSION_KIND = "round-supersession"
 SAME_ROUND_REPLAN_KIND = "same-round-replan"
+CORRECTION_EVENT_KIND = "correction-event"
+STALE_STATE_QUARANTINE_KIND = "stale-state-quarantine"
+
+CORRECTION_KINDS = frozenset({"correction", "reopen"})
+CORRECTION_RELATIONS = frozenset({"supersedes", "reopens"})
+CORRECTION_ACTORS = frozenset({"human", "operator"})
+CORRECTION_AFFECTED_ROLES = (
+    "intent_model",
+    "working_brief",
+    "decision_map",
+    "strategy",
+    "handoff",
+)
+CORRECTION_ACTION_ROLES = ("decision_map", "strategy", "handoff")
+CORRECTION_ROLE_KINDS = {
+    "intent_model": "intent-model",
+    "working_brief": "working-brief",
+    "decision_map": "blueprint-target",
+    "strategy": RESEARCH_STRATEGY_KIND,
+    "handoff": "alignment-handoff",
+}
 
 TARGET_CHANGE_DIMENSIONS = frozenset({"target", "priority", "success_definition"})
-CANDIDATE_DISPOSITIONS = frozenset(
-    {"reuse", "revalidate", "downgrade", "ignore", "overturn"}
-)
+CANDIDATE_DISPOSITIONS = frozenset({"reuse", "revalidate", "downgrade", "ignore", "overturn"})
 CARRIED_INPUT_DISPOSITIONS = frozenset({"reuse", "revalidate", "downgrade"})
-REQUIRED_CANDIDATE_KINDS = frozenset(
-    {INPUT_LEDGER_ARTIFACT_KIND, FINDING_PACK_KIND, DECISION_LEDGER_KIND}
-)
+REQUIRED_CANDIDATE_KINDS = frozenset({INPUT_LEDGER_ARTIFACT_KIND, FINDING_PACK_KIND, DECISION_LEDGER_KIND})
 ACTIVE_WORK_STATUSES = frozenset({"planned", "ready", "running"})
 
 
@@ -47,6 +75,168 @@ class FeedbackError(RuntimeStoreError):
 
 class InvalidFeedbackError(FeedbackError):
     """Raised before feedback can silently alter the wrong research round."""
+
+
+@dataclass(frozen=True, slots=True)
+class CorrectionBinding:
+    """An exact artifact revision and digest affected by a correction."""
+
+    role: str
+    artifact_ref: ArtifactRef
+    digest: str
+
+    def __post_init__(self) -> None:
+        if self.role not in CORRECTION_ROLE_KINDS:
+            raise InvalidFeedbackError(f"unsupported correction binding role: {self.role}")
+        if not isinstance(self.artifact_ref, ArtifactRef):
+            raise InvalidFeedbackError("correction binding requires an exact artifact reference")
+        if (
+            not isinstance(self.digest, str)
+            or len(self.digest) != 64
+            or any(character not in "0123456789abcdef" for character in self.digest)
+        ):
+            raise InvalidFeedbackError("correction binding digest must be 64 lowercase hex characters")
+
+    @classmethod
+    def from_artifact(cls, role: str, artifact: ArtifactRevision) -> "CorrectionBinding":
+        if not isinstance(artifact, ArtifactRevision):
+            raise InvalidFeedbackError("correction binding source must be an artifact revision")
+        return cls(
+            role=role,
+            artifact_ref=ArtifactRef(artifact.round_id, artifact.id, artifact.revision),
+            digest=artifact.content_hash,
+        )
+
+    @classmethod
+    def from_value(cls, role: str, value: "CorrectionBinding | Mapping[str, Any]") -> "CorrectionBinding":
+        if isinstance(value, cls):
+            if value.role != role:
+                raise InvalidFeedbackError("correction binding role does not match its mapping key")
+            return value
+        if not isinstance(value, Mapping):
+            raise InvalidFeedbackError("correction binding must be an object")
+        _require_exact_keys(value, {"artifact_ref", "digest"}, f"affected.{role}")
+        return cls(
+            role=role,
+            artifact_ref=_validate_ref(value["artifact_ref"], f"affected.{role}.artifact_ref"),
+            digest=str(value["digest"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"artifact_ref": self.artifact_ref.to_dict(), "digest": self.digest}
+
+
+@dataclass(frozen=True, slots=True)
+class CorrectionEvent:
+    """One requester correction that invalidates exact predecessor state."""
+
+    event_id: str
+    run_id: str
+    kind: str
+    actor: str
+    reason: str
+    relation: str
+    task_id: str
+    domain_id: str
+    successor_task_id: str
+    successor_domain_id: str
+    affected: Mapping[str, CorrectionBinding]
+
+    def __post_init__(self) -> None:
+        try:
+            validate_identifier(self.event_id, "event_id")
+            validate_identifier(self.run_id, "run_id")
+            validate_identifier(self.task_id, "task_id")
+            validate_identifier(self.domain_id, "domain_id")
+            validate_identifier(self.successor_task_id, "successor_task_id")
+            validate_identifier(self.successor_domain_id, "successor_domain_id")
+        except (InvalidIdentifierError, TypeError, ValueError) as error:
+            raise InvalidFeedbackError(str(error)) from error
+        if self.kind not in CORRECTION_KINDS:
+            raise InvalidFeedbackError("correction kind must be correction or reopen")
+        if self.actor not in CORRECTION_ACTORS:
+            raise InvalidFeedbackError("material correction actor must be human or operator")
+        if self.relation not in CORRECTION_RELATIONS:
+            raise InvalidFeedbackError("correction relation must be supersedes or reopens")
+        if self.kind == "correction" and self.relation != "supersedes":
+            raise InvalidFeedbackError("correction events require a supersedes relation")
+        if self.kind == "reopen" and self.relation != "reopens":
+            raise InvalidFeedbackError("reopen events require a reopens relation")
+        _nonempty_string(self.reason, "reason")
+        if set(self.affected) != set(CORRECTION_AFFECTED_ROLES):
+            raise InvalidFeedbackError(
+                "correction affected roles must be exactly " + ", ".join(CORRECTION_AFFECTED_ROLES)
+            )
+        normalized = {
+            role: CorrectionBinding.from_value(role, self.affected[role]) for role in CORRECTION_AFFECTED_ROLES
+        }
+        if any(binding.artifact_ref.round_id != self.run_id for binding in normalized.values()):
+            raise InvalidFeedbackError("all affected correction bindings must belong to the run")
+        object.__setattr__(self, "affected", MappingProxyType(normalized))
+
+    @classmethod
+    def create(cls, **values: Any) -> "CorrectionEvent":
+        return cls(**values)
+
+    @classmethod
+    def from_value(cls, value: "CorrectionEvent | Mapping[str, Any]") -> "CorrectionEvent":
+        if isinstance(value, cls):
+            return value
+        if not isinstance(value, Mapping):
+            raise InvalidFeedbackError("correction event must be an object")
+        expected = {
+            "event_id",
+            "run_id",
+            "kind",
+            "actor",
+            "reason",
+            "relation",
+            "task_id",
+            "domain_id",
+            "successor_task_id",
+            "successor_domain_id",
+            "affected",
+        }
+        _require_exact_keys(value, expected, "correction event")
+        affected = value["affected"]
+        if not isinstance(affected, Mapping):
+            raise InvalidFeedbackError("correction affected bindings must be an object")
+        return cls(
+            event_id=str(value["event_id"]),
+            run_id=str(value["run_id"]),
+            kind=str(value["kind"]),
+            actor=str(value["actor"]),
+            reason=str(value["reason"]),
+            relation=str(value["relation"]),
+            task_id=str(value["task_id"]),
+            domain_id=str(value["domain_id"]),
+            successor_task_id=str(value["successor_task_id"]),
+            successor_domain_id=str(value["successor_domain_id"]),
+            affected={
+                str(role): CorrectionBinding.from_value(str(role), binding) for role, binding in affected.items()
+            },
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "event_id": self.event_id,
+            "run_id": self.run_id,
+            "kind": self.kind,
+            "actor": self.actor,
+            "reason": self.reason,
+            "relation": self.relation,
+            "task_id": self.task_id,
+            "domain_id": self.domain_id,
+            "successor_task_id": self.successor_task_id,
+            "successor_domain_id": self.successor_domain_id,
+            "affected": {role: self.affected[role].to_dict() for role in CORRECTION_AFFECTED_ROLES},
+        }
+
+    def action_authority(self) -> dict[str, Any]:
+        return {
+            "correction_event_id": self.event_id,
+            "bindings": {role: self.affected[role].to_dict() for role in CORRECTION_ACTION_ROLES},
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,12 +277,13 @@ class _PreparedSuccessor:
     strategy_summary: str
 
 
-class FeedbackRoundService:
-    """Record feedback as either a successor round or an internal replan."""
+class CanonicalFeedbackRoundService:
+    """Record same-round replans directly in one canonical RunLedger."""
 
-    def __init__(self, store: RunStore) -> None:
-        self._store = store
-        self._intake = InputIntakeService(store)
+    def __init__(self, ledger: RunLedger) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidFeedbackError("canonical feedback requires a RunLedger")
+        self._ledger = ledger
 
     def start_successor(
         self,
@@ -120,90 +311,12 @@ class FeedbackRoundService:
         strategy_id: str,
         strategy_summary: str,
         strategy_focus: Sequence[str],
+        expected_predecessor_revision: int,
         overall_rejection: bool = False,
         assumptions: Sequence[str] = (),
         delivery_targets: Mapping[str, bool] | None = None,
     ) -> FeedbackRoundArtifacts:
-        """Preflight a successor in isolation before changing the live store.
-
-        Compiler validation happens against a filesystem copy containing the
-        exact predecessor lineage. This keeps rejected feedback requests free
-        of rounds, artifacts, and supersession overlays while retaining the
-        existing compiler and storage validation paths.
-        """
-
-        request = {
-            "prior_round_id": prior_round_id,
-            "successor_round_id": successor_round_id,
-            "feedback_input_id": feedback_input_id,
-            "feedback_text": feedback_text,
-            "feedback_origin_locator": feedback_origin_locator,
-            "change_dimensions": change_dimensions,
-            "change_reason": change_reason,
-            "safe_checkpoint": safe_checkpoint,
-            "candidates": candidates,
-            "intent_id": intent_id,
-            "intent_input_ids": intent_input_ids,
-            "intent_analysis": intent_analysis,
-            "context_bundle_id": context_bundle_id,
-            "context_member_input_ids": context_member_input_ids,
-            "brief_id": brief_id,
-            "selected_input_ids": selected_input_ids,
-            "input_roles": input_roles,
-            "material_conflicts": material_conflicts,
-            "working_interpretation": working_interpretation,
-            "technical_outcome": technical_outcome,
-            "strategy_id": strategy_id,
-            "strategy_summary": strategy_summary,
-            "strategy_focus": strategy_focus,
-            "overall_rejection": overall_rejection,
-            "assumptions": assumptions,
-            "delivery_targets": delivery_targets,
-        }
-        with tempfile.TemporaryDirectory(prefix="feedback-preflight-") as temporary:
-            staged_root = Path(temporary) / "run-store"
-            shutil.copytree(self._store.root, staged_root)
-            staged_service = FeedbackRoundService(RunStore(staged_root))
-            staged_service._persist_successor(**request)
-
-        return self._persist_successor(**request)
-
-    def _persist_successor(
-        self,
-        *,
-        prior_round_id: str,
-        successor_round_id: str,
-        feedback_input_id: str,
-        feedback_text: str,
-        feedback_origin_locator: str,
-        change_dimensions: Sequence[str],
-        change_reason: str,
-        safe_checkpoint: str,
-        candidates: Sequence[CandidateContext],
-        intent_id: str,
-        intent_input_ids: Sequence[str],
-        intent_analysis: Mapping[str, Any],
-        context_bundle_id: str | None,
-        context_member_input_ids: Sequence[str],
-        brief_id: str,
-        selected_input_ids: Sequence[str],
-        input_roles: Mapping[str, str],
-        material_conflicts: Sequence[Mapping[str, Any]],
-        working_interpretation: str,
-        technical_outcome: str,
-        strategy_id: str,
-        strategy_summary: str,
-        strategy_focus: Sequence[str],
-        overall_rejection: bool = False,
-        assumptions: Sequence[str] = (),
-        delivery_targets: Mapping[str, bool] | None = None,
-    ) -> FeedbackRoundArtifacts:
-        """Create a successor only for an explicit target-changing feedback event.
-
-        The method intentionally receives structured intent and strategy choices
-        from an agent adapter. It validates their lineage and persists them; it
-        does not infer an interpretation from the feedback text.
-        """
+        """Create an immutable feedback successor in one ledger transaction."""
 
         prepared = self._prepare_successor(
             prior_round_id=prior_round_id,
@@ -232,166 +345,251 @@ class FeedbackRoundService:
             raise InvalidFeedbackError("intent_analysis must be a mapping")
         if not isinstance(input_roles, Mapping):
             raise InvalidFeedbackError("input_roles must be a mapping")
-        if isinstance(material_conflicts, (str, bytes)) or not isinstance(
-            material_conflicts, Sequence
-        ):
+        if isinstance(material_conflicts, (str, bytes)) or not isinstance(material_conflicts, Sequence):
             raise InvalidFeedbackError("material_conflicts must be a sequence")
         if not isinstance(overall_rejection, bool):
             raise InvalidFeedbackError("overall_rejection must be a bool")
 
-        round_record = self._store.create_round(
-            successor_round_id,
-            parent_round_id=None if overall_rejection else prepared.prior_round.id,
-        )
-        feedback_input = self._intake.ingest_text(
-            round_id=round_record.id,
-            input_id=feedback_input_id,
-            kind="feedback",
-            content=feedback_content,
-            origin_type="user",
-            origin_locator=feedback_locator,
-            role="signal",
-        )
-        carried_inputs = self._copy_carried_inputs(round_record.id, prepared.candidates)
-        if context_bundle_id is not None:
-            self._intake.create_context_bundle(
-                round_id=round_record.id,
-                input_id=context_bundle_id,
-                member_input_ids=prepared.context_member_input_ids,
-                origin_type="generated",
-                origin_locator=f"feedback-lineage:{prepared.prior_round.id}",
-                role="baseline",
-                grouping="agent_composed",
+        successor_parent = None if overall_rejection else prepared.prior_round.id
+        feedback_ref = ArtifactRef(successor_round_id, feedback_input_id, 1)
+        feedback_payload = {
+            "id": feedback_input_id,
+            "kind": "feedback",
+            "origin": {"type": "user", "locator": feedback_locator},
+            "revision": {
+                "branch": None,
+                "commit": None,
+                "sha256": sha256(feedback_content.encode("utf-8")).hexdigest(),
+                "observed_at": utc_now(),
+            },
+            "read_scope": "full text",
+            "role": "signal",
+            "member_input_ids": [],
+            "grouping": "none",
+            "used_by_rounds": [successor_round_id],
+            "material": {"kind": "inline-text", "content": feedback_content},
+        }
+        successor_entries: list[tuple[str, str, Any, Iterable[ArtifactRef]]] = [
+            (feedback_input_id, INPUT_LEDGER_ARTIFACT_KIND, feedback_payload, ())
+        ]
+        carried_input_ids: list[str] = []
+        for candidate in prepared.candidates:
+            source = candidate.artifact
+            if (
+                source.kind != INPUT_LEDGER_ARTIFACT_KIND
+                or source.payload.get("kind") == "context_bundle"
+                or candidate.disposition not in CARRIED_INPUT_DISPOSITIONS
+            ):
+                continue
+            payload = thaw_json(source.payload)
+            if not isinstance(payload, dict):
+                raise InvalidFeedbackError("predecessor Input Ledger payload is malformed")
+            payload["used_by_rounds"] = [successor_round_id]
+            carried_input_ids.append(source.id)
+            successor_entries.append(
+                (
+                    source.id,
+                    INPUT_LEDGER_ARTIFACT_KIND,
+                    payload,
+                    (ArtifactRef(source.round_id, source.id, source.revision),),
+                )
             )
 
         context_bundle_ids: tuple[str, ...] = () if context_bundle_id is None else (context_bundle_id,)
-        intent_model = IntentModelCompiler(self._store).compile(
-            round_id=round_record.id,
-            intent_id=intent_id,
-            context_bundle_ids=context_bundle_ids,
-            input_ids=prepared.intent_input_ids,
-            analysis=intent_analysis,
-        )
-        working_brief = WorkingBriefCompiler(self._store).compile(
-            round_id=round_record.id,
-            brief_id=brief_id,
-            intent_model=intent_model,
-            triggers=[
-                {
-                    "kind": "feedback",
-                    "text": feedback_content,
-                    "input_ids": [feedback_input_id],
-                }
-            ],
-            context_bundle_ids=context_bundle_ids,
-            selected_input_ids=prepared.selected_input_ids,
-            input_roles=input_roles,
-            material_conflicts=material_conflicts,
-            working_interpretation=interpretation,
-            technical_outcome=outcome,
-            assumptions=assumptions,
-            prior_material_disposition={
-                candidate.artifact.id: candidate.disposition for candidate in prepared.candidates
-            },
-            delivery_targets=delivery_targets,
-        )
-        lineage = self._append_feedback_lineage(
-            round_id=round_record.id,
-            prior_round_id=prepared.prior_round.id,
-            feedback_input=feedback_input,
-            candidates=prepared.candidates,
-            change_dimensions=prepared.change_dimensions,
-            change_reason=prepared.change_reason,
-            safe_checkpoint=prepared.safe_checkpoint,
-            overall_rejection=overall_rejection,
-        )
-        strategy = self._append_strategy(
-            round_id=round_record.id,
-            strategy_id=strategy_id,
-            intent_model=intent_model,
-            working_brief=working_brief,
-            lineage=lineage,
-            change_dimensions=prepared.change_dimensions,
-            summary=prepared.strategy_summary,
-            focus=prepared.strategy_focus,
-        )
-        supersession = self._append_supersession(
-            prior_round_id=prepared.prior_round.id,
-            successor_round_id=round_record.id,
-            feedback_input=feedback_input,
-            safe_checkpoint=prepared.safe_checkpoint,
-            reason=prepared.change_reason,
-        )
-        return FeedbackRoundArtifacts(
-            round=round_record,
-            feedback_input=feedback_input,
-            carried_inputs=carried_inputs,
-            intent_model=intent_model,
-            working_brief=working_brief,
-            lineage=lineage,
-            strategy=strategy,
-            supersession=supersession,
-        )
-
-    def record_same_round_replan(
-        self,
-        *,
-        round_id: str,
-        replan_id: str,
-        feedback_input_id: str,
-        feedback_text: str,
-        feedback_origin_locator: str,
-        reason: str,
-        affected_work_items: Sequence[ArtifactRevision] = (),
-    ) -> ArtifactRevision:
-        """Record a bounded internal adjustment without creating a successor."""
-
-        try:
-            snapshot = self._store.load_round(round_id)
-            validate_identifier(replan_id, "replan_id")
-            if replan_id == feedback_input_id:
-                raise InvalidFeedbackError("replan_id and feedback_input_id must differ")
-            _ensure_artifact_id_compatibility(
-                snapshot.artifacts, replan_id, SAME_ROUND_REPLAN_KIND
+        if context_bundle_id is not None:
+            member_refs = tuple(
+                ArtifactRef(successor_round_id, member_id, 1) for member_id in prepared.context_member_input_ids
             )
-            validate_identifier(feedback_input_id, "feedback_input_id")
-            _ensure_feedback_id_is_available(snapshot.artifacts, feedback_input_id)
-            normalized_reason = _nonempty_string(reason, "reason")
-            feedback_content = _nonempty_string(feedback_text, "feedback_text")
-            feedback_locator = _nonempty_string(feedback_origin_locator, "feedback_origin_locator")
-            works = _resolve_affected_work_items(snapshot.artifacts, affected_work_items, round_id)
-        except (InvalidIdentifierError, TypeError, ValueError) as error:
-            raise InvalidFeedbackError(str(error)) from error
+            member_payloads = [reference.to_dict() for reference in member_refs]
+            context_payload = {
+                "id": context_bundle_id,
+                "kind": "context_bundle",
+                "origin": {"type": "generated", "locator": f"feedback-lineage:{prepared.prior_round.id}"},
+                "revision": {
+                    "branch": None,
+                    "commit": None,
+                    "sha256": sha256(canonical_json_bytes(member_payloads)).hexdigest(),
+                    "observed_at": utc_now(),
+                },
+                "read_scope": "member artifacts",
+                "role": "baseline",
+                "member_input_ids": list(prepared.context_member_input_ids),
+                "grouping": "agent_composed",
+                "used_by_rounds": [successor_round_id],
+                "member_refs": member_payloads,
+            }
+            successor_entries.append((context_bundle_id, INPUT_LEDGER_ARTIFACT_KIND, context_payload, member_refs))
 
-        feedback_input = self._intake.ingest_text(
-            round_id=round_id,
-            input_id=feedback_input_id,
-            kind="feedback",
-            content=feedback_content,
-            origin_type="user",
-            origin_locator=feedback_locator,
-            role="signal",
+        intent_payload = _json_ready(
+            _normalize_intent_analysis(
+                intent_id=intent_id,
+                round_id=successor_round_id,
+                context_bundle_ids=context_bundle_ids,
+                input_ids=prepared.intent_input_ids,
+                analysis=intent_analysis,
+            )
         )
-        payload = {
-            "id": replan_id,
-            "round_id": round_id,
-            "classification": "same_round_replan",
-            "feedback_input_id": feedback_input.id,
-            "reason": normalized_reason,
-            "affected_work_refs": [
-                ArtifactRef(work.round_id, work.id, work.revision).to_dict() for work in works
+        input_refs = tuple(ArtifactRef(successor_round_id, input_id, 1) for input_id in prepared.intent_input_ids)
+        context_refs = tuple(ArtifactRef(successor_round_id, bundle_id, 1) for bundle_id in context_bundle_ids)
+        intent_ref = ArtifactRef(successor_round_id, intent_id, 1)
+        successor_entries.append((intent_id, INTENT_MODEL_KIND, intent_payload, (*context_refs, *input_refs)))
+
+        hypotheses = intent_payload["hypotheses"]
+        if not isinstance(hypotheses, list):
+            raise InvalidFeedbackError("successor intent hypotheses are malformed")
+        leading_ids = tuple(
+            item["id"]
+            for item in hypotheses
+            if isinstance(item, Mapping) and item.get("status") == "leading" and isinstance(item.get("id"), str)
+        )
+        viable_ids = tuple(
+            item["id"]
+            for item in hypotheses
+            if isinstance(item, Mapping)
+            and item.get("status") in {"viable", "needs_user_input"}
+            and isinstance(item.get("id"), str)
+        )
+        if len(leading_ids) != 1:
+            raise InvalidFeedbackError("successor intent must contain exactly one leading hypothesis")
+        brief_payload = {
+            "id": brief_id,
+            "round_id": successor_round_id,
+            "triggers": _normalize_triggers(
+                [{"kind": "feedback", "text": feedback_content, "input_ids": [feedback_input_id]}],
+                prepared.selected_input_ids,
+            ),
+            "context_bundle_ids": context_bundle_ids,
+            "selected_input_ids": prepared.selected_input_ids,
+            "intent_model_id": intent_id,
+            "intent_hypothesis_ids": leading_ids,
+            "viable_intent_hypothesis_ids": viable_ids,
+            "input_roles": _normalize_input_roles(input_roles, prepared.selected_input_ids),
+            "working_interpretation": interpretation,
+            "material_conflicts": _normalize_conflicts(material_conflicts, prepared.selected_input_ids),
+            "technical_outcome": outcome,
+            "non_goals": intent_payload["non_goals"],
+            "retained_hard_constraints": intent_payload["hard_constraints"],
+            "assumptions": _string_tuple(assumptions, "assumptions", error_type=InvalidFeedbackError),
+            "prior_material_disposition": _normalize_disposition(
+                {candidate.artifact.id: candidate.disposition for candidate in prepared.candidates}
+            ),
+            "delivery_targets": _normalize_delivery_targets(delivery_targets),
+        }
+        brief_ref = ArtifactRef(successor_round_id, brief_id, 1)
+        selected_refs = tuple(ArtifactRef(successor_round_id, input_id, 1) for input_id in prepared.selected_input_ids)
+        successor_entries.append(
+            (brief_id, WORKING_BRIEF_KIND, _json_ready(brief_payload), (intent_ref, *context_refs, *selected_refs))
+        )
+
+        lineage_id = f"feedback-lineage-{successor_round_id}"
+        lineage_payload = {
+            "id": lineage_id,
+            "round_id": successor_round_id,
+            "prior_round_id": prepared.prior_round.id,
+            "lineage_kind": "new_root" if overall_rejection else "successor",
+            "feedback_input_ref": feedback_ref.to_dict(),
+            "change_dimensions": list(prepared.change_dimensions),
+            "change_reason": prepared.change_reason,
+            "safe_checkpoint": prepared.safe_checkpoint,
+            "candidate_context": [
+                {
+                    "id": candidate.candidate_id,
+                    "source_ref": ArtifactRef(
+                        candidate.artifact.round_id,
+                        candidate.artifact.id,
+                        candidate.artifact.revision,
+                    ).to_dict(),
+                    "source_kind": candidate.artifact.kind,
+                    "disposition": candidate.disposition,
+                    "rationale": candidate.rationale,
+                }
+                for candidate in prepared.candidates
             ],
         }
-        validate_same_round_replan_payload(payload)
-        return self._store.append_artifact(
-            round_id,
-            replan_id,
-            SAME_ROUND_REPLAN_KIND,
-            payload,
-            parent_refs=(
-                ArtifactRef(feedback_input.round_id, feedback_input.id, feedback_input.revision),
-                *(ArtifactRef(work.round_id, work.id, work.revision) for work in works),
+        validate_feedback_lineage_payload(lineage_payload)
+        lineage_ref = ArtifactRef(successor_round_id, lineage_id, 1)
+        successor_entries.append(
+            (
+                lineage_id,
+                FEEDBACK_LINEAGE_KIND,
+                lineage_payload,
+                (
+                    feedback_ref,
+                    *(
+                        ArtifactRef(item.artifact.round_id, item.artifact.id, item.artifact.revision)
+                        for item in prepared.candidates
+                    ),
+                ),
+            )
+        )
+
+        strategy_payload = {
+            "id": strategy_id,
+            "round_id": successor_round_id,
+            "intent_model_id": intent_id,
+            "working_brief_id": brief_id,
+            "feedback_lineage_id": lineage_id,
+            "change_dimensions": list(prepared.change_dimensions),
+            "summary": prepared.strategy_summary,
+            "focus": list(prepared.strategy_focus),
+            "autonomy": {
+                "ask_user": "only_non_recoverable_decisions",
+                "routine_unknowns": "record_assumptions_and_validate",
+            },
+        }
+        validate_research_strategy_payload(strategy_payload)
+        successor_entries.append(
+            (strategy_id, RESEARCH_STRATEGY_KIND, strategy_payload, (intent_ref, brief_ref, lineage_ref))
+        )
+
+        active_work = _latest_active_work(self._ledger.load_run(prepared.prior_round.id).artifacts)
+        supersession_id = f"round-supersession-{successor_round_id}"
+        supersession_payload = {
+            "id": supersession_id,
+            "round_id": prepared.prior_round.id,
+            "status": "superseded",
+            "successor_round_id": successor_round_id,
+            "feedback_input_ref": feedback_ref.to_dict(),
+            "safe_checkpoint": prepared.safe_checkpoint,
+            "reason": prepared.change_reason,
+            "active_work": [
+                {
+                    "work_item_ref": ArtifactRef(work.round_id, work.id, work.revision).to_dict(),
+                    "status_at_checkpoint": work.payload["status"],
+                    "disposition": "superseded",
+                }
+                for work in active_work
+            ],
+        }
+        validate_round_supersession_payload(supersession_payload)
+        record, successor_artifacts, predecessor_artifacts = self._ledger.create_successor_with_artifact_batches(
+            predecessor_run_id=prepared.prior_round.id,
+            successor_run_id=successor_round_id,
+            successor_parent_run_id=successor_parent,
+            expected_predecessor_revision=expected_predecessor_revision,
+            successor_entries=successor_entries,
+            predecessor_entries=(
+                (
+                    supersession_id,
+                    ROUND_SUPERSESSION_KIND,
+                    supersession_payload,
+                    (
+                        feedback_ref,
+                        *(ArtifactRef(work.round_id, work.id, work.revision) for work in active_work),
+                    ),
+                ),
             ),
+        )
+        successor_by_id = {artifact.id: artifact for artifact in successor_artifacts}
+        return FeedbackRoundArtifacts(
+            round=record,
+            feedback_input=successor_by_id[feedback_input_id],
+            carried_inputs=tuple(successor_by_id[input_id] for input_id in carried_input_ids),
+            intent_model=successor_by_id[intent_id],
+            working_brief=successor_by_id[brief_id],
+            lineage=successor_by_id[lineage_id],
+            strategy=successor_by_id[strategy_id],
+            supersession=predecessor_artifacts[0],
         )
 
     def _prepare_successor(
@@ -416,16 +614,10 @@ class FeedbackRoundService:
         overall_rejection: bool,
     ) -> _PreparedSuccessor:
         try:
-            prior_snapshot = self._store.load_round(prior_round_id)
+            prior_snapshot = self._ledger.load_run(prior_round_id)
             validate_identifier(successor_round_id, "successor_round_id")
             if successor_round_id == prior_round_id:
                 raise InvalidFeedbackError("successor_round_id must differ from prior_round_id")
-            try:
-                self._store.load_round(successor_round_id)
-            except RoundNotFoundError:
-                pass
-            else:
-                raise InvalidFeedbackError(f"successor round already exists: {successor_round_id}")
             validate_identifier(feedback_input_id, "feedback_input_id")
             validate_identifier(intent_id, "intent_id")
             validate_identifier(brief_id, "brief_id")
@@ -445,11 +637,7 @@ class FeedbackRoundService:
                 raise InvalidFeedbackError(
                     "candidate source artifact ids must be distinct for the Working Brief disposition map"
                 )
-            dimensions = _enum_sequence(
-                change_dimensions,
-                "change_dimensions",
-                TARGET_CHANGE_DIMENSIONS,
-            )
+            dimensions = _enum_sequence(change_dimensions, "change_dimensions", TARGET_CHANGE_DIMENSIONS)
             reason = _nonempty_string(change_reason, "change_reason")
             checkpoint = _nonempty_string(safe_checkpoint, "safe_checkpoint")
             model_inputs = _identifier_sequence(intent_input_ids, "intent_input_ids")
@@ -467,9 +655,7 @@ class FeedbackRoundService:
                 and candidate.disposition in CARRIED_INPUT_DISPOSITIONS
             }
             if feedback_input_id in carried_input_ids:
-                raise InvalidFeedbackError(
-                    "feedback_input_id cannot collide with a carried predecessor input id"
-                )
+                raise InvalidFeedbackError("feedback_input_id cannot collide with a carried predecessor input id")
             if set(ids) & carried_input_ids:
                 raise InvalidFeedbackError(
                     "successor model, brief, bundle, and strategy ids cannot collide with carried inputs"
@@ -482,9 +668,7 @@ class FeedbackRoundService:
             if feedback_input_id not in model_inputs:
                 raise InvalidFeedbackError("feedback_input_id must be included in intent_input_ids")
             if not set(selected_inputs) <= set(model_inputs):
-                raise InvalidFeedbackError(
-                    "selected_input_ids must be a subset of the successor Intent Model inputs"
-                )
+                raise InvalidFeedbackError("selected_input_ids must be a subset of the successor Intent Model inputs")
             if feedback_input_id not in selected_inputs:
                 raise InvalidFeedbackError("feedback_input_id must be selected by the successor Working Brief")
             if context_bundle_id is None and members:
@@ -513,177 +697,83 @@ class FeedbackRoundService:
             strategy_summary=summary,
         )
 
-    def _copy_carried_inputs(
-        self,
-        successor_round_id: str,
-        candidates: Sequence[CandidateContext],
-    ) -> tuple[ArtifactRevision, ...]:
-        copied: list[ArtifactRevision] = []
-        for candidate in candidates:
-            source = candidate.artifact
-            if (
-                source.kind != INPUT_LEDGER_ARTIFACT_KIND
-                or source.payload.get("kind") == "context_bundle"
-                or candidate.disposition not in CARRIED_INPUT_DISPOSITIONS
-            ):
-                continue
-            payload = thaw_json(source.payload)
-            if not isinstance(payload, dict):
-                raise InvalidFeedbackError("predecessor Input Ledger payload is malformed")
-            payload["used_by_rounds"] = [successor_round_id]
-            copied.append(
-                self._store.append_artifact(
-                    successor_round_id,
-                    source.id,
-                    INPUT_LEDGER_ARTIFACT_KIND,
-                    payload,
-                    parent_refs=(ArtifactRef(source.round_id, source.id, source.revision),),
-                )
-            )
-        return tuple(copied)
-
-    def _append_feedback_lineage(
+    def record_same_round_replan(
         self,
         *,
         round_id: str,
-        prior_round_id: str,
-        feedback_input: ArtifactRevision,
-        candidates: Sequence[CandidateContext],
-        change_dimensions: Sequence[str],
-        change_reason: str,
-        safe_checkpoint: str,
-        overall_rejection: bool,
-    ) -> ArtifactRevision:
-        lineage_id = f"feedback-lineage-{round_id}"
-        payload = {
-            "id": lineage_id,
-            "round_id": round_id,
-            "prior_round_id": prior_round_id,
-            "lineage_kind": "new_root" if overall_rejection else "successor",
-            "feedback_input_ref": ArtifactRef(
-                feedback_input.round_id,
-                feedback_input.id,
-                feedback_input.revision,
-            ).to_dict(),
-            "change_dimensions": list(change_dimensions),
-            "change_reason": change_reason,
-            "safe_checkpoint": safe_checkpoint,
-            "candidate_context": [
-                {
-                    "id": candidate.candidate_id,
-                    "source_ref": ArtifactRef(
-                        candidate.artifact.round_id,
-                        candidate.artifact.id,
-                        candidate.artifact.revision,
-                    ).to_dict(),
-                    "source_kind": candidate.artifact.kind,
-                    "disposition": candidate.disposition,
-                    "rationale": candidate.rationale,
-                }
-                for candidate in candidates
-            ],
-        }
-        validate_feedback_lineage_payload(payload)
-        parent_refs = (
-            ArtifactRef(feedback_input.round_id, feedback_input.id, feedback_input.revision),
-            *(ArtifactRef(item.artifact.round_id, item.artifact.id, item.artifact.revision) for item in candidates),
-        )
-        return self._store.append_artifact(
-            round_id,
-            lineage_id,
-            FEEDBACK_LINEAGE_KIND,
-            payload,
-            parent_refs=parent_refs,
-        )
-
-    def _append_strategy(
-        self,
-        *,
-        round_id: str,
-        strategy_id: str,
-        intent_model: ArtifactRevision,
-        working_brief: ArtifactRevision,
-        lineage: ArtifactRevision,
-        change_dimensions: Sequence[str],
-        summary: str,
-        focus: Sequence[str],
-    ) -> ArtifactRevision:
-        payload = {
-            "id": strategy_id,
-            "round_id": round_id,
-            "intent_model_id": intent_model.id,
-            "working_brief_id": working_brief.id,
-            "feedback_lineage_id": lineage.id,
-            "change_dimensions": list(change_dimensions),
-            "summary": summary,
-            "focus": list(focus),
-            "autonomy": {
-                "ask_user": "only_non_recoverable_decisions",
-                "routine_unknowns": "record_assumptions_and_validate",
-            },
-        }
-        validate_research_strategy_payload(payload)
-        return self._store.append_artifact(
-            round_id,
-            strategy_id,
-            RESEARCH_STRATEGY_KIND,
-            payload,
-            parent_refs=(
-                ArtifactRef(intent_model.round_id, intent_model.id, intent_model.revision),
-                ArtifactRef(working_brief.round_id, working_brief.id, working_brief.revision),
-                ArtifactRef(lineage.round_id, lineage.id, lineage.revision),
-            ),
-        )
-
-    def _append_supersession(
-        self,
-        *,
-        prior_round_id: str,
-        successor_round_id: str,
-        feedback_input: ArtifactRevision,
-        safe_checkpoint: str,
+        replan_id: str,
+        feedback_input_id: str,
+        feedback_text: str,
+        feedback_origin_locator: str,
         reason: str,
+        expected_revision: int,
+        affected_work_items: Sequence[ArtifactRevision] = (),
     ) -> ArtifactRevision:
-        snapshot = self._store.load_round(prior_round_id)
-        active_work = _latest_active_work(snapshot.artifacts)
-        supersession_id = f"round-supersession-{successor_round_id}"
-        _ensure_artifact_id_compatibility(
-            snapshot.artifacts,
-            supersession_id,
-            ROUND_SUPERSESSION_KIND,
+        """Atomically append feedback material and its bounded replan."""
+
+        try:
+            snapshot = self._ledger.load_run(round_id)
+            validate_identifier(replan_id, "replan_id")
+            if replan_id == feedback_input_id:
+                raise InvalidFeedbackError("replan_id and feedback_input_id must differ")
+            _ensure_artifact_id_compatibility(snapshot.artifacts, replan_id, SAME_ROUND_REPLAN_KIND)
+            validate_identifier(feedback_input_id, "feedback_input_id")
+            _ensure_feedback_id_is_available(snapshot.artifacts, feedback_input_id)
+            normalized_reason = _nonempty_string(reason, "reason")
+            feedback_content = _nonempty_string(feedback_text, "feedback_text")
+            feedback_locator = _nonempty_string(feedback_origin_locator, "feedback_origin_locator")
+            works = _resolve_affected_work_items(snapshot.artifacts, affected_work_items, round_id)
+        except (InvalidIdentifierError, TypeError, ValueError) as error:
+            raise InvalidFeedbackError(str(error)) from error
+
+        feedback_revision = (
+            max(
+                (artifact.revision for artifact in snapshot.artifacts if artifact.id == feedback_input_id),
+                default=0,
+            )
+            + 1
         )
-        payload = {
-            "id": supersession_id,
-            "round_id": prior_round_id,
-            "status": "superseded",
-            "successor_round_id": successor_round_id,
-            "feedback_input_ref": ArtifactRef(
-                feedback_input.round_id,
-                feedback_input.id,
-                feedback_input.revision,
-            ).to_dict(),
-            "safe_checkpoint": safe_checkpoint,
-            "reason": reason,
-            "active_work": [
-                {
-                    "work_item_ref": ArtifactRef(work.round_id, work.id, work.revision).to_dict(),
-                    "status_at_checkpoint": work.payload["status"],
-                    "disposition": "superseded",
-                }
-                for work in active_work
-            ],
+        feedback_ref = ArtifactRef(round_id, feedback_input_id, feedback_revision)
+        feedback_payload = {
+            "id": feedback_input_id,
+            "kind": "feedback",
+            "origin": {"type": "user", "locator": feedback_locator},
+            "revision": {
+                "branch": None,
+                "commit": None,
+                "sha256": sha256(feedback_content.encode("utf-8")).hexdigest(),
+                "observed_at": utc_now(),
+            },
+            "read_scope": "full text",
+            "role": "signal",
+            "member_input_ids": [],
+            "grouping": "none",
+            "used_by_rounds": [round_id],
+            "material": {"kind": "inline-text", "content": feedback_content},
         }
-        validate_round_supersession_payload(payload)
-        return self._store.append_artifact(
-            prior_round_id,
-            supersession_id,
-            ROUND_SUPERSESSION_KIND,
-            payload,
-            parent_refs=(
-                ArtifactRef(feedback_input.round_id, feedback_input.id, feedback_input.revision),
-                *(ArtifactRef(work.round_id, work.id, work.revision) for work in active_work),
+        payload = {
+            "id": replan_id,
+            "round_id": round_id,
+            "classification": "same_round_replan",
+            "feedback_input_id": feedback_input_id,
+            "reason": normalized_reason,
+            "affected_work_refs": [ArtifactRef(work.round_id, work.id, work.revision).to_dict() for work in works],
+        }
+        validate_same_round_replan_payload(payload)
+        _, replan = self._ledger.append_artifact_batch(
+            round_id,
+            (
+                (feedback_input_id, INPUT_LEDGER_ARTIFACT_KIND, feedback_payload, ()),
+                (
+                    replan_id,
+                    SAME_ROUND_REPLAN_KIND,
+                    payload,
+                    (feedback_ref, *(ArtifactRef(work.round_id, work.id, work.revision) for work in works)),
+                ),
             ),
+            expected_revision=expected_revision,
         )
+        return replan
 
 
 def validate_feedback_lineage_payload(payload: Mapping[str, Any]) -> None:
@@ -712,14 +802,10 @@ def validate_feedback_lineage_payload(payload: Mapping[str, Any]) -> None:
     if lineage_kind not in {"successor", "new_root"}:
         raise InvalidFeedbackError("feedback lineage lineage_kind is unsupported")
     _validate_ref(data["feedback_input_ref"], "feedback lineage feedback_input_ref")
-    _enum_sequence(
-        data["change_dimensions"], "feedback lineage change_dimensions", TARGET_CHANGE_DIMENSIONS
-    )
+    _enum_sequence(data["change_dimensions"], "feedback lineage change_dimensions", TARGET_CHANGE_DIMENSIONS)
     _nonempty_string(data["change_reason"], "feedback lineage change_reason")
     _nonempty_string(data["safe_checkpoint"], "feedback lineage safe_checkpoint")
-    candidates = _mapping_sequence(
-        data["candidate_context"], "feedback lineage candidate_context", allow_empty=True
-    )
+    candidates = _mapping_sequence(data["candidate_context"], "feedback lineage candidate_context", allow_empty=True)
     candidate_ids: set[str] = set()
     source_refs: set[ArtifactRef] = set()
     for index, candidate in enumerate(candidates):
@@ -771,9 +857,7 @@ def validate_research_strategy_payload(payload: Mapping[str, Any]) -> None:
         "feedback_lineage_id",
     ):
         _identifier(data[key], f"research strategy {key}")
-    _enum_sequence(
-        data["change_dimensions"], "research strategy change_dimensions", TARGET_CHANGE_DIMENSIONS
-    )
+    _enum_sequence(data["change_dimensions"], "research strategy change_dimensions", TARGET_CHANGE_DIMENSIONS)
     _nonempty_string(data["summary"], "research strategy summary")
     _string_sequence(data["focus"], "research strategy focus")
     autonomy = _mapping(data["autonomy"], "research strategy autonomy")
@@ -867,8 +951,7 @@ def _normalize_candidates(
     if isinstance(candidates, (str, bytes)) or not isinstance(candidates, Sequence):
         raise InvalidFeedbackError("candidates must be a sequence of CandidateContext values")
     stored_by_ref = {
-        ArtifactRef(artifact.round_id, artifact.id, artifact.revision): artifact
-        for artifact in prior_artifacts
+        ArtifactRef(artifact.round_id, artifact.id, artifact.revision): artifact for artifact in prior_artifacts
     }
     normalized: list[CandidateContext] = []
     candidate_ids: set[str] = set()
@@ -922,8 +1005,7 @@ def _normalize_candidates(
             f"{reference.round_id}/{reference.artifact_id}@{reference.revision}" for reference in missing
         )
         raise InvalidFeedbackError(
-            "candidates must explicitly disposition every latest prior input, finding, and decision: "
-            + rendered
+            "candidates must explicitly disposition every latest prior input, finding, and decision: " + rendered
         )
     return tuple(normalized)
 
@@ -945,9 +1027,7 @@ def _resolve_affected_work_items(
 ) -> tuple[ArtifactRevision, ...]:
     if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
         raise InvalidFeedbackError("affected_work_items must be a sequence")
-    stored_by_ref = {
-        ArtifactRef(artifact.round_id, artifact.id, artifact.revision): artifact for artifact in artifacts
-    }
+    stored_by_ref = {ArtifactRef(artifact.round_id, artifact.id, artifact.revision): artifact for artifact in artifacts}
     resolved: list[ArtifactRevision] = []
     seen: set[ArtifactRef] = set()
     for index, value in enumerate(values):
@@ -956,9 +1036,7 @@ def _resolve_affected_work_items(
         reference = ArtifactRef(value.round_id, value.id, value.revision)
         stored = stored_by_ref.get(reference)
         if stored is None or stored != value or stored.kind != WORK_ITEM_KIND:
-            raise InvalidFeedbackError(
-                f"affected_work_items[{index}] must be an exact current-round Work Item"
-            )
+            raise InvalidFeedbackError(f"affected_work_items[{index}] must be an exact current-round Work Item")
         if stored.round_id != round_id:
             raise InvalidFeedbackError("affected Work Item belongs to a different round")
         if reference in seen:
@@ -970,9 +1048,7 @@ def _resolve_affected_work_items(
 
 def _latest_active_work(artifacts: Sequence[ArtifactRevision]) -> tuple[ArtifactRevision, ...]:
     latest_work = {
-        artifact.id: artifact
-        for artifact in _latest_artifacts(artifacts)
-        if artifact.kind == WORK_ITEM_KIND
+        artifact.id: artifact for artifact in _latest_artifacts(artifacts) if artifact.kind == WORK_ITEM_KIND
     }
     return tuple(
         latest_work[work_id]
@@ -981,14 +1057,10 @@ def _latest_active_work(artifacts: Sequence[ArtifactRevision]) -> tuple[Artifact
     )
 
 
-def _ensure_artifact_id_compatibility(
-    artifacts: Sequence[ArtifactRevision], artifact_id: str, kind: str
-) -> None:
+def _ensure_artifact_id_compatibility(artifacts: Sequence[ArtifactRevision], artifact_id: str, kind: str) -> None:
     foreign_kinds = {artifact.kind for artifact in artifacts if artifact.id == artifact_id and artifact.kind != kind}
     if foreign_kinds:
-        raise InvalidFeedbackError(
-            f"artifact id {artifact_id!r} is already used by kinds: {sorted(foreign_kinds)}"
-        )
+        raise InvalidFeedbackError(f"artifact id {artifact_id!r} is already used by kinds: {sorted(foreign_kinds)}")
 
 
 def _ensure_feedback_id_is_available(artifacts: Sequence[ArtifactRevision], feedback_input_id: str) -> None:
@@ -1079,9 +1151,7 @@ def _nonempty_string(value: Any, label: str) -> str:
 def _require_exact_keys(value: Mapping[str, Any], expected: set[str], label: str) -> None:
     actual = set(value)
     if actual != expected:
-        raise InvalidFeedbackError(
-            f"{label} keys must be exactly {sorted(expected)}, got {sorted(actual)}"
-        )
+        raise InvalidFeedbackError(f"{label} keys must be exactly {sorted(expected)}, got {sorted(actual)}")
 
 
 def _validate_ref(value: Any, label: str) -> ArtifactRef:

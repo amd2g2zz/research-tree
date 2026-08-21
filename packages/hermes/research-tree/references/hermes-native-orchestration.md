@@ -92,9 +92,11 @@ persists state before exit. A cron session must not create another cron job.
 ## Observability
 
 The package's `scripts/hermes_runtime_hook.py` records sanitized session,
-delegation, and subagent lifecycle metadata in
-`.research-tree-hermes/events.jsonl`. Generate an absolute-path hook snippet
-with:
+delegation, and subagent lifecycle metadata only when
+`RESEARCH_TREE_PROJECT_ID` and `RESEARCH_TREE_RUN_ID` bind it to an initialized
+run. Records then go to
+`.research-tree/projects/<project-id>/runs/<run-id>/events/`. Generate an
+absolute-path hook snippet with:
 
 ```bash
 python scripts/hermes_skill_adapter.py render-hooks
@@ -105,21 +107,31 @@ research content. Hermes live transcripts remain the detailed debugging
 surface. When ATOF/ATIF export is enabled, use it for aggregate execution and
 cost analysis rather than duplicating telemetry in research artifacts.
 
-For durable execution, use the Hermes-specific state adapter after the
-alignment handoff:
+After alignment, use the Hermes adapter as a translator over canonical state:
 
 ```bash
 python scripts/hermes_execution_adapter.py --workspace . init \
-  --run-id <run-id> --handoff .research-tree-alignment/<alignment-run>/handoff.json
-python scripts/hermes_execution_adapter.py --workspace . record-batch \
-  --run-id <run-id> --batch-id wave-001 --status verified \
-  --delegation-id <delegation-id> --finding findings/wave-001.json
-python scripts/hermes_execution_adapter.py --workspace . recover --run-id <run-id>
-python scripts/hermes_execution_adapter.py --workspace . complete \
-  --run-id <run-id> --technical-report technical-research-package.md \
-  --human-report human-research-report.md
+  --project-id <project-id> --run-id <run-id> --handoff .research-tree/projects/<project-id>/runs/<alignment-run>/alignment/handoff.json
+python scripts/hermes_execution_adapter.py --workspace . emit-event \
+  --event-id <event-id> --kind provider_failure --run-id <run-id> \
+  --attempt-id <attempt-id> --expected-revision <revision> --sequence <sequence> \
+  --created-at <iso-time> --payload provider-failure.json
+python scripts/hermes_execution_adapter.py --workspace . recover \
+  --run-id <run-id> --canonical-attempt canonical-attempt.json \
+  --unknown-event-id <event-id> --retry-event-id <event-id> \
+  --retry-category transient --method <authorized-method> --created-at <iso-time>
 ```
 
-The adapter consumes Hermes completion events supplied by the parent; it does
-not call `delegate_task`. A run cannot complete with an unverified batch or
-without both report artifacts.
+The adapter does not call `delegate_task` and never writes canonical lifecycle
+state. Goals, Kanban cards, hooks, child exits, empty queues, batches, and
+reports remain observations; only the coordinator ledger can close slots,
+accept delivery, or complete a run.
+
+Before delegation, record explicit live Hermes capability observations and run
+`probe-host --observations <json>`. Use `project-workflow --request <json>` to
+bind a bounded batch to canonical action, phase, child, permission, and
+checkpoint ids. After restart, cancellation, provider failure, or a
+permission/namespace limit, run `reconcile-host --request <json>` before retry.
+Goals, Kanban, hooks, and scheduled drain are optional mirrors; their absence
+selects explicit fallback behavior and never weakens checkpoint or completion
+gates.

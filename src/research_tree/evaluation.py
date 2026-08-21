@@ -16,7 +16,7 @@ from .domain import (
     validate_identifier,
 )
 from .readiness import READINESS_RECORD_KIND, validate_readiness_record_payload
-from .storage import RunStore
+from .run_ledger import RunLedger
 
 
 BLUEPRINT_EVALUATION_KIND = "blueprint-evaluation"
@@ -183,8 +183,10 @@ class IndependentImplementationRunner(Protocol):
 class BlueprintEvaluationSuite:
     """Persist versioned, diagnosable blueprint-evaluation artifacts."""
 
-    def __init__(self, store: RunStore) -> None:
-        self._store = store
+    def __init__(self, ledger: RunLedger) -> None:
+        if not isinstance(ledger, RunLedger):
+            raise InvalidEvaluationError("canonical evaluation requires a RunLedger")
+        self._ledger = ledger
 
     def evaluate(
         self,
@@ -198,11 +200,12 @@ class BlueprintEvaluationSuite:
         clarification_burden: Mapping[str, Any],
         implementation_runner: IndependentImplementationRunner,
         baseline_result: SimplerBaselineResult,
+        expected_revision: int,
     ) -> ArtifactRevision:
         """Evaluate one exact package without exposing evaluator-owned material."""
 
         try:
-            snapshot = self._store.load_round(round_id)
+            snapshot = self._ledger.load_run(round_id)
             evaluation_identifier = _identifier(evaluation_id, "evaluation_id")
             _ensure_id_compatibility(snapshot.artifacts, evaluation_identifier)
             if not isinstance(case, TimeSplitCase):
@@ -246,15 +249,18 @@ class BlueprintEvaluationSuite:
         except (InvalidIdentifierError, TypeError, ValueError) as error:
             raise InvalidEvaluationError(str(error)) from error
 
-        return self._store.append_artifact(
-            round_id,
-            evaluation_identifier,
-            BLUEPRINT_EVALUATION_KIND,
-            payload,
-            parent_refs=(
-                ArtifactRef(round_id, package.id, package.revision),
-                ArtifactRef(round_id, readiness.id, readiness.revision),
-            ),
+        parents = (
+            ArtifactRef(round_id, package.id, package.revision),
+            ArtifactRef(round_id, readiness.id, readiness.revision),
+        )
+        from .completion_inputs import CompletionInputRegistrar
+
+        return CompletionInputRegistrar(self._ledger).write_evaluation(
+            round_id=round_id,
+            evaluation_id=evaluation_identifier,
+            payload=payload,
+            parent_refs=parents,
+            expected_revision=expected_revision,
         )
 
 

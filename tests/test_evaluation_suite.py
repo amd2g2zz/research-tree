@@ -16,7 +16,7 @@ def api():
         EvaluationDiagnosis,
         IndependentEvaluationResult,
         InvalidEvaluationError,
-        ReadinessVerifier,
+        CanonicalReadinessVerifier,
         SimplerBaselineResult,
         TimeSplitCase,
     )
@@ -27,7 +27,7 @@ def api():
         "EvaluationDiagnosis": EvaluationDiagnosis,
         "IndependentEvaluationResult": IndependentEvaluationResult,
         "InvalidEvaluationError": InvalidEvaluationError,
-        "ReadinessVerifier": ReadinessVerifier,
+        "CanonicalReadinessVerifier": CanonicalReadinessVerifier,
         "SimplerBaselineResult": SimplerBaselineResult,
         "TimeSplitCase": TimeSplitCase,
     }
@@ -68,10 +68,7 @@ def test_versioned_public_case_set_has_pinned_baselines_without_hidden_material(
 
     assert case_set["schema_version"] == "1"
     assert case_set["corpus_version"] == "2026.1"
-    cases = tuple(
-        api_modules["TimeSplitCase"].from_mapping(case)
-        for case in case_set["cases"]
-    )
+    cases = tuple(api_modules["TimeSplitCase"].from_mapping(case) for case in case_set["cases"])
     assert {case.id for case in cases} == {
         "click-isolated-filesystem",
         "requests-contributing-link",
@@ -149,13 +146,17 @@ def baseline_for(api_modules):
     )
 
 
-def readiness_for(api_modules, store, round_record, package, root: Path):
-    return api_modules["ReadinessVerifier"](store).verify(
+def readiness_for(api_modules, fixture_modules, store, round_record, package, root: Path):
+    return api_modules["CanonicalReadinessVerifier"](
+        store,
+        fixture_modules["resolver"],
+    ).verify(
         round_id=round_record.id,
         readiness_id="readiness-evaluation",
         technical_package=package,
         repository_roots={"input-repository": root},
         risk_tier="default",
+        expected_revision=store.get_revision(round_record.id),
     )
 
 
@@ -168,12 +169,18 @@ def test_case_rejects_eventual_patch_discussion_and_hidden_test_material() -> No
         api_modules["TimeSplitCase"].from_mapping(invalid)
 
 
+def test_evaluation_suite_requires_a_canonical_run_ledger(tmp_path: Path) -> None:
+    from research_tree import BlueprintEvaluationSuite, InvalidEvaluationError, RunLedger
+
+    assert BlueprintEvaluationSuite(RunLedger(tmp_path / "ledger"))
+    with pytest.raises(InvalidEvaluationError, match="RunLedger"):
+        BlueprintEvaluationSuite(object())
+
+
 def test_evaluation_persists_structural_quality_and_isolated_outcome(tmp_path: Path) -> None:
     api_modules = api()
-    _modules, store, round_record, package = complete_conditional_package(tmp_path)
-    readiness = readiness_for(
-        api_modules, store, round_record, package, tmp_path / "repository"
-    )
+    fixture_modules, store, round_record, package = complete_conditional_package(tmp_path)
+    readiness = readiness_for(api_modules, fixture_modules, store, round_record, package, tmp_path / "repository")
     runner = CapturingRunner(result_for(api_modules))
     case = api_modules["TimeSplitCase"].from_mapping(case_mapping())
 
@@ -187,6 +194,7 @@ def test_evaluation_persists_structural_quality_and_isolated_outcome(tmp_path: P
         clarification_burden={"asked": 2, "unanswered": 0},
         implementation_runner=runner,
         baseline_result=baseline_for(api_modules),
+        expected_revision=store.get_revision(round_record.id),
     )
 
     request = runner.request
@@ -209,19 +217,15 @@ def test_evaluation_persists_structural_quality_and_isolated_outcome(tmp_path: P
 
 def test_failed_outcome_diagnoses_a_product_component_not_a_global_score(tmp_path: Path) -> None:
     api_modules = api()
-    _modules, store, round_record, package = complete_conditional_package(tmp_path)
-    readiness = readiness_for(
-        api_modules, store, round_record, package, tmp_path / "repository"
-    )
+    fixture_modules, store, round_record, package = complete_conditional_package(tmp_path)
+    readiness = readiness_for(api_modules, fixture_modules, store, round_record, package, tmp_path / "repository")
     diagnosis = api_modules["EvaluationDiagnosis"](
         component="technical_package",
         summary="The package omits the migration sequencing needed by hidden acceptance.",
         decision_slot_id="slot-isolation",
         work_item_id="work-isolation",
     )
-    runner = CapturingRunner(
-        result_for(api_modules, fail_to_pass="fail", diagnoses=(diagnosis,))
-    )
+    runner = CapturingRunner(result_for(api_modules, fail_to_pass="fail", diagnoses=(diagnosis,)))
 
     record = api_modules["BlueprintEvaluationSuite"](store).evaluate(
         round_id=round_record.id,
@@ -233,6 +237,7 @@ def test_failed_outcome_diagnoses_a_product_component_not_a_global_score(tmp_pat
         clarification_burden={"asked": 0, "unanswered": 0},
         implementation_runner=runner,
         baseline_result=baseline_for(api_modules),
+        expected_revision=store.get_revision(round_record.id),
     )
 
     assert record.payload["implementation_outcome"]["checks"][1]["status"] == "fail"
@@ -248,10 +253,8 @@ def test_failed_outcome_diagnoses_a_product_component_not_a_global_score(tmp_pat
 
 def test_invalid_diagnosis_is_rejected_without_partial_record(tmp_path: Path) -> None:
     api_modules = api()
-    _modules, store, round_record, package = complete_conditional_package(tmp_path)
-    readiness = readiness_for(
-        api_modules, store, round_record, package, tmp_path / "repository"
-    )
+    fixture_modules, store, round_record, package = complete_conditional_package(tmp_path)
+    readiness = readiness_for(api_modules, fixture_modules, store, round_record, package, tmp_path / "repository")
     invalid_diagnosis = api_modules["EvaluationDiagnosis"](
         component="global",
         summary="A global score does not identify a product component.",
@@ -269,21 +272,18 @@ def test_invalid_diagnosis_is_rejected_without_partial_record(tmp_path: Path) ->
             clarification_burden={"asked": 0, "unanswered": 0},
             implementation_runner=runner,
             baseline_result=baseline_for(api_modules),
+            expected_revision=store.get_revision(round_record.id),
         )
 
     assert not [
-        artifact
-        for artifact in store.load_round(round_record.id).artifacts
-        if artifact.kind == "blueprint-evaluation"
+        artifact for artifact in store.load_run(round_record.id).artifacts if artifact.kind == "blueprint-evaluation"
     ]
 
 
 def test_not_applicable_behavior_retains_its_reason(tmp_path: Path) -> None:
     api_modules = api()
-    _modules, store, round_record, package = complete_conditional_package(tmp_path)
-    readiness = readiness_for(
-        api_modules, store, round_record, package, tmp_path / "repository"
-    )
+    fixture_modules, store, round_record, package = complete_conditional_package(tmp_path)
+    readiness = readiness_for(api_modules, fixture_modules, store, round_record, package, tmp_path / "repository")
     check = api_modules["EvaluationCheck"]
     runner = CapturingRunner(
         api_modules["IndependentEvaluationResult"](
@@ -307,6 +307,7 @@ def test_not_applicable_behavior_retains_its_reason(tmp_path: Path) -> None:
         clarification_burden={"asked": 0, "unanswered": 0},
         implementation_runner=runner,
         baseline_result=baseline_for(api_modules),
+        expected_revision=store.get_revision(round_record.id),
     )
 
     outcome = record.payload["implementation_outcome"]["checks"][1]

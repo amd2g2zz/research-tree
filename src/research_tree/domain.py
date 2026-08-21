@@ -9,7 +9,7 @@ import json
 import math
 import re
 from types import MappingProxyType
-from typing import Any, Mapping, TypeAlias, cast
+from typing import Any, Mapping, TypeAlias
 from uuid import uuid4
 
 
@@ -17,15 +17,7 @@ SCHEMA_VERSION = 1
 IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
-JsonValue: TypeAlias = (
-    None
-    | bool
-    | int
-    | float
-    | str
-    | tuple["JsonValue", ...]
-    | Mapping[str, "JsonValue"]
-)
+JsonValue: TypeAlias = None | bool | int | float | str | tuple["JsonValue", ...] | Mapping[str, "JsonValue"]
 
 
 class RuntimeStoreError(Exception):
@@ -64,9 +56,7 @@ def utc_now() -> str:
 
 def validate_identifier(value: str, label: str) -> str:
     if not isinstance(value, str) or not IDENTIFIER_PATTERN.fullmatch(value):
-        raise InvalidIdentifierError(
-            f"{label} must match {IDENTIFIER_PATTERN.pattern!r}; got {value!r}"
-        )
+        raise InvalidIdentifierError(f"{label} must match {IDENTIFIER_PATTERN.pattern!r}; got {value!r}")
     return value
 
 
@@ -152,9 +142,7 @@ def _require_exact_keys(value: Mapping[str, Any], expected: set[str], label: str
 
 def _require_schema_version(value: Any, label: str) -> int:
     if value != SCHEMA_VERSION:
-        raise DataIntegrityError(
-            f"{label} schema_version must be {SCHEMA_VERSION}; got {value!r}"
-        )
+        raise DataIntegrityError(f"{label} schema_version must be {SCHEMA_VERSION}; got {value!r}")
     return SCHEMA_VERSION
 
 
@@ -437,11 +425,7 @@ class LineageEvent:
             round_id=validate_identifier(data["round_id"], "round_id"),
             kind=validate_identifier(data["kind"], "event kind"),
             created_at=validate_timestamp(data["created_at"]),
-            artifact_ref=(
-                None
-                if artifact_ref_raw is None
-                else ArtifactRef.from_dict(artifact_ref_raw)
-            ),
+            artifact_ref=(None if artifact_ref_raw is None else ArtifactRef.from_dict(artifact_ref_raw)),
             parent_round_id=parent_round_id,
         )
 

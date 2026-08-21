@@ -31,6 +31,23 @@ Produce two final outputs:
 
 Create OpenSpec artifacts only when explicitly requested.
 
+## Activation contract
+
+Use this ordered state machine on Codex, Claude, and Hermes:
+
+`verified_load -> bounded_reconnaissance -> alignment_question -> explicit_handoff -> autonomous_dispatch`
+
+Positive trigger: a request for deep technical research, evidence, and a
+decision-ready deliverable. Negative triggers: ordinary explanation, a small
+edit, a one-shot factual answer, or an unrelated request. Negative triggers
+must not start reconnaissance or dispatch.
+
+Before `explicit_handoff`, do not dispatch, delegate, call external research,
+or write a final research artifact. If the loader receipt is missing or stale,
+alignment is not at equilibrium, a resource is unavailable, or handoff is not
+explicit, return a bounded blocked disposition with the failed phase and next
+safe action.
+
 ## Load the bundled resources
 
 - Resolve every relative path against the skill directory supplied by the host.
@@ -50,7 +67,21 @@ Create OpenSpec artifacts only when explicitly requested.
   expanding, pruning, or closing a recursive research tree.
 - Read `references/debug-tracing.md` only for explicit behavior diagnosis or debug mode.
 
+## Python execution contract
+
+When operating in a `research-tree` source checkout, run every bundled Python
+script through the locked project environment: `uv run --frozen python ...`.
+Discover the checkout containing `pyproject.toml` and `uv.lock` before invoking
+the script, and use `uv run --project <checkout> --frozen python ...` when the
+current working directory is elsewhere. Never substitute the system `python`
+executable. If no `uv` project can be found, report an actionable environment
+blocker instead of producing a parser-level error from an incompatible Python.
+
 ## Codex CLI runtime adapter
+
+### Activation probe
+`research-tree-activation-contract:v1:codex`
+Follow `references/skill-activation.md`: only exact `$research-tree activation-probe v1 <correlation-id>` plus matching app-server typed `skill` input may return only `research-tree-activation:v1:codex:<correlation-id>` without tools; other text, paths, or links are `activation_unverified`.
 
 - Read `references/codex-cli-compatibility.md` before host-specific alignment.
   Before repository execution, delegation, compaction, or recovery, also read
@@ -80,6 +111,24 @@ Create OpenSpec artifacts only when explicitly requested.
   completion checks when Python is available. This executable state is
   authoritative over the visible plan; never mark a run complete when its
   integrity check fails.
+- In source-checkout development, record each source range through
+  `context-record` and inspect its `context-receipt` before sending more context.
+  Repeated unchanged ranges remain visible as `cached` or `replayed`; active run
+  outputs are excluded until `context-seal` binds their digest. A
+  `budget_exceeded` receipt is resumable but remains `unknown`, never completion.
+- When the checkout runtime is available, use the stable lifecycle sequence
+  `research-tree install`, `research-tree doctor`, `research-tree run`,
+  `research-tree resume`, `research-tree status`, and `research-tree verify`.
+  Pass the ordinary workspace plus plain-language outcome, scope, authority,
+  and success oracle; never construct HostEvent or SQLite inputs. A `prepared`
+  or `verification_pending` receipt is fail-closed and never grants completion
+  authority.
+- Before mapping ready actions to collaboration, run `probe-host` with the
+  surfaces exposed in the current session. Use `project-workflow` to bind the
+  concurrent wave to action, phase, child, permission, and checkpoint ids; use
+  `reconcile-host` after interruption before retrying unknown children. Partial,
+  denied, or failed collaboration falls back to `coordinator-dispatch-v1` and
+  never turns `update_plan` completion into canonical completion.
 
 ## Product Rules
 
@@ -593,7 +642,7 @@ advance to Decision Ledger review, and final delivery remains blocked while an
 active P0 slot lacks completed depth, counterevidence, or validation evidence.
 Even after all slots close, keep the persisted tree in `delivery_pending` until
 both the Technical Research Package and Human Research Report are present and
-verified through `tree-deliver`; a closed tree without the two reports is not a
+verified through the canonical delivery authority; a closed tree without the two reports is not a
 completed research round.
 
 ## Produce the deliveries

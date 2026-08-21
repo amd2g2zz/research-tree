@@ -1,0 +1,4 @@
+schema: 1
+change: fix-codex-plan-projection
+status: complete
+issue: 279

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "alpha2-release-v1",
+  "corpus_version": "2026.2",
+  "cases": [
+    {"id": "vague-intent", "category": "false-completion", "public_input": "Research the safest implementation direction without substituting intent.", "hidden_oracle_id": "alpha2-vague-intent-v1", "limitations": []},
+    {"id": "impossible-goal", "category": "false-completion", "public_input": "Evaluate an infeasible goal and preserve the terminal authority boundary.", "hidden_oracle_id": "alpha2-impossible-goal-v1", "limitations": []},
+    {"id": "wrong-human-premise", "category": "false-completion", "public_input": "Detect and correct a consequential requester premise before strategy handoff.", "hidden_oracle_id": "alpha2-wrong-human-premise-v1", "limitations": []},
+    {"id": "wrong-agent-premise", "category": "false-completion", "public_input": "Invalidate an unsupported agent interpretation without silently rewriting history.", "hidden_oracle_id": "alpha2-wrong-agent-premise-v1", "limitations": []},
+    {"id": "repository-backed-research", "category": "repository-research", "public_input": "Research an implementation boundary against pinned repository evidence.", "hidden_oracle_id": "alpha2-repository-research-v1", "limitations": []},
+    {"id": "conflicting-sources", "category": "contradiction", "public_input": "Resolve conflicting primary sources without hiding residual uncertainty.", "hidden_oracle_id": "alpha2-conflicting-sources-v1", "limitations": []},
+    {"id": "multimodal-selector", "category": "multimodal", "public_input": "Bind image and document selectors to resolvable captured evidence.", "hidden_oracle_id": "alpha2-multimodal-v1", "limitations": []},
+    {"id": "recursive-method-pivot", "category": "recursive-discovery", "public_input": "Deepen or pivot after a shallow first wave leaves a Decision Slot unresolved.", "hidden_oracle_id": "alpha2-recursive-discovery-v1", "limitations": []},
+    {"id": "missing-native-tool", "category": "unavailable-tool", "public_input": "Record an unavailable native capability and use only an explicit bounded fallback.", "hidden_oracle_id": "alpha2-unavailable-tool-v1", "limitations": []},
+    {"id": "provider-failure-successor", "category": "provider-failure", "public_input": "Persist provider failure and create a checkpoint-bound successor attempt.", "hidden_oracle_id": "alpha2-provider-failure-v1", "limitations": []},
+    {"id": "provider-crash-resume", "category": "recovery", "public_input": "Resume from a durable source capture and checkpoint after provider failure.", "hidden_oracle_id": "alpha2-recovery-v1", "limitations": []},
+    {"id": "post-handoff-correction", "category": "post-handoff-feedback", "public_input": "Apply material feedback through a successor revision without mutating accepted history.", "hidden_oracle_id": "alpha2-post-handoff-v1", "limitations": []}
+  ]
+}

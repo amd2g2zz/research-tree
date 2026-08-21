@@ -22,14 +22,23 @@ def project(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def project_run(root: Path) -> None:
+    manifest = root / ".research-tree" / "projects" / "topic-1" / "runs" / "run-1" / "manifest.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"project_id":"topic-1","run_id":"run-1"}\n', encoding="utf-8")
+
+
 def test_observe_records_only_sanitized_metadata(tmp_path: Path) -> None:
     root = project(tmp_path)
+    project_run(root)
     payload = {
         "cwd": str(root),
         "hook_event_name": "SessionStart",
         "session_id": "session-1",
         "prompt": "must not be persisted",
         "tool_input": {"secret": "must not be persisted"},
+        "project_id": "topic-1",
+        "run_id": "run-1",
     }
 
     result = observe(
@@ -96,8 +105,9 @@ def test_reentrant_stop_is_not_recorded(tmp_path: Path, host: str) -> None:
 
 def test_hermes_session_event_and_response(tmp_path: Path) -> None:
     root = project(tmp_path)
+    project_run(root)
     result = observe(
-        {"cwd": str(root), "hook_event_name": "on_session_start"},
+        {"cwd": str(root), "hook_event_name": "on_session_start", "project_id": "topic-1", "run_id": "run-1"},
         host="hermes",
         event="on_session_start",
         project_root=root,
@@ -108,10 +118,26 @@ def test_hermes_session_event_and_response(tmp_path: Path) -> None:
     assert host_response("codex") == {"continue": True}
 
 
-def test_debug_hook_emits_a_sanitized_trace_without_changing_response(tmp_path: Path) -> None:
+def test_unbound_hook_is_non_persistent(tmp_path: Path) -> None:
     root = project(tmp_path)
+
     result = observe(
         {"cwd": str(root), "hook_event_name": "SessionStart"},
+        host="codex",
+        event="SessionStart",
+        project_root=root,
+        process_cwd=root,
+    )
+
+    assert result["status"] == "unbound"
+    assert not (root / ".research-tree-hooks").exists()
+
+
+def test_debug_hook_emits_a_sanitized_trace_without_changing_response(tmp_path: Path) -> None:
+    root = project(tmp_path)
+    project_run(root)
+    result = observe(
+        {"cwd": str(root), "hook_event_name": "SessionStart", "project_id": "topic-1", "run_id": "run-1"},
         host="codex",
         event="SessionStart",
         project_root=root,
@@ -134,17 +160,9 @@ def test_read_payload_is_bounded_and_requires_an_object() -> None:
 
 def test_host_templates_use_native_wrappers_and_isolated_hermes_hook() -> None:
     root = Path(__file__).resolve().parents[1]
-    codex = json.loads(
-        (root / "hooks" / "codex.hooks.template.json").read_text(encoding="utf-8")
-    )
-    claude = json.loads(
-        (root / "hooks" / "claude-code.settings.template.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    hermes = (root / "hooks" / "hermes.config.template.yaml").read_text(
-        encoding="utf-8"
-    )
+    codex = json.loads((root / "hooks" / "codex.hooks.template.json").read_text(encoding="utf-8"))
+    claude = json.loads((root / "hooks" / "claude-code.settings.template.json").read_text(encoding="utf-8"))
+    hermes = (root / "hooks" / "hermes.config.template.yaml").read_text(encoding="utf-8")
 
     assert set(codex["hooks"]) == {
         "SessionStart",
@@ -160,6 +178,7 @@ def test_host_templates_use_native_wrappers_and_isolated_hermes_hook() -> None:
         "SessionEnd",
         "PreCompact",
         "SubagentStop",
+        "PostToolUse",
         "Stop",
     }
     assert "on_session_start:" in hermes
@@ -171,3 +190,64 @@ def test_host_templates_use_native_wrappers_and_isolated_hermes_hook() -> None:
     assert "research-tree-hook" not in hermes
     assert "subagent_start:" in hermes
     assert "post_tool_call:" in hermes
+
+
+def test_codex_subagent_start_records_binding_candidate(tmp_path: Path) -> None:
+    root = project(tmp_path)
+    project_run(root)
+    payload = {
+        "cwd": str(root),
+        "hook_event_name": "SubagentStart",
+        "session_id": "session-parent",
+        "turn_id": "turn-9",
+        "tool_response": {"agentId": "agent-codex-child-1", "summary": "TOP SECRET child briefing"},
+        "project_id": "topic-1",
+        "run_id": "run-1",
+    }
+
+    result = observe(payload, host="codex", event="SubagentStart", project_root=root, process_cwd=root)
+
+    assert result["status"] == "recorded"
+    record = json.loads((root / result["path"]).read_text(encoding="utf-8"))
+    assert record["event"] == "SubagentStart"
+    assert record["agent_id"] == "agent-codex-child-1"
+    assert record["binding_status"] == "candidate"
+    serialized = json.dumps(record)
+    assert "TOP SECRET" not in serialized
+
+
+def test_codex_subagent_start_drops_malformed_identity(tmp_path: Path) -> None:
+    root = project(tmp_path)
+    project_run(root)
+    payload = {
+        "cwd": str(root),
+        "hook_event_name": "SubagentStart",
+        "tool_response": {"agentId": {"nested": "object"}},
+        "project_id": "topic-1",
+        "run_id": "run-1",
+    }
+
+    result = observe(payload, host="codex", event="SubagentStart", project_root=root, process_cwd=root)
+
+    record = json.loads((root / result["path"]).read_text(encoding="utf-8"))
+    assert "agent_id" not in record
+    assert record.get("binding_status") == "unknown_outcome"
+
+
+def test_codex_subagent_stop_records_completed_identity(tmp_path: Path) -> None:
+    root = project(tmp_path)
+    project_run(root)
+    payload = {
+        "cwd": str(root),
+        "hook_event_name": "SubagentStop",
+        "session_id": "session-parent",
+        "tool_response": {"agentId": "agent-codex-child-1", "outcome": "completed"},
+        "project_id": "topic-1",
+        "run_id": "run-1",
+    }
+
+    result = observe(payload, host="codex", event="SubagentStop", project_root=root, process_cwd=root)
+
+    record = json.loads((root / result["path"]).read_text(encoding="utf-8"))
+    assert record["agent_id"] == "agent-codex-child-1"
+    assert record["binding_status"] == "candidate"

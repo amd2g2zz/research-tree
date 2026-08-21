@@ -4,8 +4,18 @@
   "title": "Alpha2 evidence anchor",
   "type": "object",
   "additionalProperties": false,
-  "required": ["artifact_digest", "artifact_revision", "selector_type", "selector_value", "extractor_version", "applicability", "confidence", "limitations"],
+  "required": ["artifact_ref", "artifact_digest", "artifact_revision", "selector_type", "selector_value", "extractor_version", "applicability", "confidence", "limitations"],
   "properties": {
+    "artifact_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["round_id", "artifact_id", "revision"],
+      "properties": {
+        "round_id": { "type": "string", "minLength": 1 },
+        "artifact_id": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 1 }
+      }
+    },
     "artifact_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "artifact_revision": { "type": "integer", "minimum": 1 },
     "selector_type": { "type": "string", "enum": ["line", "symbol", "fragment", "page_section", "image_region", "input_revision", "experiment_field"] },

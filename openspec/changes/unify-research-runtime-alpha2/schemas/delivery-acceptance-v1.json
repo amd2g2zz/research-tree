@@ -4,16 +4,32 @@
   "title": "Alpha2 DeliveryAcceptance",
   "type": "object",
   "additionalProperties": false,
-  "required": ["acceptance_id", "run_id", "technical_revision", "human_revision", "displayed_digest", "decision", "actor", "feedback", "created_at"],
+  "required": ["acceptance_id", "run_id", "technical_revision", "human_revision", "displayed_digest", "manifest_digest", "decision", "actor", "feedback", "lifecycle_action", "created_at"],
   "properties": {
     "acceptance_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
     "run_id": { "type": "string", "minLength": 1 },
     "technical_revision": { "type": "string", "minLength": 1 },
     "human_revision": { "type": "string", "minLength": 1 },
     "displayed_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "manifest_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "decision": { "type": "string", "enum": ["accepted", "rejected", "needs_deeper_research", "needs_intent_correction", "partially_accepted"] },
     "actor": { "type": "string", "minLength": 1 },
-    "feedback": { "type": "array", "items": { "type": "object" } },
+    "feedback": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["feedback_id", "classification", "statement", "target_refs"],
+        "properties": {
+          "feedback_id": { "type": "string", "minLength": 1 },
+          "classification": { "type": "string", "enum": ["evidence", "method", "depth", "applicability", "presentation", "objective", "target", "scope", "authority", "intended_use", "success_criteria", "withdrawal"] },
+          "statement": { "type": "string", "minLength": 1 },
+          "target_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+    "lifecycle_action": { "type": "string", "enum": ["complete", "same_round_research", "successor_round", "awaiting_acceptance"] },
     "created_at": { "type": "string", "format": "date-time" }
   }
 }

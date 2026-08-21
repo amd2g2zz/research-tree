@@ -1,37 +1,35 @@
 from __future__ import annotations
 
-from copy import deepcopy
 import inspect
 from pathlib import Path
 
 import pytest
 
+from canonical_finding_fixture import canonical_context
+
+from research_tree import (
+    ArtifactRef,
+    CanonicalDecisionLedgerCompiler,
+    CanonicalDeliveryCompiler,
+    CanonicalFindingPackCompiler,
+    EvidenceAnchor,
+    EvidenceArtifact,
+    InvalidDeliveryError,
+    RunLedger,
+)
+from research_tree.domain import thaw_json
+from research_tree.work_items import WORK_ITEM_KIND
+from research_tree.claims import Claim, ClaimGrounding
+
 
 def api():
-    from research_tree import (
-        ArtifactRef,
-        BlueprintTargetCompiler,
-        DecisionLedgerCompiler,
-        DeliveryCompiler,
-        InputIntakeService,
-        IntentModelCompiler,
-        InvalidDeliveryError,
-        RunStore,
-        WorkItemPlanner,
-        WorkingBriefCompiler,
-    )
-
     return {
         "ArtifactRef": ArtifactRef,
-        "BlueprintTargetCompiler": BlueprintTargetCompiler,
-        "DecisionLedgerCompiler": DecisionLedgerCompiler,
-        "DeliveryCompiler": DeliveryCompiler,
-        "InputIntakeService": InputIntakeService,
-        "IntentModelCompiler": IntentModelCompiler,
+        "CanonicalDecisionLedgerCompiler": CanonicalDecisionLedgerCompiler,
+        "CanonicalDeliveryCompiler": CanonicalDeliveryCompiler,
+        "CanonicalFindingPackCompiler": CanonicalFindingPackCompiler,
         "InvalidDeliveryError": InvalidDeliveryError,
-        "RunStore": RunStore,
-        "WorkItemPlanner": WorkItemPlanner,
-        "WorkingBriefCompiler": WorkingBriefCompiler,
+        "RunLedger": RunLedger,
     }
 
 
@@ -193,120 +191,170 @@ def decision_kwargs(target, finding) -> dict[str, object]:
     }
 
 
+def observability_slot() -> dict[str, object]:
+    return {
+        "id": "slot-observability",
+        "kind": "operations",
+        "question": "Which implementation choice should slot-observability make?",
+        "intent_hypothesis_ids": ["intent-agent"],
+        "priority": "P1",
+        "impact": "high",
+        "uncertainty": "high",
+        "irreversibility": "medium",
+        "constraints": [
+            {
+                "kind": "input",
+                "ref": "input-brief",
+                "statement": "The first implementation must remain safe.",
+            }
+        ],
+        "alternatives": ["structured-logging", "minimal-logging"],
+        "repository_touchpoints": [{"path": "src/agent.py", "symbol": "run"}],
+        "greenfield_assumptions": [],
+        "depends_on": ["slot-isolation"],
+        "evidence_standard": "repository inspection plus a bounded spike",
+        "validation": {
+            "kind": "spike",
+            "oracle": "one fixture completes through the selected boundary",
+        },
+        "closure_rule": "select, conditionally select, defer with fallback, or block",
+        "status": "open",
+        "bounded_research_need": "compare alternatives against the current repository boundary",
+        "fallback": "retain the current boundary until this decision closes",
+    }
+
+
+def append_artifact(ledger, round_record, artifact_id, kind, payload, parent_refs=()):
+    return ledger.append_artifact(
+        round_record.id,
+        artifact_id,
+        kind,
+        payload,
+        parent_refs=parent_refs,
+        expected_revision=ledger.get_revision(round_record.id),
+    )
+
+
+def assert_no_delivery_artifacts(ledger, round_record) -> None:
+    kinds = {artifact.kind for artifact in ledger.load_run(round_record.id).artifacts}
+    assert "technical-research-package" not in kinds
+    assert "human-research-report" not in kinds
+
+
 def context(tmp_path: Path):
     modules = api()
-    store = modules["RunStore"](tmp_path / "store")
-    round_record = store.create_round("round-delivery")
-    intake = modules["InputIntakeService"](store)
-    intake.ingest_text(
-        round_id=round_record.id,
-        input_id="input-brief",
-        kind="brief",
-        content="Build an implementation-ready autonomous reverse-engineering agent.",
-        origin_type="user",
-        origin_locator="conversation:1",
-        role="signal",
+    (
+        ledger,
+        resolver,
+        round_record,
+        model,
+        brief,
+        initial_target,
+        initial_work,
+        _initial_finding,
+        _initial_decision,
+        _evidence,
+        anchor,
+    ) = canonical_context(tmp_path)
+    modules["resolver"] = resolver
+    target_payload = thaw_json(initial_target.payload)
+    target_payload["slots"][0]["question"] = "Which implementation choice should slot-isolation make?"
+    target_payload["slots"].append(observability_slot())
+    target = append_artifact(
+        ledger,
+        round_record,
+        initial_target.id,
+        initial_target.kind,
+        target_payload,
+        initial_target.parent_refs,
     )
-    intake.ingest_repository(
-        round_id=round_record.id,
-        input_id="input-repository",
-        repository_root=repository(tmp_path / "repository"),
-        origin_type="workspace",
-        role="baseline",
+    isolation_work_payload = thaw_json(initial_work.payload)
+    isolation_work_payload["id"] = "work-isolation-delivery"
+    isolation_work = append_artifact(
+        ledger,
+        round_record,
+        "work-isolation-delivery",
+        WORK_ITEM_KIND,
+        isolation_work_payload,
+        (ArtifactRef(round_record.id, target.id, target.revision),),
     )
-    intake.create_context_bundle(
-        round_id=round_record.id,
-        input_id="input-context",
-        member_input_ids=("input-brief", "input-repository"),
-        origin_type="user",
-        origin_locator="conversation:1",
-        role="baseline",
-    )
-    model = modules["IntentModelCompiler"](store).compile(
-        round_id=round_record.id,
-        intent_id="intent-model",
-        context_bundle_ids=("input-context",),
-        input_ids=("input-brief", "input-repository"),
-        analysis=intent_analysis(),
-    )
-    brief = modules["WorkingBriefCompiler"](store).compile(
-        round_id=round_record.id,
-        brief_id="working-brief",
-        intent_model=model,
-        triggers=[{"kind": "initial_request", "text": "Start", "input_ids": ["input-brief"]}],
-        context_bundle_ids=("input-context",),
-        selected_input_ids=("input-brief", "input-repository"),
-        input_roles={"input-brief": "primary", "input-repository": "baseline"},
-        material_conflicts=[],
-        working_interpretation="A safe implementation-ready agent path is leading.",
-        technical_outcome="Choose the first agent architecture and integration boundary.",
-    )
-    isolation = slot(
-        "slot-isolation",
-        kind="architecture",
-        priority="P0",
-        alternatives=["isolated-worker", "in-process"],
-    )
-    observability = slot(
-        "slot-observability",
-        kind="operations",
-        priority="P1",
-        alternatives=["structured-logging", "minimal-logging"],
-        depends_on=["slot-isolation"],
-    )
-    target = modules["BlueprintTargetCompiler"](store).compile(
-        round_id=round_record.id,
-        target_id="blueprint-target",
-        working_brief=brief,
-        slots=[observability, isolation],
-        change={
-            "kind": "initial",
-            "reason": "Map implementation decisions for the first agent.",
-            "from_slot_ids": [],
-            "to_slot_ids": ["slot-observability", "slot-isolation"],
+    append_artifact(
+        ledger,
+        round_record,
+        "work-observability",
+        WORK_ITEM_KIND,
+        {
+            "id": "work-observability",
+            "round_id": round_record.id,
+            "blueprint_target_id": target.id,
+            "decision_slot_id": "slot-observability",
         },
+        (ArtifactRef(round_record.id, target.id, target.revision),),
     )
-    items = modules["WorkItemPlanner"](store).plan(
+    independent_ref = ArtifactRef(round_record.id, "strict-source-independent", 1)
+    independent_artifact = EvidenceArtifact.from_revision(
+        independent_ref,
+        ledger.get_artifact(independent_ref),
+    )
+    independent_anchor = EvidenceAnchor(
+        artifact_ref=independent_ref,
+        artifact_digest=independent_artifact.content_digest,
+        artifact_revision=1,
+        selector_type="line",
+        selector_value={"start": 1, "end": 1},
+        extractor_version="fixture-reader-v1",
+        applicability="direct support",
+        confidence="high",
+        limitations=(),
+    )
+    isolation_claim = Claim(
+        claim_id="claim-isolation-delivery",
+        subject="source",
+        predicate="supports",
+        value="the isolated worker boundary",
+        polarity="positive",
+        scope="fixture boundary",
+        version="fixture-v1",
+        time_range="fixture-time",
+    )
+    finding = modules["CanonicalFindingPackCompiler"](ledger, resolver).compile(
         round_id=round_record.id,
-        blueprint_target=target,
-        work_item_ids={
-            "slot-isolation": "work-isolation",
-            "slot-observability": "work-observability",
-        },
-    )
-    isolation_work = next(
-        item for item in items if item.payload["decision_slot_id"] == "slot-isolation"
-    )
-    from research_tree import FindingPackCompiler
-
-    finding = FindingPackCompiler(store).compile(
-        round_id=round_record.id,
-        finding_id="finding-isolation",
+        finding_id="finding-isolation-delivery",
         work_item=isolation_work,
         observations=[
             {
-                "claim": "The existing run boundary can host an explicit worker adapter.",
-                "anchor": {"kind": "repository", "ref": "src/agent.py:run"},
-                "applicability": "the supplied Python repository",
-                "confidence": "medium",
-                "limitation": "This does not measure production startup overhead.",
+                "claim_id": isolation_claim.claim_id,
+                "claim": "The source supports an isolated worker boundary.",
+                "anchor": anchor.to_dict(),
+                "applicability": "the fixture boundary",
+                "confidence": "high",
+                "limitation": "fixture evidence only",
             }
         ],
-        option_effects=[{"option": "isolated-worker", "effect": "supports"}],
-        implementation_implications=["The run boundary needs an explicit adapter."],
+        option_effects=[{"option": "isolated-worker", "effect": "supports", "claim_ids": [isolation_claim.claim_id]}],
+        implementation_implications=["Introduce an isolated worker boundary."],
         remaining_uncertainties=["Measure startup overhead with a spike."],
+        claims=[isolation_claim],
+        claim_groundings=[
+            ClaimGrounding("grounding-isolation-delivery", isolation_claim.claim_id, anchor.to_dict()),
+            ClaimGrounding(
+                "grounding-isolation-delivery-independent", isolation_claim.claim_id, independent_anchor.to_dict()
+            ),
+        ],
+        expected_revision=ledger.get_revision(round_record.id),
     )
-    decision = modules["DecisionLedgerCompiler"](store).converge(
+    decision = modules["CanonicalDecisionLedgerCompiler"](ledger, resolver).converge(
         round_id=round_record.id,
-        decision_id="decision-isolation",
+        decision_id="decision-isolation-delivery",
         **decision_kwargs(target, finding),
+        expected_revision=ledger.get_revision(round_record.id),
     )
-    return modules, store, round_record, model, brief, target, finding, decision
+    return modules, ledger, round_record, model, brief, target, finding, decision
 
 
 def compile_deliveries(
     modules,
-    store,
+    ledger,
     round_record,
     brief,
     target,
@@ -314,7 +362,7 @@ def compile_deliveries(
     *,
     readiness_input: dict[str, object] | None = None,
 ):
-    return modules["DeliveryCompiler"](store).compile(
+    return modules["CanonicalDeliveryCompiler"](ledger, modules["resolver"]).compile(
         round_id=round_record.id,
         technical_package_id="technical-package",
         human_brief_id="human-brief",
@@ -322,15 +370,14 @@ def compile_deliveries(
         blueprint_target=target,
         decision_entries=decisions,
         readiness=readiness() if readiness_input is None else readiness_input,
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
 
 def test_compiles_traceable_agent_package_and_independent_human_brief(tmp_path: Path) -> None:
-    modules, store, round_record, model, brief, target, _finding, decision = context(tmp_path)
+    modules, ledger, round_record, model, brief, target, _finding, decision = context(tmp_path)
 
-    deliveries = compile_deliveries(
-        modules, store, round_record, brief, target, [decision]
-    )
+    deliveries = compile_deliveries(modules, ledger, round_record, brief, target, [decision])
 
     technical = deliveries.technical_package
     human = deliveries.human_brief
@@ -339,7 +386,10 @@ def test_compiles_traceable_agent_package_and_independent_human_brief(tmp_path: 
     closure = {entry["decision_slot_id"]: entry for entry in document["blueprint_closure"]}
 
     assert technical.kind == "technical-research-package"
-    assert human.kind == "human-brief"
+    assert human.kind == "human-research-report"
+    assert deliveries.human_research_report is human
+    assert deliveries.human_brief is human
+    assert human.payload["markdown"].startswith("# Human Research Report:")
     assert record["intent_hypothesis_ids"] == ("intent-agent",)
     assert record["repository_touchpoints"] == ({"path": "src/agent.py", "symbol": "run"},)
     assert record["validation"]["oracle"].startswith("one fixture")
@@ -367,9 +417,9 @@ def test_compiles_traceable_agent_package_and_independent_human_brief(tmp_path: 
 
 
 def test_missing_blueprint_closure_and_nonpassing_readiness_are_visible(tmp_path: Path) -> None:
-    modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
+    modules, ledger, round_record, _model, brief, target, _finding, decision = context(tmp_path)
 
-    deliveries = compile_deliveries(modules, store, round_record, brief, target, [decision])
+    deliveries = compile_deliveries(modules, ledger, round_record, brief, target, [decision])
     technical = deliveries.technical_package
     human = deliveries.human_brief
 
@@ -394,11 +444,9 @@ def test_missing_blueprint_closure_and_nonpassing_readiness_are_visible(tmp_path
 def test_human_brief_makes_unclosed_decisions_and_readiness_follow_up_standalone(
     tmp_path: Path,
 ) -> None:
-    modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
+    modules, ledger, round_record, _model, brief, target, _finding, decision = context(tmp_path)
 
-    human = compile_deliveries(
-        modules, store, round_record, brief, target, [decision]
-    ).human_brief
+    human = compile_deliveries(modules, ledger, round_record, brief, target, [decision]).human_brief
 
     document = human.payload["document"]
     assert document["unclosed_blueprint_items"] == (
@@ -436,14 +484,14 @@ def test_human_brief_makes_unclosed_decisions_and_readiness_follow_up_standalone
 def test_passing_decision_closure_gate_cannot_contradict_missing_or_blocked_slots(
     tmp_path: Path,
 ) -> None:
-    modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
+    modules, ledger, round_record, _model, brief, target, _finding, decision = context(tmp_path)
     inconsistent = readiness()
     inconsistent["gates"]["decision_closure"] = "pass"
 
     with pytest.raises(modules["InvalidDeliveryError"], match="decision_closure"):
         compile_deliveries(
             modules,
-            store,
+            ledger,
             round_record,
             brief,
             target,
@@ -451,21 +499,19 @@ def test_passing_decision_closure_gate_cannot_contradict_missing_or_blocked_slot
             readiness_input=inconsistent,
         )
 
-    kinds = {artifact.kind for artifact in store.load_round(round_record.id).artifacts}
-    assert "technical-research-package" not in kinds
-    assert "human-brief" not in kinds
+    assert_no_delivery_artifacts(ledger, round_record)
 
 
 def test_invalid_implementation_facing_p0_record_leaves_no_delivery_artifacts(
     tmp_path: Path,
 ) -> None:
-    modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
-    from research_tree.domain import thaw_json
+    modules, ledger, round_record, _model, brief, target, _finding, decision = context(tmp_path)
 
     invalid_payload = thaw_json(decision.payload)
     invalid_payload["change_tasks"] = []
-    invalid = store.append_artifact(
-        round_record.id,
+    invalid = append_artifact(
+        ledger,
+        round_record,
         decision.id,
         decision.kind,
         invalid_payload,
@@ -473,11 +519,9 @@ def test_invalid_implementation_facing_p0_record_leaves_no_delivery_artifacts(
     )
 
     with pytest.raises(modules["InvalidDeliveryError"]):
-        compile_deliveries(modules, store, round_record, brief, target, [invalid])
+        compile_deliveries(modules, ledger, round_record, brief, target, [invalid])
 
-    kinds = {artifact.kind for artifact in store.load_round(round_record.id).artifacts}
-    assert "technical-research-package" not in kinds
-    assert "human-brief" not in kinds
+    assert_no_delivery_artifacts(ledger, round_record)
 
 
 @pytest.mark.parametrize(
@@ -494,16 +538,13 @@ def test_directly_written_p0_decision_revisions_are_semantically_revalidated(
     tmp_path: Path,
     case: str,
 ) -> None:
-    modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
-    from research_tree.domain import thaw_json
+    modules, ledger, round_record, _model, brief, target, _finding, decision = context(tmp_path)
 
     invalid_payload = thaw_json(decision.payload)
     if case == "empty_anchor":
         invalid_payload["anchors"] = [{"kind": "finding", "ref": ""}]
     elif case == "unconstrained_touchpoint":
-        invalid_payload["repository_touchpoints"] = [
-            {"path": "src/not-the-slot.py", "symbol": "run"}
-        ]
+        invalid_payload["repository_touchpoints"] = [{"path": "src/not-the-slot.py", "symbol": "run"}]
     elif case == "task_without_touchpoint":
         invalid_payload["change_tasks"] = [
             {
@@ -525,8 +566,9 @@ def test_directly_written_p0_decision_revisions_are_semantically_revalidated(
         ]
     else:
         raise AssertionError(f"Unhandled test case: {case}")
-    invalid = store.append_artifact(
-        round_record.id,
+    invalid = append_artifact(
+        ledger,
+        round_record,
         decision.id,
         decision.kind,
         invalid_payload,
@@ -534,50 +576,46 @@ def test_directly_written_p0_decision_revisions_are_semantically_revalidated(
     )
 
     with pytest.raises(modules["InvalidDeliveryError"]):
-        compile_deliveries(modules, store, round_record, brief, target, [invalid])
+        compile_deliveries(modules, ledger, round_record, brief, target, [invalid])
 
-    kinds = {artifact.kind for artifact in store.load_round(round_record.id).artifacts}
-    assert "technical-research-package" not in kinds
-    assert "human-brief" not in kinds
+    assert_no_delivery_artifacts(ledger, round_record)
 
 
 def test_stale_or_ambiguous_ledger_inputs_are_rejected_before_outputs(tmp_path: Path) -> None:
-    modules, store, round_record, _model, brief, target, finding, decision = context(tmp_path)
-    revised = modules["DecisionLedgerCompiler"](store).converge(
+    modules, ledger, round_record, _model, brief, target, finding, decision = context(tmp_path)
+    revised = modules["CanonicalDecisionLedgerCompiler"](ledger, modules["resolver"]).converge(
         round_id=round_record.id,
         decision_id=decision.id,
         **decision_kwargs(target, finding),
+        expected_revision=ledger.get_revision(round_record.id),
     )
 
     with pytest.raises(modules["InvalidDeliveryError"]):
-        compile_deliveries(modules, store, round_record, brief, target, [decision])
+        compile_deliveries(modules, ledger, round_record, brief, target, [decision])
     with pytest.raises(modules["InvalidDeliveryError"]):
-        compile_deliveries(modules, store, round_record, brief, target, [revised, revised])
+        compile_deliveries(modules, ledger, round_record, brief, target, [revised, revised])
 
-    kinds = {artifact.kind for artifact in store.load_round(round_record.id).artifacts}
-    assert "technical-research-package" not in kinds
-    assert "human-brief" not in kinds
+    assert_no_delivery_artifacts(ledger, round_record)
 
 
 def test_delivery_api_has_no_worker_prose_or_default_openspec_path(tmp_path: Path) -> None:
-    modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
+    modules, ledger, round_record, _model, brief, target, _finding, decision = context(tmp_path)
 
-    parameters = inspect.signature(modules["DeliveryCompiler"].compile).parameters
+    parameters = inspect.signature(modules["CanonicalDeliveryCompiler"].compile).parameters
     assert "worker_prose" not in parameters
     assert "architecture_text" not in parameters
     assert "openspec" not in parameters
 
-    compile_deliveries(modules, store, round_record, brief, target, [decision])
-    kinds = {artifact.kind for artifact in store.load_round(round_record.id).artifacts}
+    compile_deliveries(modules, ledger, round_record, brief, target, [decision])
+    kinds = {artifact.kind for artifact in ledger.load_run(round_record.id).artifacts}
     assert "openspec" not in kinds
 
 
 def test_public_payload_validators_reject_nested_schema_drift(tmp_path: Path) -> None:
-    modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
+    modules, ledger, round_record, _model, brief, target, _finding, decision = context(tmp_path)
     from research_tree import validate_human_brief_payload, validate_technical_package_payload
-    from research_tree.domain import thaw_json
 
-    deliveries = compile_deliveries(modules, store, round_record, brief, target, [decision])
+    deliveries = compile_deliveries(modules, ledger, round_record, brief, target, [decision])
     invalid_technical = thaw_json(deliveries.technical_package.payload)
     invalid_technical["document"]["decision_records"][0]["alternatives"] = [
         {"option": "in-process", "disposition": "invalid", "reason": "bad schema"}
@@ -592,11 +630,9 @@ def test_public_payload_validators_reject_nested_schema_drift(tmp_path: Path) ->
 
 
 def test_rollout_and_observability_are_structured_or_explicitly_unknown(tmp_path: Path) -> None:
-    modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
+    modules, ledger, round_record, _model, brief, target, _finding, decision = context(tmp_path)
 
-    technical = compile_deliveries(
-        modules, store, round_record, brief, target, [decision]
-    ).technical_package
+    technical = compile_deliveries(modules, ledger, round_record, brief, target, [decision]).technical_package
 
     operational = technical.payload["document"]["rollout_and_observability"]
     assert operational["rollout"] == {
@@ -629,36 +665,33 @@ def test_rollout_and_observability_are_structured_or_explicitly_unknown(tmp_path
 def test_rehydrated_deliveries_preserve_exact_sources_and_rendered_documents(
     tmp_path: Path,
 ) -> None:
-    modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
-    deliveries = compile_deliveries(modules, store, round_record, brief, target, [decision])
+    modules, ledger, round_record, _model, brief, target, _finding, decision = context(tmp_path)
+    deliveries = compile_deliveries(modules, ledger, round_record, brief, target, [decision])
 
-    rehydrated = modules["RunStore"](store.root).load_round(round_record.id)
-    stored_technical = next(
-        artifact for artifact in rehydrated.artifacts if artifact == deliveries.technical_package
-    )
-    stored_human = next(
-        artifact for artifact in rehydrated.artifacts if artifact == deliveries.human_brief
-    )
+    rehydrated = modules["RunLedger"](ledger.workspace).load_run(round_record.id)
+    stored_technical = next(artifact for artifact in rehydrated.artifacts if artifact == deliveries.technical_package)
+    stored_human = next(artifact for artifact in rehydrated.artifacts if artifact == deliveries.human_brief)
 
     assert stored_technical.payload["markdown"] == deliveries.technical_package.payload["markdown"]
     assert stored_human.payload["markdown"] == deliveries.human_brief.payload["markdown"]
-    assert modules["ArtifactRef"](
-        round_record.id, decision.id, decision.revision
-    ) in stored_technical.parent_refs
-    assert modules["ArtifactRef"](
-        round_record.id,
-        deliveries.technical_package.id,
-        deliveries.technical_package.revision,
-    ) in stored_human.parent_refs
+    assert modules["ArtifactRef"](round_record.id, decision.id, decision.revision) in stored_technical.parent_refs
+    assert (
+        modules["ArtifactRef"](
+            round_record.id,
+            deliveries.technical_package.id,
+            deliveries.technical_package.revision,
+        )
+        in stored_human.parent_refs
+    )
 
 
 def test_readiness_cannot_pass_while_blueprint_closure_is_missing(tmp_path: Path) -> None:
-    modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
+    modules, ledger, round_record, _model, brief, target, _finding, decision = context(tmp_path)
     contradictory = readiness()
     contradictory["gates"]["decision_closure"] = "pass"
 
     with pytest.raises(modules["InvalidDeliveryError"]):
-        modules["DeliveryCompiler"](store).compile(
+        modules["CanonicalDeliveryCompiler"](ledger, modules["resolver"]).compile(
             round_id=round_record.id,
             technical_package_id="technical-package",
             human_brief_id="human-brief",
@@ -666,22 +699,21 @@ def test_readiness_cannot_pass_while_blueprint_closure_is_missing(tmp_path: Path
             blueprint_target=target,
             decision_entries=[decision],
             readiness=contradictory,
+            expected_revision=ledger.get_revision(round_record.id),
         )
 
-    kinds = {artifact.kind for artifact in store.load_round(round_record.id).artifacts}
-    assert "technical-research-package" not in kinds
-    assert "human-brief" not in kinds
+    assert_no_delivery_artifacts(ledger, round_record)
 
 
 def test_malformed_p0_ledger_trace_is_rejected_before_outputs(tmp_path: Path) -> None:
-    modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
-    from research_tree.domain import thaw_json
+    modules, ledger, round_record, _model, brief, target, _finding, decision = context(tmp_path)
 
     malformed_payload = thaw_json(decision.payload)
     malformed_payload["anchors"] = [{"not_an_anchor": "missing-kind-and-ref"}]
     malformed_payload["repository_touchpoints"] = [{"not_a_touchpoint": "missing-path-and-symbol"}]
-    malformed = store.append_artifact(
-        round_record.id,
+    malformed = append_artifact(
+        ledger,
+        round_record,
         decision.id,
         decision.kind,
         malformed_payload,
@@ -689,11 +721,9 @@ def test_malformed_p0_ledger_trace_is_rejected_before_outputs(tmp_path: Path) ->
     )
 
     with pytest.raises(modules["InvalidDeliveryError"]):
-        compile_deliveries(modules, store, round_record, brief, target, [malformed])
+        compile_deliveries(modules, ledger, round_record, brief, target, [malformed])
 
-    kinds = {artifact.kind for artifact in store.load_round(round_record.id).artifacts}
-    assert "technical-research-package" not in kinds
-    assert "human-brief" not in kinds
+    assert_no_delivery_artifacts(ledger, round_record)
 
 
 def test_public_payload_validators_reject_shallow_placeholder_documents() -> None:
@@ -720,11 +750,9 @@ def test_public_payload_validators_reject_shallow_placeholder_documents() -> Non
 
 
 def test_technical_package_makes_operational_handoff_explicit(tmp_path: Path) -> None:
-    modules, store, round_record, _model, brief, target, _finding, decision = context(tmp_path)
+    modules, ledger, round_record, _model, brief, target, _finding, decision = context(tmp_path)
 
-    technical = compile_deliveries(
-        modules, store, round_record, brief, target, [decision]
-    ).technical_package
+    technical = compile_deliveries(modules, ledger, round_record, brief, target, [decision]).technical_package
     handoff = technical.payload["document"]["operational_handoff"]
 
     assert set(handoff) == {"observability", "rollout", "rollback"}

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "case_id": "strategy-handoff-black-box-v1",
+  "hosts": ["codex", "claude-code", "hermes"],
+  "unavailable_hosts": [],
+  "projection": {
+    "schema_version": 1,
+    "projection_id": "projection-fixture",
+    "run_id": "run-fixture",
+    "current_understanding": "Validate one requester decision before research.",
+    "decision_targets": ["decision-1"],
+    "depth": "deep",
+    "status": "displayed"
+  },
+  "expected_digest": "82e201319432ad89994bcd2e76496f1bff71a450f21a3096a0d484958ff77c19"
+}
