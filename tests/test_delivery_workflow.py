@@ -291,6 +291,50 @@ def test_release_promotion_targets_master_and_is_derived_from_dev() -> None:
     assert "release_contains_unintegrated_commits" in extra_commits.errors
 
 
+def test_integration_promotion_allows_dev_to_master_without_rechecking_history() -> None:
+    policy = load_delivery_policy(POLICY_PATH)
+    promotion = evaluate_pull_request(
+        policy=policy,
+        base_branch="master",
+        head_branch="dev",
+        title="release: 0.0.1-a2",
+        body="Promote the integrated development branch.",
+        changed_files=[
+            *(f"src/file_{index}.py" for index in range(51)),
+            "packages/codex/research-tree/SKILL.md",
+        ],
+        non_generated_lines=1501,
+        commit_file_sets=[
+            {
+                "src/file_0.py",
+                "packages/codex/research-tree/SKILL.md",
+            }
+        ],
+        added_files=[
+            "openspec/changes/example/evidence/future-evidence-gaps.json"
+        ],
+    )
+
+    assert promotion.passed is True
+
+
+def test_only_dev_can_use_the_integration_promotion_path() -> None:
+    policy = load_delivery_policy(POLICY_PATH)
+    non_integration = evaluate_pull_request(
+        policy=policy,
+        base_branch="master",
+        head_branch="release-candidate",
+        title="release: 0.0.1-a2",
+        body="Promote an unrelated branch.",
+        changed_files=["CHANGELOG.md"],
+        non_generated_lines=10,
+        commit_file_sets=[{"CHANGELOG.md"}],
+    )
+
+    assert "invalid_base_branch" in non_integration.errors
+    assert "missing_delivery_issue" in non_integration.errors
+
+
 def test_review_threshold_warns_and_approved_exception_allows_hard_limit() -> None:
     policy = load_delivery_policy(POLICY_PATH)
     split = evaluate_pull_request(
