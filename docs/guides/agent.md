@@ -27,18 +27,18 @@ downstream action.
 | Agent task | Load first | Load only if needed |
 | --- | --- | --- |
 | Use the installed Skill | The host package entry point | Bundled references named by that entry point |
-| Explain the product | This guide and [README](../README.md) | Relevant sections of [PRODUCT.md](../PRODUCT.md) |
+| Explain the product | This guide and [README](../../README.md) | Relevant sections of [PRODUCT.md](../../PRODUCT.md) |
 | Continue a research run | Durable run status, latest working brief, active decision map | Prior findings that remain reachable from the current revision |
 | Plan an implementation | Technical Research Package | Selected ADRs, active OpenSpec change, repository code and tests |
-| Review product behavior | [PRODUCT.md](../PRODUCT.md) | Current source, tests, receipts, and selected ADRs |
-| Modify the Skill | [Development workflow](development-workflow.md) | Canonical source under <code>skill-src/</code>, <code>assets/</code>, <code>references/</code>, <code>scripts/</code>, or <code>src/</code> |
+| Review product behavior | [PRODUCT.md](../../PRODUCT.md) | Current source, tests, receipts, and selected ADRs |
+| Modify the Skill | [Development workflow](../contributing/development-workflow.md) | Canonical source under <code>skill-src/</code>, <code>assets/</code>, <code>references/</code>, <code>scripts/</code>, or <code>src/</code> |
 
 Do not load all historical specifications, all OpenSpec changes, or all
 generated packages. More context is not automatically better context.
 
 ## Authority Rules
 
-Use [documentation authority](documentation-authority.md) when two sources
+Use [documentation authority](../governance/documentation-authority.md) when two sources
 conflict.
 
 - <code>PRODUCT.md</code> defines accepted product behavior.
@@ -162,6 +162,6 @@ uv run --frozen research-tree verify \
   --project-id example --run-id example-001
 ~~~
 
-Use the [operator guide](operator-guide.md) for installation and host-specific
+Use the [operator guide](operator.md) for installation and host-specific
 diagnostics. Use [typical research journeys](use-cases.md) for complete
 examples.

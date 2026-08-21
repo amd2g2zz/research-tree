@@ -9,7 +9,7 @@ GitHub defaults new pull requests to `master`. That does not make `master` a
 valid base for ordinary Alpha2 work; explicitly change the base to `dev`.
 
 Before changing documentation, consult the
-[documentation authority model](documentation-authority.md). Edit the listed
+[documentation authority model](../governance/documentation-authority.md). Edit the listed
 canonical authoring source, not a generated package or historical record, and
 run `uv run python scripts/check_docs.py` with the normal delivery checks.
 
@@ -40,7 +40,7 @@ remote metadata. It never stashes, resets, deletes, or repairs the worktree.
 
 ## Repository Layout And Clean Checkout
 
-The [repository path registry](../openspec/changes/unify-research-runtime-alpha2/registries/repository-paths-v1.json) is the authority for sources, generated distributions, local installations, and runtime or operator-managed material. Edit `skill-src/`, `assets/`, `references/`, and `scripts/`; regenerate and check `packages/` and `.claude-plugin/` rather than editing generated files.
+The [repository path registry](../../openspec/changes/unify-research-runtime-alpha2/registries/repository-paths-v1.json) is the authority for sources, generated distributions, local installations, and runtime or operator-managed material. Edit `skill-src/`, `assets/`, `references/`, and `scripts/`; regenerate and check `packages/` and `.claude-plugin/` rather than editing generated files.
 
 Repository-local `.agents/`, `.claude/`, `.codex/`, `.research-tree*/`, raw material, research runs, build output, and caches remain ignored protected material. The layout checker only classifies and reports them.
 

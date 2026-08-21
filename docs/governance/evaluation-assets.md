@@ -25,11 +25,11 @@ or write generated output into `evaluation/`.
 ## Research Evaluation Design
 
 Issue #268's design and handoff reports are maintained under
-[`docs/research/`](research/issue-268-comprehensive-evaluation-design.md):
+[`docs/evaluation/research/`](../evaluation/research/issue-268-comprehensive-evaluation-design.md):
 
-- [comprehensive evaluation design](research/issue-268-comprehensive-evaluation-design.md)
-- [Technical Research Package](research/issue-268-technical-research-package.md)
-- [Human Research Report](research/issue-268-human-research-report.md)
+- [comprehensive evaluation design](../evaluation/research/issue-268-comprehensive-evaluation-design.md)
+- [Technical Research Package](../evaluation/research/issue-268-technical-research-package.md)
+- [Human Research Report](../evaluation/research/issue-268-human-research-report.md)
 
 These documents define the baseline, task clusters, hidden holdouts, paired
 statistics, hard integrity gates, and execution boundary. They are design

@@ -2,7 +2,7 @@
 
 This guide covers installation, host configuration, lifecycle commands, and
 diagnostics. It is for operators and integrating agents; most requesters only
-need the [README](../README.md).
+need the [README](../../README.md).
 
 ## Environment
 
@@ -141,5 +141,5 @@ uv run --frozen pytest -q
 ~~~
 
 Edit canonical sources rather than generated host packages. See
-[Documentation authority](documentation-authority.md) and
-[Development workflow](development-workflow.md).
+[Documentation authority](../governance/documentation-authority.md) and
+[Development workflow](../contributing/development-workflow.md).

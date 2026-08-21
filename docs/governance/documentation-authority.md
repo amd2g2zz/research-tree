@@ -1,11 +1,11 @@
 # Documentation Authority
 
-Start at the [Documentation hub](README.md). It routes requesters, AI agents,
+Start at the [Documentation hub](../README.md). It routes requesters, AI agents,
 operators, contributors, and evaluators to the smallest relevant set of active
 documents.
 
 The machine-readable authority index is
-[`documentation-authority-v1.json`](../openspec/changes/unify-research-runtime-alpha2/registries/documentation-authority-v1.json).
+[`documentation-authority-v1.json`](../../openspec/changes/unify-research-runtime-alpha2/registries/documentation-authority-v1.json).
 It is the canonical inventory for each governed document root: its authority,
 owner, audience, lifecycle, canonical edit location, update trigger,
 supersession rule, and validation rule.

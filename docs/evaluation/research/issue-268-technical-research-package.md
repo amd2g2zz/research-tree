@@ -1,5 +1,7 @@
 # Technical Research Package: issue-268-evaluation
 
+This active evaluation package is indexed from [evaluation documentation](../README.md).
+
 ## Round, Context, And Current Scope
 
 - Round: `issue-268-evaluation`, revision `1`
@@ -73,7 +75,7 @@ nine-cell receipts are absent.
 ## Recommended Design
 
 The detailed contract is in
-`docs/research/issue-268-comprehensive-evaluation-design.md`. The essential
+`docs/evaluation/research/issue-268-comprehensive-evaluation-design.md`. The essential
 interfaces are:
 
 - a sealed manifest binding arm, host, model, runtime, corpus, seed, command,

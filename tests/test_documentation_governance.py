@@ -57,6 +57,47 @@ def test_repository_registry_covers_documentation_classes_and_checker_passes() -
     assert checker().validate_repository(ROOT, REGISTRY)["errors"] == []
 
 
+def test_active_documentation_is_grouped_by_audience_and_history_is_stable() -> None:
+    registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+    entries = {item["path"]: item for item in registry["entries"]}
+
+    assert {
+        "docs/guides/",
+        "docs/contributing/",
+        "docs/governance/",
+        "docs/architecture/",
+        "docs/evaluation/",
+        "docs/history/",
+    } <= set(entries)
+    assert entries["docs/history/"]["class"] == "historical"
+    assert entries["docs/history/"]["lifecycle"] == "active"
+    assert {
+        "docs/guides/agent.md",
+        "docs/guides/operator.md",
+        "docs/guides/use-cases.md",
+        "docs/contributing/development-workflow.md",
+        "docs/governance/documentation-authority.md",
+        "docs/governance/evaluation-assets.md",
+        "docs/evaluation/research/",
+    } <= set(entries)
+    assert not any(
+        (ROOT / path).exists()
+        for path in (
+            "docs/agent-guide.md",
+            "docs/operator-guide.md",
+            "docs/use-cases.md",
+            "docs/development-workflow.md",
+            "docs/documentation-authority.md",
+            "docs/evaluation-assets.md",
+            "docs/research",
+        )
+    )
+    assert (ROOT / "docs/specs").is_dir()
+    assert (ROOT / "docs/reviews").is_dir()
+    assert (ROOT / "docs/需求理解.md").is_file()
+    assert (ROOT / "docs/方案设计.md").is_file()
+
+
 def test_checker_rejects_active_legacy_term_broken_link_and_unregistered_document(tmp_path: Path) -> None:
     (tmp_path / "PRODUCT.md").write_text("[missing](missing.md)\nHuman Brief\n", encoding="utf-8")
     (tmp_path / "notes.md").write_text("orphan\n", encoding="utf-8")
