@@ -38,6 +38,31 @@ def test_claude_code_plugin_registration_manifests_are_present() -> None:
     assert entry["version"] == plugin_data["version"] == marketplace_data["version"]
 
 
+def test_claude_plugin_metadata_describes_cross_domain_research() -> None:
+    source_plugin = json.loads((ROOT / "skill-src" / "claude-plugin.json").read_text(encoding="utf-8"))
+    source_marketplace = json.loads((ROOT / "skill-src" / "claude-marketplace.json").read_text(encoding="utf-8"))
+    package_plugin = json.loads(
+        (ROOT / "packages" / "claude-code" / "research-tree" / ".claude-plugin" / "plugin.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    marketplace = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+    package_entry = next(item for item in marketplace["plugins"] if item["name"] == "research-tree")
+
+    descriptions = (
+        source_plugin["description"],
+        source_marketplace["description"],
+        source_marketplace["plugins"][0]["description"],
+        package_plugin["description"],
+        marketplace["description"],
+        package_entry["description"],
+    )
+    assert all("implementation-ready" not in description.lower() for description in descriptions)
+    assert "research and decision" in source_plugin["description"].lower()
+    assert "questions, sources, systems, and constraints" in source_marketplace["description"].lower()
+    assert {"research", "evidence", "decision-support", "agent-workflows"} <= set(source_plugin["keywords"])
+
+
 def test_checked_in_host_packages_are_current_and_isolated() -> None:
     completed = subprocess.run(
         [sys.executable, str(BUILDER), "--check"],
