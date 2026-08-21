@@ -380,8 +380,10 @@ def test_status_reports_existing_non_current_targets_as_unsupported(tmp_path: Pa
     assert statuses["codex"]["activation_state"] == "discovered"
     assert statuses["codex"]["live_activation"] == "unproven"
     assert statuses["claude"]["status"] == "conflict"
-    assert statuses["hermes"]["status"] == "current"
-    assert statuses["hermes"]["activation_state"] == "static_ready"
+    assert statuses["hermes"]["skill_status"] == "current"
+    assert statuses["hermes"]["hook_status"] == "missing"
+    assert statuses["hermes"]["status"] == "missing"
+    assert statuses["hermes"]["activation_state"] == "discovered"
 
     assert codex_target.resolve() == stale_source.resolve()
     assert (conflict / "SKILL.md").read_text(encoding="utf-8") == "user-owned"

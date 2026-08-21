@@ -186,9 +186,9 @@ required evidence and review.
 | **Interrupted work** | Unknown outcomes stay unknown; retries use new attempts rather than silently reusing a stopped worker. |
 | **Review** | Completion is gated by the canonical coordinator and independent evidence, not a host task label alone. |
 
-Optional lifecycle hooks and debug traces are available for operators, but they
-are not installed or enabled by default. See [hooks](#optional-lifecycle-hooks)
-and [debugging](#debug-tracing) below.
+Setup-managed lifecycle hooks and optional debug traces are available for
+operators. See [hooks](#setup-managed-lifecycle-hooks) and
+[debugging](#debug-tracing) below.
 
 ## Installation Details
 
@@ -212,12 +212,14 @@ uv run --frozen research-tree-setup status --host claude --source .
 The host packages are isolated and not interchangeable. Do not install the
 repository root or copy a package for one host into another host's Skill path.
 
-## Optional Lifecycle Hooks
+## Setup-Managed Lifecycle Hooks
 
 Hooks record only sanitized lifecycle metadata such as the host, event name,
 timestamp, workspace, and bounded host identifiers. They never record prompts,
-model responses, tool inputs, or environment variables. Enable them only after
-reviewing the host-specific template:
+model responses, tool inputs, or environment variables. The
+`research-tree-setup install` command deploys them into the selected host's
+global configuration while
+preserving unrelated entries:
 
 | Host | Template | Configuration target |
 | --- | --- | --- |
@@ -225,9 +227,11 @@ reviewing the host-specific template:
 | Claude Code | `hooks/claude-code.settings.template.json` | `.claude/settings.json` |
 | Hermes Agent | `hooks/hermes.config.template.yaml` | `~/.hermes/config.yaml` |
 
-Hook commands must run from this checkout through `uv` so they use the
-repository-managed environment. They fail open and do not block an agent
-session.
+Codex and Claude hook commands run from this checkout through `uv` so they use
+the repository-managed environment. Hermes uses its dependency-free installed
+runtime hook. All three fail open and do not block an agent session. When no
+Research Tree project/run binding is active, the global hook exits without
+creating or changing Research Tree state.
 
 ## Debug Tracing
 

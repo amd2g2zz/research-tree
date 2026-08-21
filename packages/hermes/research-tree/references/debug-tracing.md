@@ -50,9 +50,9 @@ Do not enable a lifecycle hook merely to collect ordinary research logs.
 
 ## Lifecycle hook debug mode
 
-The optional lifecycle hook can also emit a `lifecycle_observed` event for each
-host start/stop event. Add `--debug` to its existing command only while
-diagnosing hook setup, for example:
+The setup-managed lifecycle hook can also emit a `lifecycle_observed` event for
+each active Research Tree host start/stop event. Add `--debug` to its existing
+command only while diagnosing hook setup, for example:
 
 ```bash
 uv run --locked research-tree-hook --host claude --event SessionStart --debug
