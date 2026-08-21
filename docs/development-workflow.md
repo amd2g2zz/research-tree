@@ -74,10 +74,15 @@ commit.
 
 ## Promote A Release
 
-Create `release/<version>` at the current `dev` revision and target `master`.
-The gate rejects a release branch that is not derived from `dev` or contains
-commits that have not already entered `dev`. Release PRs promote integrated
-work; they are not a path for feature delivery to bypass `dev`.
+Open a pull request from the current `dev` branch to `master`. The head must be
+exactly `dev`; feature branches and release candidates cannot use this
+promotion path. All changes must already have entered `dev` through their
+issue-scoped pull requests.
+
+The delivery gate treats `dev` to `master` as an integration promotion. It
+does not reapply per-feature issue, size, or generated-output checks to the
+already reviewed history. After the pull request merges, create the version
+tag and GitHub Release from the resulting `master` commit.
 
 ## Review Cleanup
 
