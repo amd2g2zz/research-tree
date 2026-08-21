@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Research Tree workflow</title>
+  <desc id="desc">A question, repository, sources, and logs flow through alignment and evidence-backed research into a Technical Research Package and Human Research Report.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#071525"/>
+      <stop offset="1" stop-color="#162b44"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" x2="1">
+      <stop offset="0" stop-color="#47d7ac"/>
+      <stop offset="1" stop-color="#55a9ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#020814" flood-opacity=".42"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#background)" rx="28"/>
+  <circle cx="1040" cy="72" r="190" fill="#55a9ff" opacity=".08"/>
+  <circle cx="152" cy="578" r="220" fill="#47d7ac" opacity=".07"/>
+  <text x="74" y="88" fill="#f7fbff" font-family="Arial, Helvetica, sans-serif" font-size="40" font-weight="700">Research Tree</text>
+  <text x="74" y="126" fill="#b9c9da" font-family="Arial, Helvetica, sans-serif" font-size="21">From incomplete context to a decision-ready technical direction</text>
+  <g filter="url(#shadow)" font-family="Arial, Helvetica, sans-serif">
+    <rect x="74" y="205" width="230" height="224" rx="20" fill="#10243a" stroke="#335571"/>
+    <text x="104" y="254" fill="#8dc8ff" font-size="18" font-weight="700">START WITH</text>
+    <text x="104" y="302" fill="#f7fbff" font-size="28" font-weight="700">Your context</text>
+    <text x="104" y="345" fill="#d1deea" font-size="18">Question</text>
+    <text x="104" y="376" fill="#d1deea" font-size="18">Repository · sources</text>
+    <text x="104" y="407" fill="#d1deea" font-size="18">Logs · constraints</text>
+    <rect x="353" y="205" width="294" height="224" rx="20" fill="#0d3040" stroke="#3b806f"/>
+    <text x="384" y="254" fill="#77f0c7" font-size="18" font-weight="700">RESEARCH TREE</text>
+    <text x="384" y="302" fill="#f7fbff" font-size="28" font-weight="700">Align, investigate,</text>
+    <text x="384" y="337" fill="#f7fbff" font-size="28" font-weight="700">verify, recover</text>
+    <text x="384" y="382" fill="#d1ede5" font-size="18">Evidence stays traceable</text>
+    <text x="384" y="411" fill="#d1ede5" font-size="18">Scope stays explicit</text>
+    <rect x="696" y="175" width="420" height="126" rx="20" fill="#1c2a52" stroke="#6188c4"/>
+    <text x="728" y="222" fill="#a9c7ff" font-size="18" font-weight="700">FOR IMPLEMENTATION</text>
+    <text x="728" y="267" fill="#f7fbff" font-size="27" font-weight="700">Technical Research Package</text>
+    <rect x="696" y="333" width="420" height="126" rx="20" fill="#24314e" stroke="#7f88bb"/>
+    <text x="728" y="380" fill="#d2c9ff" font-size="18" font-weight="700">FOR PEOPLE</text>
+    <text x="728" y="425" fill="#f7fbff" font-size="27" font-weight="700">Human Research Report</text>
+  </g>
+  <path d="M304 317 H337" stroke="url(#accent)" stroke-width="8" stroke-linecap="round"/>
+  <path d="M337 317 l-16 -12 M337 317 l-16 12" stroke="#55a9ff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M647 317 H675 V238 H680" fill="none" stroke="url(#accent)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M680 238 l-16 -12 M680 238 l-16 12" stroke="#55a9ff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M647 317 H675 V396 H680" fill="none" stroke="url(#accent)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M680 396 l-16 -12 M680 396 l-16 12" stroke="#55a9ff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="74" y="519" width="1042" height="2" fill="#477292" opacity=".6"/>
+  <text x="74" y="563" fill="#b9c9da" font-family="Arial, Helvetica, sans-serif" font-size="19">Available as a Skill for Codex, Claude Code, and Hermes Agent</text>
+  <text x="1116" y="563" fill="#77f0c7" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="700" text-anchor="end">Evidence before confidence</text>
+</svg>
