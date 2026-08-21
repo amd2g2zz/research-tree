@@ -1,5 +1,7 @@
 # Typical Research Journeys
 
+Use this guide after the [documentation hub](../README.md) identifies a research task worth structuring.
+
 Research Tree is useful when the hard part is building enough shared knowledge
 to make a defensible decision. The final action may be implementation,
 procurement, policy, experimentation, migration, or a deliberate decision not

@@ -13,7 +13,7 @@ traceable findings, explicit decisions, and handoff-ready research.
 [![License](https://img.shields.io/github/license/amd2g2zz/research-tree?style=flat-square)](LICENSE)
 
 [Quick start](#quick-start) · [Typical cases](#typical-research-cases) ·
-[For agents](docs/agent-guide.md) · [Documentation](docs/README.md)
+[For agents](docs/guides/agent.md) · [Documentation](docs/README.md)
 
 </div>
 
@@ -52,7 +52,7 @@ report, or a long source list does not automatically count as completion.
 | **Tool or vendor selection** — “Which search stack fits our data, privacy, and operating budget?” | Evaluation criteria, source-backed capability matrix, lock-in and migration risks, proof-of-concept evidence. | A recommendation with confidence, decision conditions, and an exit strategy. |
 | **Risky migration planning** — “How can we move this workflow without losing authority or recoverability?” | Current-state map, invariants, dependency graph, failure modes, rollout and rollback evidence. | A staged migration plan with gates, ownership, observability, and stop conditions. |
 
-See [Typical research journeys](docs/use-cases.md) for complete prompts,
+See [Typical research journeys](docs/guides/use-cases.md) for complete prompts,
 knowledge-flow diagrams, expected artifacts, and examples that do not assume
 the final action is code.
 
@@ -97,7 +97,7 @@ Setup installs the selected Skill and its global lifecycle hooks. The hooks
 remain inert unless a Research Tree project/run binding is active. The status
 command verifies both the payload digest and setup-managed hook state. For copy
 installs, host-specific configuration, lifecycle diagnostics, and safe update
-guidance, see the [operator guide](docs/operator-guide.md).
+guidance, see the [operator guide](docs/guides/operator.md).
 
 ### 3. Ask a consequential question
 
@@ -146,10 +146,10 @@ the decision map; it does not get buried in a final narrative.
 
 | You are... | Start here |
 | --- | --- |
-| **A requester or decision owner** | Read the [typical cases](docs/use-cases.md), then start with a real question. |
-| **An AI agent using the Skill** | Use the [Agent guide](docs/agent-guide.md) to load the minimum authoritative context and avoid historical or generated sources. |
-| **An operator installing or diagnosing hosts** | Use the [Operator guide](docs/operator-guide.md) for install, doctor, lifecycle, hooks, and debug commands. |
-| **A contributor or reviewer** | Use the [Documentation hub](docs/README.md), [product specification](PRODUCT.md), and [development workflow](docs/development-workflow.md). |
+| **A requester or decision owner** | Read the [typical cases](docs/guides/use-cases.md), then start with a real question. |
+| **An AI agent using the Skill** | Use the [Agent guide](docs/guides/agent.md) to load the minimum authoritative context and avoid historical or generated sources. |
+| **An operator installing or diagnosing hosts** | Use the [Operator guide](docs/guides/operator.md) for install, doctor, lifecycle, hooks, and debug commands. |
+| **A contributor or reviewer** | Use the [Documentation hub](docs/README.md), [product specification](PRODUCT.md), and [development workflow](docs/contributing/development-workflow.md). |
 
 ## Supported Hosts
 
@@ -214,15 +214,15 @@ not implied by a successful installation or local test run.
 The [Documentation hub](docs/README.md) separates active guidance from
 architecture decisions, historical specifications, evaluation material, and
 generated host packages. Agents should begin with the
-[Agent guide](docs/agent-guide.md), not recursively load the entire repository.
+[Agent guide](docs/guides/agent.md), not recursively load the entire repository.
 
 - [Product specification](PRODUCT.md)
-- [Typical research journeys](docs/use-cases.md)
-- [Agent guide](docs/agent-guide.md)
-- [Operator guide](docs/operator-guide.md)
+- [Typical research journeys](docs/guides/use-cases.md)
+- [Agent guide](docs/guides/agent.md)
+- [Operator guide](docs/guides/operator.md)
 - [Architecture decisions](docs/adr/)
-- [Development workflow](docs/development-workflow.md)
-- [Documentation authority](docs/documentation-authority.md)
+- [Development workflow](docs/contributing/development-workflow.md)
+- [Documentation authority](docs/governance/documentation-authority.md)
 
 To develop the Skill, edit canonical sources under <code>skill-src/</code>,
 <code>assets/</code>, <code>references/</code>, <code>scripts/</code>, or

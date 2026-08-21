@@ -1,5 +1,7 @@
 # Human Research Report: issue-268-evaluation
 
+This active evaluation report is indexed from [evaluation documentation](../README.md).
+
 ## What We Now Understand
 
 The project does not need one larger score. It needs a controlled comparison
