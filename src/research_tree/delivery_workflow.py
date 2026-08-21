@@ -445,6 +445,10 @@ def evaluate_pull_request(
     errors: list[str] = []
     warnings: list[str] = []
     is_release = re.fullmatch(policy.release_branch_pattern, head_branch) is not None
+    is_integration_promotion = (
+        head_branch == policy.integration_branch
+        and base_branch == policy.release_branch
+    )
     if is_release:
         if base_branch != policy.release_branch:
             errors.append("invalid_release_base")
@@ -452,7 +456,7 @@ def evaluate_pull_request(
             errors.append("release_not_derived_from_dev")
         if release_has_unintegrated_commits is not False:
             errors.append("release_contains_unintegrated_commits")
-    elif base_branch != policy.integration_branch:
+    elif not is_integration_promotion and base_branch != policy.integration_branch:
         errors.append("invalid_base_branch")
 
     branch_issue = _branch_issue(policy, head_branch)
@@ -460,7 +464,7 @@ def evaluate_pull_request(
         int(match.group("issue"))
         for match in re.finditer(policy.delivery_issue_pattern, body)
     }
-    if not is_release:
+    if not is_release and not is_integration_promotion:
         if len(issue_ids) > 1:
             errors.append("multiple_delivery_issues")
         elif len(issue_ids) == 0:
@@ -474,16 +478,16 @@ def evaluate_pull_request(
     new_generated_verification_records = sorted(
         {path for path in added_files if _matches_any(path, policy.ephemeral_verification_paths)}
     )
-    if new_generated_verification_records:
+    if new_generated_verification_records and not is_integration_promotion:
         errors.append("generated_verification_record_tracked")
     non_generated = set(changed_files) - generated
     file_count = len(non_generated)
-    if (
+    if not is_integration_promotion and (
         file_count > policy.hard_limit.files
         or non_generated_lines > policy.hard_limit.non_generated_lines
     ) and not approved_exception:
         errors.append("hard_review_limit_exceeded")
-    elif (
+    elif not is_integration_promotion and (
         file_count > policy.split_review.files
         or non_generated_lines > policy.split_review.non_generated_lines
     ):
@@ -493,15 +497,16 @@ def evaluate_pull_request(
         _matches_any(path, policy.canonical_generation_inputs)
         for path in non_generated
     )
-    if generated and not canonical_changed:
+    if generated and not canonical_changed and not is_integration_promotion:
         errors.append("generated_output_without_source_change")
-    for commit_paths in commit_file_sets:
-        commit_generated = {
-            path for path in commit_paths if _matches_any(path, policy.generated_paths)
-        }
-        if commit_generated and commit_generated != commit_paths:
-            errors.append("generated_output_mixed_with_source_commit")
-            break
+    if not is_integration_promotion:
+        for commit_paths in commit_file_sets:
+            commit_generated = {
+                path for path in commit_paths if _matches_any(path, policy.generated_paths)
+            }
+            if commit_generated and commit_generated != commit_paths:
+                errors.append("generated_output_mixed_with_source_commit")
+                break
 
     return PullRequestResult(
         passed=not errors,
