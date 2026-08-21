@@ -1,7 +1,7 @@
 {
   "name": "research-tree",
   "version": "0.1.0",
-  "description": "Evidence-driven technical research that turns ambiguous requests into implementation-ready decisions.",
+  "description": "Turn unclear technical context into evidence-backed, implementation-ready decisions.",
   "author": {
     "name": "research-tree maintainers"
   },
