@@ -65,7 +65,12 @@ def test_observe_rejects_reported_workspace_outside_project(tmp_path: Path) -> N
 
     with pytest.raises(LifecycleHookError, match="reported cwd"):
         observe(
-            {"cwd": str(outside), "hook_event_name": "SessionStart"},
+            {
+                "cwd": str(outside),
+                "hook_event_name": "SessionStart",
+                "project_id": "topic-1",
+                "run_id": "run-1",
+            },
             host="claude",
             event="SessionStart",
             project_root=root,
@@ -118,8 +123,10 @@ def test_hermes_session_event_and_response(tmp_path: Path) -> None:
     assert host_response("codex") == {"continue": True}
 
 
-def test_unbound_hook_is_non_persistent(tmp_path: Path) -> None:
+def test_unbound_hook_is_non_persistent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = project(tmp_path)
+    monkeypatch.delenv("RESEARCH_TREE_PROJECT_ID", raising=False)
+    monkeypatch.delenv("RESEARCH_TREE_RUN_ID", raising=False)
 
     result = observe(
         {"cwd": str(root), "hook_event_name": "SessionStart"},
@@ -129,8 +136,31 @@ def test_unbound_hook_is_non_persistent(tmp_path: Path) -> None:
         process_cwd=root,
     )
 
-    assert result["status"] == "unbound"
+    assert result["status"] == "skipped_inactive"
     assert not (root / ".research-tree-hooks").exists()
+
+
+def test_global_hook_uses_explicit_environment_activation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = project(tmp_path)
+    project_run(root)
+    monkeypatch.setenv("RESEARCH_TREE_PROJECT_ID", "topic-1")
+    monkeypatch.setenv("RESEARCH_TREE_RUN_ID", "run-1")
+
+    result = observe(
+        {"cwd": str(root), "hook_event_name": "SessionStart"},
+        host="codex",
+        event="SessionStart",
+        project_root=root,
+        process_cwd=root,
+    )
+
+    assert result["status"] == "recorded"
+    record = json.loads((root / result["path"]).read_text(encoding="utf-8"))
+    assert record["project_id"] == "topic-1"
+    assert record["run_id"] == "run-1"
 
 
 def test_debug_hook_emits_a_sanitized_trace_without_changing_response(tmp_path: Path) -> None:

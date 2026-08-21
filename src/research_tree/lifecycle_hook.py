@@ -155,6 +155,14 @@ def observe(
     if event == "Stop" and payload.get("stop_hook_active") is True:
         return {"status": "skipped_reentrant_stop", "host": host, "event": event}
 
+    project_id = payload.get("project_id")
+    run_id = payload.get("run_id")
+    if project_id is None and run_id is None:
+        project_id = os.environ.get("RESEARCH_TREE_PROJECT_ID")
+        run_id = os.environ.get("RESEARCH_TREE_RUN_ID")
+    if project_id is None and run_id is None:
+        return {"status": "skipped_inactive", "host": host, "event": event}
+
     root, workspace = validate_workspace(payload, project_root=project_root, process_cwd=process_cwd)
     record: dict[str, Any] = {
         "schema": 1,
@@ -205,10 +213,6 @@ def observe(
         if agent_id is not None:
             record["agent_id"] = agent_id
         record["binding_status"] = "candidate" if agent_id is not None else "unknown_outcome"
-    project_id = payload.get("project_id")
-    run_id = payload.get("run_id")
-    if project_id is None and run_id is None:
-        return {"status": "unbound", "host": host, "event": event}
     if (
         not isinstance(project_id, str)
         or not isinstance(run_id, str)
