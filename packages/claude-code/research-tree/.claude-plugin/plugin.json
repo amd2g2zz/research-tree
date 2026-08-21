@@ -1,7 +1,7 @@
 {
   "name": "research-tree",
   "version": "0.1.0a2",
-  "description": "Turn unclear technical context into evidence-backed, implementation-ready decisions.",
+  "description": "Turn uncertain context into evidence-backed research and decision-ready handoffs.",
   "author": {
     "name": "research-tree maintainers"
   },
@@ -9,8 +9,8 @@
   "repository": "https://github.com/amd2g2zz/research-tree",
   "keywords": [
     "research",
-    "technical-research",
     "evidence",
-    "decision-support"
+    "decision-support",
+    "agent-workflows"
   ]
 }
