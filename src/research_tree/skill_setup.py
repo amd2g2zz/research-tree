@@ -16,6 +16,7 @@ import sys
 from typing import Iterable, Sequence
 
 from .skill_activation import package_digests
+from .setup_hooks import SetupHookError, install_setup_hooks, plan_setup_hooks, setup_hook_status
 
 
 SKILL_NAME = "research-tree"
@@ -370,6 +371,17 @@ def install_skill(
         details = ", ".join(f"{host}={statuses[host]}:{targets[host]}" for host in conflicts)
         raise SkillSetupError("refusing to modify conflicting user-owned skill installation(s): " + details)
 
+    try:
+        hook_plans = plan_setup_hooks(
+            ordered_hosts,
+            repository=repository,
+            home=home,
+            codex_home=codex_home,
+            targets=targets,
+        )
+    except (OSError, SetupHookError) as exc:
+        raise SkillSetupError(str(exc)) from exc
+
     results: list[dict[str, str]] = []
     created: list[Path] = []
     try:
@@ -396,7 +408,8 @@ def install_skill(
                     "payload_files": [item.as_posix() for item in payloads[host]],
                 }
             )
-    except (OSError, SkillSetupError) as exc:
+        hooks = install_setup_hooks(hook_plans, dry_run=dry_run)
+    except (OSError, SkillSetupError, SetupHookError) as exc:
         for target in reversed(created):
             _remove_created_target(target, mode)
         if isinstance(exc, SkillSetupError):
@@ -409,6 +422,7 @@ def install_skill(
         "mode": mode,
         "dry_run": dry_run,
         "installations": results,
+        "hooks": hooks,
     }
 
 
@@ -437,6 +451,15 @@ def skill_status(
             )
         )
         status, reason, source_digest, target_digest = _installation_status_detail(target, skill_source)
+        hook = setup_hook_status(
+            host,
+            repository=repository,
+            home=home,
+            codex_home=codex_home,
+            target=target,
+        )
+        overall_status = status if status != "current" else hook["status"]
+        overall_reason = reason if status != "current" or hook["status"] == "current" else hook["reason"]
         installations.append(
             {
                 "host": host,
@@ -444,11 +467,16 @@ def skill_status(
                 "target": str(target),
                 "package": str(package),
                 "skill_source": str(skill_source),
-                "status": status,
-                "reason": reason,
+                "status": overall_status,
+                "reason": overall_reason,
+                "skill_status": status,
+                "skill_reason": reason,
+                "hook_status": hook["status"],
+                "hook_reason": hook["reason"],
+                "hook_config": hook["config"],
                 "source_payload_digest": source_digest,
                 "target_payload_digest": target_digest,
-                "activation_state": "static_ready" if status == "current" else "discovered",
+                "activation_state": "static_ready" if overall_status == "current" else "discovered",
                 "live_activation": "unproven",
                 "discovery": HOST_LAYOUTS[host].discovery,
             }

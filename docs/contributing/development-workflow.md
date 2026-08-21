@@ -9,7 +9,7 @@ GitHub defaults new pull requests to `master`. That does not make `master` a
 valid base for ordinary Alpha2 work; explicitly change the base to `dev`.
 
 Before changing documentation, consult the
-[documentation authority model](documentation-authority.md). Edit the listed
+[documentation authority model](../governance/documentation-authority.md). Edit the listed
 canonical authoring source, not a generated package or historical record, and
 run `uv run python scripts/check_docs.py` with the normal delivery checks.
 
@@ -40,7 +40,7 @@ remote metadata. It never stashes, resets, deletes, or repairs the worktree.
 
 ## Repository Layout And Clean Checkout
 
-The [repository path registry](../openspec/changes/unify-research-runtime-alpha2/registries/repository-paths-v1.json) is the authority for sources, generated distributions, local installations, and runtime or operator-managed material. Edit `skill-src/`, `assets/`, `references/`, and `scripts/`; regenerate and check `packages/` and `.claude-plugin/` rather than editing generated files.
+The [repository path registry](../../openspec/changes/unify-research-runtime-alpha2/registries/repository-paths-v1.json) is the authority for sources, generated distributions, local installations, and runtime or operator-managed material. Edit `skill-src/`, `assets/`, `references/`, and `scripts/`; regenerate and check `packages/` and `.claude-plugin/` rather than editing generated files.
 
 Repository-local `.agents/`, `.claude/`, `.codex/`, `.research-tree*/`, raw material, research runs, build output, and caches remain ignored protected material. The layout checker only classifies and reports them.
 
@@ -74,10 +74,15 @@ commit.
 
 ## Promote A Release
 
-Create `release/<version>` at the current `dev` revision and target `master`.
-The gate rejects a release branch that is not derived from `dev` or contains
-commits that have not already entered `dev`. Release PRs promote integrated
-work; they are not a path for feature delivery to bypass `dev`.
+Open a pull request from the current `dev` branch to `master`. The head must be
+exactly `dev`; feature branches and release candidates cannot use this
+promotion path. All changes must already have entered `dev` through their
+issue-scoped pull requests.
+
+The delivery gate treats `dev` to `master` as an integration promotion. It
+does not reapply per-feature issue, size, or generated-output checks to the
+already reviewed history. After the pull request merges, create the version
+tag and GitHub Release from the resulting `master` commit.
 
 ## Review Cleanup
 

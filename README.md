@@ -1,277 +1,235 @@
 # Research Tree
 
-**Turn an unclear technical problem into a research-backed implementation plan.**
+<div align="center">
 
-Research Tree is an agent Skill for **Codex**, **Claude Code**, and **Hermes
-Agent**. Give it a question, repository, links, logs, or prior notes. It
-investigates the context with you, confirms the important boundaries, then
-performs autonomous technical research and returns two deliverables that a
-human and an implementation agent can act on.
+**Evidence-driven research and decision workflows for AI agents.**
 
-![Research Tree turns context into two decision-ready reports.](docs/images/research-tree-overview.svg)
+Turn an uncertain question, mixed source material, or a changing brief into
+traceable findings, explicit decisions, and handoff-ready research.
+
+[![Release](https://img.shields.io/github/v/release/amd2g2zz/research-tree?include_prereleases&style=flat-square)](https://github.com/amd2g2zz/research-tree/releases)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
+[![Hosts](https://img.shields.io/badge/hosts-Codex%20%7C%20Claude%20Code%20%7C%20Hermes-635BFF?style=flat-square)](#supported-hosts)
+[![License](https://img.shields.io/github/license/amd2g2zz/research-tree?style=flat-square)](LICENSE)
+
+[Quick start](#quick-start) · [Typical cases](#typical-research-cases) ·
+[For agents](docs/guides/agent.md) · [Documentation](docs/README.md)
+
+</div>
+
+![Research Tree turns uncertain context into shared, decision-ready knowledge.](docs/images/research-tree-overview.svg)
+
+Research Tree is a portable Skill that gives an AI agent a disciplined way to
+research consequential questions. It works inside Codex, Claude Code, and
+Hermes Agent today, but it is not limited to coding agents or coding tasks.
+Use it for technical and product strategy, incident investigation, tool or
+vendor selection, security review, migration planning, and implementation
+research.
+
+## Why Research Tree
+
+AI agents can produce answers quickly. Hard decisions need more than a fluent
+answer: they need a shared understanding of the question, evidence that can be
+checked, visible uncertainty, and a result that another human or agent can
+continue without reconstructing the entire conversation.
+
+| Align the question | Build the knowledge | Make the decision usable |
+| --- | --- | --- |
+| Clarifies outcome, scope, authority, constraints, and success signals. | Maps decision gaps, investigates in bounded tracks, and preserves provenance and counterevidence. | Produces a human-readable recommendation and a structured package for downstream agents. |
+
+Research Tree treats corrections as model updates, not comments appended to a
+finished answer. Unknown outcomes remain unknown. A stopped worker, a polished
+report, or a long source list does not automatically count as completion.
+
+## Typical Research Cases
+
+![Four common Research Tree knowledge journeys: product direction, incident investigation, option selection, and migration planning.](docs/images/research-tree-use-cases.svg)
+
+| Starting situation | Knowledge Research Tree builds | Decision-ready result |
+| --- | --- | --- |
+| **Product and technical direction** — “Should this capability be built, bought, or postponed?” | User need, constraints, viable options, dependency map, cost and risk evidence. | A selected direction, rejected alternatives, conditions, and validation milestones. |
+| **Incident investigation** — “Why does this release path intermittently publish stale artifacts?” | Timeline, competing hypotheses, repository and runtime evidence, disproved causes, residual uncertainty. | A root-cause position, containment actions, durable fixes, and tests that distinguish recurrence. |
+| **Tool or vendor selection** — “Which search stack fits our data, privacy, and operating budget?” | Evaluation criteria, source-backed capability matrix, lock-in and migration risks, proof-of-concept evidence. | A recommendation with confidence, decision conditions, and an exit strategy. |
+| **Risky migration planning** — “How can we move this workflow without losing authority or recoverability?” | Current-state map, invariants, dependency graph, failure modes, rollout and rollback evidence. | A staged migration plan with gates, ownership, observability, and stop conditions. |
+
+See [Typical research journeys](docs/guides/use-cases.md) for complete prompts,
+knowledge-flow diagrams, expected artifacts, and examples that do not assume
+the final action is code.
 
 ## What You Get
 
-| Deliverable | Use it for |
-| --- | --- |
-| **Technical Research Package** | Architecture, trade-offs, source-backed findings, implementation steps, validation plan, and open risks. |
-| **Human Research Report** | A plain-language explanation of the recommendation, what changed, what was verified, and what still needs a decision. |
+Research Tree produces two views of the same evidence and decision state:
 
-The skill does not treat a polished answer, a long source list, or a stopped
-subagent as completion. It keeps evidence, assumptions, authority, and
-unresolved risks visible until the agreed decision and delivery checks are met.
+| Deliverable | Primary reader | Contents |
+| --- | --- | --- |
+| **Human Research Report** | Requester, decision owner, reviewer | The recommendation in plain language, why it is supported, what changed during research, and what still needs a human decision. |
+| **Technical Research Package** | Research agent, implementation agent, auditor | Scope, evidence ledger, findings, alternatives, decision map, risks, implementation or operating plan, validation, and unresolved conditions. |
 
-## Use It When
+OpenSpec conversion is optional and happens only when explicitly requested.
+Research does not silently become implementation authority.
 
-- a request is vague, high-risk, or mixes product intent with technical choices;
-- you need to understand an unfamiliar repository before proposing a change;
-- multiple sources disagree and you need a defensible recommendation;
-- a team needs research that survives handoff, correction, interruption, and review;
-- you want an implementation agent to start from evidence rather than rediscovering the problem.
+## Quick Start
 
-It is **not** a replacement for a host model, web access, or human approval of
-consequential implementation. Your selected host supplies those capabilities;
-Research Tree supplies the research method, durable coordination, and evidence
-boundary.
+### 1. Prepare the repository
 
-## Start In Three Steps
-
-### 1. Get the source and `uv`
-
-```bash
+~~~bash
 git clone https://github.com/amd2g2zz/research-tree.git
 cd research-tree
 uv sync
-```
+~~~
 
 Requirements: Git, Python 3.11+, [uv](https://docs.astral.sh/uv/), and at
-least one supported host.
+least one supported agent host.
 
 Research Tree also provides a Python API for composed workflow services when
-you need to integrate its governed research workflow into an existing tool or
+you need to embed its governed research workflow in another agent or
 application.
 
-### 2. Install for your host
+### 2. Install for a host
 
-```bash
+~~~bash
 # Choose one: codex, claude, or hermes
 uv run --frozen research-tree-setup install --host codex --source .
 uv run --frozen research-tree-setup status --host codex --source .
-```
+~~~
 
-Use `--mode copy` when a symlink/junction is unsuitable. The status command
-verifies the installed payload by digest; it does not rely only on its path.
+Setup installs the selected Skill and its global lifecycle hooks. The hooks
+remain inert unless a Research Tree project/run binding is active. The status
+command verifies both the payload digest and setup-managed hook state. For copy
+installs, host-specific configuration, lifecycle diagnostics, and safe update
+guidance, see the [operator guide](docs/guides/operator.md).
 
-### 3. Ask a real research question
+### 3. Ask a consequential question
 
-```text
-# Codex
-$research-tree We need to add multi-tenant audit logs. Inspect this repository,
-identify the safest architecture, migration path, and validation plan.
+~~~text
+# Product and technical direction
+$research-tree We are considering a shared customer-identity service.
+Clarify the decision, inspect the current systems and constraints, compare
+build/buy/defer options, and produce a recommendation with validation gates.
 
-# Claude Code direct Skill
-/research-tree Investigate why our release pipeline intermittently publishes
-stale artifacts. Use the repository and recent logs; recommend a safe fix.
+# Incident research
+/research-tree Investigate why this release path intermittently publishes
+stale artifacts. Build and test competing hypotheses before recommending fixes.
 
-# Hermes Agent
-/research-tree Compare the three authentication designs in these links and
-this repository. Produce an implementation-ready recommendation.
-```
+# Vendor selection
+/research-tree Compare these three managed search services for our privacy,
+latency, staffing, and exit requirements. Keep assumptions and missing evidence
+visible, and recommend a decision process as well as a preferred option.
+~~~
 
-Start with the information you have. A repository path, links, local files,
-logs, screenshots, constraints, and an imperfect goal are all useful input.
+Start with what you have: a question, repository, links, documents, logs,
+screenshots, constraints, previous attempts, or an incomplete brief. Research
+Tree will ask only for the missing information that can materially change the
+research strategy.
 
-## What The Experience Looks Like
+## How The Knowledge Evolves
 
-```mermaid
+~~~mermaid
 flowchart LR
-    A[Question, repository,<br/>sources, or logs] --> B[Reconnaissance<br/>and alignment]
-    B --> C{Confirmed outcome,<br/>scope, authority, oracle?}
-    C -->|Needs clarification| B
-    C -->|Yes| D[Autonomous research<br/>and evidence checks]
-    D --> E[Technical Research<br/>Package]
-    D --> F[Human Research<br/>Report]
-```
+    A[Question + context] --> B[Living understanding]
+    B --> C[Decision map]
+    C --> D[Bounded research tracks]
+    D --> E[Evidence + finding packs]
+    E --> F[Decision ledger]
+    F --> G[Human Research Report]
+    F --> H[Technical Research Package]
+    I[User correction] --> B
+    J[New contradiction] --> C
+~~~
 
-Before autonomous work, the skill clarifies the outcome, scope, authority, and
-success signal. After explicit handoff, it can inspect sources, create a
-research strategy, use available host-native workers, recover interrupted work,
-and revise the plan when evidence changes. A correction from you updates the
-working model; it is not merely appended to a report.
+The agent and requester co-evolve the working understanding until the outcome,
+scope, authority, and success signal are usable. After handoff, research can
+continue autonomously within that boundary. New evidence or feedback can reopen
+the decision map; it does not get buried in a final narrative.
 
-## Pick Your Host
+## Choose Your Path
 
-| Host | Install | Invoke | Notes |
-| --- | --- | --- | --- |
-| Codex | `research-tree-setup install --host codex --source .` | `$research-tree ...` | Installs a Codex Skill. |
-| Claude Code | `research-tree-setup install --host claude --source .` | `/research-tree ...` | Direct-Skill compatibility install. The marketplace option is below. |
-| Hermes Agent | `research-tree-setup install --host hermes --source .` | `/research-tree ...` | For a project path, configure `skills.external_dirs`; see [Hermes setup](#hermes-agent). |
+| You are... | Start here |
+| --- | --- |
+| **A requester or decision owner** | Read the [typical cases](docs/guides/use-cases.md), then start with a real question. |
+| **An AI agent using the Skill** | Use the [Agent guide](docs/guides/agent.md) to load the minimum authoritative context and avoid historical or generated sources. |
+| **An operator installing or diagnosing hosts** | Use the [Operator guide](docs/guides/operator.md) for install, doctor, lifecycle, hooks, and debug commands. |
+| **A contributor or reviewer** | Use the [Documentation hub](docs/README.md), [product specification](PRODUCT.md), and [development workflow](docs/contributing/development-workflow.md). |
 
-All examples run from the repository checkout through the `uv`-managed Python
-environment. Do not run the bundled Python scripts with an arbitrary system
-`python` executable.
+## Supported Hosts
 
-### Claude Code Marketplace
+| Host | Install | Invoke |
+| --- | --- | --- |
+| Codex | <code>research-tree-setup install --host codex --source .</code> | <code>$research-tree ...</code> |
+| Claude Code | <code>research-tree-setup install --host claude --source .</code> | <code>/research-tree ...</code> |
+| Hermes Agent | <code>research-tree-setup install --host hermes --source .</code> | <code>/research-tree ...</code> |
 
-Claude Code can install the generated plugin through this repository's
-marketplace instead of the direct-Skill compatibility path:
+Claude Code also supports the repository marketplace:
 
-```bash
+~~~bash
 claude plugin marketplace add amd2g2zz/research-tree
 claude plugin install research-tree@research-tree
-claude plugin validate packages/claude-code/research-tree --strict
-```
+~~~
 
-Then invoke `/research-tree:research-tree ...`. Run `/reload-plugins` after
-updating a local marketplace checkout.
+The packages are host-specific and are not interchangeable. The selected host
+provides model access, tools, web or repository access, and worker mechanics.
+Research Tree supplies the research method, durable coordination, evidence
+boundary, and shared completion semantics.
 
-### Hermes Agent
+## Stable Lifecycle Interface
 
-Hermes has no native project Skill directory. To use the package from this
-checkout without copying it, add its parent directory to
-`~/.hermes/config.yaml`:
+The Skill is the normal interaction surface. Operators and integrating agents
+can also use the stable host-neutral CLI:
 
-```yaml
-skills:
-  external_dirs:
-    - /absolute/path/to/research-tree/packages/hermes
-```
-
-Run `/reload-skills` after changing the configuration. For a provider failure,
-use the packaged diagnostic command rather than treating a process exit code as
-proof that the model turn succeeded:
-
-```bash
-uv run --frozen python packages/hermes/research-tree/scripts/hermes_skill_adapter.py doctor \
-  --skill-dir packages/hermes/research-tree
-```
-
-## For Operators: Stable Lifecycle CLI
-
-The host Skill is the normal entry point. The repository also ships a stable,
-host-neutral CLI for installation and durable run coordination. It hides
-internal database paths and event schemas behind versioned JSON responses.
-
-```bash
-# Verify installation and host readiness.
+~~~bash
 uv run --frozen research-tree doctor --host all --source /path/to/research-tree
 
-# Create a bounded research request in a project workspace.
 uv run --frozen research-tree run \
-  --workspace /path/to/project --host codex \
-  --project-id audit-logs --run-id audit-logs-001 \
-  --outcome "recommend an audit-log architecture" \
-  --scope "repository design and migration plan" \
-  --authority "research only" \
-  --success-oracle "independent evidence and review receipt"
+  --workspace /path/to/workspace --host codex \
+  --project-id strategy --run-id strategy-001 \
+  --outcome "recommend a supportable direction" \
+  --scope "provided sources, current systems, and operating constraints" \
+  --authority "research and recommendation only" \
+  --success-oracle "traceable evidence, explicit alternatives, reviewable decision"
 
-# Inspect or resume the same durable request.
 uv run --frozen research-tree status \
-  --workspace /path/to/project --host codex \
-  --project-id audit-logs --run-id audit-logs-001
-```
+  --workspace /path/to/workspace --host codex \
+  --project-id strategy --run-id strategy-001
+~~~
 
-`run` prepares durable, non-authoritative state. It never grants permission to
-broaden scope, execute an implementation, or claim completion without the
-required evidence and review.
+The CLI hides internal persistence and event schemas behind versioned JSON
+responses. A prepared run is durable state, not permission to broaden scope,
+perform an implementation, or claim completion.
 
-## What Research Tree Preserves
+## Evidence And Authority Boundary
 
-| Concern | Behavior |
-| --- | --- |
-| **Changing requirements** | Corrections supersede stale assumptions and invalidate dependent handoffs. |
-| **Evidence** | Findings retain provenance, confidence, limits, and counterevidence. |
-| **Long research** | A durable coordinator preserves revisions, checkpoints, readiness, and recovery state. |
-| **Host differences** | Codex, Claude Code, and Hermes receive isolated packages but share canonical completion semantics. |
-| **Interrupted work** | Unknown outcomes stay unknown; retries use new attempts rather than silently reusing a stopped worker. |
-| **Review** | Completion is gated by the canonical coordinator and independent evidence, not a host task label alone. |
+- Findings retain provenance, confidence, limitations, and counterevidence.
+- Corrections supersede stale assumptions and invalidate dependent handoffs.
+- Interrupted attempts remain distinguishable from verified completion.
+- Host labels and process exits are observations, not final authority.
+- Consequential implementation, purchasing, policy, or operational changes
+  remain subject to the authority named by the requester.
 
-Optional lifecycle hooks and debug traces are available for operators, but they
-are not installed or enabled by default. See [hooks](#optional-lifecycle-hooks)
-and [debugging](#debug-tracing) below.
+Research Tree is currently released as Alpha2. Formal benchmarks and
+organizational-adoption studies continue as separate evidence tracks; they are
+not implied by a successful installation or local test run.
 
-## Installation Details
+## Documentation
 
-The normal installer is deliberately conservative: run `--dry-run` before a
-first install, do not overwrite an unrelated target, and verify the final
-status is `current`.
-
-```bash
-uv run --frozen python scripts/build_skill_packages.py --check
-uv run --frozen research-tree-setup install --host claude --source . --dry-run
-uv run --frozen research-tree-setup install --host claude --source .
-uv run --frozen research-tree-setup status --host claude --source .
-```
-
-| Host | User installation | Project installation |
-| --- | --- | --- |
-| Codex | `$CODEX_HOME/skills/research-tree` | `.agents/skills/research-tree` |
-| Claude Code | `~/.claude/skills/research-tree` | `.claude/skills/research-tree` |
-| Hermes Agent | `~/.hermes/skills/research-tree` | `skills.external_dirs` configuration |
-
-The host packages are isolated and not interchangeable. Do not install the
-repository root or copy a package for one host into another host's Skill path.
-
-## Optional Lifecycle Hooks
-
-Hooks record only sanitized lifecycle metadata such as the host, event name,
-timestamp, workspace, and bounded host identifiers. They never record prompts,
-model responses, tool inputs, or environment variables. Enable them only after
-reviewing the host-specific template:
-
-| Host | Template | Configuration target |
-| --- | --- | --- |
-| Codex | `hooks/codex.hooks.template.json` | `.codex/hooks.json` |
-| Claude Code | `hooks/claude-code.settings.template.json` | `.claude/settings.json` |
-| Hermes Agent | `hooks/hermes.config.template.yaml` | `~/.hermes/config.yaml` |
-
-Hook commands must run from this checkout through `uv` so they use the
-repository-managed environment. They fail open and do not block an agent
-session.
-
-## Debug Tracing
-
-For a difficult workflow diagnosis, enable a bounded trace explicitly:
-
-```bash
-uv run --frozen research-tree-debug emit \
-  --host codex --phase alignment_blocked --status blocked \
-  --code missing-success-oracle
-uv run --frozen research-tree-debug summary --limit 50
-```
-
-Traces contain approved reason codes and limited metadata only. They are stored
-under an ignored local directory and are not a source of completion authority.
-
-## Develop The Skill
-
-The editable sources live in `skill-src/`, `assets/`, `references/`, `scripts/`,
-and `src/`. `packages/` and `.claude-plugin/` are generated distributions.
-
-```bash
-uv run --frozen python scripts/build_skill_packages.py
-uv run --frozen python scripts/build_skill_packages.py --check
-uv run --frozen pytest -q
-```
-
-For contributor workflow and release promotion, see
-[development workflow](docs/development-workflow.md). `dev` is the integration
-branch; `master` is the release branch.
-
-## Documentation And Status
+The [Documentation hub](docs/README.md) separates active guidance from
+architecture decisions, historical specifications, evaluation material, and
+generated host packages. Agents should begin with the
+[Agent guide](docs/guides/agent.md), not recursively load the entire repository.
 
 - [Product specification](PRODUCT.md)
+- [Typical research journeys](docs/guides/use-cases.md)
+- [Agent guide](docs/guides/agent.md)
+- [Operator guide](docs/guides/operator.md)
 - [Architecture decisions](docs/adr/)
-- [Documentation authority model](docs/documentation-authority.md)
-- [Evaluation asset governance](docs/evaluation-assets.md)
-- [Codex package](packages/codex/research-tree/SKILL.md)
-- [Claude Code package](packages/claude-code/research-tree/skills/research-tree/SKILL.md)
-- [Hermes package](packages/hermes/research-tree/SKILL.md)
-- [Research quality playbook](references/research-quality-playbook.md)
+- [Development workflow](docs/contributing/development-workflow.md)
+- [Documentation authority](docs/governance/documentation-authority.md)
 
-Research Tree currently ships Alpha2 host packages and the canonical Python
-runtime. The host remains responsible for model access, web access, repository
-inspection, tool execution, and any user-approved implementation. Formal
-benchmark and organizational-adoption evaluation continue separately from
-normal rolling releases; they are not implied by a successful installation or
-local test run.
+To develop the Skill, edit canonical sources under <code>skill-src/</code>,
+<code>assets/</code>, <code>references/</code>, <code>scripts/</code>, or
+<code>src/</code>; generated packages live under <code>packages/</code>.
+
+~~~bash
+uv run --frozen python scripts/build_skill_packages.py --check
+uv run --frozen python scripts/check_docs.py
+uv run --frozen pytest -q
+~~~

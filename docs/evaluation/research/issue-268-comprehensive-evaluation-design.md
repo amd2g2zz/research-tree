@@ -1,5 +1,7 @@
 # Issue #268: Alpha2 Comprehensive Evaluation Design
 
+This active evaluation design is indexed from [evaluation documentation](../README.md).
+
 Status: design complete for implementation handoff; benchmark execution is not claimed.
 
 This document freezes the smallest evaluation program that can support a useful

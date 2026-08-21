@@ -179,9 +179,11 @@ the host-native skill workflow.
 
 ### Claude Code hooks
 
-Hooks are opt-in repository settings, not normal Skill behavior. Read the
-compatibility reference before explicitly enabling them; never enable them for
-an ordinary research run.
+`research-tree-setup install` deploys lifecycle hooks into Claude Code's global
+settings while preserving unrelated configuration. The hook is fail-open and
+returns immediately without writing state when no Research Tree project/run is
+active. Repository-local run-bound hooks remain an operator workflow described
+in the compatibility reference.
 
 ## Product Rules
 

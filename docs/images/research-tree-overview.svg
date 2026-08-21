@@ -1,51 +1,115 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
-  <title id="title">Research Tree workflow</title>
-  <desc id="desc">A question, repository, sources, and logs flow through alignment and evidence-backed research into a Technical Research Package and Human Research Report.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="760" viewBox="0 0 1440 760" role="img" aria-labelledby="title desc">
+  <title id="title">Research Tree knowledge workflow</title>
+  <desc id="desc">Questions and source material become a living understanding, decision map, evidence, findings, a Human Research Report, and a Technical Research Package.</desc>
   <defs>
-    <linearGradient id="background" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0" stop-color="#071525"/>
-      <stop offset="1" stop-color="#162b44"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07101d"/>
+      <stop offset=".55" stop-color="#0b1728"/>
+      <stop offset="1" stop-color="#0f2033"/>
     </linearGradient>
-    <linearGradient id="accent" x1="0" x2="1">
-      <stop offset="0" stop-color="#47d7ac"/>
-      <stop offset="1" stop-color="#55a9ff"/>
+    <linearGradient id="cyan" x1="0" x2="1">
+      <stop offset="0" stop-color="#4de2c5"/>
+      <stop offset="1" stop-color="#6bb8ff"/>
     </linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
-      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#020814" flood-opacity=".42"/>
+    <linearGradient id="violet" x1="0" x2="1">
+      <stop offset="0" stop-color="#7c8cff"/>
+      <stop offset="1" stop-color="#b98cff"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-30%" width="140%" height="170%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#000713" flood-opacity=".46"/>
     </filter>
+    <style>
+      .ui { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .label { font-size: 14px; font-weight: 700; letter-spacing: 2px; }
+      .body { font-size: 17px; fill: #b9c8d9; }
+      .small { font-size: 14px; fill: #8fa3b8; }
+    </style>
   </defs>
-  <rect width="1200" height="630" fill="url(#background)" rx="28"/>
-  <circle cx="1040" cy="72" r="190" fill="#55a9ff" opacity=".08"/>
-  <circle cx="152" cy="578" r="220" fill="#47d7ac" opacity=".07"/>
-  <text x="74" y="88" fill="#f7fbff" font-family="Arial, Helvetica, sans-serif" font-size="40" font-weight="700">Research Tree</text>
-  <text x="74" y="126" fill="#b9c9da" font-family="Arial, Helvetica, sans-serif" font-size="21">From incomplete context to a decision-ready technical direction</text>
-  <g filter="url(#shadow)" font-family="Arial, Helvetica, sans-serif">
-    <rect x="74" y="205" width="230" height="224" rx="20" fill="#10243a" stroke="#335571"/>
-    <text x="104" y="254" fill="#8dc8ff" font-size="18" font-weight="700">START WITH</text>
-    <text x="104" y="302" fill="#f7fbff" font-size="28" font-weight="700">Your context</text>
-    <text x="104" y="345" fill="#d1deea" font-size="18">Question</text>
-    <text x="104" y="376" fill="#d1deea" font-size="18">Repository · sources</text>
-    <text x="104" y="407" fill="#d1deea" font-size="18">Logs · constraints</text>
-    <rect x="353" y="205" width="294" height="224" rx="20" fill="#0d3040" stroke="#3b806f"/>
-    <text x="384" y="254" fill="#77f0c7" font-size="18" font-weight="700">RESEARCH TREE</text>
-    <text x="384" y="302" fill="#f7fbff" font-size="28" font-weight="700">Align, investigate,</text>
-    <text x="384" y="337" fill="#f7fbff" font-size="28" font-weight="700">verify, recover</text>
-    <text x="384" y="382" fill="#d1ede5" font-size="18">Evidence stays traceable</text>
-    <text x="384" y="411" fill="#d1ede5" font-size="18">Scope stays explicit</text>
-    <rect x="696" y="175" width="420" height="126" rx="20" fill="#1c2a52" stroke="#6188c4"/>
-    <text x="728" y="222" fill="#a9c7ff" font-size="18" font-weight="700">FOR IMPLEMENTATION</text>
-    <text x="728" y="267" fill="#f7fbff" font-size="27" font-weight="700">Technical Research Package</text>
-    <rect x="696" y="333" width="420" height="126" rx="20" fill="#24314e" stroke="#7f88bb"/>
-    <text x="728" y="380" fill="#d2c9ff" font-size="18" font-weight="700">FOR PEOPLE</text>
-    <text x="728" y="425" fill="#f7fbff" font-size="27" font-weight="700">Human Research Report</text>
+
+  <rect width="1440" height="760" rx="28" fill="url(#bg)"/>
+  <circle cx="1226" cy="64" r="300" fill="#597dff" opacity=".06"/>
+  <circle cx="160" cy="760" r="320" fill="#3fe0be" opacity=".055"/>
+
+  <g class="ui">
+    <text x="72" y="78" fill="#f5f8fc" font-size="34" font-weight="750">From uncertainty to shared decision knowledge</text>
+    <text x="72" y="112" class="body">A governed research loop for humans and AI agents — not a one-shot answer generator.</text>
+
+    <g filter="url(#shadow)">
+      <rect x="72" y="174" width="266" height="404" rx="22" fill="#0c1c2e" stroke="#263c53"/>
+      <text x="102" y="217" class="label" fill="#78bfff">STARTING SIGNALS</text>
+      <text x="102" y="261" fill="#f5f8fc" font-size="27" font-weight="700">Incomplete context</text>
+      <rect x="102" y="302" width="204" height="42" rx="11" fill="#132a41"/>
+      <text x="122" y="329" class="body">Questions and goals</text>
+      <rect x="102" y="356" width="204" height="42" rx="11" fill="#132a41"/>
+      <text x="122" y="383" class="body">Repositories and data</text>
+      <rect x="102" y="410" width="204" height="42" rx="11" fill="#132a41"/>
+      <text x="122" y="437" class="body">Sources and documents</text>
+      <rect x="102" y="464" width="204" height="42" rx="11" fill="#132a41"/>
+      <text x="122" y="491" class="body">Logs and attempts</text>
+      <text x="102" y="543" class="small">Constraints · authority · risk</text>
+    </g>
+
+    <path d="M338 376 H392" stroke="url(#cyan)" stroke-width="4" stroke-linecap="round"/>
+    <path d="M381 366 L394 376 L381 386" fill="none" stroke="#62c8e9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <g filter="url(#shadow)">
+      <rect x="408" y="154" width="574" height="444" rx="26" fill="#0c2030" stroke="#2d5d67"/>
+      <text x="442" y="199" class="label" fill="#62e4c4">RESEARCH TREE</text>
+      <text x="442" y="241" fill="#f5f8fc" font-size="29" font-weight="720">A living model, revised by evidence</text>
+
+      <line x1="490" y1="322" x2="900" y2="322" stroke="#31536a" stroke-width="2"/>
+      <line x1="490" y1="322" x2="490" y2="456" stroke="#31536a" stroke-width="2"/>
+      <line x1="626" y1="322" x2="626" y2="456" stroke="#31536a" stroke-width="2"/>
+      <line x1="764" y1="322" x2="764" y2="456" stroke="#31536a" stroke-width="2"/>
+      <line x1="900" y1="322" x2="900" y2="456" stroke="#31536a" stroke-width="2"/>
+
+      <circle cx="490" cy="322" r="28" fill="#15394a" stroke="#4de2c5" stroke-width="2"/>
+      <text x="490" y="327" text-anchor="middle" fill="#b9fff2" font-size="14" font-weight="800">01</text>
+      <text x="490" y="377" text-anchor="middle" fill="#f5f8fc" font-size="17" font-weight="700">ALIGN</text>
+      <text x="490" y="402" text-anchor="middle" class="small">Shared question</text>
+
+      <circle cx="626" cy="322" r="28" fill="#17364a" stroke="#5cccef" stroke-width="2"/>
+      <text x="626" y="327" text-anchor="middle" fill="#c8f3ff" font-size="14" font-weight="800">02</text>
+      <text x="626" y="377" text-anchor="middle" fill="#f5f8fc" font-size="17" font-weight="700">MAP</text>
+      <text x="626" y="402" text-anchor="middle" class="small">Decision gaps</text>
+
+      <circle cx="764" cy="322" r="28" fill="#1a314e" stroke="#789cff" stroke-width="2"/>
+      <text x="764" y="327" text-anchor="middle" fill="#d6e1ff" font-size="14" font-weight="800">03</text>
+      <text x="764" y="377" text-anchor="middle" fill="#f5f8fc" font-size="17" font-weight="700">RESEARCH</text>
+      <text x="764" y="402" text-anchor="middle" class="small">Evidence + findings</text>
+
+      <circle cx="900" cy="322" r="28" fill="#25304e" stroke="#ac8dff" stroke-width="2"/>
+      <text x="900" y="327" text-anchor="middle" fill="#eadfff" font-size="14" font-weight="800">04</text>
+      <text x="900" y="377" text-anchor="middle" fill="#f5f8fc" font-size="17" font-weight="700">DECIDE</text>
+      <text x="900" y="402" text-anchor="middle" class="small">Ledger + conditions</text>
+
+      <rect x="442" y="456" width="506" height="96" rx="16" fill="#0f2b37" stroke="#2e6a6c"/>
+      <text x="470" y="493" fill="#8ef0d5" font-size="16" font-weight="700">FEEDBACK LOOP</text>
+      <text x="470" y="522" class="body">Corrections and contradictions reopen the model.</text>
+      <text x="470" y="544" class="small">Stale assumptions do not survive into the handoff.</text>
+    </g>
+
+    <path d="M982 376 H1034" stroke="url(#violet)" stroke-width="4" stroke-linecap="round"/>
+    <path d="M1023 366 L1036 376 L1023 386" fill="none" stroke="#9c8cff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <g filter="url(#shadow)">
+      <rect x="1050" y="174" width="318" height="184" rx="22" fill="#151f3a" stroke="#556ba6"/>
+      <text x="1080" y="217" class="label" fill="#9db7ff">HUMAN VIEW</text>
+      <text x="1080" y="261" fill="#f5f8fc" font-size="25" font-weight="700">Research Report</text>
+      <text x="1080" y="299" class="body">Recommendation · rationale</text>
+      <text x="1080" y="326" class="body">uncertainty · decisions needed</text>
+
+      <rect x="1050" y="378" width="318" height="200" rx="22" fill="#201c3d" stroke="#7160aa"/>
+      <text x="1080" y="421" class="label" fill="#c5adff">AGENT VIEW</text>
+      <text x="1080" y="465" fill="#f5f8fc" font-size="25" font-weight="700">Technical Package</text>
+      <text x="1080" y="503" class="body">Evidence · decisions · risks</text>
+      <text x="1080" y="530" class="body">next work · validation gates</text>
+      <text x="1080" y="557" class="small">Same truth, different reader.</text>
+    </g>
+
+    <line x1="72" y1="654" x2="1368" y2="654" stroke="#284057"/>
+    <text x="72" y="699" fill="#9db0c3" font-size="16">Supported hosts</text>
+    <text x="206" y="699" fill="#e4ebf3" font-size="16" font-weight="650">Codex · Claude Code · Hermes Agent</text>
+    <text x="1368" y="699" text-anchor="end" fill="#74e5c8" font-size="16" font-weight="700">Evidence before confidence</text>
   </g>
-  <path d="M304 317 H337" stroke="url(#accent)" stroke-width="8" stroke-linecap="round"/>
-  <path d="M337 317 l-16 -12 M337 317 l-16 12" stroke="#55a9ff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M647 317 H675 V238 H680" fill="none" stroke="url(#accent)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M680 238 l-16 -12 M680 238 l-16 12" stroke="#55a9ff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M647 317 H675 V396 H680" fill="none" stroke="url(#accent)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M680 396 l-16 -12 M680 396 l-16 12" stroke="#55a9ff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="74" y="519" width="1042" height="2" fill="#477292" opacity=".6"/>
-  <text x="74" y="563" fill="#b9c9da" font-family="Arial, Helvetica, sans-serif" font-size="19">Available as a Skill for Codex, Claude Code, and Hermes Agent</text>
-  <text x="1116" y="563" fill="#77f0c7" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="700" text-anchor="end">Evidence before confidence</text>
 </svg>
