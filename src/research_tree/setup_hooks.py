@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import os
-from pathlib import Path
 import shlex
 import sys
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Sequence
-
 
 HOST_HOOK_EVENTS = {
     "codex": ("SessionStart", "SessionEnd", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop", "Stop"),
@@ -133,9 +132,7 @@ def _merge_json_hooks(existing: dict[str, Any], *, repository: Path, host: str) 
 
 def _json_hook_status(existing: dict[str, Any], *, repository: Path, host: str) -> str:
     hooks = existing.get("hooks", {})
-    owned = {
-        event: [entry for entry in entries if _owned_json_entry(entry, host)] for event, entries in hooks.items()
-    }
+    owned = {event: [entry for entry in entries if _owned_json_entry(entry, host)] for event, entries in hooks.items()}
     owned_count = sum(len(entries) for entries in owned.values())
     if owned_count == 0:
         return "missing"
@@ -280,7 +277,9 @@ def plan_setup_hooks(
         if host in {"codex", "claude"}:
             existing = _read_json_config(path)
             prior_status = _json_hook_status(existing, repository=repository, host=host)
-            rendered = (json.dumps(_merge_json_hooks(existing, repository=repository, host=host), sort_keys=True) + "\n").encode()
+            rendered = (
+                json.dumps(_merge_json_hooks(existing, repository=repository, host=host), sort_keys=True) + "\n"
+            ).encode()
         else:
             existing_text = _read_hermes_config(path)
             launcher = targets[host] / "scripts" / "hermes_runtime_hook.py"

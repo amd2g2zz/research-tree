@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-
 MANIFEST = Path(__file__).parents[1] / "evaluation" / "cases" / "alpha1-adversarial-v1.json"
 ALPHA1_COMMIT = "8ab91ea4eb55c98441b5ee6001b80922a56ecdd1"
 

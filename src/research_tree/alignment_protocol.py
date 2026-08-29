@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
+from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from .domain import (
@@ -17,7 +17,6 @@ from .domain import (
 from .feedback import CORRECTION_EVENT_KIND, STALE_STATE_QUARANTINE_KIND
 from .interaction_state import InteractionEvent, InteractionReducer, InteractionReduction, InteractionState
 from .run_ledger import LedgerConflictError, RunLedger
-
 
 ALIGNMENT_ACTION_KIND = "alignment-action"
 ALIGNMENT_ATTEMPT_KIND = "alignment-attempt"

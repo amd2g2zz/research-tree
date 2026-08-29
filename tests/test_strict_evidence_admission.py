@@ -3,11 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import research_tree
 import pytest
-
 from canonical_finding_fixture import canonical_context
 
+import research_tree
 from research_tree import CanonicalFindingPackCompiler, ContentAddressedStore, InvalidFindingPackError
 from research_tree.evidence import (
     EvidenceAnchor,
@@ -15,6 +14,7 @@ from research_tree.evidence import (
     EvidenceResolver,
     EvidenceValidationError,
 )
+
 ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE_SCHEMA = (
     ROOT / "openspec" / "changes" / "unify-research-runtime-alpha2" / "schemas" / "evidence-artifact-v1.json"

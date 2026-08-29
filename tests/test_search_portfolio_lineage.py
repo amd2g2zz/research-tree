@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+from strategy_support import confirm_strategy
+
 from research_tree import ContentAddressedStore, DurableSourceCaptureService
 from research_tree.coordinator import ResearchRunCoordinator
 from research_tree.domain import ArtifactRef
@@ -19,7 +21,6 @@ from research_tree.search_portfolio import (
     SearchPortfolio,
     Subquestion,
 )
-from strategy_support import confirm_strategy
 
 
 def _coordinator(tmp_path):

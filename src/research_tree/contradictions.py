@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from itertools import combinations
-import re
 from typing import Any, Iterable, Mapping, Sequence
 
 from .claims import Claim

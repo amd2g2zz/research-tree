@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from test_search_portfolio_lineage import _coordinator, _parents, _values, durable_evidence
 
 from research_tree import (
     ACQUISITION_DISPOSITIONS,
@@ -16,15 +17,13 @@ from research_tree import (
     MethodRegistry,
     MethodSelection,
     PortfolioBatch,
-    SearchPortfolioExecutor,
     ReassessmentPolicy,
     RejectedMethod,
     SearchPortfolio,
+    SearchPortfolioExecutor,
     Subquestion,
     assess_acquisition_batch,
 )
-from test_search_portfolio_lineage import _coordinator, _parents, _values, durable_evidence
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = ROOT / "openspec" / "changes" / "unify-research-runtime-alpha2" / "schemas"

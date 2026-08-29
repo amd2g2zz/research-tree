@@ -4,15 +4,14 @@
 from __future__ import annotations
 
 import argparse
-from fnmatch import fnmatchcase
-from hashlib import sha256
 import json
-from pathlib import Path
 import subprocess
 import sys
+from fnmatch import fnmatchcase
+from hashlib import sha256
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
-
 
 DEFAULT_REGISTRY = Path("openspec/changes/unify-research-runtime-alpha2/registries/repository-paths-v1.json")
 DEFAULT_SCHEMA = Path("openspec/changes/unify-research-runtime-alpha2/schemas/path-registry-v1.json")

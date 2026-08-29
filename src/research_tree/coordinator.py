@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import hashlib
 import json
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .contradictions import (
+    ClaimBoundary,
+    ContradictionDetector,
+    ContradictionStatus,
+    claim_from_mapping,
+    render_contradiction_packet,
+)
+from .decision_frame import DECISION_FRAME_KIND, DecisionFrame
 from .domain import (
     ArtifactRef,
     ArtifactRevision,
@@ -17,14 +25,6 @@ from .domain import (
     canonical_json_bytes,
     thaw_json,
     validate_identifier,
-)
-from .host_events import HostEvent, HostEventError, HostEventSequenceError
-from .decision_frame import DECISION_FRAME_KIND, DecisionFrame
-from .strategy_projection import (
-    STRATEGY_PROJECTION_KIND,
-    StrategyProjection,
-    StrategyProjectionError,
-    macro_stage,
 )
 from .feedback import (
     CORRECTION_ACTION_ROLES,
@@ -35,16 +35,16 @@ from .feedback import (
     CorrectionBinding,
     CorrectionEvent,
 )
-from .contradictions import (
-    ClaimBoundary,
-    ContradictionDetector,
-    ContradictionStatus,
-    claim_from_mapping,
-    render_contradiction_packet,
-)
+from .host_events import HostEvent, HostEventError, HostEventSequenceError
 from .run_ledger import LedgerConflictError, RunLedger
-from .source_capture import ACQUISITION_RECEIPT_KIND, ANALYSIS_CHECKPOINT_KIND, SOURCE_CAPTURE_KIND
 from .search_portfolio import PortfolioExecution, SearchPortfolio
+from .source_capture import ACQUISITION_RECEIPT_KIND, ANALYSIS_CHECKPOINT_KIND, SOURCE_CAPTURE_KIND
+from .strategy_projection import (
+    STRATEGY_PROJECTION_KIND,
+    StrategyProjection,
+    StrategyProjectionError,
+    macro_stage,
+)
 
 FINDING_PACK_KIND = "finding-pack"
 CONTRADICTION_PACKET_KIND = "contradiction-packet"

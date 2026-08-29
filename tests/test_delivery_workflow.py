@@ -19,7 +19,6 @@ from research_tree.delivery_workflow import (
     run_preflight,
 )
 
-
 ROOT = Path(__file__).resolve().parents[1]
 CHANGE_ROOT = ROOT / "openspec" / "changes" / "establish-dev-integration-governance"
 POLICY_PATH = CHANGE_ROOT / "registries" / "delivery-policy-v1.json"
@@ -154,9 +153,7 @@ def test_preflight_rejects_invalid_branch_stale_base_and_duplicate_owner(tmp_pat
         issue=88,
         base_ref="dev",
         policy=load_delivery_policy(POLICY_PATH),
-        remote_issue_owners={
-            88: ["feature/no-issue", "chore/issue-88-other-worktree"]
-        },
+        remote_issue_owners={88: ["feature/no-issue", "chore/issue-88-other-worktree"]},
     )
 
     assert result.passed is False
@@ -310,9 +307,7 @@ def test_integration_promotion_allows_dev_to_master_without_rechecking_history()
                 "packages/codex/research-tree/SKILL.md",
             }
         ],
-        added_files=[
-            "openspec/changes/example/evidence/future-evidence-gaps.json"
-        ],
+        added_files=["openspec/changes/example/evidence/future-evidence-gaps.json"],
     )
 
     assert promotion.passed is True
@@ -368,12 +363,7 @@ def test_review_threshold_warns_and_approved_exception_allows_hard_limit() -> No
 def test_only_exact_oversized_approval_label_enables_event_exception() -> None:
     assert _approved_exception_from_event({}) is False
     assert _approved_exception_from_event({"labels": "delivery:oversized-approved"}) is False
-    assert (
-        _approved_exception_from_event(
-            {"labels": [{"name": "delivery:oversized-requested"}]}
-        )
-        is False
-    )
+    assert _approved_exception_from_event({"labels": [{"name": "delivery:oversized-requested"}]}) is False
     assert (
         _approved_exception_from_event(
             {
@@ -387,9 +377,7 @@ def test_only_exact_oversized_approval_label_enables_event_exception() -> None:
     )
 
 
-def test_check_pr_cli_reads_oversized_approval_from_event(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_check_pr_cli_reads_oversized_approval_from_event(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     repository = make_repository(tmp_path)
     oversized = repository / "oversized.txt"
     oversized.write_text("line\n" * 1501, encoding="utf-8")
@@ -630,9 +618,7 @@ def test_check_pr_cli_rejects_generated_verification_record_added_after_base(
         ),
     ],
 )
-def test_cleanup_classification_is_non_destructive(
-    record: WorktreeRecord, expected: str
-) -> None:
+def test_cleanup_classification_is_non_destructive(record: WorktreeRecord, expected: str) -> None:
     disposition = classify_cleanup(record)
     assert disposition.action == expected
     assert disposition.destructive is False

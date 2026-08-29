@@ -8,7 +8,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_REGISTRY = Path("openspec/changes/unify-research-runtime-alpha2/registries/evaluation-paths-v1.json")
 _LEGACY_PREFIX = "evaluation/experiences/"
 

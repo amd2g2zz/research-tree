@@ -18,7 +18,6 @@ from .domain import (
 from .readiness import READINESS_RECORD_KIND, validate_readiness_record_payload
 from .run_ledger import RunLedger
 
-
 BLUEPRINT_EVALUATION_KIND = "blueprint-evaluation"
 EVALUATION_CHECK_NAMES = ("build", "fail_to_pass", "pass_to_pass")
 EVALUATION_CHECK_STATUSES = frozenset({"pass", "fail", "not_applicable"})
@@ -82,8 +81,7 @@ class TimeSplitCase:
         hidden = sorted(_FORBIDDEN_CASE_KEYS & set(data))
         if hidden:
             raise InvalidEvaluationError(
-                "time-split case must not include hidden eventual material: "
-                + ", ".join(hidden)
+                "time-split case must not include hidden eventual material: " + ", ".join(hidden)
             )
         _require_exact_keys(data, _CASE_KEYS, "time-split case")
         source = _normalize_source(data["source"])
@@ -97,9 +95,7 @@ class TimeSplitCase:
             baseline=freeze_payload(baseline),
             environment=freeze_payload(environment),
             public_materials=tuple(freeze_payload(item) for item in public_materials),
-            hidden_oracle_id=_identifier(
-                data["hidden_oracle_id"], "time-split case hidden_oracle_id"
-            ),
+            hidden_oracle_id=_identifier(data["hidden_oracle_id"], "time-split case hidden_oracle_id"),
             limitations=tuple(_strings(data["limitations"], "time-split case limitations")),
         )
 
@@ -227,9 +223,7 @@ class BlueprintEvaluationSuite:
             validate_readiness_record_payload(readiness.payload)
             _ensure_readiness_matches_package(readiness, package)
             normalized_cost = _normalize_count_mapping(cost, "cost")
-            normalized_burden = _normalize_count_mapping(
-                clarification_burden, "clarification_burden"
-            )
+            normalized_burden = _normalize_count_mapping(clarification_burden, "clarification_burden")
             request = _request_for(case, package, readiness)
             outcome = _run_implementation_runner(implementation_runner, request)
             comparison = _normalize_baseline_result(baseline_result)
@@ -339,9 +333,7 @@ def _run_implementation_runner(
             f"implementation runner failed before returning an outcome: {type(error).__name__}"
         ) from error
     if not isinstance(result, IndependentEvaluationResult):
-        raise InvalidEvaluationError(
-            "implementation_runner.run must return an IndependentEvaluationResult"
-        )
+        raise InvalidEvaluationError("implementation_runner.run must return an IndependentEvaluationResult")
     checks = _normalize_checks(result.checks, "implementation outcome checks")
     diagnoses = _normalize_diagnoses(result.diagnoses)
     limitations = _strings(result.limitations, "implementation outcome limitations")
@@ -385,16 +377,12 @@ def _structural_quality(readiness: ArtifactRevision) -> dict[str, Any]:
             "readiness decision_closure",
             {"pass", "fail", "deferred"},
         ),
-        "traceability": _enum(
-            gates.get("traceability"), "readiness traceability", {"pass", "fail"}
-        ),
+        "traceability": _enum(gates.get("traceability"), "readiness traceability", {"pass", "fail"}),
         "repository_anchor_accuracy": anchor_accuracy,
     }
 
 
-def _ensure_readiness_matches_package(
-    readiness: ArtifactRevision, package: ArtifactRevision
-) -> None:
+def _ensure_readiness_matches_package(readiness: ArtifactRevision, package: ArtifactRevision) -> None:
     ref = _mapping(readiness.payload.get("technical_package_ref"), "readiness technical_package_ref")
     expected = _artifact_ref_dict(package)
     if thaw_json(ref) != expected:
@@ -415,9 +403,7 @@ def _resolve_exact(
         (
             item
             for item in artifacts
-            if item.id == artifact.id
-            and item.revision == artifact.revision
-            and item.kind == expected_kind
+            if item.id == artifact.id and item.revision == artifact.revision and item.kind == expected_kind
         ),
         None,
     )
@@ -508,9 +494,7 @@ def _normalize_checks(value: Any, label: str) -> list[dict[str, str]]:
             }
         )
     if set(seen) != set(EVALUATION_CHECK_NAMES):
-        raise InvalidEvaluationError(
-            f"{label} must include exactly: {', '.join(EVALUATION_CHECK_NAMES)}"
-        )
+        raise InvalidEvaluationError(f"{label} must include exactly: {', '.join(EVALUATION_CHECK_NAMES)}")
     return normalized
 
 
@@ -536,9 +520,7 @@ def _normalize_diagnoses(value: Any) -> list[dict[str, Any]]:
             slot_id = item.decision_slot_id
             work_item_id = item.work_item_id
         else:
-            raise InvalidEvaluationError(
-                f"diagnoses[{index}] must be an EvaluationDiagnosis or mapping"
-            )
+            raise InvalidEvaluationError(f"diagnoses[{index}] must be an EvaluationDiagnosis or mapping")
         normalized.append(
             {
                 "component": _enum(component, f"diagnoses[{index}].component", set(DIAGNOSIS_COMPONENTS)),
@@ -583,9 +565,7 @@ def _normalize_check_mappings(value: Any, label: str) -> list[dict[str, str]]:
             }
         )
     if seen != set(EVALUATION_CHECK_NAMES):
-        raise InvalidEvaluationError(
-            f"{label} must include exactly: {', '.join(EVALUATION_CHECK_NAMES)}"
-        )
+        raise InvalidEvaluationError(f"{label} must include exactly: {', '.join(EVALUATION_CHECK_NAMES)}")
     return normalized
 
 

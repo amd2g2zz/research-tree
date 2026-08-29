@@ -13,7 +13,6 @@ from .content_store import ContentAddressedStore, ContentObject, ContentStoreErr
 from .domain import ArtifactRef
 from .run_ledger import LedgerError, RunLedger
 
-
 SELECTOR_TYPES = {"line", "symbol", "fragment", "page_section", "image_region", "input_revision", "experiment_field"}
 CONFIDENCES = {"low", "medium", "high"}
 STATUSES = {"active", "superseded", "rejected", "quarantined"}

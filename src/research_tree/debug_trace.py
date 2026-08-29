@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 import argparse
-from collections import Counter
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import secrets
 import time
+from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from .coordinator import (
+    _TRANSITIONS,
     COMPLETION_RECORD_KIND,
     CONTRADICTION_PACKET_KIND,
     CONTRADICTION_RETRACTION_KIND,
@@ -26,7 +27,6 @@ from .coordinator import (
     LIFECYCLE_EVENT_KIND,
     RESEARCH_RUN_STATE_KIND,
     STALE_STATE_QUARANTINE_KIND,
-    _TRANSITIONS,
     ResearchRunCoordinator,
 )
 from .domain import ArtifactRef, ArtifactRevision, canonical_json_bytes, thaw_json, validate_identifier
@@ -34,7 +34,6 @@ from .feedback import CorrectionEvent
 from .host_events import HostEvent, HostEventError, normalize_host_path
 from .run_ledger import RunLedger
 from .strategy_projection import macro_stage
-
 
 TRACE_DIRECTORY = Path(".research-tree-debug") / "events"
 HOSTS = frozenset({"codex", "claude", "hermes"})

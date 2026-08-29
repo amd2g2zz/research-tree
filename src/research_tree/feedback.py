@@ -35,7 +35,6 @@ from .ledger import DECISION_LEDGER_KIND, FINDING_PACK_KIND
 from .run_ledger import RunLedger
 from .work_items import WORK_ITEM_KIND
 
-
 FEEDBACK_LINEAGE_KIND = "feedback-lineage"
 RESEARCH_STRATEGY_KIND = "research-strategy"
 ROUND_SUPERSESSION_KIND = "round-supersession"

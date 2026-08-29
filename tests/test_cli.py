@@ -7,12 +7,10 @@ import tomllib
 from pathlib import Path
 
 import pytest
+from test_host_event_protocol import _coordinator, _event
 
 from research_tree import cli
 from research_tree.coordinator import CompletionBlockedError, IllegalTransitionError
-
-from test_host_event_protocol import _coordinator, _event
-
 
 ROOT = Path(__file__).resolve().parents[1]
 RETIRED_COMMANDS = (

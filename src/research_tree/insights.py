@@ -6,9 +6,9 @@ authorize a lifecycle transition or issue a closure token.
 
 from __future__ import annotations
 
-from collections import defaultdict
 import hashlib
 import json
+from collections import defaultdict
 from typing import Any, Mapping, Sequence
 
 from .domain import ArtifactRef, ArtifactRevision

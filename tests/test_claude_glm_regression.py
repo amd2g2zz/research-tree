@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import json
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
-
 
 ROOT = Path(__file__).parents[1]
 CASE_PATH = ROOT / "evaluation/cases/claude-glm-regression-synthetic-v1.json"

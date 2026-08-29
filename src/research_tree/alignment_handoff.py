@@ -11,7 +11,6 @@ from .recursive_search import initialize_research_state
 from .run_ledger import RunLedger
 from .tree_state import RESEARCH_TREE_STATE_KIND, ResearchTreeStateError
 
-
 ALIGNMENT_GRAPH_KIND = "alignment-graph"
 ALIGNMENT_HANDOFF_KIND = "alignment-handoff"
 
@@ -30,10 +29,7 @@ def initialize_research_from_alignment(
         raise ResearchTreeStateError("alignment handoff requires a RunLedger")
     validate_identifier(tree_id, "tree_id")
     snapshot = ledger.load_run(round_id)
-    if any(
-        artifact.id == tree_id and artifact.kind == RESEARCH_TREE_STATE_KIND
-        for artifact in snapshot.artifacts
-    ):
+    if any(artifact.id == tree_id and artifact.kind == RESEARCH_TREE_STATE_KIND for artifact in snapshot.artifacts):
         raise ResearchTreeStateError(f"research tree already exists: {tree_id}")
     compiled = AlignmentGraphStore(alignment_database).compile_handoff()
     suffix = hashlib.sha256(tree_id.encode("utf-8")).hexdigest()[:10]
@@ -77,11 +73,7 @@ def initialize_research_from_alignment(
             (
                 handoff_id,
                 ALIGNMENT_HANDOFF_KIND,
-                {
-                    key: value
-                    for key, value in compiled.items()
-                    if key not in {"alignment_graph", "baseline_findings"}
-                },
+                {key: value for key, value in compiled.items() if key not in {"alignment_graph", "baseline_findings"}},
                 (graph_ref,),
             ),
             *((finding.id, finding.kind, thaw_json(finding.payload), finding.parent_refs) for finding in findings),

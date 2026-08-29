@@ -79,8 +79,9 @@ def test_many_derivative_claims_do_not_outvote_one_counterexample() -> None:
 
 
 def test_slot_detection_selects_each_conflict_when_findings_contain_multiple_groups(tmp_path) -> None:
-    from research_tree.domain import ArtifactRef
     from test_feedback_rounds import correction_context
+
+    from research_tree.domain import ArtifactRef
 
     ledger, coordinator, state, _, _ = correction_context(tmp_path)
     first = ledger.append_artifact(
@@ -130,9 +131,10 @@ def test_slot_detection_selects_each_conflict_when_findings_contain_multiple_gro
 
 
 def test_conflict_quarantine_survives_restart_and_recovers_lease(tmp_path) -> None:
+    from test_feedback_rounds import correction_context
+
     from research_tree import ResearchRunCoordinator, RunLedger
     from research_tree.domain import ArtifactRef
-    from test_feedback_rounds import correction_context
 
     ledger, coordinator, state, _, _ = correction_context(tmp_path)
     first = ledger.append_artifact(
@@ -177,10 +179,11 @@ def test_conflict_quarantine_survives_restart_and_recovers_lease(tmp_path) -> No
 
 
 def test_packet_retracts_durable_beliefs_and_pending_actions(tmp_path) -> None:
-    from research_tree.durable_interaction_state import DurableInteractionController
-    from research_tree.domain import ArtifactRef
-    from research_tree.interaction_state import InteractionEvent
     from test_feedback_rounds import correction_context
+
+    from research_tree.domain import ArtifactRef
+    from research_tree.durable_interaction_state import DurableInteractionController
+    from research_tree.interaction_state import InteractionEvent
 
     controller = DurableInteractionController.initialize(
         tmp_path / "project", project_id="topic", run_id="run-correction"
@@ -233,11 +236,11 @@ def test_packet_retracts_durable_beliefs_and_pending_actions(tmp_path) -> None:
 
 def test_packet_retry_recovers_after_durable_retraction_fault(tmp_path, monkeypatch) -> None:
     import pytest
-
-    from research_tree.durable_interaction_state import DurableInteractionController
-    from research_tree.domain import ArtifactRef
-    from research_tree.interaction_state import InteractionEvent
     from test_feedback_rounds import correction_context
+
+    from research_tree.domain import ArtifactRef
+    from research_tree.durable_interaction_state import DurableInteractionController
+    from research_tree.interaction_state import InteractionEvent
 
     controller = DurableInteractionController.initialize(
         tmp_path / "project", project_id="topic", run_id="run-correction"
@@ -304,9 +307,9 @@ def test_packet_retry_recovers_after_durable_retraction_fault(tmp_path, monkeypa
 
 def test_contradiction_retraction_rolls_back_as_one_ledger_transaction(tmp_path, monkeypatch) -> None:
     import pytest
+    from test_feedback_rounds import correction_context
 
     from research_tree.domain import ArtifactRef
-    from test_feedback_rounds import correction_context
 
     ledger, coordinator, state, _, _ = correction_context(tmp_path)
     first = ledger.append_artifact(

@@ -35,6 +35,12 @@ jobs:
       - name: Verify generated package parity
         run: uv run --frozen python scripts/build_skill_packages.py --check
 
+      - name: Lint repository (extended rule set)
+        run: uv run --frozen ruff check .
+
+      - name: Check formatting
+        run: uv run --frozen ruff format --check .
+
       - name: Lint changed Python files
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import pytest
-from pathlib import Path
 import sys
+from pathlib import Path
+
+import pytest
 
 from research_tree.host_events import HostEvent
 
@@ -17,7 +18,6 @@ from hermes_event_adapter import (  # noqa: E402
     sanitize_provider_failure,
 )
 from host_event_protocol import build_host_event  # noqa: E402
-
 
 BASE = {
     "event_id": "provider-failure-1",

@@ -8,7 +8,6 @@ from typing import Any, Mapping, Sequence
 from .claims import ClaimAssessment
 from .domain import RuntimeStoreError, canonical_json_bytes, validate_identifier
 
-
 SEARCH_PORTFOLIO_SCHEMA_VERSION = 2
 SEARCH_PORTFOLIO_KIND = "search-portfolio"
 METHOD_REGISTRY_SCHEMA_VERSION = 1
@@ -1518,10 +1517,11 @@ def assess_acquisition_batch(
         elif novelty == "none":
             disposition = "rewrite"
             next_actions = ("rewrite-query",)
-        elif implementation_uncertainty in {"high", "unknown", "critical"} or oracle_readiness != "ready":
-            disposition = "experiment"
-            next_actions = ("run-bounded-experiment",)
-        elif unresolved_decision_risk in {"high", "critical", "unknown"}:
+        elif (
+            implementation_uncertainty in {"high", "unknown", "critical"}
+            or oracle_readiness != "ready"
+            or unresolved_decision_risk in {"high", "critical", "unknown"}
+        ):
             disposition = "experiment"
             next_actions = ("run-bounded-experiment",)
         else:

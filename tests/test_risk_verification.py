@@ -4,16 +4,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-
 from test_readiness import complete_conditional_package, package_context
+
 from research_tree.domain import thaw_json
 
 
 def api():
     from research_tree import (
-        IsolatedVerificationResult,
-        InvalidReadinessError,
         CanonicalReadinessVerifier,
+        InvalidReadinessError,
+        IsolatedVerificationResult,
         VerificationFailure,
         readiness_for_delivery,
     )

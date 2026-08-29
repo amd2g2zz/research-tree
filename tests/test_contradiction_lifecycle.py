@@ -12,8 +12,9 @@ def _typed_claim(claim_id, **overrides):
 
 
 def _real_objects(tmp_path):
-    from research_tree import CanonicalDeliveryCompiler, CanonicalReadinessVerifier, ResearchRunCoordinator
     from test_deliveries import context, repository
+
+    from research_tree import CanonicalDeliveryCompiler, CanonicalReadinessVerifier, ResearchRunCoordinator
 
     tmp_path.mkdir(parents=True, exist_ok=True)
     repository(tmp_path / "repository")
@@ -33,9 +34,10 @@ def _real_objects(tmp_path):
 
 
 def _conflicting_correction(tmp_path, label, *, extra=None):
-    from research_tree.domain import ArtifactRef
     from test_canonical_contradictions import _claim_payload
     from test_feedback_rounds import correction_context
+
+    from research_tree.domain import ArtifactRef
 
     ledger, coordinator, state, _, _ = correction_context(tmp_path / "correction")
 
@@ -142,8 +144,9 @@ def _negative_finding(objects):
 
 
 def _compile_initial_outputs(objects, tmp_path):
-    from research_tree.domain import ArtifactRef
     from test_deliveries import compile_deliveries
+
+    from research_tree.domain import ArtifactRef
 
     deliveries = compile_deliveries(
         objects["modules"],

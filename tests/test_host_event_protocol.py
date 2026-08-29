@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import hashlib
 import importlib.util
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from strategy_support import confirm_strategy
 
 from research_tree.coordinator import (
     HOST_EVENT_KIND,
@@ -14,6 +15,7 @@ from research_tree.coordinator import (
     CoordinatorEventConflictError,
     ResearchRunCoordinator,
 )
+from research_tree.domain import ArtifactRef, canonical_json_bytes
 from research_tree.host_events import (
     HostEvent,
     HostEventDigestError,
@@ -22,9 +24,6 @@ from research_tree.host_events import (
     payload_digest,
 )
 from research_tree.run_ledger import RunLedger
-from research_tree.domain import ArtifactRef
-from research_tree.domain import canonical_json_bytes
-from strategy_support import confirm_strategy
 
 ROOT = Path(__file__).resolve().parents[1]
 

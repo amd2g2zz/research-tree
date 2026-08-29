@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-
 CASE_SCHEMA = Path("evaluation/schemas/host-conformance-v1.schema.json")
 RESULT_SCHEMA = Path("evaluation/schemas/host-conformance-result-v1.schema.json")
 FAULTS = (

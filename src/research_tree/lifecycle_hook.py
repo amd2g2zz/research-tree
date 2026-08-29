@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
+import re
 import secrets
 import sys
-import re
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, BinaryIO, Sequence
 
 from .skill_activation import build_loader_receipt
-
 
 MAX_INPUT_BYTES = 64 * 1024
 MAX_IDENTIFIER_LENGTH = 256
