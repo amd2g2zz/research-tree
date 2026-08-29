@@ -1,17 +1,17 @@
-## 0.5 工程基线升级（主会话，chore(engineering-baseline) PR，先于 #331）
+## 0.5 工程基线升级（主会话，先于 #331）—— **已完成 2026-08-30（issue #337，PR #338 squash fddb05c → dev）**
 
-- [ ] 0.5.1 ruff 门扩展：`[tool.ruff.lint]` 加 C90/PLR/PLW/ARG/SIM/B/I；45 存量文件 `ruff format` 一次收口；CI 加 `ruff format --check` 门；存量违例显式豁免（per-file-ignores/noqa），新代码零豁免
-- [ ] 0.5.2 pydantic：dev group 加依赖 + `src/research_tree/schemas.py` 试点边界（本批新模块强制注解）+ ADR-007 记录与 stdlib-only 的边界
-- [ ] 0.5.3 hermes loader 测试 Docker daemon 探针化（CLI 存在但 daemon 停机 → 显式 skip 带原因）
-- [ ] 0.5.4 脚手架/历史文件收口：`docs/方案设计.md`/`docs/需求理解.md` 移入 docs/history/ 或 gitignore；确认 `docs/research/` 零残留；`.research-tree*` 等模式补 .gitignore
-- [ ] 0.5.5 chore PR 合入后 4 个 issue 的 worktree 从该 commit 切出
+- [x] 0.5.1 ruff 门扩展：`[tool.ruff.lint]` 加 C90/PLR/PLW/ARG/SIM/B/I；45 存量文件 `ruff format` 一次收口；CI 加 `ruff format --check` 门；存量违例显式豁免（per-file-ignores/noqa），新代码零豁免
+- [x] 0.5.2 pydantic：dev group 加依赖 + `src/research_tree/schemas.py` 试点边界（本批新模块强制注解）+ ADR-007 记录与 stdlib-only 的边界
+- [x] 0.5.3 hermes loader 测试 Docker daemon 探针化（CLI 存在但 daemon 停机 → 显式 skip 带原因）
+- [x] 0.5.4 脚手架/历史文件收口：`docs/方案设计.md`/`docs/需求理解.md` 移入 docs/history/ 或 gitignore；确认 `docs/research/` 零残留；`.research-tree*` 等模式补 .gitignore
+- [x] 0.5.5 chore PR 合入后 4 个 issue 的 worktree 从该 commit 切出
 
 ## 1. 基线与工作网格（Phase 0/1，主会话）
 
 - [x] 1.1 备份并让位 5 个 untracked 冲突文件（openspec/changes/add-durable-interaction-state/* + tests/test_durable_interaction_state.py），归档 .research-tree*/ 旧运行态到 /tmp/pre-pull-backup
 - [x] 1.2 `git pull --ff-only origin master`，验证 HEAD == 0aa67a744e20485f6122eeaa5f29f8d41ba69f192
 - [x] 1.3 `uv sync` + `uv run --frozen pytest -q` 基线绿（969 passed；hermes loader 2 项为 Docker daemon 停机环境红；docs/research→docs/evaluation/research 迁移已修 documentation-governance 红）
-- [ ] 1.4 创建 4 个 worktree（/tmp/rt-alpha3-wt/{issue-331,332,333,335}），全部从 origin/master 切分支：docs/issue-331-release-governance-language、feat/issue-332-behavioral-wiring、refactor/issue-333-scheduling-consolidation、eval/issue-335-bounded-pilot
+- [ ] 1.4 创建 4 个 worktree（/tmp/rt-alpha3-wt/{issue-331,332,333,335}），全部从 origin/dev 切分支（fddb05c 起，工程基线已在其上）：docs/issue-331-release-governance-language、feat/issue-332-behavioral-wiring、refactor/issue-333-scheduling-consolidation、eval/issue-335-bounded-pilot
 
 ## 2. #331 发布治理四档语言（subagent: governance-doc-specialist）
 
