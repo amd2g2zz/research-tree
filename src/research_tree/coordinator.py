@@ -36,6 +36,7 @@ from .feedback import (
     CorrectionEvent,
 )
 from .host_events import HostEvent, HostEventError, HostEventSequenceError
+from .policy import AdaptiveResearchPolicy
 from .run_ledger import LedgerConflictError, RunLedger
 from .search_portfolio import PortfolioExecution, SearchPortfolio
 from .source_capture import ACQUISITION_RECEIPT_KIND, ANALYSIS_CHECKPOINT_KIND, SOURCE_CAPTURE_KIND
@@ -238,11 +239,18 @@ class ResearchRunCoordinator:
     event_conflict_error = CoordinatorEventConflictError
     stale_state_error = StaleStateError
 
-    def __init__(self, ledger: RunLedger, *, actor_id: str = "coordinator") -> None:
+    def __init__(
+        self,
+        ledger: RunLedger,
+        *,
+        actor_id: str = "coordinator",
+        policy: AdaptiveResearchPolicy | None = None,
+    ) -> None:
         if not isinstance(ledger, RunLedger):
             raise CoordinatorConflictError("ResearchRunCoordinator requires a RunLedger")
         self.ledger = ledger
         self.actor_id = validate_identifier(actor_id, "actor_id")
+        self.policy = policy
 
     def _load(self, reference: ArtifactRef, kind: str) -> ArtifactRevision:
         try:
@@ -2361,6 +2369,7 @@ class ResearchRunCoordinator:
                 if self._artifact_ref(item) in self._quarantined_refs(run_id):
                     raise StaleStateError("dispatch")
                 return item
+        policy_proposal_id = self._policy_proposal_id(run_id, work_item)
         payload = {
             "attempt_id": selected_attempt,
             "work_item": dict(work_item),
@@ -2369,6 +2378,7 @@ class ResearchRunCoordinator:
             "retry_ordinal": 0,
             "idempotency_key": selected_attempt,
             "lease_revision": 1,
+            "policy_proposal_id": policy_proposal_id,
         }
         parent_refs = [
             ArtifactRef(run_id, current.id, current.revision),
@@ -2387,6 +2397,37 @@ class ResearchRunCoordinator:
             )
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
+
+    def _policy_proposal_id(self, run_id: str, work_item: Mapping[str, Any]) -> str | None:
+        """Consult the scheduling policy at the dispatch decision point.
+
+        Returns the top proposal's action id for attempt lineage when a policy
+        is wired and produces a proposal for the run's decision slots; returns
+        None (current behavior) when no policy is wired or nothing is proposed.
+        """
+
+        if self.policy is None:
+            return None
+        slots = work_item.get("decision_slots")
+        if slots is None:
+            target = self._target(run_id)
+            slots = thaw_json(target.payload).get("decision_slots") if target is not None else None
+        deficits = [
+            {
+                "slot_id": slot.get("id"),
+                "question": slot.get("question", slot.get("objective", "Close the decision slot")),
+                "priority": slot.get("priority", "P1"),
+                "closure_oracle": slot.get(
+                    "closure_oracle", slot.get("success_oracle", f"slot-{slot.get('id')}-closed")
+                ),
+            }
+            for slot in slots
+            if isinstance(slot, Mapping) and slot.get("id")
+        ]
+        if not deficits:
+            return None
+        evaluation = self.policy.evaluate(slots=deficits)
+        return evaluation.proposals[0].action_id if evaluation.proposals else None
 
     @staticmethod
     def _artifact_ref(item: ArtifactRevision) -> ArtifactRef:
