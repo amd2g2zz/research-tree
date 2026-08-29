@@ -75,6 +75,12 @@ Follow `references/skill-activation.md`: only exact `/research-tree activation-p
 - The installed package contains `SKILL.md`, bundled references/assets, and the
   dependency-free native execution adapter. It does not contain the repository
   Python runtime, lifecycle hooks, builder, or evaluation corpus.
+- Governance interaction entry points: when interrupted use the correction
+  protocol (`CorrectionEvent` with kind `correction` or `reopen` committed via
+  `apply_correction`); when a delivered conclusion is contradicted use
+  `apply_contradiction`; after delivery collect one of the
+  `ACCEPTANCE_DECISIONS` via `DeliveryAcceptance`; before any user-visible
+  status message, echo from `research-tree status`.
 
 ### Source checkout development boundary
 

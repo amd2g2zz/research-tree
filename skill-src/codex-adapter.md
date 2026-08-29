@@ -50,3 +50,9 @@ Follow `references/skill-activation.md`: only exact `$research-tree activation-p
   `reconcile-host` after interruption before retrying unknown children. Partial,
   denied, or failed collaboration falls back to `coordinator-dispatch-v1` and
   never turns `update_plan` completion into canonical completion.
+- Governance interaction entry points: when interrupted use the correction
+  protocol (`CorrectionEvent` with kind `correction` or `reopen` committed via
+  `apply_correction`); when a delivered conclusion is contradicted use
+  `apply_contradiction`; after delivery collect one of the
+  `ACCEPTANCE_DECISIONS` via `DeliveryAcceptance`; before any user-visible
+  status message, echo from `research-tree status`.
