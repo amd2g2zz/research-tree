@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
+
 def finding(
     finding_id: str,
     *,
@@ -55,17 +57,12 @@ def active_validation_nodes(state: dict[str, object]) -> list[dict[str, object]]
     return [
         node
         for node in nodes.values()
-        if isinstance(node, dict)
-        and node["status"] in {"frontier", "running"}
-        and node["action_kind"] == "validation"
+        if isinstance(node, dict) and node["status"] in {"frontier", "running"} and node["action_kind"] == "validation"
     ]
 
 
 def worker_verifier_question(epoch: int = 1) -> str:
-    return (
-        "Produce verifier-needed proof for the worker-reported validation pass "
-        f"(continuation epoch {epoch})."
-    )
+    return f"Produce verifier-needed proof for the worker-reported validation pass (continuation epoch {epoch})."
 
 
 def test_existing_findings_seed_growth_without_claiming_initial_gain() -> None:
@@ -89,9 +86,7 @@ def test_existing_findings_seed_growth_without_claiming_initial_gain() -> None:
     assert state["nodes"]["root:slot-architecture"]["realized_delta"] == 0.0
     assert state["nodes"]["root:slot-architecture"]["status"] == "frontier"
     children = [node for node in state["nodes"].values() if node["parent_id"]]
-    assert [node["question"] for node in children] == [
-        "Crash recovery has not been tested."
-    ]
+    assert [node["question"] for node in children] == ["Crash recovery has not been tested."]
 
 
 def test_priority_band_prevents_p1_residual_from_displacing_p0() -> None:
@@ -99,12 +94,16 @@ def test_priority_band_prevents_p1_residual_from_displacing_p0() -> None:
 
     decision_slots = {
         "slot-p0": {
-            "status": "open", "priority": "P0", "uncertainty": "medium",
+            "status": "open",
+            "priority": "P0",
+            "uncertainty": "medium",
             "question": "Validate the critical architecture.",
             "validation": {"oracle": "The critical architecture passes its experiment."},
         },
         "slot-p1": {
-            "status": "open", "priority": "P1", "uncertainty": "high",
+            "status": "open",
+            "priority": "P1",
+            "uncertainty": "high",
             "question": "Characterize a secondary unknown.",
             "validation": {"oracle": "The secondary unknown is bounded."},
         },
@@ -143,10 +142,7 @@ def test_finding_pack_grows_successor_and_duplicate_evidence_has_zero_delta() ->
 
     assert after_first["transition_index"] == 1
     assert after_first["delta_history"][0]["realized_delta"] > 0
-    next_nodes = [
-        after_first["nodes"][node_id]
-        for node_id in after_first["frontier_node_ids"]
-    ]
+    next_nodes = [after_first["nodes"][node_id] for node_id in after_first["frontier_node_ids"]]
     assert [node["action_kind"] for node in next_nodes] == ["validation"]
 
     duplicate = finding(
@@ -189,10 +185,7 @@ def test_worker_reported_pass_cannot_close_validation_or_delivery() -> None:
         ),
     )
     assert first["status"] == "searching"
-    assert any(
-        "Triangulate" in first["nodes"][node_id]["question"]
-        for node_id in first["frontier_node_ids"]
-    )
+    assert any("Triangulate" in first["nodes"][node_id]["question"] for node_id in first["frontier_node_ids"])
     triangulation_node_id = first["frontier_node_ids"][0]
 
     second = apply_research_results(
@@ -298,9 +291,7 @@ def test_repeated_fresh_worker_passes_keep_one_active_verifier_node() -> None:
     unrelated_node = [
         node
         for node in first["nodes"].values()
-        if isinstance(node, dict)
-        and node["status"] == "frontier"
-        and node["action_kind"] == "deep_dive"
+        if isinstance(node, dict) and node["status"] == "frontier" and node["action_kind"] == "deep_dive"
     ][0]
 
     second = apply_research_results(
@@ -393,9 +384,7 @@ def test_running_verifier_node_is_reused_for_later_untrusted_pass() -> None:
     unrelated = [
         node
         for node in first["nodes"].values()
-        if isinstance(node, dict)
-        and node["status"] == "frontier"
-        and node["action_kind"] == "deep_dive"
+        if isinstance(node, dict) and node["status"] == "frontier" and node["action_kind"] == "deep_dive"
     ][0]
 
     second = apply_research_results(
@@ -413,9 +402,7 @@ def test_running_verifier_node_is_reused_for_later_untrusted_pass() -> None:
     active = active_validation_nodes(second)
     assert len(active) == 1
     assert active[0]["id"] == verifier["id"]
-    assert second["decision_slots"]["slot-architecture"][
-        "worker_validation_continuation_epoch"
-    ] == 1
+    assert second["decision_slots"]["slot-architecture"]["worker_validation_continuation_epoch"] == 1
 
 
 def test_worker_continuation_cannot_claim_protocol_verifier_identity() -> None:
@@ -449,8 +436,7 @@ def test_worker_continuation_cannot_claim_protocol_verifier_identity() -> None:
     protocol_nodes = [
         node
         for node in result["nodes"].values()
-        if isinstance(node, dict)
-        and node.get("worker_validation_continuation") is True
+        if isinstance(node, dict) and node.get("worker_validation_continuation") is True
     ]
     forged_nodes = [
         node
@@ -780,9 +766,7 @@ def test_persisted_coordinator_exposes_successor_actions_across_processes(
         tree_id="research-tree",
         max_parallelism=1,
     )[0]
-    assert first_action["decision_oracle"] == (
-        "restart and replay preserves the active frontier"
-    )
+    assert first_action["decision_oracle"] == ("restart and replay preserves the active frontier")
     assert first_action["execution_context"] == {}
     persisted_finding = ledger.append_artifact(
         round_id,
@@ -811,6 +795,4 @@ def test_persisted_coordinator_exposes_successor_actions_across_processes(
     )
     assert actions_after_restart
     assert actions_after_restart[0]["parent_id"] == first_action["id"]
-    assert actions_after_restart[0]["question"] == (
-        "An independent execution check is still required."
-    )
+    assert actions_after_restart[0]["question"] == ("An independent execution check is still required.")

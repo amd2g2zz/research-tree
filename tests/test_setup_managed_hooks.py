@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import shlex
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
 from research_tree.lifecycle_hook import observe
 from research_tree.skill_setup import SkillSetupError, install_skill, resolve_skill_source, skill_status
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -74,11 +73,7 @@ def test_hermes_global_hook_preserves_unrelated_hook_entries(tmp_path: Path) -> 
     config = home / ".hermes" / "config.yaml"
     config.parent.mkdir(parents=True)
     config.write_text(
-        "hooks:\n"
-        "  on_session_start:\n"
-        "    - command: 'keep-existing-hook'\n"
-        "      timeout: 3\n"
-        "hooks_auto_accept: true\n",
+        "hooks:\n  on_session_start:\n    - command: 'keep-existing-hook'\n      timeout: 3\nhooks_auto_accept: true\n",
         encoding="utf-8",
     )
 
@@ -279,11 +274,7 @@ def test_installed_global_hook_command_is_fail_open_in_an_unbound_workspace(
         home=home,
         project_root=workspace,
     )
-    command = next(
-        command
-        for command in _commands(home / ".codex" / "hooks.json")
-        if "research-tree-hook" in command
-    )
+    command = next(command for command in _commands(home / ".codex" / "hooks.json") if "research-tree-hook" in command)
 
     completed = subprocess.run(
         shlex.split(command),

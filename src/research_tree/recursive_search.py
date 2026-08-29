@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import copy
 import hashlib
 import math
-from pathlib import Path
 import re
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .domain import ArtifactRevision, thaw_json
@@ -18,7 +18,6 @@ from .evidence_delta import (
 )
 from .run_ledger import RunLedger
 from .tree_state import CanonicalResearchTreeStateService
-
 
 _WORKER_VALIDATION_STATUSES = frozenset({"passed", "failed", "inconclusive"})
 _WORKER_VALIDATION_NODE_MARKER = "worker_validation_continuation"
@@ -133,9 +132,7 @@ def apply_research_results(
     result["transition_index"] = transition_index
     result["delta_history"].append(delta)
     result["evidence_baseline"] = next_baseline.to_dict()
-    result["consumed_finding_ids"] = sorted(
-        consumed | {_finding_id(finding) for finding in fresh}
-    )
+    result["consumed_finding_ids"] = sorted(consumed | {_finding_id(finding) for finding in fresh})
 
     for finding in fresh:
         payload = _payload(finding)
@@ -185,13 +182,9 @@ def score_research_frontier(state: Mapping[str, Any]) -> dict[str, Any]:
         mandatory = 1.0 if _is_mandatory(node, slot) else 0.0
         novelty = 1.0 if not _has_completed_equivalent(result, node) else 0.0
         complexity = _branch_complexity(result, node)
-        penalty_count = int(node.get("stagnation_count", 0)) + int(
-            slot.get("stagnation_count", 0)
-        )
+        penalty_count = int(node.get("stagnation_count", 0)) + int(slot.get("stagnation_count", 0))
         penalty = penalty_count * cfg.stagnation_penalty
-        priority_band = {"P0": 3.0, "P1": 2.0, "P2": 1.0}.get(
-            str(slot["priority"]), 1.5
-        )
+        priority_band = {"P0": 3.0, "P1": 2.0, "P2": 1.0}.get(str(slot["priority"]), 1.5)
         value = priority_band + mandatory + float(slot["residual_risk"]) * novelty / complexity
         value -= int(node["depth"]) * cfg.depth_penalty + penalty
         node["branch_complexity"] = round(complexity, 6)
@@ -236,10 +229,10 @@ def prune_research_state(state: Mapping[str, Any]) -> dict[str, Any]:
         ):
             node["status"] = "deferred"
             node["terminal_reason"] = "selection value below threshold"
-        elif (
-            int(result["decision_slots"][node["decision_slot_id"]].get("stagnation_count", 0))
-            >= cfg.max_stagnant_transitions
-            and not _is_mandatory(node, result["decision_slots"][node["decision_slot_id"]])
+        elif int(
+            result["decision_slots"][node["decision_slot_id"]].get("stagnation_count", 0)
+        ) >= cfg.max_stagnant_transitions and not _is_mandatory(
+            node, result["decision_slots"][node["decision_slot_id"]]
         ):
             node["status"] = "deferred"
             node["terminal_reason"] = "subtree produced no state change repeatedly"
@@ -248,9 +241,7 @@ def prune_research_state(state: Mapping[str, Any]) -> dict[str, Any]:
         key=lambda item: (-item["selection_value"], item["id"]),
     )
     mandatory_frontier = [
-        node
-        for node in frontier
-        if _is_mandatory(node, result["decision_slots"][node["decision_slot_id"]])
+        node for node in frontier if _is_mandatory(node, result["decision_slots"][node["decision_slot_id"]])
     ]
     optional_frontier = [node for node in frontier if node not in mandatory_frontier]
     optional_capacity = max(0, cfg.max_frontier - len(mandatory_frontier))
@@ -265,17 +256,15 @@ def prune_research_state(state: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
-def select_research_actions(
-    state: Mapping[str, Any], *, max_parallelism: int
-) -> tuple[Mapping[str, Any], ...]:
+def select_research_actions(state: Mapping[str, Any], *, max_parallelism: int) -> tuple[Mapping[str, Any], ...]:
     if max_parallelism < 1:
         raise ValueError("max_parallelism must be positive")
     return tuple(
         {
             **state["nodes"][node_id],
-            "decision_oracle": state["decision_slots"][
-                state["nodes"][node_id]["decision_slot_id"]
-            ]["validation_oracle"],
+            "decision_oracle": state["decision_slots"][state["nodes"][node_id]["decision_slot_id"]][
+                "validation_oracle"
+            ],
             "execution_context": thaw_json(state["execution_context"]),
         }
         for node_id in state["frontier_node_ids"][:max_parallelism]
@@ -434,8 +423,10 @@ def evaluate_research_stop(state: Mapping[str, Any]) -> dict[str, Any]:
             if node["decision_slot_id"] == slot_id and node["status"] == "frontier"
         ]
         slot["status"] = "researching"
-        if _slot_has_minimum_evidence(slot) and not open_nodes and (
-            not slot["validation_required"] or slot["validation_passed"]
+        if (
+            _slot_has_minimum_evidence(slot)
+            and not open_nodes
+            and (not slot["validation_required"] or slot["validation_passed"])
         ):
             blockers.append(f"{slot_id}: closure candidate requires coordinator assessment")
         if not _slot_has_minimum_evidence(slot):
@@ -444,9 +435,7 @@ def evaluate_research_stop(state: Mapping[str, Any]) -> dict[str, Any]:
             blockers.append(f"{slot_id}: validation oracle has not passed")
         if open_nodes:
             blockers.append(f"{slot_id}: {len(open_nodes)} frontier action(s) remain")
-    if result["decision_slots"] and all(
-        slot["status"] == "closed" for slot in result["decision_slots"].values()
-    ):
+    if result["decision_slots"] and all(slot["status"] == "closed" for slot in result["decision_slots"].values()):
         result["status"] = "delivery_pending"
         result["stop_reason"] = "coordinator must assess slot closure and delivery obligations"
     elif result["frontier_node_ids"]:
@@ -502,8 +491,7 @@ def _report_manifest(
     headings = len(re.findall(r"(?m)^#{1,6}\s+\S", text))
     if len(raw) < minimum_bytes or headings < minimum_headings:
         raise ValueError(
-            f"{kind} is too shallow: requires at least {minimum_bytes} bytes and "
-            f"{minimum_headings} headings"
+            f"{kind} is too shallow: requires at least {minimum_bytes} bytes and {minimum_headings} headings"
         )
     return {
         "status": "verified",
@@ -574,14 +562,8 @@ def _grow_from_finding(
             slot=slot,
             question=question,
             action_kind=str(continuation.get("kind", "deep_dive")),
-            trigger_ref=(
-                f"baseline:{_finding_id(finding)}"
-                if baseline_event
-                else f"finding:{_finding_id(finding)}"
-            ),
-            evidence_needed=str(
-                continuation.get("evidence_needed", "Decision-relevant evidence with provenance.")
-            ),
+            trigger_ref=(f"baseline:{_finding_id(finding)}" if baseline_event else f"finding:{_finding_id(finding)}"),
+            evidence_needed=str(continuation.get("evidence_needed", "Decision-relevant evidence with provenance.")),
             oracle=str(continuation.get("oracle", "The question is answered with anchored evidence.")),
             estimated_cost=_positive_float(continuation.get("estimated_cost", 1.0)),
         )
@@ -594,9 +576,7 @@ def _grow_from_finding(
     status = raw_status.strip()
     if status not in _WORKER_VALIDATION_STATUSES:
         return
-    slot["validation_status"] = (
-        "reported_passed_untrusted" if status == "passed" else status
-    )
+    slot["validation_status"] = "reported_passed_untrusted" if status == "passed" else status
     slot["validation_attempts"] = int(slot.get("validation_attempts", 0)) + 1
     if status == "failed":
         slot["validation_failures"] = int(slot.get("validation_failures", 0)) + 1
@@ -641,18 +621,12 @@ def _ensure_worker_validation_continuation(
         parent=parent,
         slot=slot,
         question=(
-            "Produce verifier-needed proof for the worker-reported validation pass "
-            f"(continuation epoch {epoch})."
+            f"Produce verifier-needed proof for the worker-reported validation pass (continuation epoch {epoch})."
         ),
         action_kind="validation",
         trigger_ref=trigger_ref,
-        evidence_needed=(
-            "An evaluator-owned or independently verified receipt bound to the "
-            "reported claim."
-        ),
-        oracle=slot["validation_oracle"] or (
-            "An independent validation oracle produces a source-bound result."
-        ),
+        evidence_needed=("An evaluator-owned or independently verified receipt bound to the reported claim."),
+        oracle=slot["validation_oracle"] or ("An independent validation oracle produces a source-bound result."),
         estimated_cost=1.0,
         mandatory=True,
         identity_namespace="worker-validation",
@@ -678,16 +652,14 @@ def _add_node(
     identity_namespace: str = "question",
     metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    normalized_kind = action_kind if action_kind in {
-        "deep_dive", "adversarial", "validation", "method_switch"
-    } else "deep_dive"
+    normalized_kind = (
+        action_kind if action_kind in {"deep_dive", "adversarial", "validation", "method_switch"} else "deep_dive"
+    )
     namespace = str(identity_namespace).strip() or "question"
     identity = _normalize(question)
     if namespace != "question":
         identity = f"{namespace}:{identity}"
-    digest = hashlib.sha256(
-        f"{slot['id']}:{normalized_kind}:{identity}".encode("utf-8")
-    ).hexdigest()[:16]
+    digest = hashlib.sha256(f"{slot['id']}:{normalized_kind}:{identity}".encode("utf-8")).hexdigest()[:16]
     node_id = f"node:{slot['id']}:{digest}"
     if node_id in state["nodes"]:
         return state["nodes"][node_id]
@@ -745,8 +717,7 @@ def _ensure_slot_frontier(
             )
         elif slot.get("validation_status") == "inconclusive":
             question = (
-                "Resolve the inconclusive Decision Slot validation with a different "
-                f"method after attempt {attempts}."
+                f"Resolve the inconclusive Decision Slot validation with a different method after attempt {attempts}."
             )
         else:
             question = "Execute the Decision Slot validation oracle against the leading conclusion."
@@ -758,9 +729,8 @@ def _ensure_slot_frontier(
             action_kind="validation",
             trigger_ref=trigger_ref,
             evidence_needed="Executed or independently reviewed validation evidence.",
-            oracle=slot["validation_oracle"] or (
-                "The Decision Slot validation result is explicitly passed, failed, or inconclusive."
-            ),
+            oracle=slot["validation_oracle"]
+            or ("The Decision Slot validation result is explicitly passed, failed, or inconclusive."),
             estimated_cost=1.0,
             mandatory=True,
         )
@@ -800,15 +770,11 @@ def _update_slot_evidence(slot: dict[str, Any], finding: Any) -> None:
         if not isinstance(observation, Mapping) or not isinstance(observation.get("anchor"), Mapping):
             continue
         anchor = observation["anchor"]
-        anchors.add(
-            hashlib.sha256(f"{anchor.get('kind')}:{anchor.get('ref')}".encode("utf-8")).hexdigest()
-        )
+        anchors.add(hashlib.sha256(f"{anchor.get('kind')}:{anchor.get('ref')}".encode("utf-8")).hexdigest())
     slot["anchor_fingerprints"] = sorted(anchors)
 
 
-def _resolve_parent(
-    state: Mapping[str, Any], payload: Mapping[str, Any], slot_id: str
-) -> dict[str, Any] | None:
+def _resolve_parent(state: Mapping[str, Any], payload: Mapping[str, Any], slot_id: str) -> dict[str, Any] | None:
     explicit = payload.get("research_node_id")
     if isinstance(explicit, str) and explicit in state["nodes"]:
         return state["nodes"][explicit]
@@ -825,9 +791,7 @@ def _resolve_parent(
 def _has_completed_equivalent(state: Mapping[str, Any], node: Mapping[str, Any]) -> bool:
     key = _node_equivalence_key(node)
     return any(
-        other["id"] != node["id"]
-        and other["status"] == "completed"
-        and _node_equivalence_key(other) == key
+        other["id"] != node["id"] and other["status"] == "completed" and _node_equivalence_key(other) == key
         for other in state["nodes"].values()
     )
 
@@ -847,27 +811,20 @@ def _is_mandatory(node: Mapping[str, Any], slot: Mapping[str, Any]) -> bool:
     )
 
 
-def _refresh_slot_residual_risk(
-    slot: dict[str, Any], cfg: RecursiveSearchConfig
-) -> None:
+def _refresh_slot_residual_risk(slot: dict[str, Any], cfg: RecursiveSearchConfig) -> None:
     """Update the boosting residual only from observable closure state."""
 
     finding_deficit = max(0.0, (2 - len(slot["finding_ids"])) / 2)
     anchor_deficit = max(0.0, (2 - len(slot["anchor_fingerprints"])) / 2)
     evidence_deficit = max(finding_deficit, anchor_deficit)
-    validation_deficit = (
-        1.0 if slot["validation_required"] and not slot["validation_passed"] else 0.0
-    )
+    validation_deficit = 1.0 if slot["validation_required"] and not slot["validation_passed"] else 0.0
     closure_deficit = max(evidence_deficit, validation_deficit)
     failure_boost = min(
         cfg.max_residual_boost,
         int(slot.get("validation_failures", 0)) * cfg.validation_failure_boost,
     )
     slot["residual_risk"] = round(
-        _priority_value(slot["priority"])
-        * float(slot["uncertainty"])
-        * closure_deficit
-        * (1.0 + failure_boost),
+        _priority_value(slot["priority"]) * float(slot["uncertainty"]) * closure_deficit * (1.0 + failure_boost),
         6,
     )
 
@@ -881,8 +838,7 @@ def _branch_complexity(state: Mapping[str, Any], node: Mapping[str, Any]) -> flo
     sibling_count = sum(
         1
         for candidate in state["nodes"].values()
-        if candidate.get("parent_id") == parent_id
-        and candidate.get("status") not in {"duplicate", "invalid"}
+        if candidate.get("parent_id") == parent_id and candidate.get("status") not in {"duplicate", "invalid"}
     )
     return 1.0 + math.log2(max(1, sibling_count))
 
@@ -893,8 +849,7 @@ def _slot_has_minimum_evidence(slot: Mapping[str, Any]) -> bool:
 
 def _has_open_node(state: Mapping[str, Any], slot_id: str) -> bool:
     return any(
-        node["decision_slot_id"] == slot_id
-        and node["status"] in {"frontier", "running"}
+        node["decision_slot_id"] == slot_id and node["status"] in {"frontier", "running"}
         for node in state["nodes"].values()
     )
 

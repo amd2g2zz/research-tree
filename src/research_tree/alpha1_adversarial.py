@@ -7,14 +7,11 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-
 ALPHA1_TAG = "0.0.1-a1"
 ALPHA1_COMMIT = "8ab91ea4eb55c98441b5ee6001b80922a56ecdd1"
 HOSTS = frozenset({"codex", "claude-code", "hermes"})
 DISPOSITIONS = frozenset({"executable", "unavailable"})
-CATEGORIES = frozenset(
-    {"evidence-closure", "delivery", "research-policy", "alignment", "host-completion", "recovery"}
-)
+CATEGORIES = frozenset({"evidence-closure", "delivery", "research-policy", "alignment", "host-completion", "recovery"})
 PUBLICLY_FORBIDDEN_CASE_FIELDS = frozenset(
     {"unsafe_outcome", "fix_confirmed", "hidden_material", "hidden_acceptance", "expected_result"}
 )
@@ -88,8 +85,7 @@ def validate_manifest(value: Mapping[str, Any]) -> None:
         if disposition == "unavailable" and command is not None:
             raise BaselineFixtureError("unavailable case must not provide a command")
         if disposition == "unavailable" and (
-            not isinstance(case.get("unavailability_reason"), str)
-            or not case["unavailability_reason"].strip()
+            not isinstance(case.get("unavailability_reason"), str) or not case["unavailability_reason"].strip()
         ):
             raise BaselineFixtureError("unavailable case requires an unavailability reason")
         oracle_id = case.get("oracle_id")
@@ -122,7 +118,10 @@ def evaluate_case(
 
 
 def evaluate_manifest(
-    manifest: Mapping[str, Any], *, observations: Mapping[str, bool], evidence_by_case: Mapping[str, Sequence[str]] | None = None
+    manifest: Mapping[str, Any],
+    *,
+    observations: Mapping[str, bool],
+    evidence_by_case: Mapping[str, Sequence[str]] | None = None,
 ) -> dict[str, Any]:
     validate_manifest(manifest)
     evidence_by_case = evidence_by_case or {}

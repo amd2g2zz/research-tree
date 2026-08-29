@@ -10,10 +10,10 @@ def api():
         CanonicalBlueprintTargetCompiler,
         CanonicalInputIntakeService,
         CanonicalIntentModelCompiler,
+        CanonicalWorkingBriefCompiler,
         CanonicalWorkItemCompiler,
         CanonicalWorkItemPlanner,
         CanonicalWorkItemStatusService,
-        CanonicalWorkingBriefCompiler,
         InvalidWorkItemError,
         RunLedger,
     )
@@ -86,13 +86,39 @@ def canonical_context_target(tmp_path: Path):
         input_ids=input_ids,
         analysis={
             "signals": [
-                {"input_id": "input-brief", "observation": "The requester needs an autonomous agent.", "kind": "stated_goal", "authority_boundary": "It does not select the implementation architecture."},
-                {"input_id": "input-repository", "observation": "The repository has a src/agent.py run boundary.", "kind": "repository_fact", "authority_boundary": "It describes current code, not a recommendation."},
+                {
+                    "input_id": "input-brief",
+                    "observation": "The requester needs an autonomous agent.",
+                    "kind": "stated_goal",
+                    "authority_boundary": "It does not select the implementation architecture.",
+                },
+                {
+                    "input_id": "input-repository",
+                    "observation": "The repository has a src/agent.py run boundary.",
+                    "kind": "repository_fact",
+                    "authority_boundary": "It describes current code, not a recommendation.",
+                },
             ],
-            "hypotheses": [{"id": "intent-agent", "interpretation": "Deliver a safe implementation-ready agent path.", "status": "leading", "signal_refs": ["input-brief", "input-repository"], "confidence": "medium", "decision_consequence": "Architecture and safety boundaries need research.", "validation": "repository_inspection"}],
+            "hypotheses": [
+                {
+                    "id": "intent-agent",
+                    "interpretation": "Deliver a safe implementation-ready agent path.",
+                    "status": "leading",
+                    "signal_refs": ["input-brief", "input-repository"],
+                    "confidence": "medium",
+                    "decision_consequence": "Architecture and safety boundaries need research.",
+                    "validation": "repository_inspection",
+                }
+            ],
             "desired_outcomes": ["implementation-ready technical blueprint"],
             "success_signals": ["an implementation agent can start without rediscovery"],
-            "decision_drivers": [{"dimension": "technical", "statement": "The first implementation must be safely isolated.", "signal_refs": ["input-brief"]}],
+            "decision_drivers": [
+                {
+                    "dimension": "technical",
+                    "statement": "The first implementation must be safely isolated.",
+                    "signal_refs": ["input-brief"],
+                }
+            ],
             "hard_constraints": ["Do not execute untrusted binaries during intake."],
             "non_goals": ["Do not require a user questionnaire."],
             "unresolved_interpretations": [],
@@ -120,7 +146,12 @@ def canonical_context_target(tmp_path: Path):
         target_id="blueprint-target",
         working_brief=brief,
         slots=[security, architecture],
-        change={"kind": "initial", "reason": "Map the open architecture and security decisions.", "from_slot_ids": [], "to_slot_ids": ["slot-security", "slot-architecture"]},
+        change={
+            "kind": "initial",
+            "reason": "Map the open architecture and security decisions.",
+            "from_slot_ids": [],
+            "to_slot_ids": ["slot-security", "slot-architecture"],
+        },
         expected_revision=ledger.get_revision(round_record.id),
     )
     return modules, ledger, round_record, target
@@ -228,19 +259,13 @@ def test_planner_rejects_normal_work_for_a_superseded_round(tmp_path: Path) -> N
             expected_revision=ledger.get_revision(round_record.id),
         )
 
-    assert not [
-        artifact
-        for artifact in ledger.load_run(round_record.id).artifacts
-        if artifact.kind == "work-item"
-    ]
+    assert not [artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "work-item"]
 
 
 def test_serial_planner_turns_stable_topological_order_into_a_chain(tmp_path: Path) -> None:
     modules, ledger, round_record, target = canonical_context_target(tmp_path)
     brief = next(
-        artifact
-        for artifact in ledger.load_run(round_record.id).artifacts
-        if artifact.kind == "working-brief"
+        artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "working-brief"
     )
     independent = slot("slot-observability", priority="P1")
     serial_target = modules["CanonicalBlueprintTargetCompiler"](ledger).compile(
@@ -309,16 +334,12 @@ def test_closed_slot_requires_recorded_exception_and_deferred_status(tmp_path: P
 
     modules, ledger, round_record, target = canonical_context_target(tmp_path)
     closed_slots = thaw_json(target.payload)["slots"]
-    next(slot_value for slot_value in closed_slots if slot_value["id"] == "slot-architecture")[
-        "status"
-    ] = "selected"
+    next(slot_value for slot_value in closed_slots if slot_value["id"] == "slot-architecture")["status"] = "selected"
     closed_target = modules["CanonicalBlueprintTargetCompiler"](ledger).compile(
         round_id=round_record.id,
         target_id="closed-target",
         working_brief=next(
-            artifact
-            for artifact in ledger.load_run(round_record.id).artifacts
-            if artifact.kind == "working-brief"
+            artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "working-brief"
         ),
         slots=closed_slots,
         change={
@@ -381,14 +402,10 @@ def test_status_service_appends_cancelled_and_deferred_revisions(tmp_path: Path)
             expected_revision=ledger.get_revision(round_record.id),
         )
     brief = next(
-        artifact
-        for artifact in ledger.load_run(round_record.id).artifacts
-        if artifact.kind == "working-brief"
+        artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "working-brief"
     )
     retained_slots = [
-        slot_value
-        for slot_value in thaw_json(target.payload)["slots"]
-        if slot_value["id"] != "slot-security"
+        slot_value for slot_value in thaw_json(target.payload)["slots"] if slot_value["id"] != "slot-security"
     ]
     superseding_target = modules["CanonicalBlueprintTargetCompiler"](ledger).compile(
         round_id=round_record.id,

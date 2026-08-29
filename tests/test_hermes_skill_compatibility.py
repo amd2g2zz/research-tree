@@ -7,7 +7,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 ADAPTER = ROOT / "scripts" / "hermes_skill_adapter.py"
 RUNTIME_HOOK = ROOT / "scripts" / "hermes_runtime_hook.py"

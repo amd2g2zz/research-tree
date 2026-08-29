@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
-from pathlib import Path
 import subprocess
-
+from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 REGISTRY = ROOT / "openspec/changes/unify-research-runtime-alpha2/registries/repository-paths-v1.json"

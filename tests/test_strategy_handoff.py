@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from research_tree.coordinator import CoordinatorConflictError, IllegalTransitionError, ResearchRunCoordinator
-from research_tree.domain import ArtifactRef
 from research_tree.decision_frame import DecisionFrame, IntentHypothesis
+from research_tree.domain import ArtifactRef
 from research_tree.run_ledger import RunLedger
 from research_tree.strategy_projection import StrategyProjection
 

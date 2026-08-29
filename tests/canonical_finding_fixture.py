@@ -18,7 +18,6 @@ from research_tree import (
 from research_tree.claims import Claim, ClaimGrounding
 from research_tree.work_items import WORK_ITEM_KIND
 
-
 RUN_ID = "round-canonical"
 
 

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from research_tree.alignment_protocol import AlignmentProtocolError, AlignmentProtocol
+from research_tree.alignment_protocol import AlignmentProtocol, AlignmentProtocolError
 from research_tree.run_ledger import RunLedger
 
 

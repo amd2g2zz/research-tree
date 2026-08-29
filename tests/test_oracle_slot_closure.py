@@ -27,7 +27,6 @@ from research_tree.source_capture import (
     SourceCapture,
 )
 
-
 RUN_ID = "run-oracle"
 CAPTURED_AT = "2026-08-13T00:00:00+00:00"
 ROOT = Path(__file__).resolve().parents[1]

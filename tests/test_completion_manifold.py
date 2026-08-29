@@ -3,14 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from test_research_run_coordinator import _advance_to_awaiting_acceptance, _initialize
 
 from research_tree.acceptance import DeliveryAcceptance, delivery_pair_digest
 from research_tree.completion_inputs import CompletionInputRegistrar, delivery_manifest_digest
 from research_tree.coordinator import COMPLETION_RECORD_KIND, CompletionBlockedError
 from research_tree.domain import ArtifactRef
 from research_tree.run_ledger import RunLedger
-
-from test_research_run_coordinator import _advance_to_awaiting_acceptance, _initialize
 
 
 def _generic_chain(ledger: RunLedger, target) -> tuple:

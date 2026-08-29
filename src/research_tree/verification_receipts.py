@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
-from pathlib import Path
 import platform
 import subprocess
 import sys
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Mapping
 
 

@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
 from research_tree.lifecycle_hook import observe
 from research_tree.project_workspace import initialize_project_run, write_installed_hook_launcher
-
 
 ROOT = Path(__file__).resolve().parents[1]
 ADAPTER = ROOT / "scripts" / "native_execution_adapter.py"

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from canonical_finding_fixture import RUN_ID, canonical_context
 
 
@@ -31,10 +30,7 @@ def test_canonical_input_intake_service_is_public() -> None:
 
 def test_legacy_authoring_services_are_not_published() -> None:
     import research_tree
-    import research_tree.decision_map as decision_map
-    import research_tree.intake as intake
-    import research_tree.intent as intent
-    import research_tree.work_items as work_items
+    from research_tree import decision_map, intake, intent, work_items
 
     assert not hasattr(research_tree, "BlueprintTargetCompiler")
     assert not hasattr(research_tree, "InputIntakeService")
@@ -96,11 +92,11 @@ def test_canonical_work_item_planner_appends_through_one_ledger(tmp_path) -> Non
 
 
 def test_canonical_work_item_status_appends_exact_work_and_target_lineage(tmp_path) -> None:
-    from research_tree.domain import thaw_json
     from research_tree import (
         CanonicalWorkItemCompiler,
         CanonicalWorkItemStatusService,
     )
+    from research_tree.domain import thaw_json
 
     ledger, _resolver, _record, _model, _brief, target, *_rest = canonical_context(tmp_path)
     work = CanonicalWorkItemCompiler(ledger).compile(

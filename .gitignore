@@ -75,6 +75,9 @@ pytestdebug.log
 .codex/
 .research-tree/
 
+# Alpha3 sprint worktrees and transient scaffolding
+/tmp/rt-alpha3-wt/
+
 # Rebuildable or operator-owned local output.
 build/
 dist/

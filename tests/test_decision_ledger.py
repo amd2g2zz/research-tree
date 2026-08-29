@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from canonical_finding_fixture import canonical_context
+
 from research_tree import ArtifactRef
 from research_tree.claims import Claim, ClaimGrounding
 from research_tree.evidence import EvidenceAnchor, EvidenceArtifact

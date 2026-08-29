@@ -1,124 +1,29 @@
 """Run-scoped storage primitives for research-tree."""
 
-from .domain import (
-    ArtifactNotFoundError,
-    ArtifactRef,
-    ArtifactRevision,
-    DataIntegrityError,
-    InvalidIdentifierError,
-    InvalidPayloadError,
-    LineageEvent,
-    RoundAlreadyExistsError,
-    RoundNotFoundError,
-    RoundRecord,
-    RoundSnapshot,
-    RuntimeStoreError,
-)
-from .intake import (
-    CanonicalInputIntakeService,
-    IntakeError,
-    InvalidContextBundleError,
-    InvalidInputError,
-    RepositoryIntakeError,
-    RepositoryInspector,
-    RepositorySafetyPolicy,
-)
-from .ledger import (
-    CanonicalDecisionLedgerCompiler,
-    CanonicalFindingPackCompiler,
-    DecisionLedgerError,
-    FindingPackError,
-    InvalidDecisionLedgerError,
-    InvalidFindingPackError,
-)
-from .decision_map import (
-    BlueprintTargetError,
-    CanonicalBlueprintTargetCompiler,
-    InvalidBlueprintTargetError,
-)
-from .work_items import (
-    CanonicalWorkItemCompiler,
-    CanonicalWorkItemPlanner,
-    CanonicalWorkItemStatusService,
-)
-from .delivery import (
-    CanonicalDeliveryCompiler,
-    DeliveryArtifacts,
-    DeliveryError,
-    HUMAN_BRIEF_KIND,
-    HUMAN_RESEARCH_REPORT_KIND,
-    InvalidDeliveryError,
-    TECHNICAL_RESEARCH_PACKAGE_KIND,
-    validate_human_brief_payload,
-    validate_human_research_report_payload,
-    validate_technical_package_payload,
-)
 from .acceptance import AcceptanceError, DeliveryAcceptance, validate_semantic_deliveries
-from .skill_activation import (
-    LOADER_SCHEMA_VERSION,
-    LOADER_STATES,
-    build_loader_receipt,
-    evaluate_activation_gate,
-    loader_integrity_status,
-    validate_loader_receipt,
+from .alignment_graph import AlignmentGraphError, AlignmentGraphStore
+from .alignment_handoff import (
+    ALIGNMENT_GRAPH_KIND,
+    ALIGNMENT_HANDOFF_KIND,
+    initialize_research_from_alignment,
 )
-from .completion_inputs import CompletionInputError, CompletionInputRegistrar, delivery_manifest_digest
-from .context_cost import ContextCostDiagnosticError, evaluate_context_cost
-from .context_ledger import (
-    ACTIVE_OUTPUT_ROOTS,
-    BUDGET_FIELDS,
-    CONTEXT_LEDGER_KIND,
-    CONTEXT_LEDGER_SCHEMA_VERSION,
-    CONTEXT_RECEIPT_KIND,
-    DISCOVERY_EXCLUDED_DIRECTORIES,
-    READ_DISPOSITIONS,
-    TOKEN_FIELDS,
-    ContextBudget,
-    ContextLedgerError,
-    ContextReadLedger,
-)
-from .evaluation import (
-    BLUEPRINT_EVALUATION_KIND,
-    BlueprintEvaluationSuite,
-    EvaluationCheck,
-    EvaluationDiagnosis,
-    EvaluationError,
-    IndependentEvaluationRequest,
-    IndependentEvaluationResult,
-    IndependentImplementationRunner,
-    InvalidEvaluationError,
-    SimplerBaselineResult,
-    TimeSplitCase,
-    validate_blueprint_evaluation_payload,
-)
-from .release_evaluation import (
-    IntegrityGate,
-    InvalidReleaseManifest,
-    ReleaseCaseResult,
-    ReleaseDecision,
-    ReleaseManifest,
-    evaluate_release,
-)
-from .readiness import (
-    CanonicalReadinessVerifier,
-    InvalidReadinessError,
-    ReadinessError,
-    READINESS_RECORD_KIND,
-    readiness_for_delivery,
-    validate_readiness_record_payload,
-)
-from .verification import (
-    EXECUTION_CHECKS,
-    FAILURE_CATEGORIES,
-    FAILURE_CATEGORY_GATES,
-    HIGH_RUN_STEPS,
-    InvalidVerificationError,
-    IsolatedVerificationAdapter,
-    IsolatedVerificationRequest,
-    IsolatedVerificationResult,
-    VerificationError,
-    VerificationFailure,
-    validate_risk_verification_payload,
+from .alignment_protocol import (
+    ACTION_KINDS,
+    ALIGNMENT_ACTION_KIND,
+    ALIGNMENT_ATTEMPT_KIND,
+    ALIGNMENT_BELIEF_KIND,
+    ALIGNMENT_FEEDBACK_KIND,
+    ALIGNMENT_MESSAGE_KIND,
+    ALIGNMENT_READINESS_KIND,
+    ALIGNMENT_RESPONSE_KIND,
+    AlignmentAction,
+    AlignmentCandidate,
+    AlignmentConflictError,
+    AlignmentController,
+    AlignmentMessageError,
+    AlignmentProtocol,
+    AlignmentProtocolError,
+    AlignmentReadinessError,
 )
 from .assurance import (
     ASSURANCE_ADAPTER_SELECTION_KIND,
@@ -135,6 +40,113 @@ from .assurance import (
     validate_assurance_follow_up_payload,
     validate_assurance_resolution_payload,
     validate_assurance_selection_payload,
+)
+from .closure import ASSESSMENT_KIND, ClosureAssessmentError, OracleService, SlotClosureAssessment, SlotClosureAssessor
+from .completion_inputs import CompletionInputError, CompletionInputRegistrar, delivery_manifest_digest
+from .content_store import (
+    ContentAddressedStore,
+    ContentIntegrityError,
+    ContentObject,
+    ContentPathError,
+    ContentStoreError,
+)
+from .context_cost import ContextCostDiagnosticError, evaluate_context_cost
+from .context_ledger import (
+    ACTIVE_OUTPUT_ROOTS,
+    BUDGET_FIELDS,
+    CONTEXT_LEDGER_KIND,
+    CONTEXT_LEDGER_SCHEMA_VERSION,
+    CONTEXT_RECEIPT_KIND,
+    DISCOVERY_EXCLUDED_DIRECTORIES,
+    READ_DISPOSITIONS,
+    TOKEN_FIELDS,
+    ContextBudget,
+    ContextLedgerError,
+    ContextReadLedger,
+)
+from .coordinator import (
+    COMPLETION_RECORD_KIND,
+    HOST_EVENT_KIND,
+    HOST_EVENT_PROJECTION_KIND,
+    LEASE_KIND,
+    LIFECYCLE_EVENT_KIND,
+    LIFECYCLE_STATES,
+    RESEARCH_RUN_STATE_KIND,
+    CompletionBlockedError,
+    CoordinatorConflictError,
+    CoordinatorError,
+    CoordinatorEventConflictError,
+    CoordinatorResult,
+    IllegalTransitionError,
+    ResearchRunCoordinator,
+    StaleStateError,
+)
+from .decision_frame import (
+    DECISION_FRAME_KIND,
+    DECISION_FRAME_SCHEMA_VERSION,
+    ClarificationDecision,
+    ClarificationPolicy,
+    DecisionFrame,
+    DecisionFrameValidationError,
+    IntentHypothesis,
+)
+from .decision_map import (
+    BlueprintTargetError,
+    CanonicalBlueprintTargetCompiler,
+    InvalidBlueprintTargetError,
+)
+from .delivery import (
+    HUMAN_BRIEF_KIND,
+    HUMAN_RESEARCH_REPORT_KIND,
+    TECHNICAL_RESEARCH_PACKAGE_KIND,
+    CanonicalDeliveryCompiler,
+    DeliveryArtifacts,
+    DeliveryError,
+    InvalidDeliveryError,
+    validate_human_brief_payload,
+    validate_human_research_report_payload,
+    validate_technical_package_payload,
+)
+from .domain import (
+    ArtifactNotFoundError,
+    ArtifactRef,
+    ArtifactRevision,
+    DataIntegrityError,
+    InvalidIdentifierError,
+    InvalidPayloadError,
+    LineageEvent,
+    RoundAlreadyExistsError,
+    RoundNotFoundError,
+    RoundRecord,
+    RoundSnapshot,
+    RuntimeStoreError,
+)
+from .evaluation import (
+    BLUEPRINT_EVALUATION_KIND,
+    BlueprintEvaluationSuite,
+    EvaluationCheck,
+    EvaluationDiagnosis,
+    EvaluationError,
+    IndependentEvaluationRequest,
+    IndependentEvaluationResult,
+    IndependentImplementationRunner,
+    InvalidEvaluationError,
+    SimplerBaselineResult,
+    TimeSplitCase,
+    validate_blueprint_evaluation_payload,
+)
+from .evidence import (
+    EvidenceAnchor,
+    EvidenceArtifact,
+    EvidenceRepository,
+    EvidenceResolver,
+    EvidenceValidationError,
+)
+from .evidence_delta import (
+    EvidenceBaseline,
+    RealizedDelta,
+    baseline_from_finding_packs,
+    measure_realized_delta,
 )
 from .feedback import (
     CANDIDATE_DISPOSITIONS,
@@ -156,6 +168,39 @@ from .feedback import (
     validate_round_supersession_payload,
     validate_same_round_replan_payload,
 )
+from .host_capabilities import (
+    CAPABILITIES,
+    CAPABILITY_FALLBACKS,
+    CAPABILITY_STATES,
+    FALLBACK_ID,
+    HOSTS,
+    HostCapabilityError,
+    capability_manifest,
+    probe_host,
+    record_probe_failure,
+    validate_probe,
+)
+from .host_events import (
+    HOST_EVENT_KINDS,
+    HOST_EVENT_SCHEMA_VERSION,
+    HostEvent,
+    HostEventDigestError,
+    HostEventError,
+    HostEventSequenceError,
+    normalize_host_path,
+    normalize_host_payload,
+    payload_digest,
+)
+from .insights import CanonicalInsightWriter, synthesize_insights, validate_insight_digest
+from .intake import (
+    CanonicalInputIntakeService,
+    IntakeError,
+    InvalidContextBundleError,
+    InvalidInputError,
+    RepositoryInspector,
+    RepositoryIntakeError,
+    RepositorySafetyPolicy,
+)
 from .intent import (
     CanonicalIntentModelCompiler,
     CanonicalWorkingBriefCompiler,
@@ -165,56 +210,13 @@ from .intent import (
     QuestionPolicy,
     QuestionRecommendation,
 )
-from .decision_frame import (
-    DECISION_FRAME_KIND,
-    DECISION_FRAME_SCHEMA_VERSION,
-    ClarificationDecision,
-    ClarificationPolicy,
-    DecisionFrame,
-    DecisionFrameValidationError,
-    IntentHypothesis,
-)
-from .strategy_projection import (
-    STRATEGY_PROJECTION_KIND,
-    STRATEGY_PROJECTION_SCHEMA_VERSION,
-    StrategyProjection,
-    StrategyProjectionError,
-    macro_stage,
-)
-from .preferences import (
-    PREFERENCE_OBSERVATION_KIND,
-    PREFERENCE_SCHEMA_VERSION,
-    USER_PREFERENCE_PROFILE_KIND,
-    PreferenceEntry,
-    PreferenceObservation,
-    PreferenceService,
-    PreferenceValidationError,
-    UserPreferenceProfile,
-)
-from .ports import (
-    EvidenceReviewPort,
-    PrimarySourceValidationPort,
-    ProvenanceIntegrityPort,
-    SourceAcquisitionPort,
-)
-from .orchestration import (
-    EXECUTION_STATES,
-    RESEARCH_PHASES,
-    advance_execution,
-    compile_orchestration_plan,
-    validate_orchestration_plan,
-)
-from .host_capabilities import (
-    CAPABILITIES,
-    CAPABILITY_STATES,
-    CAPABILITY_FALLBACKS,
-    FALLBACK_ID,
-    HOSTS,
-    HostCapabilityError,
-    capability_manifest,
-    probe_host,
-    record_probe_failure,
-    validate_probe,
+from .ledger import (
+    CanonicalDecisionLedgerCompiler,
+    CanonicalFindingPackCompiler,
+    DecisionLedgerError,
+    FindingPackError,
+    InvalidDecisionLedgerError,
+    InvalidFindingPackError,
 )
 from .native_workflows import (
     CHILD_OBSERVATIONS,
@@ -230,12 +232,21 @@ from .native_workflows import (
     resume_native_workflow,
     workflow_host_event,
 )
-from .insights import CanonicalInsightWriter, synthesize_insights, validate_insight_digest
-from .evidence_delta import (
-    EvidenceBaseline,
-    RealizedDelta,
-    baseline_from_finding_packs,
-    measure_realized_delta,
+from .oracles import (
+    ORACLE_ATTEMPT_KIND,
+    ORACLE_RUN_KIND,
+    ORACLE_SPEC_KIND,
+    InvalidOracleError,
+    OracleAttempt,
+    OracleRun,
+    OracleSpec,
+)
+from .orchestration import (
+    EXECUTION_STATES,
+    RESEARCH_PHASES,
+    advance_execution,
+    compile_orchestration_plan,
+    validate_orchestration_plan,
 )
 from .policy import (
     AdaptiveResearchPolicy,
@@ -245,6 +256,30 @@ from .policy import (
     PolicyDisposition,
     PolicyProposal,
     VerifiedEvidence,
+)
+from .ports import (
+    EvidenceReviewPort,
+    PrimarySourceValidationPort,
+    ProvenanceIntegrityPort,
+    SourceAcquisitionPort,
+)
+from .preferences import (
+    PREFERENCE_OBSERVATION_KIND,
+    PREFERENCE_SCHEMA_VERSION,
+    USER_PREFERENCE_PROFILE_KIND,
+    PreferenceEntry,
+    PreferenceObservation,
+    PreferenceService,
+    PreferenceValidationError,
+    UserPreferenceProfile,
+)
+from .readiness import (
+    READINESS_RECORD_KIND,
+    CanonicalReadinessVerifier,
+    InvalidReadinessError,
+    ReadinessError,
+    readiness_for_delivery,
+    validate_readiness_record_payload,
 )
 from .recursive_search import (
     CanonicalRecursiveResearchCoordinator,
@@ -257,81 +292,75 @@ from .recursive_search import (
     score_research_frontier,
     select_research_actions,
 )
-from .tree_state import (
-    CanonicalResearchTreeStateService,
-    RESEARCH_TREE_STATE_KIND,
-    ResearchTreeStateError,
-    validate_tree_state_payload,
-)
-from .alignment_graph import AlignmentGraphError, AlignmentGraphStore
-from .alignment_protocol import (
-    ACTION_KINDS,
-    ALIGNMENT_ACTION_KIND,
-    ALIGNMENT_ATTEMPT_KIND,
-    ALIGNMENT_BELIEF_KIND,
-    ALIGNMENT_FEEDBACK_KIND,
-    ALIGNMENT_MESSAGE_KIND,
-    ALIGNMENT_READINESS_KIND,
-    ALIGNMENT_RESPONSE_KIND,
-    AlignmentAction,
-    AlignmentCandidate,
-    AlignmentConflictError,
-    AlignmentController,
-    AlignmentMessageError,
-    AlignmentProtocol,
-    AlignmentProtocolError,
-    AlignmentReadinessError,
-)
-from .alignment_handoff import (
-    ALIGNMENT_GRAPH_KIND,
-    ALIGNMENT_HANDOFF_KIND,
-    initialize_research_from_alignment,
+from .release_evaluation import (
+    IntegrityGate,
+    InvalidReleaseManifest,
+    ReleaseCaseResult,
+    ReleaseDecision,
+    ReleaseManifest,
+    evaluate_release,
 )
 from .run_ledger import LedgerConflictError, LedgerError, LedgerIntegrityError, RunLedger
-from .oracles import (
-    ORACLE_ATTEMPT_KIND,
-    ORACLE_RUN_KIND,
-    ORACLE_SPEC_KIND,
-    InvalidOracleError,
-    OracleAttempt,
-    OracleRun,
-    OracleSpec,
+from .search_portfolio import (
+    ACQUISITION_DISPOSITIONS,
+    BATCH_COVERAGE_ASSESSMENT_KIND,
+    BATCH_COVERAGE_ASSESSMENT_SCHEMA_VERSION,
+    BATCH_COVERAGE_LEVELS,
+    BATCH_DECISION_RISK_LEVELS,
+    BATCH_DECISIONS,
+    BATCH_NOVELTY_LEVELS,
+    BATCH_PROVENANCE_LEVELS,
+    BATCH_SOURCE_DEPTH_LEVELS,
+    BATCH_SOURCE_QUALITY_LEVELS,
+    DECISION_IMPACTS,
+    DEGRADATION_REASONS,
+    MATERIAL_HUMAN_DECISION_DIMENSIONS,
+    METHOD_AVAILABILITY,
+    METHOD_EXECUTION_OUTCOME_KIND,
+    METHOD_EXECUTION_OUTCOME_SCHEMA_VERSION,
+    METHOD_REGISTRY_KIND,
+    METHOD_REGISTRY_SCHEMA_VERSION,
+    PLANNING_COVERAGE,
+    PORTFOLIO_BATCH_KIND,
+    PORTFOLIO_BATCH_SCHEMA_VERSION,
+    PORTFOLIO_EXECUTION_KIND,
+    PORTFOLIO_EXECUTION_SCHEMA_VERSION,
+    PORTFOLIO_STATUSES,
+    REASSESSMENT_DISPOSITIONS,
+    REJECTION_REASONS,
+    SEARCH_PORTFOLIO_KIND,
+    SEARCH_PORTFOLIO_SCHEMA_VERSION,
+    SELECTION_REASONS,
+    SUBQUESTION_KINDS,
+    AcquisitionOutcome,
+    BatchCoverageAssessment,
+    IntentDerivedSearchPortfolioPlan,
+    IntentDerivedSearchPortfolioPlanner,
+    InvalidSearchPortfolioError,
+    MethodExecutionOutcome,
+    MethodRegistration,
+    MethodRegistry,
+    MethodSelection,
+    PlannedSubquestion,
+    PortfolioBatch,
+    PortfolioExecution,
+    QueryRewrite,
+    ReassessmentPolicy,
+    RejectedMethod,
+    SearchPortfolio,
+    SearchPortfolioError,
+    SearchPortfolioExecutor,
+    Subquestion,
+    assess_acquisition_batch,
+    derive_search_portfolio,
 )
-from .closure import ASSESSMENT_KIND, ClosureAssessmentError, OracleService, SlotClosureAssessor, SlotClosureAssessment
-from .content_store import (
-    ContentAddressedStore,
-    ContentIntegrityError,
-    ContentObject,
-    ContentPathError,
-    ContentStoreError,
-)
-from .coordinator import (
-    COMPLETION_RECORD_KIND,
-    CoordinatorConflictError,
-    CoordinatorError,
-    CoordinatorEventConflictError,
-    CoordinatorResult,
-    CompletionBlockedError,
-    HOST_EVENT_KIND,
-    HOST_EVENT_PROJECTION_KIND,
-    IllegalTransitionError,
-    LEASE_KIND,
-    LIFECYCLE_EVENT_KIND,
-    LIFECYCLE_STATES,
-    RESEARCH_RUN_STATE_KIND,
-    ResearchRunCoordinator,
-    StaleStateError,
-)
-from .host_events import (
-    HOST_EVENT_KINDS,
-    HOST_EVENT_SCHEMA_VERSION,
-    HostEvent,
-    HostEventDigestError,
-    HostEventError,
-    HostEventSequenceError,
-    normalize_host_path,
-    normalize_host_payload,
-    payload_digest,
+from .skill_activation import (
+    LOADER_SCHEMA_VERSION,
+    LOADER_STATES,
+    build_loader_receipt,
+    evaluate_activation_gate,
+    loader_integrity_status,
+    validate_loader_receipt,
 )
 from .source_capture import (
     ACQUISITION_RECEIPT_KIND,
@@ -343,67 +372,39 @@ from .source_capture import (
     ResumeBundle,
     SourceCapture,
 )
-from .search_portfolio import (
-    ACQUISITION_DISPOSITIONS,
-    AcquisitionOutcome,
-    BATCH_COVERAGE_ASSESSMENT_KIND,
-    BATCH_COVERAGE_ASSESSMENT_SCHEMA_VERSION,
-    BATCH_COVERAGE_LEVELS,
-    BATCH_DECISION_RISK_LEVELS,
-    BATCH_DECISIONS,
-    BATCH_NOVELTY_LEVELS,
-    BATCH_PROVENANCE_LEVELS,
-    BATCH_SOURCE_DEPTH_LEVELS,
-    BATCH_SOURCE_QUALITY_LEVELS,
-    BatchCoverageAssessment,
-    DECISION_IMPACTS,
-    DEGRADATION_REASONS,
-    IntentDerivedSearchPortfolioPlan,
-    IntentDerivedSearchPortfolioPlanner,
-    InvalidSearchPortfolioError,
-    MethodExecutionOutcome,
-    MATERIAL_HUMAN_DECISION_DIMENSIONS,
-    METHOD_AVAILABILITY,
-    METHOD_REGISTRY_KIND,
-    METHOD_REGISTRY_SCHEMA_VERSION,
-    METHOD_EXECUTION_OUTCOME_KIND,
-    METHOD_EXECUTION_OUTCOME_SCHEMA_VERSION,
-    MethodRegistration,
-    MethodRegistry,
-    MethodSelection,
-    PLANNING_COVERAGE,
-    PORTFOLIO_STATUSES,
-    PORTFOLIO_BATCH_KIND,
-    PORTFOLIO_BATCH_SCHEMA_VERSION,
-    PORTFOLIO_EXECUTION_KIND,
-    PORTFOLIO_EXECUTION_SCHEMA_VERSION,
-    PortfolioBatch,
-    PortfolioExecution,
-    PlannedSubquestion,
-    QueryRewrite,
-    REASSESSMENT_DISPOSITIONS,
-    REJECTION_REASONS,
-    ReassessmentPolicy,
-    RejectedMethod,
-    SEARCH_PORTFOLIO_KIND,
-    SEARCH_PORTFOLIO_SCHEMA_VERSION,
-    SELECTION_REASONS,
-    SUBQUESTION_KINDS,
-    SearchPortfolio,
-    SearchPortfolioExecutor,
-    SearchPortfolioError,
-    Subquestion,
-    assess_acquisition_batch,
-    derive_search_portfolio,
+from .strategy_projection import (
+    STRATEGY_PROJECTION_KIND,
+    STRATEGY_PROJECTION_SCHEMA_VERSION,
+    StrategyProjection,
+    StrategyProjectionError,
+    macro_stage,
 )
-from .evidence import (
-    EvidenceAnchor,
-    EvidenceArtifact,
-    EvidenceRepository,
-    EvidenceResolver,
-    EvidenceValidationError,
+from .tree_state import (
+    RESEARCH_TREE_STATE_KIND,
+    CanonicalResearchTreeStateService,
+    ResearchTreeStateError,
+    validate_tree_state_payload,
 )
-from .work_items import InvalidWorkItemError, WorkItemError
+from .verification import (
+    EXECUTION_CHECKS,
+    FAILURE_CATEGORIES,
+    FAILURE_CATEGORY_GATES,
+    HIGH_RUN_STEPS,
+    InvalidVerificationError,
+    IsolatedVerificationAdapter,
+    IsolatedVerificationRequest,
+    IsolatedVerificationResult,
+    VerificationError,
+    VerificationFailure,
+    validate_risk_verification_payload,
+)
+from .work_items import (
+    CanonicalWorkItemCompiler,
+    CanonicalWorkItemPlanner,
+    CanonicalWorkItemStatusService,
+    InvalidWorkItemError,
+    WorkItemError,
+)
 
 __all__ = [
     "ArtifactNotFoundError",

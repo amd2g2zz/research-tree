@@ -30,7 +30,6 @@ from .oracles import (
 from .run_ledger import RunLedger
 from .source_capture import ACQUISITION_RECEIPT_KIND, SOURCE_CAPTURE_KIND, AcquisitionReceipt, SourceCapture
 
-
 ASSESSMENT_KIND = "slot-closure-assessment"
 FINDING_PACK_KIND = "finding-pack"
 ASSESSMENT_REVISION = 2

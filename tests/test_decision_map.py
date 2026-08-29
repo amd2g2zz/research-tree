@@ -172,9 +172,7 @@ def slot(slot_id: str, *, priority: str = "P0", with_repository: bool = True) ->
             }
         ],
         "alternatives": ["isolated-worker", "in-process"],
-        "repository_touchpoints": (
-            [{"path": "src/agent.py", "symbol": "run"}] if with_repository else []
-        ),
+        "repository_touchpoints": ([{"path": "src/agent.py", "symbol": "run"}] if with_repository else []),
         "greenfield_assumptions": ([] if with_repository else ["The initial integration boundary is new."]),
         "depends_on": [],
         "evidence_standard": "repository inspection plus a bounded spike",
@@ -220,9 +218,7 @@ def test_repository_backed_target_preserves_brief_model_and_anchor_lineage(tmp_p
     assert target.kind == "blueprint-target"
     assert target.payload["brief_id"] == brief.id
     assert target.payload["intent_model_id"] == "intent-model"
-    assert target.payload["slots"][0]["repository_touchpoints"] == (
-        {"path": "src/agent.py", "symbol": "run"},
-    )
+    assert target.payload["slots"][0]["repository_touchpoints"] == ({"path": "src/agent.py", "symbol": "run"},)
     assert target.parent_refs[0].artifact_id == brief.id
     rehydrated = modules["RunLedger"](ledger.workspace).load_run(round_record.id)
     assert target in rehydrated.artifacts
@@ -259,7 +255,9 @@ def test_p0_slot_requires_owned_bounded_and_reversible_closure(
             initial_change("slot-architecture"),
         )
 
-    assert [artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "blueprint-target"] == []
+    assert [
+        artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "blueprint-target"
+    ] == []
 
 
 def test_anchor_greenfield_and_dependency_failures_are_rejected_before_append(tmp_path: Path) -> None:
@@ -415,7 +413,9 @@ def test_invalid_revision_change_is_rejected_without_a_new_target_revision(tmp_p
             },
         )
 
-    targets = [artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "blueprint-target"]
+    targets = [
+        artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "blueprint-target"
+    ]
     assert targets == [first]
 
 
@@ -443,11 +443,7 @@ def test_target_revision_cannot_switch_to_a_new_working_brief_revision(tmp_path:
         [slot("slot-architecture")],
         initial_change("slot-architecture"),
     )
-    model = next(
-        artifact
-        for artifact in ledger.load_run(round_record.id).artifacts
-        if artifact.id == "intent-model"
-    )
+    model = next(artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.id == "intent-model")
     newer_brief = modules["CanonicalWorkingBriefCompiler"](ledger).compile(
         round_id=round_record.id,
         brief_id="working-brief",
@@ -477,5 +473,7 @@ def test_target_revision_cannot_switch_to_a_new_working_brief_revision(tmp_path:
             },
         )
 
-    targets = [artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "blueprint-target"]
+    targets = [
+        artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "blueprint-target"
+    ]
     assert targets == [first]

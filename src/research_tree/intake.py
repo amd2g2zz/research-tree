@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass, field
-from hashlib import sha256
 import os
-from pathlib import Path
 import stat
 import subprocess
+from dataclasses import dataclass, field
+from hashlib import sha256
+from pathlib import Path
 from typing import Iterable, Sequence
 
 from .domain import (
@@ -20,7 +20,6 @@ from .domain import (
     validate_identifier,
 )
 from .run_ledger import RunLedger
-
 
 INPUT_LEDGER_ARTIFACT_KIND = "input-ledger-entry"
 
@@ -200,9 +199,7 @@ class RepositorySafetyPolicy:
     max_file_bytes: int = 1_000_000
     max_total_bytes: int = 5_000_000
     max_files: int = 2_000
-    excluded_directories: frozenset[str] = field(
-        default_factory=lambda: DEFAULT_EXCLUDED_DIRECTORIES
-    )
+    excluded_directories: frozenset[str] = field(default_factory=lambda: DEFAULT_EXCLUDED_DIRECTORIES)
     secret_filenames: frozenset[str] = field(default_factory=lambda: DEFAULT_SECRET_FILENAMES)
     secret_suffixes: frozenset[str] = field(default_factory=lambda: DEFAULT_SECRET_SUFFIXES)
     binary_suffixes: frozenset[str] = field(default_factory=lambda: DEFAULT_BINARY_SUFFIXES)
@@ -479,7 +476,8 @@ class RepositoryInspector:
         is_dependency = filename in DEPENDENCY_FILENAMES or filename.startswith("requirements")
         is_deployment = (
             filename in DEPLOYMENT_FILENAMES
-            or ".github" in path_parts and "workflows" in path_parts
+            or ".github" in path_parts
+            and "workflows" in path_parts
             or suffix == ".tf"
             or "k8s" in path_parts
             or "kubernetes" in path_parts
@@ -776,9 +774,7 @@ class CanonicalInputIntakeService:
                 raise InvalidContextBundleError("Context Bundles cannot nest another Context Bundle")
             member_artifacts.append(artifact)
 
-        parent_refs = tuple(
-            ArtifactRef(round_id, artifact.id, artifact.revision) for artifact in member_artifacts
-        )
+        parent_refs = tuple(ArtifactRef(round_id, artifact.id, artifact.revision) for artifact in member_artifacts)
         member_refs = [reference.to_dict() for reference in parent_refs]
         payload = self._ledger_payload(
             round_id=round_id,

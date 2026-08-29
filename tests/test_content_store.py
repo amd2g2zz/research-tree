@@ -50,7 +50,11 @@ def test_metadata_conflict_and_binding_conflict_are_rejected(tmp_path: Path) -> 
     ledger.register_content(content)
 
     with pytest.raises(LedgerIntegrityError):
-        ledger.register_content(ContentObject(content.digest, "image/png", content.byte_size, content.locator, created_at=content.created_at))
+        ledger.register_content(
+            ContentObject(
+                content.digest, "image/png", content.byte_size, content.locator, created_at=content.created_at
+            )
+        )
 
     other = store.ingest(b"other", "text/plain")
     ledger.register_content(other)

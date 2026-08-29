@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import hashlib
+from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
-
 
 DELTA_COMPONENTS = (
     "evidence_class_coverage",

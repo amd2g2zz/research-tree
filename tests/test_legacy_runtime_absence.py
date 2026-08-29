@@ -6,7 +6,6 @@ from pathlib import Path
 
 import research_tree
 
-
 ROOT = Path(__file__).resolve().parents[1]
 LEGACY_SYMBOLS = {
     "BlueprintTargetCompiler",

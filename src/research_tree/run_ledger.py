@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import hashlib
 import json
 import sqlite3
+from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+from .content_store import ContentAddressedStore, ContentObject
 from .domain import (
     ArtifactRef,
     ArtifactRevision,
@@ -19,7 +20,6 @@ from .domain import (
     thaw_json,
     validate_identifier,
 )
-from .content_store import ContentAddressedStore, ContentObject
 
 
 class LedgerError(Exception):

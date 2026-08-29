@@ -7,10 +7,10 @@ decision deterministic and separate from worker-reported confidence.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
-import re
-from typing import Any, Iterable, Mapping, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Iterable, Mapping
 
 from .domain import ArtifactRef
 

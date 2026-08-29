@@ -7,9 +7,9 @@ the run coordinator.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields, is_dataclass
 import hashlib
 import json
+from dataclasses import dataclass, field, fields, is_dataclass
 from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 

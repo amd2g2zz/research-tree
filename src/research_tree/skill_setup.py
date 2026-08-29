@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import stat
 import subprocess
 import sys
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Sequence
 
-from .skill_activation import package_digests
 from .setup_hooks import SetupHookError, install_setup_hooks, plan_setup_hooks, setup_hook_status
-
+from .skill_activation import package_digests
 
 SKILL_NAME = "research-tree"
 RESOURCE_RE = re.compile(r"`((?:references|templates|scripts|assets)/[^`\r\n]+)`")

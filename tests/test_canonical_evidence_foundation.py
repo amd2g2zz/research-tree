@@ -112,8 +112,14 @@ def test_same_content_keeps_distinct_canonical_provenance(tmp_path: Path) -> Non
 
     reopened = RunLedger(tmp_path)
     assert first != second
-    assert EvidenceArtifact.from_revision(first, reopened.get_artifact(first)).locator["uri"] == "https://a.example.test/source"
-    assert EvidenceArtifact.from_revision(second, reopened.get_artifact(second)).locator["uri"] == "https://b.example.test/source"
+    assert (
+        EvidenceArtifact.from_revision(first, reopened.get_artifact(first)).locator["uri"]
+        == "https://a.example.test/source"
+    )
+    assert (
+        EvidenceArtifact.from_revision(second, reopened.get_artifact(second)).locator["uri"]
+        == "https://b.example.test/source"
+    )
 
 
 def test_repository_rejects_implicit_class_or_cas_metadata_mismatch(tmp_path: Path) -> None:

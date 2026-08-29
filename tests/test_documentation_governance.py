@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
-from pathlib import Path
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
-
 
 ROOT = Path(__file__).parents[1]
 REGISTRY = ROOT / "openspec/changes/unify-research-runtime-alpha2/registries/documentation-authority-v1.json"
@@ -94,8 +93,8 @@ def test_active_documentation_is_grouped_by_audience_and_history_is_stable() -> 
     )
     assert (ROOT / "docs/specs").is_dir()
     assert (ROOT / "docs/reviews").is_dir()
-    assert (ROOT / "docs/需求理解.md").is_file()
-    assert (ROOT / "docs/方案设计.md").is_file()
+    assert (ROOT / "docs/history/需求理解.md").is_file()
+    assert (ROOT / "docs/history/方案设计.md").is_file()
 
 
 def test_checker_rejects_active_legacy_term_broken_link_and_unregistered_document(tmp_path: Path) -> None:

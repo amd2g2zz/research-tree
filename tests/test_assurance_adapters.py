@@ -4,10 +4,9 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
-import research_tree
-
 from canonical_finding_fixture import canonical_context
 
+import research_tree
 
 _RESOLVERS = {}
 
