@@ -4,16 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
-from pathlib import Path, PurePosixPath
 import queue
 import re
 import shutil
 import subprocess
 import threading
 import time
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
 from typing import Callable, Mapping
-
 
 SKILL_NAME = "research-tree"
 ACTIVATION_SCHEMA_VERSION = 1

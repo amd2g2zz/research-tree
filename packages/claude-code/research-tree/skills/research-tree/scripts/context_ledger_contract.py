@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
 import os
-from pathlib import Path
 import tempfile
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Iterable
-
 
 CONTEXT_LEDGER_KIND = "context-read-ledger"
 CONTEXT_RECEIPT_KIND = "context-read-receipt"
@@ -78,10 +77,7 @@ class ContextBudget:
         )
 
     def as_dict(self) -> dict[str, int | float | None]:
-        return {
-            field_name: getattr(self, field_name)
-            for field_name in (*BUDGET_FIELDS, "max_duplicate_read_ratio")
-        }
+        return {field_name: getattr(self, field_name) for field_name in (*BUDGET_FIELDS, "max_duplicate_read_ratio")}
 
     @classmethod
     def from_mapping(cls, value: dict[str, Any]) -> ContextBudget:
@@ -390,10 +386,7 @@ class ContextReadLedger:
         reads = document["reads"]
         read_counts = _read_counts(reads)
         token_totals = _token_totals(reads)
-        ranges = {
-            (record["source_sha256"], record["byte_start"], record["byte_end"])
-            for record in reads
-        }
+        ranges = {(record["source_sha256"], record["byte_start"], record["byte_end"]) for record in reads}
         return {
             "schema": CONTEXT_LEDGER_SCHEMA_VERSION,
             "kind": CONTEXT_RECEIPT_KIND,
