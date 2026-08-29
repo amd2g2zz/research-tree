@@ -157,6 +157,12 @@ Follow `references/skill-activation.md`: only exact `/research-tree activation-p
 - The installed package contains `SKILL.md`, bundled references/assets, and the
   dependency-free native execution adapter. It does not contain the repository
   Python runtime, lifecycle hooks, builder, or evaluation corpus.
+- Governance interaction entry points: when interrupted use the correction
+  protocol (`CorrectionEvent` with kind `correction` or `reopen` committed via
+  `apply_correction`); when a delivered conclusion is contradicted use
+  `apply_contradiction`; after delivery collect one of the
+  `ACCEPTANCE_DECISIONS` via `DeliveryAcceptance`; before any user-visible
+  status message, echo from `research-tree status`.
 
 ### Source checkout development boundary
 
@@ -737,6 +743,41 @@ Explain in decision-oriented language:
 
 Do not describe proposed work as functioning software. Do not turn the Human
 Brief into a shortened component dump.
+
+## Runtime governance protocols
+
+The governed runtime (Python package `research_tree`) exposes the correction,
+contradiction, and acceptance machinery behind this skill. Behavioral rules:
+
+- When a run is interrupted by a new ask, new information, or a correction,
+  use the correction protocol — do not improvise prose recovery. Build a
+  `CorrectionEvent` (kind is exactly one of `correction` or `reopen`) and
+  commit it via `apply_correction`, which atomically quarantines the affected
+  predecessor artifacts and re-enters alignment. Choose `reopen` when prior
+  conclusions must be invalidated; choose `correction` when supplementing
+  within the same direction. When the interruption only reorders
+  not-yet-dispatched work inside the same round, `record_same_round_replan`
+  on the coordinator is the lighter-weight path that does not touch run
+  identity.
+- When a delivered conclusion is contradicted by the requester or by new
+  evidence, use `apply_contradiction` with the contradiction finding refs,
+  reason, and expected revision. The runtime marks the affected deliveries
+  `stale-*` and retracts durable beliefs; present the re-entry offer it
+  produces instead of an improvised apology or silent rewrite.
+- After presenting both deliveries, collect the human acceptance decision
+  before treating the round as closed. The decision is exactly one of the
+  `ACCEPTANCE_DECISIONS`: `accepted`, `rejected`, `needs_deeper_research`,
+  `needs_intent_correction`, `partially_accepted`. Record it via
+  `DeliveryAcceptance` bound to the exact delivered pair (displayed digest).
+  Silence or "okay" is not acceptance.
+- When composing any user-visible status message, first query canonical state
+  with `research-tree status` and answer from it (phase, blocked reasons,
+  who the run is waiting for). Never narrate progress from memory when the
+  canonical state disagrees.
+- During alignment, extract requester declarations as typed claims with
+  polarity and scope (the claim admission machinery), not as free-form node
+  merges; contradictory declarations surface through the contradiction
+  protocol above rather than manual reconciliation.
 
 ## Optional OpenSpec conversion
 
