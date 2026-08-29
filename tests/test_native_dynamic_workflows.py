@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -13,14 +13,13 @@ from research_tree import (
     NativeWorkflowError,
     capability_manifest,
     probe_host,
-    record_probe_failure,
     project_native_workflow,
     reconcile_native_workflow,
+    record_probe_failure,
     replan_native_workflow,
     resume_native_workflow,
     workflow_host_event,
 )
-
 
 AVAILABLE = {
     "native_dynamic_workflow": "available",

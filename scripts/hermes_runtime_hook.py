@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import os
 import re
 import secrets
@@ -12,7 +12,6 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
 
 MAX_INPUT_BYTES = 1_048_576
 EVENTS = frozenset(

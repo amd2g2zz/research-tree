@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from canonical_finding_fixture import RUN_ID, canonical_context
 
 from research_tree import (
     ArtifactRef,
@@ -13,7 +14,6 @@ from research_tree import (
     InvalidWorkingBriefError,
 )
 from research_tree.run_ledger import LedgerConflictError, LedgerIntegrityError
-from canonical_finding_fixture import RUN_ID, canonical_context
 
 
 def _successor_analysis() -> dict[str, object]:

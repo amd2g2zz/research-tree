@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
+from .claims import Claim, ClaimAdmissionEvaluator, ClaimGrounding, ClaimState, ClaimValidationError
+from .contradictions import unresolved_claim_ids
 from .decision_map import BLUEPRINT_TARGET_KIND
 from .domain import (
     ArtifactRef,
@@ -12,12 +14,9 @@ from .domain import (
     RuntimeStoreError,
     validate_identifier,
 )
+from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
 from .run_ledger import RunLedger
 from .work_items import WORK_ITEM_KIND
-from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
-from .claims import Claim, ClaimAdmissionEvaluator, ClaimGrounding, ClaimState, ClaimValidationError
-from .contradictions import unresolved_claim_ids
-
 
 FINDING_PACK_KIND = "finding-pack"
 DECISION_LEDGER_KIND = "decision-ledger-entry"

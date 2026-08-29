@@ -3,26 +3,27 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
+from test_search_portfolio_lineage import _coordinator as _portfolio_coordinator
+from test_search_portfolio_lineage import _parents as _portfolio_parents
+from test_search_portfolio_lineage import _pivot_correction, durable_evidence
+from test_search_portfolio_lineage import _values as _portfolio_values
 
 from research_tree.acceptance import DeliveryAcceptance, delivery_pair_digest
 from research_tree.completion_inputs import CompletionInputRegistrar, delivery_manifest_digest
 from research_tree.coordinator import (
     COMPLETION_RECORD_KIND,
-    IllegalTransitionError,
-    CoordinatorConflictError,
     LEASE_KIND,
     LIFECYCLE_STATES,
     RESEARCH_RUN_STATE_KIND,
+    CoordinatorConflictError,
+    IllegalTransitionError,
     ResearchRunCoordinator,
 )
+from research_tree.decision_frame import DecisionFrame, IntentHypothesis
 from research_tree.domain import ArtifactRef
 from research_tree.feedback import CorrectionBinding
-from research_tree.decision_frame import DecisionFrame, IntentHypothesis
 from research_tree.run_ledger import RunLedger
 from research_tree.strategy_projection import StrategyProjection
-from test_search_portfolio_lineage import _coordinator as _portfolio_coordinator
-from test_search_portfolio_lineage import _parents as _portfolio_parents
-from test_search_portfolio_lineage import _pivot_correction, _values as _portfolio_values, durable_evidence
 
 
 def _append(ledger: RunLedger, run_id: str, artifact_id: str, kind: str, payload: dict, parents=()):

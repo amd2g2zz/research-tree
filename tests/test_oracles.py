@@ -15,7 +15,6 @@ from research_tree.oracles import (
     validate_oracle_run_lineage,
 )
 
-
 ZERO_DIGEST = "0" * 64
 
 
@@ -230,9 +229,7 @@ def test_oracle_run_requires_attempt_spec_and_result_event_lineage() -> None:
     ("verdict", "timed_out", "exit_code"),
     [("passed", True, None), ("passed", False, None), ("inconclusive", True, None)],
 )
-def test_oracle_run_rejects_inconsistent_terminal_state(
-    verdict: str, timed_out: bool, exit_code: int | None
-) -> None:
+def test_oracle_run_rejects_inconsistent_terminal_state(verdict: str, timed_out: bool, exit_code: int | None) -> None:
     spec_ref = ArtifactRef("round-oracle", "oracle-check", 1)
     attempt_ref = ArtifactRef("round-oracle", "attempt-check", 1)
     input_ref = ArtifactRef("round-oracle", "input-check", 1)

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from strategy_support import confirm_strategy
 
 from research_tree.coordinator import ResearchRunCoordinator
 from research_tree.debug_trace import (
@@ -16,7 +17,6 @@ from research_tree.debug_trace import (
 )
 from research_tree.domain import ArtifactRef
 from research_tree.run_ledger import RunLedger
-from strategy_support import confirm_strategy
 
 
 def project(tmp_path: Path) -> Path:

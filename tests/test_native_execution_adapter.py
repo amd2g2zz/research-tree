@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
-
 
 ROOT = Path(__file__).resolve().parents[1]
 ADAPTER = ROOT / "scripts" / "native_execution_adapter.py"
@@ -1143,15 +1142,9 @@ def test_adapter_records_only_an_independently_reviewed_submission(tmp_path: Pat
     assert reviewed_task["status"] == "submitted"
     assert reviewed_task["worker_id"] == "worker-codex"
     state = json.loads(
-        (
-            tmp_path
-            / ".research-tree"
-            / "projects"
-            / "project-codex"
-            / "runs"
-            / run_id
-            / "state.json"
-        ).read_text(encoding="utf-8")
+        (tmp_path / ".research-tree" / "projects" / "project-codex" / "runs" / run_id / "state.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert state["tasks"]["task-codex-1"]["agent_id"] == worker_id
     summary = json.loads(run_adapter(tmp_path, "codex", "status", "--run-id", run_id).stdout)
@@ -1244,7 +1237,9 @@ def test_codex_plan_mirror_is_revision_bound_idempotent_and_rebuildable(tmp_path
     first_sync = run_adapter(tmp_path, "codex", "sync-plan", "--run-id", run_id)
     assert first_sync.returncode == 0, first_sync.stderr
     assert json.loads(first_sync.stdout)["idempotent"] is False
-    assert json.loads(run_adapter(tmp_path, "codex", "status", "--run-id", run_id).stdout)["plan_projection"] == "current"
+    assert (
+        json.loads(run_adapter(tmp_path, "codex", "status", "--run-id", run_id).stdout)["plan_projection"] == "current"
+    )
     second_sync = run_adapter(tmp_path, "codex", "sync-plan", "--run-id", run_id)
     assert second_sync.returncode == 0, second_sync.stderr
     assert json.loads(second_sync.stdout)["idempotent"] is True

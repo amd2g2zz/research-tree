@@ -8,7 +8,6 @@ from .domain import ArtifactRef, ArtifactRevision, RuntimeStoreError, thaw_json,
 from .ledger import FINDING_PACK_KIND
 from .run_ledger import RunLedger
 
-
 RESEARCH_TREE_STATE_KIND = "research-tree-state"
 TREE_STATUSES = {"searching", "blocked", "delivery_pending", "complete"}
 
@@ -44,9 +43,7 @@ class CanonicalResearchTreeStateService:
         expected_ids = {finding.id for finding in findings}
         consumed = set(payload["consumed_finding_ids"])
         if consumed != expected_ids:
-            raise ResearchTreeStateError(
-                "initial consumed_finding_ids must exactly match baseline findings"
-            )
+            raise ResearchTreeStateError("initial consumed_finding_ids must exactly match baseline findings")
         parents = _resolve_artifacts(snapshot.artifacts, round_id, parent_artifacts)
         return self._ledger.append_artifact(
             round_id,
@@ -82,9 +79,7 @@ class CanonicalResearchTreeStateService:
         next_ids = set(payload["consumed_finding_ids"])
         finding_ids = {finding.id for finding in findings}
         if next_ids != previous_ids | finding_ids:
-            raise ResearchTreeStateError(
-                "transition consumed_finding_ids must add exactly the supplied Finding Packs"
-            )
+            raise ResearchTreeStateError("transition consumed_finding_ids must add exactly the supplied Finding Packs")
         return self._ledger.append_artifact(
             round_id,
             stored.id,
@@ -144,8 +139,7 @@ def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
     if not isinstance(value, Mapping) or not required <= set(value) or set(value) - required:
         actual = set(value) if isinstance(value, Mapping) else set()
         raise ResearchTreeStateError(
-            f"tree state has unexpected keys; missing={sorted(required - actual)}, "
-            f"extra={sorted(actual - required)}"
+            f"tree state has unexpected keys; missing={sorted(required - actual)}, extra={sorted(actual - required)}"
         )
     if value.get("schema") != 1:
         raise ResearchTreeStateError("tree state schema must be 1")
@@ -157,7 +151,11 @@ def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
     if value.get("status") not in TREE_STATUSES:
         raise ResearchTreeStateError("tree state status is unsupported")
     for key in (
-        "config", "decision_slots", "execution_context", "deliverables", "nodes",
+        "config",
+        "decision_slots",
+        "execution_context",
+        "deliverables",
+        "nodes",
         "evidence_baseline",
     ):
         if not isinstance(value.get(key), Mapping):
@@ -192,21 +190,13 @@ def _normalized_state(
 
 def _latest(artifacts: Sequence[ArtifactRevision], tree_id: str) -> ArtifactRevision | None:
     matches = [
-        artifact
-        for artifact in artifacts
-        if artifact.id == tree_id and artifact.kind == RESEARCH_TREE_STATE_KIND
+        artifact for artifact in artifacts if artifact.id == tree_id and artifact.kind == RESEARCH_TREE_STATE_KIND
     ]
     return max(matches, key=lambda artifact: artifact.revision, default=None)
 
 
-def _resolve_tree(
-    artifacts: Sequence[ArtifactRevision], round_id: str, value: ArtifactRevision
-) -> ArtifactRevision:
-    matches = [
-        artifact
-        for artifact in artifacts
-        if artifact.id == value.id and artifact.revision == value.revision
-    ]
+def _resolve_tree(artifacts: Sequence[ArtifactRevision], round_id: str, value: ArtifactRevision) -> ArtifactRevision:
+    matches = [artifact for artifact in artifacts if artifact.id == value.id and artifact.revision == value.revision]
     if not matches or matches[0] != value:
         raise ResearchTreeStateError("tree state revision is not persisted")
     stored = matches[0]
@@ -236,11 +226,7 @@ def _resolve_artifacts(
     resolved: list[ArtifactRevision] = []
     for value in values:
         stored = next(
-            (
-                artifact
-                for artifact in artifacts
-                if artifact.id == value.id and artifact.revision == value.revision
-            ),
+            (artifact for artifact in artifacts if artifact.id == value.id and artifact.revision == value.revision),
             None,
         )
         if stored is None or stored != value or stored.round_id != round_id:

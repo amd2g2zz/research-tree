@@ -7,9 +7,9 @@ component that can persist lifecycle state.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime
-import hashlib
 from pathlib import PurePosixPath
 from typing import Any, Mapping
 

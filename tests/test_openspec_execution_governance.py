@@ -13,7 +13,6 @@ from research_tree.openspec_governance import (
     validate_governance,
 )
 
-
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_ROOT = ROOT / "openspec" / "changes" / "unify-research-runtime-alpha2" / "registries"
 

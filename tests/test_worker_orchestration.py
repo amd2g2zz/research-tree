@@ -1,10 +1,6 @@
 from pathlib import Path
 
 import pytest
-
-from research_tree import CaptureIncompleteError, ContentAddressedStore, DurableSourceCaptureService, RunLedger
-from research_tree.coordinator import CoordinatorConflictError
-from research_tree.domain import ArtifactRef
 from test_search_portfolio_lineage import (
     _coordinator,
     _parents,
@@ -13,6 +9,10 @@ from test_search_portfolio_lineage import (
     durable_evidence,
     worker_finished_event,
 )
+
+from research_tree import CaptureIncompleteError, ContentAddressedStore, DurableSourceCaptureService, RunLedger
+from research_tree.coordinator import CoordinatorConflictError
+from research_tree.domain import ArtifactRef
 
 
 def test_worker_finished_requires_checkpoint(tmp_path: Path) -> None:

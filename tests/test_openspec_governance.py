@@ -5,7 +5,6 @@ from pathlib import Path
 
 from research_tree.openspec_governance import load_governance_inputs, validate_governance
 
-
 ROOT = Path(__file__).resolve().parents[1]
 CHANGE = ROOT / "openspec" / "changes" / "unify-research-runtime-alpha2"
 REGISTRIES = CHANGE / "registries"
@@ -66,9 +65,7 @@ def test_current_only_setup_contract_replaces_archived_refresh_behavior() -> Non
     )
     group_32 = next(item for item in verification["groups"] if item["group"] == 32)
     assert group_32["evidence_refs"] == ["ci://delivery-governance/delivery-gate"]
-    assert group_32["command_receipt"]["raw_output_ref"] == (
-        "ci://delivery-governance/delivery-gate"
-    )
+    assert group_32["command_receipt"]["raw_output_ref"] == ("ci://delivery-governance/delivery-gate")
     assert "`unsupported`" in umbrella_spec
     assert "`stale_link`" not in umbrella_spec
     assert "refresh flag" not in umbrella_spec
@@ -76,18 +73,11 @@ def test_current_only_setup_contract_replaces_archived_refresh_behavior() -> Non
 
 
 def test_migrated_groups_use_ci_locators_without_tracked_output_paths() -> None:
-    verification = json.loads(
-        (REGISTRIES / "task-verification-v1.json").read_text(encoding="utf-8")
-    )
+    verification = json.loads((REGISTRIES / "task-verification-v1.json").read_text(encoding="utf-8"))
     records = {item["group"]: item for item in verification["groups"]}
 
     for group in range(1, 10):
         record = records[group]
         assert record["evidence_refs"] == ["ci://delivery-governance/delivery-gate"]
-        assert record["command_receipt"]["raw_output_ref"] == (
-            "ci://delivery-governance/delivery-gate"
-        )
-        assert all(
-            "openspec/changes/" not in reference
-            for reference in record["evidence_refs"]
-        )
+        assert record["command_receipt"]["raw_output_ref"] == ("ci://delivery-governance/delivery-gate")
+        assert all("openspec/changes/" not in reference for reference in record["evidence_refs"])

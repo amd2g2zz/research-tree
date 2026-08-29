@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from hashlib import sha256
 import json
 import math
 import re
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from hashlib import sha256
 from types import MappingProxyType
 from typing import Any, Mapping, TypeAlias
 from uuid import uuid4
-
 
 SCHEMA_VERSION = 1
 IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,63}$")

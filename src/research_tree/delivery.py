@@ -5,6 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from .contradictions import (
+    blocking_contradictions,
+    claim_from_mapping,
+    invalidating_contradictions,
+    unresolved_claim_ids,
+)
 from .decision_map import BLUEPRINT_TARGET_KIND
 from .domain import (
     ArtifactRef,
@@ -14,15 +20,9 @@ from .domain import (
     thaw_json,
     validate_identifier,
 )
+from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
 from .intake import INPUT_LEDGER_ARTIFACT_KIND
 from .intent import INTENT_MODEL_KIND, WORKING_BRIEF_KIND
-from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
-from .contradictions import (
-    blocking_contradictions,
-    claim_from_mapping,
-    invalidating_contradictions,
-    unresolved_claim_ids,
-)
 from .ledger import (
     ALTERNATIVE_DISPOSITIONS,
     ANCHOR_KINDS,
@@ -33,7 +33,6 @@ from .ledger import (
     VALIDATION_KINDS,
 )
 from .run_ledger import LedgerError, RunLedger
-
 
 TECHNICAL_RESEARCH_PACKAGE_KIND = "technical-research-package"
 HUMAN_RESEARCH_REPORT_KIND = "human-research-report"

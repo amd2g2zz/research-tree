@@ -4,11 +4,12 @@ from pathlib import Path
 from typing import Mapping
 
 import pytest
-
 from canonical_finding_fixture import canonical_context
 from test_deliveries import (
-    append_artifact,
     api as delivery_api,
+)
+from test_deliveries import (
+    append_artifact,
     compile_deliveries,
     context,
     decision_kwargs,

@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import replace
 import hashlib
+from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
+from strategy_support import confirm_strategy
+from test_feedback_rounds import correction_context
+from test_research_run_coordinator import _register_canonical_completion_inputs
 
 from research_tree.coordinator import RESEARCH_RUN_STATE_KIND, ResearchRunCoordinator
 from research_tree.debug_trace import CausalTraceError, CausalTraceService
 from research_tree.domain import ArtifactRef, canonical_json_bytes
 from research_tree.run_ledger import RunLedger
-from strategy_support import confirm_strategy
-from test_feedback_rounds import correction_context
-from test_research_run_coordinator import _register_canonical_completion_inputs
 
 
 def _append(ledger: RunLedger, artifact_id: str, kind: str, payload: dict, parents=()):

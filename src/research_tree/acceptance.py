@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
-import re
 from typing import Any, Mapping, Sequence
 
 from .domain import canonical_json_bytes, thaw_json

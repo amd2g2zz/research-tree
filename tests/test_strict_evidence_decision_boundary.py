@@ -5,16 +5,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-import research_tree
-
 from canonical_finding_fixture import canonical_context
 from test_deliveries import (
     api as delivery_api,
+)
+from test_deliveries import (
     compile_deliveries,
-    readiness as delivery_readiness,
     repository,
 )
+from test_deliveries import (
+    readiness as delivery_readiness,
+)
 
+import research_tree
 from research_tree import (
     ArtifactRef,
     CanonicalDecisionLedgerCompiler,
@@ -29,10 +32,10 @@ from research_tree import (
     InvalidDecisionLedgerError,
     RunLedger,
 )
-from research_tree.work_items import WORK_ITEM_KIND
+from research_tree.claims import Claim, ClaimGrounding
 from research_tree.domain import thaw_json
 from research_tree.readiness import _strict_findings_are_authoritative
-from research_tree.claims import Claim, ClaimGrounding
+from research_tree.work_items import WORK_ITEM_KIND
 
 
 def _artifact(

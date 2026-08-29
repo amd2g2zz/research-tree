@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import hashlib
 import json
-from pathlib import Path
 import re
 import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from research_tree.verification_receipts import local_verification_path
-
 
 MERGED_SLICES = [
     {"issue": 111, "pull_request": 115, "merge_revision": "6bb8cfa"},

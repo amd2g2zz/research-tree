@@ -4,6 +4,7 @@ The module deliberately models the execution boundary only.  It does not run
 commands or own lifecycle state; callers persist the canonical payloads through
 ``RunLedger`` and use the lineage validators before treating a run as evidence.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -39,16 +40,10 @@ ORACLE_ATTEMPT_ARTIFACT_KIND = ORACLE_ATTEMPT_KIND
 ORACLE_RUN_ARTIFACT_KIND = ORACLE_RUN_KIND
 ORACLE_SCHEMA_VERSION = 1
 
-ORACLE_VERDICTS = frozenset(
-    {"passed", "failed", "inconclusive", "not_applicable", "blocked"}
-)
-REPRODUCIBILITY_STATUSES = frozenset(
-    {"reproducible", "flaky", "unavailable", "not_reproducible"}
-)
+ORACLE_VERDICTS = frozenset({"passed", "failed", "inconclusive", "not_applicable", "blocked"})
+REPRODUCIBILITY_STATUSES = frozenset({"reproducible", "flaky", "unavailable", "not_reproducible"})
 NETWORK_POLICIES = frozenset({"none", "allowlist", "recorded", "unrestricted"})
-FLAKY_POLICIES = frozenset(
-    {"fail_closed", "repeat_once_then_inconclusive", "repeat_until_stable"}
-)
+FLAKY_POLICIES = frozenset({"fail_closed", "repeat_once_then_inconclusive", "repeat_until_stable"})
 
 
 class OracleError(RuntimeStoreError):
@@ -109,9 +104,7 @@ def _exact_keys(value: Mapping[str, Any], expected: set[str], label: str) -> Non
     if actual != expected:
         missing = sorted(expected - actual)
         extra = sorted(actual - expected)
-        raise InvalidOracleError(
-            f"{label} has unexpected keys; missing={missing}, extra={extra}"
-        )
+        raise InvalidOracleError(f"{label} has unexpected keys; missing={missing}, extra={extra}")
 
 
 def _string_sequence(
@@ -434,9 +427,7 @@ class OracleRun:
         _digest(self.toolchain_digest, "toolchain_digest")
         if self.verdict not in ORACLE_VERDICTS:
             raise InvalidOracleError(f"verdict is unsupported: {self.verdict!r}")
-        if self.exit_code is not None and (
-            isinstance(self.exit_code, bool) or not isinstance(self.exit_code, int)
-        ):
+        if self.exit_code is not None and (isinstance(self.exit_code, bool) or not isinstance(self.exit_code, int)):
             raise InvalidOracleError("exit_code must be an integer or null")
         if not isinstance(self.timed_out, bool):
             raise InvalidOracleError("timed_out must be a boolean")
@@ -453,9 +444,7 @@ class OracleRun:
         ):
             raise InvalidOracleError("limitations must be a tuple of non-empty strings")
         if self.reproducibility_status not in REPRODUCIBILITY_STATUSES:
-            raise InvalidOracleError(
-                f"reproducibility_status is unsupported: {self.reproducibility_status!r}"
-            )
+            raise InvalidOracleError(f"reproducibility_status is unsupported: {self.reproducibility_status!r}")
 
     @property
     def spec_ref(self) -> ArtifactRef:
@@ -479,9 +468,7 @@ class OracleRun:
             "environment_digest": self.environment_digest,
             "toolchain_digest": self.toolchain_digest,
             "tool_event_refs": [_ref_dict(reference) for reference in self.tool_event_refs],
-            "result_artifact_refs": [
-                _ref_dict(reference) for reference in self.result_artifact_refs
-            ],
+            "result_artifact_refs": [_ref_dict(reference) for reference in self.result_artifact_refs],
             "verdict": self.verdict,
             "exit_code": self.exit_code,
             "timed_out": self.timed_out,
@@ -523,9 +510,7 @@ class OracleRun:
             environment_digest=data["environment_digest"],
             toolchain_digest=data["toolchain_digest"],
             tool_event_refs=_refs(data["tool_event_refs"], "tool_event_refs"),
-            result_artifact_refs=_refs(
-                data["result_artifact_refs"], "result_artifact_refs"
-            ),
+            result_artifact_refs=_refs(data["result_artifact_refs"], "result_artifact_refs"),
             verdict=data["verdict"],
             exit_code=data["exit_code"],
             timed_out=data["timed_out"],
@@ -578,15 +563,12 @@ def _normalize_retry_policy(value: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(backoff_value, (str, bytes)) or not isinstance(backoff_value, Sequence):
         raise InvalidOracleError("retry_policy.backoff_seconds must be a sequence")
     backoff = tuple(
-        _nonnegative_number(item, f"retry_policy.backoff_seconds[{index}]")
-        for index, item in enumerate(backoff_value)
+        _nonnegative_number(item, f"retry_policy.backoff_seconds[{index}]") for index, item in enumerate(backoff_value)
     )
     return {
         "max_attempts": _positive_int(data["max_attempts"], "retry_policy.max_attempts"),
         "backoff_seconds": list(backoff),
-        "switch_method_after": _positive_int(
-            data["switch_method_after"], "retry_policy.switch_method_after"
-        ),
+        "switch_method_after": _positive_int(data["switch_method_after"], "retry_policy.switch_method_after"),
     }
 
 
@@ -681,9 +663,7 @@ def validate_oracle_attempt_lineage(
 ) -> OracleAttempt:
     """Validate an attempt's exact spec/input references and parent lineage."""
 
-    attempt_stored = _require_revision(
-        attempt_revision, ORACLE_ATTEMPT_KIND, "OracleAttempt revision"
-    )
+    attempt_stored = _require_revision(attempt_revision, ORACLE_ATTEMPT_KIND, "OracleAttempt revision")
     spec_stored = _require_revision(spec_revision, ORACLE_SPEC_KIND, "OracleSpec revision")
     attempt = OracleAttempt.from_revision(_artifact_ref(attempt_stored), attempt_stored)
     spec = OracleSpec.from_revision(_artifact_ref(spec_stored), spec_stored)
@@ -724,9 +704,7 @@ def validate_oracle_run_lineage(
 
     run_stored = _require_revision(run_revision, ORACLE_RUN_KIND, "OracleRun revision")
     spec_stored = _require_revision(spec_revision, ORACLE_SPEC_KIND, "OracleSpec revision")
-    attempt_stored = _require_revision(
-        attempt_revision, ORACLE_ATTEMPT_KIND, "OracleAttempt revision"
-    )
+    attempt_stored = _require_revision(attempt_revision, ORACLE_ATTEMPT_KIND, "OracleAttempt revision")
     run = OracleRun.from_revision(_artifact_ref(run_stored), run_stored)
     spec = OracleSpec.from_revision(_artifact_ref(spec_stored), spec_stored)
     attempt = validate_oracle_attempt_lineage(
@@ -832,7 +810,13 @@ __all__ = [
 def __getattr__(name: str) -> Any:
     """Expose closure services lazily without creating an import cycle."""
 
-    if name in {"ASSESSMENT_KIND", "ClosureAssessmentError", "OracleService", "SlotClosureAssessor", "SlotClosureAssessment"}:
+    if name in {
+        "ASSESSMENT_KIND",
+        "ClosureAssessmentError",
+        "OracleService",
+        "SlotClosureAssessor",
+        "SlotClosureAssessment",
+    }:
         from . import closure
 
         return getattr(closure, name)

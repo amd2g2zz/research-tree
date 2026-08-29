@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-
 HOSTS = frozenset({"codex", "claude-code", "hermes"})
 DISPOSITIONS = frozenset({"passed", "failed", "unavailable"})
 QUALITY_METRICS = (

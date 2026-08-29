@@ -12,7 +12,6 @@ from typing import Literal, Mapping, Sequence
 
 from .domain import RuntimeStoreError, validate_identifier
 
-
 InteractionDispositionKind = Literal[
     "execute", "decompose", "reconnaissance", "request_decision", "repair", "teach", "blocked", "observe"
 ]

@@ -10,14 +10,13 @@ from research_tree.skill_activation import (
     ActivationError,
     activation_diagnostic,
     build_activation_probe,
+    evaluate_activation_gate,
     expected_sentinel,
     run_codex_app_server_probe,
     run_native_probes,
     validate_probe_contract,
     verify_activation_response,
-    evaluate_activation_gate,
 )
-
 
 HOST_MARKERS = {
     "codex": "research-tree-activation-contract:v1:codex",

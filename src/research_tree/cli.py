@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .coordinator import (
@@ -26,7 +26,6 @@ from .project_workspace import (
 )
 from .run_ledger import LedgerConflictError, LedgerError, RunLedger
 from .skill_setup import SkillSetupError, install_skill, skill_status
-
 
 LIFECYCLE_SCHEMA_VERSION = 1
 HOSTS = ("codex", "claude", "hermes")
@@ -200,7 +199,9 @@ def _lifecycle_artifacts(ledger: RunLedger, run_id: str) -> list[Any]:
     ]
 
 
-def _runtime_readiness(workspace: Path, arguments: argparse.Namespace, ledger: RunLedger) -> tuple[dict[str, Any], dict[str, Any]]:
+def _runtime_readiness(
+    workspace: Path, arguments: argparse.Namespace, ledger: RunLedger
+) -> tuple[dict[str, Any], dict[str, Any]]:
     run_root = _project_run_root(workspace, arguments.project_id, arguments.run_id)
     manifest_path = run_root / "manifest.json"
     artifacts = _lifecycle_artifacts(ledger, arguments.run_id)
@@ -251,7 +252,9 @@ def _install(arguments: argparse.Namespace) -> dict[str, Any]:
     installations = [{**item, **statuses[str(item["host"])]} for item in result["installations"]]
     result = {**result, "installations": installations}
     readiness = _installation_readiness(installations)
-    return _stable_payload("install", status="installed" if readiness["ready"] else "planned", readiness=readiness, result=result)
+    return _stable_payload(
+        "install", status="installed" if readiness["ready"] else "planned", readiness=readiness, result=result
+    )
 
 
 def _doctor(arguments: argparse.Namespace) -> dict[str, Any]:
@@ -282,7 +285,13 @@ def _doctor(arguments: argparse.Namespace) -> dict[str, Any]:
             "failure_reasons": [*readiness["failure_reasons"], *lifecycle_readiness["failure_reasons"]],
         }
         result = {**result, "lifecycle": lifecycle_result}
-    return _stable_payload("doctor", status="healthy" if readiness["ready"] else "attention_required", run=run, readiness=readiness, result=result)
+    return _stable_payload(
+        "doctor",
+        status="healthy" if readiness["ready"] else "attention_required",
+        run=run,
+        readiness=readiness,
+        result=result,
+    )
 
 
 def _run_lifecycle(arguments: argparse.Namespace) -> dict[str, Any]:
@@ -321,8 +330,15 @@ def _run_lifecycle(arguments: argparse.Namespace) -> dict[str, Any]:
         run=_run_identity(arguments, revision),
         readiness=readiness,
         result={
-            "request_ref": {"run_id": request_artifact.round_id, "artifact_id": request_artifact.id, "revision": request_artifact.revision},
-            "hook_probe": {"status": hook_probe.status, "record_path": str(hook_probe.record_path) if hook_probe.record_path else None},
+            "request_ref": {
+                "run_id": request_artifact.round_id,
+                "artifact_id": request_artifact.id,
+                "revision": request_artifact.revision,
+            },
+            "hook_probe": {
+                "status": hook_probe.status,
+                "record_path": str(hook_probe.record_path) if hook_probe.record_path else None,
+            },
             "lifecycle": runtime,
         },
     )
@@ -360,7 +376,10 @@ def _resume(arguments: argparse.Namespace) -> dict[str, Any]:
         readiness=readiness,
         result={
             "resume_ref": {"run_id": resumed.round_id, "artifact_id": resumed.id, "revision": resumed.revision},
-            "hook_probe": {"status": hook_probe.status, "record_path": str(hook_probe.record_path) if hook_probe.record_path else None},
+            "hook_probe": {
+                "status": hook_probe.status,
+                "record_path": str(hook_probe.record_path) if hook_probe.record_path else None,
+            },
             "lifecycle": runtime,
         },
     )
@@ -371,7 +390,13 @@ def _status(arguments: argparse.Namespace) -> dict[str, Any]:
     ledger = RunLedger(workspace)
     revision = ledger.get_revision(arguments.run_id)
     readiness, result = _runtime_readiness(workspace, arguments, ledger)
-    return _stable_payload("status", status="blocked" if not readiness["ready"] else "ready", run=_run_identity(arguments, revision), readiness=readiness, result=result)
+    return _stable_payload(
+        "status",
+        status="blocked" if not readiness["ready"] else "ready",
+        run=_run_identity(arguments, revision),
+        readiness=readiness,
+        result=result,
+    )
 
 
 def _verify(arguments: argparse.Namespace) -> dict[str, Any]:

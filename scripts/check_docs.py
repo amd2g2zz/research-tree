@@ -10,7 +10,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_REGISTRY = Path("openspec/changes/unify-research-runtime-alpha2/registries/documentation-authority-v1.json")
 REQUIRED_FIELDS = (
     "path",

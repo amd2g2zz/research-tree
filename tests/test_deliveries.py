@@ -4,7 +4,6 @@ import inspect
 from pathlib import Path
 
 import pytest
-
 from canonical_finding_fixture import canonical_context
 
 from research_tree import (
@@ -17,9 +16,9 @@ from research_tree import (
     InvalidDeliveryError,
     RunLedger,
 )
+from research_tree.claims import Claim, ClaimGrounding
 from research_tree.domain import thaw_json
 from research_tree.work_items import WORK_ITEM_KIND
-from research_tree.claims import Claim, ClaimGrounding
 
 
 def api():

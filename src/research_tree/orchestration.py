@@ -13,7 +13,6 @@ from typing import Any, Mapping, Sequence
 
 from .insights import synthesize_insights
 
-
 RESEARCH_PHASES = ("landscape", "deep_dive", "adversarial", "validation")
 ACTIVE_STATUSES = {"planned", "ready", "running"}
 EXECUTION_STATES = {"planned", "ready", "running", "drained", "blocked", "failed"}
@@ -36,15 +35,8 @@ def compile_orchestration_plan(
     """
 
     by_id = {work.id: work for work in works}
-    active = {
-        work.id
-        for work in works
-        if str(work.payload.get("status", "")) in ACTIVE_STATUSES
-    }
-    dependencies = {
-        work.id: tuple(work.payload.get("depends_on", ()))
-        for work in works
-    }
+    active = {work.id for work in works if str(work.payload.get("status", "")) in ACTIVE_STATUSES}
+    dependencies = {work.id: tuple(work.payload.get("depends_on", ())) for work in works}
     phase_tasks: dict[str, dict[str, Any]] = {}
     for work in works:
         slot = slots.get(str(work.payload.get("decision_slot_id")), {})
@@ -52,15 +44,11 @@ def compile_orchestration_plan(
         required = _required_phases(slot, priority)
         for phase in required:
             task_id = _task_id(work.id, phase)
-            phase_dependencies = list(
-                _task_id(dependency, "validation") for dependency in dependencies[work.id]
-            )
+            phase_dependencies = list(_task_id(dependency, "validation") for dependency in dependencies[work.id])
             if phase == "deep_dive" or phase == "adversarial":
                 phase_dependencies.append(_task_id(work.id, "landscape"))
             elif phase == "validation":
-                phase_dependencies.extend(
-                    (_task_id(work.id, "deep_dive"), _task_id(work.id, "adversarial"))
-                )
+                phase_dependencies.extend((_task_id(work.id, "deep_dive"), _task_id(work.id, "adversarial")))
             elif phase == "landscape":
                 phase_dependencies = list(phase_dependencies)
             phase_tasks[task_id] = {
@@ -83,15 +71,11 @@ def compile_orchestration_plan(
             }
 
     waves: list[dict[str, Any]] = []
-    remaining = {
-        task_id for task_id, task in phase_tasks.items() if task["status"] in {"planned", "ready"}
-    }
+    remaining = {task_id for task_id, task in phase_tasks.items() if task["status"] in {"planned", "ready"}}
     wave_number = 1
     while remaining:
         ready = sorted(
-            task_id
-            for task_id in remaining
-            if set(phase_tasks[task_id]["depends_on"]).isdisjoint(remaining)
+            task_id for task_id in remaining if set(phase_tasks[task_id]["depends_on"]).isdisjoint(remaining)
         )
         if not ready:
             raise ValueError("orchestration phase graph contains a cycle")
@@ -123,15 +107,11 @@ def compile_orchestration_plan(
         for slot_id in covered_slots
     }
     scheduled_phases = {
-        slot_id: sorted(
-            task["phase"] for task in phase_tasks.values() if task["decision_slot_id"] == slot_id
-        )
+        slot_id: sorted(task["phase"] for task in phase_tasks.values() if task["decision_slot_id"] == slot_id)
         for slot_id in covered_slots
     }
     uncovered = sorted(
-        slot_id
-        for slot_id, phases in required_phases.items()
-        if set(phases) - set(scheduled_phases.get(slot_id, ()))
+        slot_id for slot_id, phases in required_phases.items() if set(phases) - set(scheduled_phases.get(slot_id, ()))
     )
     initial_capacity = min(max_parallelism, len(initial_dispatch_ids))
     completed_initial = {
@@ -144,9 +124,7 @@ def compile_orchestration_plan(
         for task_id, task in phase_tasks.items()
         if by_id[task["work_item_id"]].payload.get("status") in {"cancelled", "deferred"}
     }
-    running_initial = {
-        task_id for task_id, task in phase_tasks.items() if task["status"] == "running"
-    }
+    running_initial = {task_id for task_id, task in phase_tasks.items() if task["status"] == "running"}
     return {
         "mode": "deep_research",
         "phase_order": list(RESEARCH_PHASES),
@@ -289,9 +267,7 @@ def advance_execution(
     ready = sorted(
         task_id
         for task_id, task in tasks.items()
-        if task_id not in terminal
-        and task_id not in running
-        and set(task.get("depends_on", ())).issubset(completed)
+        if task_id not in terminal and task_id not in running and set(task.get("depends_on", ())).issubset(completed)
     )
     limit = max_parallelism - len(running)
     if limit < 0:

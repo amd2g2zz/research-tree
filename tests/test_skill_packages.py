@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from runpy import run_path
 import shutil
 import subprocess
 import sys
+from pathlib import Path
+from runpy import run_path
 
 from research_tree.skill_activation import HOST_MARKERS, package_digests
-
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILDER = ROOT / "scripts" / "build_skill_packages.py"

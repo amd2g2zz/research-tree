@@ -15,7 +15,6 @@ from .domain import (
 )
 from .run_ledger import RunLedger
 
-
 WORK_ITEM_KIND = "work-item"
 ROUND_SUPERSESSION_KIND = "round-supersession"
 WORK_KINDS = {"external_research", "repository_analysis", "prototype", "evaluation"}
@@ -81,18 +80,14 @@ class CanonicalWorkItemCompiler:
                 raise InvalidWorkItemError("blueprint_target must belong to work item round")
             slot_id = _identifier(decision_slot_id, "decision_slot_id")
             slot = _target_slot(target, slot_id)
-            target_hypotheses = _identifier_sequence(
-                slot.get("intent_hypothesis_ids"), "slot intent_hypothesis_ids"
-            )
+            target_hypotheses = _identifier_sequence(slot.get("intent_hypothesis_ids"), "slot intent_hypothesis_ids")
             hypotheses = (
                 target_hypotheses
                 if intent_hypothesis_ids is None
                 else _identifier_sequence(intent_hypothesis_ids, "intent_hypothesis_ids")
             )
             if not set(hypotheses) <= set(target_hypotheses):
-                raise InvalidWorkItemError(
-                    "Work Item intent hypotheses must be owned by its Decision Slot"
-                )
+                raise InvalidWorkItemError("Work Item intent hypotheses must be owned by its Decision Slot")
             normalized_dependencies, dependency_artifacts = _resolve_dependencies(
                 snapshot.artifacts,
                 round_id,
@@ -115,9 +110,7 @@ class CanonicalWorkItemCompiler:
                 "kind": _enum(kind, "kind", WORK_KINDS),
                 "scope": _nonempty_string(scope, "scope"),
                 "exclusions": _nonempty_string(exclusions, "exclusions"),
-                "decision_change_reason": _nonempty_string(
-                    decision_change_reason, "decision_change_reason"
-                ),
+                "decision_change_reason": _nonempty_string(decision_change_reason, "decision_change_reason"),
                 "depends_on": list(normalized_dependencies),
                 "methods": list(_enum_sequence(methods, "methods", WORK_METHODS)),
                 "budget": _normalize_budget(budget),
@@ -131,8 +124,7 @@ class CanonicalWorkItemCompiler:
 
         target_ref = ArtifactRef(round_id, target.id, target.revision)
         dependency_refs = tuple(
-            ArtifactRef(round_id, artifact.id, artifact.revision)
-            for artifact in dependency_artifacts
+            ArtifactRef(round_id, artifact.id, artifact.revision) for artifact in dependency_artifacts
         )
         return self._ledger.append_artifact(
             round_id,
@@ -169,9 +161,7 @@ class CanonicalWorkItemPlanner:
                 raise InvalidWorkItemError("blueprint_target must belong to planner round")
             planning_mode = _enum(mode, "mode", PLANNING_MODES)
             active_slots = {
-                slot["id"]: slot
-                for slot in _target_slots(target)
-                if slot.get("status") in ACTIVE_SLOT_STATUSES
+                slot["id"]: slot for slot in _target_slots(target) if slot.get("status") in ACTIVE_SLOT_STATUSES
             }
             normalized_ids = _normalize_work_item_ids(work_item_ids, active_slots)
             ordered_slot_ids = _stable_topological_order(active_slots)
@@ -189,9 +179,7 @@ class CanonicalWorkItemPlanner:
                     (previous_work_id,)
                     if planning_mode == "serial"
                     else tuple(
-                        normalized_ids[dependency]
-                        for dependency in slot["depends_on"]
-                        if dependency in active_slots
+                        normalized_ids[dependency] for dependency in slot["depends_on"] if dependency in active_slots
                     )
                 )
             )
@@ -207,11 +195,7 @@ class CanonicalWorkItemPlanner:
                 + ", ".join(slot["alternatives"])
                 + ".",
                 depends_on=dependencies,
-                methods=(
-                    ("repository_inspection",)
-                    if slot["repository_touchpoints"]
-                    else ("primary_docs",)
-                ),
+                methods=(("repository_inspection",) if slot["repository_touchpoints"] else ("primary_docs",)),
                 budget={"tool_calls": 8, "time": "bounded"},
                 completion_rule=(
                     "Return a Finding Pack with atomic observations, option effects, "
@@ -252,17 +236,13 @@ class CanonicalWorkItemStatusService:
                 raise InvalidWorkItemError("work item and target must belong to the update round")
             if stored_work.payload.get("blueprint_target_id") != target.id:
                 raise InvalidWorkItemError("work item does not belong to the supplied Blueprint Target")
-            decision_slot_id = _identifier(
-                stored_work.payload.get("decision_slot_id"), "work_item decision_slot_id"
-            )
+            decision_slot_id = _identifier(stored_work.payload.get("decision_slot_id"), "work_item decision_slot_id")
             current_slot = next(
                 (slot for slot in _target_slots(target) if slot.get("id") == decision_slot_id),
                 None,
             )
             if current_slot is not None and current_slot.get("status") in ACTIVE_SLOT_STATUSES:
-                raise InvalidWorkItemError(
-                    "cancelled or deferred work requires a closed or superseded Decision Slot"
-                )
+                raise InvalidWorkItemError("cancelled or deferred work requires a closed or superseded Decision Slot")
             next_status = _enum(status, "status", {"cancelled", "deferred"})
             status_reason = _nonempty_string(reason, "reason")
             payload = thaw_json(stored_work.payload)
@@ -285,13 +265,9 @@ class CanonicalWorkItemStatusService:
         )
 
 
-def _ensure_work_id_compatibility(
-    artifacts: Sequence[ArtifactRevision], work_item_id: str
-) -> None:
+def _ensure_work_id_compatibility(artifacts: Sequence[ArtifactRevision], work_item_id: str) -> None:
     foreign_kinds = {
-        artifact.kind
-        for artifact in artifacts
-        if artifact.id == work_item_id and artifact.kind != WORK_ITEM_KIND
+        artifact.kind for artifact in artifacts if artifact.id == work_item_id and artifact.kind != WORK_ITEM_KIND
     }
     if foreign_kinds:
         raise InvalidWorkItemError(
@@ -323,9 +299,7 @@ def _ensure_round_accepts_normal_work(artifacts: Sequence[ArtifactRevision]) -> 
     raise InvalidWorkItemError(f"round is superseded{suffix}; normal work cannot be planned")
 
 
-def _resolve_exact_target(
-    artifacts: Sequence[ArtifactRevision], target: ArtifactRevision
-) -> ArtifactRevision:
+def _resolve_exact_target(artifacts: Sequence[ArtifactRevision], target: ArtifactRevision) -> ArtifactRevision:
     if not isinstance(target, ArtifactRevision):
         raise InvalidWorkItemError("blueprint_target must be an ArtifactRevision")
     for stored in artifacts:
@@ -338,9 +312,7 @@ def _resolve_exact_target(
     raise InvalidWorkItemError("blueprint_target has not been persisted in the active run ledger")
 
 
-def _resolve_exact_work_item(
-    artifacts: Sequence[ArtifactRevision], work_item: ArtifactRevision
-) -> ArtifactRevision:
+def _resolve_exact_work_item(artifacts: Sequence[ArtifactRevision], work_item: ArtifactRevision) -> ArtifactRevision:
     if not isinstance(work_item, ArtifactRevision):
         raise InvalidWorkItemError("work_item must be an ArtifactRevision")
     for stored in artifacts:
@@ -379,17 +351,13 @@ def _resolve_dependencies(
         candidates = [
             artifact
             for artifact in artifacts
-            if artifact.id == dependency_id
-            and artifact.round_id == round_id
-            and artifact.kind == WORK_ITEM_KIND
+            if artifact.id == dependency_id and artifact.round_id == round_id and artifact.kind == WORK_ITEM_KIND
         ]
         dependency = max(candidates, key=lambda artifact: artifact.revision, default=None)
         if dependency is None:
             raise InvalidWorkItemError(f"depends_on Work Item is unknown: {dependency_id}")
         if dependency.payload.get("blueprint_target_id") != target.id:
-            raise InvalidWorkItemError(
-                f"depends_on Work Item belongs to a different Blueprint Target: {dependency_id}"
-            )
+            raise InvalidWorkItemError(f"depends_on Work Item belongs to a different Blueprint Target: {dependency_id}")
         target_ref = ArtifactRef(target.round_id, target.id, target.revision)
         if target_ref not in dependency.parent_refs:
             raise InvalidWorkItemError(
@@ -410,25 +378,19 @@ def _normalize_initial_status(
         if exception_reason is not None:
             raise InvalidWorkItemError("active Decision Slot work must not carry an exception_reason")
         selected_status = (
-            ("planned" if dependencies else "ready")
-            if status is None
-            else _enum(status, "status", WORK_STATUSES)
+            ("planned" if dependencies else "ready") if status is None else _enum(status, "status", WORK_STATUSES)
         )
         return selected_status, None
     if slot_status in TERMINAL_SLOT_STATUSES:
         reason = _nonempty_string(exception_reason, "exception_reason")
         selected_status = "deferred" if status is None else _enum(status, "status", WORK_STATUSES)
         if selected_status not in {"cancelled", "deferred"}:
-            raise InvalidWorkItemError(
-                "closed Decision Slot exception work must be cancelled or deferred"
-            )
+            raise InvalidWorkItemError("closed Decision Slot exception work must be cancelled or deferred")
         return selected_status, reason
     raise InvalidWorkItemError(f"Decision Slot has unsupported status: {slot_status!r}")
 
 
-def _normalize_work_item_ids(
-    value: Mapping[str, str], active_slots: Mapping[str, Mapping[str, Any]]
-) -> dict[str, str]:
+def _normalize_work_item_ids(value: Mapping[str, str], active_slots: Mapping[str, Mapping[str, Any]]) -> dict[str, str]:
     if not isinstance(value, Mapping):
         raise InvalidWorkItemError("work_item_ids must be a mapping")
     if set(value) != set(active_slots):

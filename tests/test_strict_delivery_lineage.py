@@ -5,10 +5,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-import research_tree
-
 from canonical_finding_fixture import canonical_context
 
+import research_tree
 from research_tree import (
     ArtifactRef,
     CanonicalDeliveryCompiler,
