@@ -108,6 +108,32 @@ method: 2 个核销 worker + 主会话独立验证；全部锚点 `git show 0aa6
 
 依赖序不变：A → (D ∥ C) → B → 6.2；行为层接线与 D 同批。
 
+## 6.1 Batch-1 落地记录（2026-08-30，主会话）
+
+alpha3 第一批 4 issue 全部合入 dev（squash）：
+
+| Issue | PR | 落点 | 状态 |
+|---|---|---|---|
+| #337 工程基线（追加） | #338 fddb05c | ruff 扩展门+格式收口+CI 两门 / pydantic 边界+ADR-007 / Docker 探针 / 脚手架收口 | merged |
+| #331 治理语言 | #339 9c88cf0 | 四档 tier + per-issue gate 声明 + 测试锁定 | merged |
+| #332 行为层接线 | #340 f553aaf | SKILL/playbook/3 adapter 协议段 + 契约测试(10) | merged |
+| #333 调度收敛 | #342 c6f2639 | orchestration.py 删除；policy 接线 dispatch（policy_proposal_id 入 lineage）+ADR-006 | merged |
+| #335 试点 | #343 e1ffad8 | 资产+rubric+校验(6)+报告——**两臂 not-run**（无 host 通道） | merged |
+
+**第二批排序的证据状态**：试点（#335）交付了框架但零执行数据。因此第二批
+排序仍以本文件 §1-6 的调用图/审计证据为准，以下建议按该证据排序，试点
+数据可用后复核：
+
+1. **协调器拆分**（#333 收敛后的自然下一步）：coordinator.py 2845 行在
+   dispatch 已成唯一权威后是唯一结构性热点；
+2. **两个 claim 世界桥接**（剩余缺口 #1）：#332 已让行为层引用 claim 协议，
+   alignment_graph ↔ claims.py 的对象化桥接是下一个语义缺口；
+3. **试点执行**（带真实 host 环境的运行，填 pilot-report 数据）；
+4. 其余（autonomy 双点、supersession 参数化、方法枚举领域化、递归下降）
+   按依赖序 A→(D∥C)→B→6.2 不变。
+
+无证据支持的项（试点未跑）：凡涉及"A2 更好/更差"的方向性判断均待试点数据。
+
 ## 7. 本核销的边界与未验证项
 
 - 全部锚点来自 `git show 0aa67a7:` / `git grep ... 0aa67a7`，未运行测试（判定基于代码结构与调用关系）。
