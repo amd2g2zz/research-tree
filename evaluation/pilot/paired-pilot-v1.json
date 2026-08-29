@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "pilot_id": "paired-pilot-v1",
+  "purpose": "Attribute A1-vs-A2 quality difference by pipeline stage (alignment/evidence/synthesis/delivery) on a bounded non-holdout case set.",
+  "arms": {
+    "A1": {
+      "label": "alpha1",
+      "tag": "0.0.1-a1",
+      "commit": "8ab91ea4eb55c98441b5ee6001b80922a56ecdd1"
+    },
+    "A2": {
+      "label": "alpha2",
+      "tag": "0.1.0-alpha2+dev",
+      "commit": "c6f2639"
+    }
+  },
+  "model": {
+    "id": "glm-4.7",
+    "revision": "glm-4.7-2026-08",
+    "same_revision_both_arms": true
+  },
+  "host": "claude-code",
+  "rubric_version": "rubric-v1",
+  "seed": 20260830,
+  "holdout_policy": {
+    "not_from_holdout": true,
+    "note": "The #84 24-cluster corpus with five hidden holdout digests does not exist yet (issue-268 design §8 handoff). Cases below are drawn from public corpus families in evaluation/cases/alpha2-release-v1.json and are disjoint from any future holdout by construction: they are public-material cases, not sealed oracle cases.",
+    "public_corpus_source": "evaluation/cases/alpha2-release-v1.json"
+  },
+  "case_count": 10,
+  "cases": [
+    {
+      "id": "pp01-repo-grounded-research",
+      "domain": "repository-research",
+      "non_holdout": true,
+      "difficulty": "medium",
+      "task_prompt": "Research how this repository handles retry and recovery across worker failures. Produce an implementation-ready summary with exact paths and symbols, plus a plain-language brief."
+    },
+    {
+      "id": "pp02-repo-grounded-greenfield",
+      "domain": "repository-research",
+      "non_holdout": true,
+      "difficulty": "hard",
+      "task_prompt": "We plan to add a new host adapter alongside claude-code/codex/hermes. Research what the repository requires of host adapters (contracts, events, packaging) and recommend an integration order."
+    },
+    {
+      "id": "pp03-conflicting-evidence",
+      "domain": "contradiction",
+      "non_holdout": true,
+      "difficulty": "hard",
+      "task_prompt": "Compare two public sources that give conflicting performance guidance for the same library API. Establish which applies under which conditions, with provenance for each claim."
+    },
+    {
+      "id": "pp04-conflicting-premise",
+      "domain": "contradiction",
+      "non_holdout": true,
+      "difficulty": "medium",
+      "task_prompt": "My premise is that SQLite WAL is always the right journal mode for this workload. Check that premise against evidence and tell me when it fails."
+    },
+    {
+      "id": "pp05-vague-intent-alignment",
+      "domain": "alignment",
+      "non_holdout": true,
+      "difficulty": "hard",
+      "task_prompt": "Make our deployment better."
+    },
+    {
+      "id": "pp06-vague-intent-scope",
+      "domain": "alignment",
+      "non_holdout": true,
+      "difficulty": "medium",
+      "task_prompt": "We need caching. Figure out what we actually need."
+    },
+    {
+      "id": "pp07-method-pivot",
+      "domain": "recursive-discovery",
+      "non_holdout": true,
+      "difficulty": "hard",
+      "task_prompt": "Investigate why our batch job latency regressed. The obvious explanation (N+1 queries) is already disproven; find what else it could be and how to discriminate."
+    },
+    {
+      "id": "pp08-interruption-recovery",
+      "domain": "recovery",
+      "non_holdout": true,
+      "difficulty": "hard",
+      "task_prompt": "Start the repository-backed research task; mid-run the requester supplies a correction that invalidates one delivered conclusion. Complete the round with the correction applied."
+    },
+    {
+      "id": "pp09-method-enumeration",
+      "domain": "recursive-discovery",
+      "non_holdout": true,
+      "difficulty": "medium",
+      "task_prompt": "Enumerate the credible methods for evaluating async job-queue backpressure behavior, then pick the two most decisive for our scale and say what evidence would change that pick."
+    },
+    {
+      "id": "pp10-provider-failure",
+      "domain": "recovery",
+      "non_holdout": true,
+      "difficulty": "medium",
+      "task_prompt": "A research provider fails mid-run after two completed method batches. Determine what survives, what must be retried, and what the successor plan inherits — then finish the round without re-asking the requester."
+    }
+  ],
+  "created_at": "2026-08-30T00:00:00+00:00"
+}
