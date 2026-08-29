@@ -241,13 +241,6 @@ from .oracles import (
     OracleRun,
     OracleSpec,
 )
-from .orchestration import (
-    EXECUTION_STATES,
-    RESEARCH_PHASES,
-    advance_execution,
-    compile_orchestration_plan,
-    validate_orchestration_plan,
-)
 from .policy import (
     AdaptiveResearchPolicy,
     DecisionSlotDeficit,
@@ -414,11 +407,6 @@ __all__ = [
     "ASSURANCE_EVIDENCE_KIND",
     "ASSURANCE_FOLLOW_UP_KIND",
     "ASSURANCE_RESOLUTION_KIND",
-    "EXECUTION_STATES",
-    "RESEARCH_PHASES",
-    "advance_execution",
-    "compile_orchestration_plan",
-    "validate_orchestration_plan",
     "synthesize_insights",
     "CanonicalInsightWriter",
     "validate_insight_digest",
