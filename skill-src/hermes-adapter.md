@@ -54,3 +54,9 @@ Follow `references/skill-activation.md`: only exact `/research-tree activation-p
   `research-tree verify`. Pass a normal workspace and plain-language authority
   fields; do not construct internal HostEvent or SQLite inputs. A prepared or
   pending verification receipt does not grant completion authority.
+- Governance interaction entry points: when interrupted use the correction
+  protocol (`CorrectionEvent` with kind `correction` or `reopen` committed via
+  `apply_correction`); when a delivered conclusion is contradicted use
+  `apply_contradiction`; after delivery collect one of the
+  `ACCEPTANCE_DECISIONS` via `DeliveryAcceptance`; before any user-visible
+  status message, echo from `research-tree status`.

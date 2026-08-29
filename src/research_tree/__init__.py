@@ -1,6 +1,6 @@
 """Run-scoped storage primitives for research-tree."""
 
-from .acceptance import AcceptanceError, DeliveryAcceptance, validate_semantic_deliveries
+from .acceptance import ACCEPTANCE_DECISIONS, AcceptanceError, DeliveryAcceptance, validate_semantic_deliveries
 from .alignment_graph import AlignmentGraphError, AlignmentGraphStore
 from .alignment_handoff import (
     ALIGNMENT_GRAPH_KIND,
@@ -523,6 +523,7 @@ __all__ = [
     "InvalidContextBundleError",
     "InvalidDeliveryError",
     "AcceptanceError",
+    "ACCEPTANCE_DECISIONS",
     "DeliveryAcceptance",
     "LOADER_SCHEMA_VERSION",
     "LOADER_STATES",

@@ -305,7 +305,7 @@ Living Brief vN
 | Class | Example | Required behavior |
 |---|---|---|
 | Local refinement | Evidence changes a recoverable internal design choice | Supersede the active tree revision, log the reason, continue autonomously |
-| Material intent change after handoff | Evidence exposes a new target, risk acceptance, or success decision | Create a successor Intent Model, Working Brief, and Strategy internally before continuing |
+| Material intent change after handoff | Evidence exposes a new target, risk acceptance, or success decision | Commit a `CorrectionEvent` via `apply_correction` (branch-and-correct semantics: the runtime quarantines exactly the affected artifacts and re-enters alignment), then create the successor Intent Model, Working Brief, and Strategy internally before continuing |
 | User premise contradicted | Evidence conflicts with a user-supplied technical premise | Present evidence and consequence, preserve the user's decision authority, and ask only if a material choice remains |
 | Agent premise contradicted | Evidence conflicts with an agent-selected interpretation or default | Explicitly self-correct, mark the claim refuted, revise intent/scope/tree |
 
@@ -329,6 +329,28 @@ change the recommendation within budget. Stop earlier with an explicit fallback
 when evidence is unavailable. Do not use certainty as the convergence oracle.
 If new evidence changes feasibility, reevaluate the entire active tree and stop
 implementation planning rather than preserving it through sunk-cost bias.
+
+### Runtime governance protocol binding
+
+The `research_tree` runtime enforces the correction, contradiction, and
+acceptance machinery. Behavioral requirements:
+
+- Interruption (new ask, new information, correction, follow-up) routes through
+  the correction protocol: a `CorrectionEvent` with kind `correction` or
+  `reopen`, committed via `apply_correction` at the recorded revision. The
+  runtime performs precise quarantine and dependency-closure propagation;
+  never emulate it with free-form prose or a cosmetic report edit.
+- A contradicted delivered conclusion routes through `apply_contradiction`
+  with the finding refs and reason; the runtime marks affected deliveries
+  `stale-*` and retracts durable beliefs. Offer the re-entry path it produces.
+- Post-delivery acceptance is a runtime decision, not a vibe: exactly one of
+  `ACCEPTANCE_DECISIONS` recorded through `DeliveryAcceptance` bound to the
+  displayed delivery pair.
+- Status echo: before composing any user-visible status message, query
+  `research-tree status` and answer phase / blocked-reason / waiting-on from
+  canonical state. Do not narrate progress from memory when canonical state
+  disagrees. Handoff is branch-and-correct over superseded artifacts, not a
+  whole-graph freeze: successors record why they supersede.
 
 ## 3. Claims, sources, and citations
 
