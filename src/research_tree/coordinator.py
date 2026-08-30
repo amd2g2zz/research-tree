@@ -35,6 +35,7 @@ from .feedback import (
     CorrectionBinding,
     CorrectionEvent,
 )
+from .host_attempts import HostAttemptError, outcome_from_mapping, worker_finished_eligible
 from .host_events import HostEvent, HostEventError, HostEventSequenceError
 from .policy import AdaptiveResearchPolicy
 from .run_ledger import LedgerConflictError, RunLedger
@@ -2133,6 +2134,14 @@ class ResearchRunCoordinator:
             return
         if event.kind != "worker_finished":
             return
+        attempt_outcome_value = payload.get("attempt_outcome")
+        if attempt_outcome_value is not None:
+            try:
+                attempt_outcome = outcome_from_mapping(attempt_outcome_value)
+            except HostAttemptError as error:
+                raise CoordinatorConflictError("attempt_outcome_invalid") from error
+            if not worker_finished_eligible(attempt_outcome):
+                raise CoordinatorConflictError("attempt_outcome_semantic_failure")
         capture_values = payload.get("capture_refs", payload.get("source_capture_refs"))
         receipt_values = payload.get("receipt_refs")
         checkpoint_value = payload.get("checkpoint_ref", payload.get("analysis_checkpoint_ref"))
