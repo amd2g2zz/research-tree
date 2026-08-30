@@ -35,7 +35,7 @@ CITED_APIS: dict[str, tuple[str, str, tuple[str, ...]]] = {
 
 PROTOCOL_SECTIONS = {
     "interruption": ("apply_correction", "CorrectionEvent"),
-    "contradiction": ("apply_contrastion_placeholder",),
+    "contradiction": ("apply_contradiction",),
     "acceptance": ("DeliveryAcceptance", "ACCEPTANCE_DECISIONS"),
     "status echo": ("research-tree status",),
 }
@@ -64,8 +64,6 @@ def test_skill_template_has_all_four_protocol_sections() -> None:
     text = _document_text(ROOT / "skill-src/SKILL.template.md")
     for section, markers in PROTOCOL_SECTIONS.items():
         for marker in markers:
-            if "placeholder" in marker:
-                continue
             assert marker in text, f"SKILL.template.md protocol section '{section}' must cite {marker}"
 
 

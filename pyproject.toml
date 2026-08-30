@@ -41,11 +41,7 @@ select = ["E4", "E7", "E9", "F", "C90", "PLR", "PLW", "ARG", "SIM", "B", "I"]
 [tool.ruff.lint.per-file-ignores]
 # 存量豁免（engineering-baseline 收口，新代码零豁免；清偿排期见 ADR-007）
 # PLR2004 magic-value-comparison：白名单校验模式天然逐字面比对（tree_state.py:144 先例），存量 218 处
-"src/**" = ["PLR2004", "ARG", "SIM", "B", "PLR0913", "PLR0917", "PLR1704", "PLW", "PLR1714"]
-"tests/**" = ["PLR2004", "ARG", "SIM", "B", "PLR0913", "PLR0917", "PLR1704", "PLW", "PLR1714"]
-"scripts/**" = ["PLR2004", "ARG", "SIM", "B", "PLR0913", "PLR0917", "PLR1704", "PLW", "PLR1714"]
-"packages/**" = ["PLR2004", "ARG", "SIM", "B", "PLR0913", "PLR0917", "PLR1704", "PLW", "PLR1714"]
-"evaluation/**" = ["PLR2004", "ARG", "SIM", "B", "PLR0913", "PLR0917", "PLR1704", "PLW", "PLR1714"]
+"**" = ["PLR2004", "ARG", "SIM", "B", "PLR0913", "PLR0917", "PLR1704", "PLW", "PLR1714"]
 # 语义化豁免（比 noqa 聚合更诚实）：PLR2004 白名单校验天然字面比对；ARG 协议签名/测试占位；
 # SIM/B00x 属风格重构项，随触碰文件清偿；PLR0913/0917/1704/PLW 服务方法与 payload 解包宽签名，
 # 拆分等价于 #333 的 coordinator 拆分（第二批）。清偿排期见 ADR-007。

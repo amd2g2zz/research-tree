@@ -125,7 +125,7 @@ def _setup(tmp_path):
         "run-57",
         "target-1",
         "blueprint-target",
-        {"decision_slots": [{"id": "slot-1", "priority": "P0"}]},
+        {"decision_slots": [{"id": "slot-1", "priority": "P0", "closure_oracle": "oracle-1"}]},
         (ArtifactRef("run-57", handoff.id, handoff.revision),),
     )
     return ledger, ResearchRunCoordinator(ledger), handoff, target

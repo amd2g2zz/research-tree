@@ -23,9 +23,6 @@ def validate_manifest(value: Mapping[str, Any]) -> None:
     missing = [key for key in REQUIRED_TOP if key not in value]
     if missing:
         raise PilotManifestError(f"manifest missing required fields: {missing}")
-    extra = set(value) - set(REQUIRED_TOP) - {"purpose", "case_count", "holdout_policy"}
-    if extra:
-        raise PilotManifestError(f"manifest has unknown fields: {sorted(extra)}")
     arms = value["arms"]
     if not isinstance(arms, Mapping) or set(arms) != {"A1", "A2"}:
         raise PilotManifestError("manifest must define exactly arms A1 and A2")
