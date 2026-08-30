@@ -19,6 +19,13 @@ from .domain import (
     utc_now,
     validate_identifier,
 )
+from .freshness import (
+    BaselineFreshness,
+    FreshnessPolicy,
+)
+from .freshness import (
+    assess as _assess_freshness,
+)
 from .run_ledger import RunLedger
 
 INPUT_LEDGER_ARTIFACT_KIND = "input-ledger-entry"
@@ -295,8 +302,13 @@ class _BaselineBuilder:
 class RepositoryInspector:
     """Inspect a local repository without following links or running project code."""
 
-    def __init__(self, policy: RepositorySafetyPolicy | None = None) -> None:
+    def __init__(
+        self,
+        policy: RepositorySafetyPolicy | None = None,
+        freshness_policy: "FreshnessPolicy | None" = None,
+    ) -> None:
         self._policy = policy or RepositorySafetyPolicy()
+        self._freshness_policy = freshness_policy
 
     def inspect(
         self,
@@ -324,6 +336,7 @@ class RepositoryInspector:
             "repository_root": str(root),
             "read_scope": [self._scope_label(root, path) for path in selected_paths],
             "revision": revision,
+            "freshness": _freshness_payload(self._freshness_policy, revision),
             "anchors": sorted(
                 builder.anchors,
                 key=lambda anchor: (str(anchor["path"]), str(anchor["symbol"] or "")),
@@ -881,3 +894,39 @@ class CanonicalInputIntakeService:
         if member_refs is not None:
             payload["member_refs"] = member_refs
         return payload
+
+
+def _freshness_payload(
+    policy: FreshnessPolicy | None,
+    revision: dict[str, object],
+) -> dict[str, object] | None:
+    """Issue #327: baseline freshness admission record (None when no policy).
+
+    Non-git repositories and pre-observation baselines record freshness_unknown
+    via an empty commit id — assess() refuses an empty inspected_commit, so the
+    marker is filled from the content fingerprint when commit is missing.
+    """
+
+    if policy is None:
+        return None
+    commit = revision.get("commit")
+    if isinstance(commit, str) and commit:
+        inspected = commit
+    else:
+        fingerprint = str(revision.get("sha256") or "")
+        inspected = fingerprint[:12] or "unsynced-baseline"
+    authority = revision.get("authority_commit")
+    ahead_value = revision.get("behind_authority", 0)
+    ahead = int(ahead_value) if isinstance(ahead_value, int) and not isinstance(ahead_value, bool) else 0
+    behind = revision.get("ahead_authority")
+    behind_value = int(behind) if isinstance(behind, int) and not isinstance(behind, bool) else None
+    changed = tuple(str(path) for path in revision.get("relevant_path_changes", ()))
+    record: BaselineFreshness = _assess_freshness(
+        inspected_commit=inspected,
+        authority_commit=str(authority) if authority is not None else None,
+        ahead=ahead,
+        behind=behind_value,
+        changed_paths=changed,
+        policy=policy,
+    )
+    return record.to_dict()
