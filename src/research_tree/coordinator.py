@@ -254,6 +254,8 @@ class ResearchRunCoordinator:
     event_conflict_error = CoordinatorEventConflictError
     stale_state_error = StaleStateError
 
+    STATE_REGIONS = ("cognitive", "workflow", "authority", "epistemic", "delivery")
+
     def __init__(
         self,
         ledger: RunLedger,
@@ -1884,6 +1886,14 @@ class ResearchRunCoordinator:
         idempotency_key: str | None = None,
         payload: Mapping[str, Any] | None = None,
     ) -> ArtifactRevision:
+        """Canonical lifecycle transition with cross-region validation (#324)."""
+
+        # Issue #324: reject forbidden cross-region payloads before any other check
+        if event == "research/running":
+            raise CoordinatorConflictError("cross_region_research_running_not_permitted")
+        # Issue #324: forbid plan-style events from advancing canonical state
+        if event in {"plan_completed", "plan_displayed", "plan_visible"}:
+            raise CoordinatorConflictError("visible_plan_cannot_advance_canonical")
         current = self._latest_state(run_id)
         if current.payload.get("state") in {"alignment", "handoff_pending"} and event not in {
             "alignment_projection_ready",
@@ -2468,6 +2478,43 @@ class ResearchRunCoordinator:
             return None
         evaluation = self.policy.evaluate(slots=deficits)
         return evaluation.proposals[0].action_id if evaluation.proposals else None
+
+    def self_state(self, run_id: str) -> dict:
+        """Issue #324: canonical state projected across 5 orthogonal regions.
+
+        Each region carries its own (value, revision) tuple.  Transitions advance
+        exactly the affected region(s); cross-region combinations are validated
+        against the region table.
+        """
+
+        if not isinstance(run_id, str) or not run_id:
+            raise CoordinatorConflictError("run_id_required")
+        current = self._latest_state(run_id)
+        payload = thaw_json(current.payload)
+        region_values = payload.get("regions") or {}
+        if not region_values:
+            legacy_state = str(payload.get("state", "alignment"))
+            region_values = _legacy_to_regions(legacy_state)
+        out = {}
+        for region in self.STATE_REGIONS:
+            entry = region_values.get(region, {})
+            out[region] = {
+                "value": entry.get("value"),
+                "revision": int(entry.get("revision", current.revision)),
+                "updated_at": entry.get("updated_at", ""),
+            }
+        out["lineage"] = {
+            "run_id": run_id,
+            "revision": current.revision,
+            "affected_forest_or_branch": payload.get("affected_forest_or_branch", ()),
+            "authority": payload.get("authority", ""),
+            "blockers": payload.get("blockers", ()),
+            "authority_waits": payload.get("authority_waits", ()),
+            "next_action": payload.get("next_action", ""),
+            "expected_transition_oracle": payload.get("expected_transition_oracle", ""),
+            "experiments": payload.get("experiments", ()),
+        }
+        return out
 
     @staticmethod
     def _artifact_ref(item: ArtifactRevision) -> ArtifactRef:
@@ -3152,3 +3199,68 @@ __all__ = [
     "RESEARCH_RUN_STATE_KIND",
     "ResearchRunCoordinator",
 ]
+
+
+def _legacy_to_regions(state: str) -> dict:
+    """Map legacy single-string state to the five orthogonal regions (#324)."""
+
+    base = {"revision": 0, "updated_at": ""}
+    mapping = {
+        "alignment": {
+            "cognitive": {"value": "active", **base},
+            "workflow": {"value": "alignment", **base},
+            "authority": {"value": "awaiting_requester", **base},
+            "epistemic": {"value": "exploratory", **base},
+            "delivery": {"value": "not_started", **base},
+        },
+        "handoff_pending": {
+            "cognitive": {"value": "active", **base},
+            "workflow": {"value": "alignment", **base},
+            "authority": {"value": "awaiting_requester", **base},
+            "epistemic": {"value": "exploratory", **base},
+            "delivery": {"value": "not_started", **base},
+        },
+        "autonomous_research": {
+            "cognitive": {"value": "active", **base},
+            "workflow": {"value": "autonomous_research", **base},
+            "authority": {"value": "research_owner", **base},
+            "epistemic": {"value": "depth", **base},
+            "delivery": {"value": "not_started", **base},
+        },
+        "synthesis": {
+            "cognitive": {"value": "active", **base},
+            "workflow": {"value": "synthesis", **base},
+            "authority": {"value": "research_owner", **base},
+            "epistemic": {"value": "synthesis", **base},
+            "delivery": {"value": "not_started", **base},
+        },
+        "readiness": {
+            "cognitive": {"value": "active", **base},
+            "workflow": {"value": "readiness", **base},
+            "authority": {"value": "research_owner", **base},
+            "epistemic": {"value": "verified", **base},
+            "delivery": {"value": "not_started", **base},
+        },
+        "delivery_pending": {
+            "cognitive": {"value": "active", **base},
+            "workflow": {"value": "delivery_pending", **base},
+            "authority": {"value": "research_owner", **base},
+            "epistemic": {"value": "verified", **base},
+            "delivery": {"value": "deliveries_compiled", **base},
+        },
+        "awaiting_acceptance": {
+            "cognitive": {"value": "active", **base},
+            "workflow": {"value": "awaiting_acceptance", **base},
+            "authority": {"value": "awaiting_requester", **base},
+            "epistemic": {"value": "verified", **base},
+            "delivery": {"value": "delivered", **base},
+        },
+        "completed": {
+            "cognitive": {"value": "settled", **base},
+            "workflow": {"value": "completed", **base},
+            "authority": {"value": "completed", **base},
+            "epistemic": {"value": "settled", **base},
+            "delivery": {"value": "completed", **base},
+        },
+    }
+    return mapping.get(state, mapping["alignment"])

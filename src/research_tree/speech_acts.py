@@ -253,6 +253,8 @@ def transition(current: str, act: SpeechAct) -> str:
         raise AuthorityTransitionError(f"unsupported speech-act kind: {act.kind!r}")
     if act.kind == "assert" and not act.basis_refs:
         return "unasserted"
+    if act.kind == "assert" and act.basis_refs and current == "candidate":
+        return current  # assertion with evidence on a candidate stays candidate
     if act.kind == "acceptance" and act.authority_scope not in {"decision_owner", "approval_required"}:
         raise AuthorityTransitionError("acceptance requires decision_owner or approval_required authority_scope")
     rules = AuthorityTransition[act.kind]
