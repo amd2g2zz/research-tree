@@ -665,3 +665,178 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def hermes_external_dirs_snippet(*, source_parent: Path, config_path: Path | None = None) -> dict[str, object]:
+    """Issue #328: machine-readable, idempotent Hermes external_dirs snippet.
+
+    The snippet is idempotent — re-apply yields the same config — and never
+    overwrites unrelated keys.  Returns a dict with `yaml`, `path`, and `idempotent`
+    fields; consumers apply via their existing config-merge path.
+    """
+
+    normalized = source_parent.expanduser().resolve()
+    snippet = f"skills:\n  external_dirs:\n    - {normalized.as_posix()}\n"
+    return {
+        "yaml": snippet,
+        "path": str((config_path or Path("~/.hermes/config.yaml")).expanduser()),
+        "idempotent": True,
+        "source_parent": str(normalized),
+    }
+
+
+def plan_heterogeneous_install(
+    hosts: Sequence[str],
+    *,
+    source: Path,
+    scope: str,
+    home: Path,
+    project_root: Path,
+    codex_home: Path | None = None,
+    dry_run: bool = True,
+) -> dict[str, object]:
+    """Issue #328: per-host plan; unsupported combinations become skipped entries, not exceptions.
+
+    Returns a dict with `entries` (one per host, in order) and `aggregate_ready` (bool).
+    Each entry carries: host, scope, mode, target, package, skill_source, action
+    (install|skipped|current|conflict), discovery, rollback_boundary (path), required_config.
+    """
+
+    if scope not in {"user", "project"}:
+        raise SkillSetupError(f"unsupported scope: {scope}")
+    repository = source.expanduser().resolve()
+    home_resolved = home.expanduser().resolve()
+    project_resolved = project_root.expanduser().resolve()
+
+    by_host: dict[str, dict[str, object]] = {}
+    snippet_emitted = False
+    for host in dict.fromkeys(hosts):
+        layout = HOST_LAYOUTS.get(host)
+        if layout is None:
+            entry = {
+                "host": host,
+                "scope": scope,
+                "mode": "n/a",
+                "target": "n/a",
+                "package": str(_resolve_package(repository, host)),
+                "skill_source": "n/a",
+                "action": "skipped",
+                "discovery": "host not in registry",
+                "rollback_boundary": "n/a",
+                "required_config": f"unsupported host: {host}",
+                "reason": "unsupported host",
+            }
+            by_host[host] = entry
+            continue
+        if scope == "project" and layout.project_parts is None:
+            entry = {
+                "host": host,
+                "scope": scope,
+                "mode": "n/a",
+                "target": "n/a",
+                "package": str(_resolve_package(repository, host)),
+                "skill_source": "n/a",
+                "action": "skipped",
+                "discovery": layout.discovery,
+                "rollback_boundary": "n/a",
+                "required_config": hermes_external_dirs_snippet(source_parent=repository)
+                if host == "hermes"
+                else "n/a",
+                "reason": f"{host} has no native project scope; user scope or external_dirs required",
+            }
+            snippet_emitted = snippet_emitted or host == "hermes"
+            by_host[host] = entry
+            continue
+        target = _absolute(
+            resolve_target(
+                host,
+                scope=scope,
+                home=home_resolved,
+                project_root=project_resolved,
+                codex_home=codex_home,
+            )
+        )
+        package = _resolve_package(repository, host)
+        source_path = package / "skills" / SKILL_NAME if host == "claude" else package
+        status = installation_status(target, source_path)
+        action = "install" if status == "missing" else ("conflict" if status == "conflict" else "current")
+        by_host[host] = {
+            "host": host,
+            "scope": scope,
+            "mode": "copy",
+            "target": str(target),
+            "package": str(package),
+            "skill_source": str(source_path),
+            "action": action,
+            "discovery": layout.discovery,
+            "rollback_boundary": str(target),
+            "required_config": None,
+            "reason": f"install target={'conflict' if status == 'conflict' else ('current' if status == 'current' else 'missing')}",
+        }
+
+    entries = [by_host[host] for host in dict.fromkeys(hosts)]
+    aggregate = all(entry["action"] in {"install", "current"} for entry in entries)
+    return {
+        "scope": scope,
+        "mode": "copy",
+        "dry_run": dry_run,
+        "entries": entries,
+        "aggregate_ready": aggregate,
+        "snippet_required": snippet_emitted,
+        "snippet": hermes_external_dirs_snippet(source_parent=repository) if snippet_emitted else None,
+    }
+
+
+def _resolve_package(repository: Path, host: str) -> Path:
+    """Local copy of resolve_package for plan_heterogeneous_install use."""
+
+    try:
+        layout = HOST_LAYOUTS[host]
+    except KeyError as exc:
+        raise SkillSetupError(f"unsupported host: {host}") from exc
+    return repository.joinpath(*layout.package_parts)
+
+
+def installation_status_per_host(
+    hosts: Sequence[str],
+    *,
+    source: Path,
+    scope: str,
+    home: Path,
+    project_root: Path,
+    codex_home: Path | None = None,
+) -> dict[str, object]:
+    """Issue #328: per-host installation status + aggregate (does not hide partial readiness)."""
+
+    repository = source.expanduser().resolve()
+    home_resolved = home.expanduser().resolve()
+    project_resolved = project_root.expanduser().resolve()
+    per_host: dict[str, dict[str, object]] = {}
+    for host in dict.fromkeys(hosts):
+        layout = HOST_LAYOUTS.get(host)
+        if layout is None or (scope == "project" and layout.project_parts is None):
+            per_host[host] = {
+                "ready": False,
+                "reason": f"{host} does not support this combination",
+                "scope": scope,
+            }
+            continue
+        target = _absolute(
+            resolve_target(
+                host,
+                scope=scope,
+                home=home_resolved,
+                project_root=project_resolved,
+                codex_home=codex_home,
+            )
+        )
+        package = _resolve_package(repository, host)
+        source_path = package / "skills" / SKILL_NAME if host == "claude" else package
+        status, reason, _source_digest, _target_digest = _installation_status_detail(target, source_path)
+        per_host[host] = {"ready": status == "current", "reason": reason, "scope": scope}
+    aggregate = all(entry["ready"] for entry in per_host.values())
+    return {
+        "scope": scope,
+        "hosts": per_host,
+        "aggregate_ready": aggregate,
+    }
