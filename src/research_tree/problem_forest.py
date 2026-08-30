@@ -12,10 +12,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import Iterable, Mapping
+from typing import TYPE_CHECKING, Iterable, Mapping
 
 from .authority import AuthorityRole
 from .domain import freeze_payload, utc_now, validate_identifier
+
+if TYPE_CHECKING:
+    from .cognition import CognitionState
 
 RECONCILIATION_KIND_VALUES: frozenset[str] = frozenset(
     {
@@ -403,3 +406,310 @@ class AgentForest(Forest):
     Structural note: ``ForestNode`` carries no chain-of-thought field — by
     construction the agent forest cannot store raw private reasoning.
     """
+
+
+# ---------------------------------------------------------------------------
+# Issue #315 — asymmetric cognitive model
+# ---------------------------------------------------------------------------
+
+
+SHARED_FOREST_ALIGNMENT_KINDS: frozenset[ReconciliationKind] = frozenset(
+    {ReconciliationKind.SAME_PROBLEM, ReconciliationKind.PARTIAL_MATCH}
+)
+
+
+@dataclass(frozen=True, slots=True)
+class AlignmentScore:
+    """Per-(branch, dimension) alignment score.
+
+    The system never collapses alignment into a single global number.
+    ``score`` lives in [0.0, 1.0] and represents the coverage ratio for one
+    branch (or branch/dimension cell). ``deltas`` lists the unresolved
+    mappings that depress the score so consumers can see *why* a branch is
+    under-aligned.
+    """
+
+    branch_id: str
+    score: float
+    covered_nodes: int
+    unresolved_nodes: int
+    deltas: tuple[ReconciliationKind, ...] = ()
+
+    def __post_init__(self) -> None:
+        validate_identifier(self.branch_id, "branch_id")
+        if isinstance(self.score, bool) or not isinstance(self.score, (int, float)):
+            raise TypeError("score must be a number")
+        score = float(self.score)
+        if not 0.0 <= score <= 1.0:
+            raise ValueError("score must be within [0.0, 1.0]")
+        if isinstance(self.covered_nodes, bool) or not isinstance(self.covered_nodes, int) or self.covered_nodes < 0:
+            raise ValueError("covered_nodes must be a non-negative integer")
+        if (
+            isinstance(self.unresolved_nodes, bool)
+            or not isinstance(self.unresolved_nodes, int)
+            or self.unresolved_nodes < 0
+        ):
+            raise ValueError("unresolved_nodes must be a non-negative integer")
+        for kind in self.deltas:
+            if not isinstance(kind, ReconciliationKind):
+                raise TypeError(f"deltas must be ReconciliationKind entries; got {type(kind).__name__}")
+
+
+class SharedForestFilter:
+    """Project Requester+Agent+Reconciliation into the consensus Shared Forest.
+
+    Only nodes whose reconciliation edges are ``same_problem`` or
+    ``partial_match`` *and* are not flagged by any delta edge reach the
+    shared view. Unresolved mappings stay in the Shared Brief workspace —
+    visible to humans — but never claim consensus.
+    """
+
+    def filter(
+        self,
+        *,
+        requester_forest: Forest,
+        agent_forest: Forest,
+        reconciliation: ReconciliationGraph,
+    ) -> tuple[ForestNode, ...]:
+        if not isinstance(requester_forest, Forest):
+            raise TypeError("requester_forest must be a Forest")
+        if not isinstance(agent_forest, Forest):
+            raise TypeError("agent_forest must be a Forest")
+        if not isinstance(reconciliation, ReconciliationGraph):
+            raise TypeError("reconciliation must be a ReconciliationGraph")
+        # Any edge that is NOT an alignment edge disqualifies a requester node.
+        disqualifying: set[str] = set()
+        aligned: set[str] = set()
+        for edge in reconciliation.list_edges():
+            if edge.kind in SHARED_FOREST_ALIGNMENT_KINDS:
+                aligned.add(edge.requester_ref)
+            else:
+                disqualifying.add(edge.requester_ref)
+        shared: list[ForestNode] = []
+        for node in requester_forest.current_nodes():
+            if node.space is not ForestSpace.REQUESTER:
+                continue
+            if node.id in aligned and node.id not in disqualifying:
+                shared.append(node)
+        return tuple(shared)
+
+
+@dataclass(frozen=True, slots=True)
+class UnderstandingDebt:
+    """The Agent's self-computed debt of unresolved Requester-owned items.
+
+    Pure projection over (Forest, Forest, ReconciliationGraph) — no
+    side effects, no I/O. ``research_obligations`` lists branch ids that
+    still need an aligned counterpart (or a recorded disagreement).
+    """
+
+    missing_in_agent: tuple[str, ...]
+    agent_expansion_unconfirmed: tuple[str, ...]
+    active_disagreements: tuple[str, ...]
+    research_obligations: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "missing_in_agent",
+            "agent_expansion_unconfirmed",
+            "active_disagreements",
+            "research_obligations",
+        ):
+            value = getattr(self, field_name)
+            if not isinstance(value, tuple) or any(not isinstance(item, str) for item in value):
+                raise TypeError(f"{field_name} must be a tuple of strings")
+
+
+def _synthesize_missing_edges(
+    requester_forest: Forest,
+    reconciliation: ReconciliationGraph,
+) -> tuple[ReconciliationMapping, ...]:
+    """Yield synthetic MISSING_IN_AGENT edges for unmapped requester nodes."""
+
+    referenced: set[str] = set()
+    for edge in reconciliation.list_edges():
+        referenced.add(edge.requester_ref)
+    synthesized: list[ReconciliationMapping] = []
+    for node in requester_forest.current_nodes():
+        if node.space is not ForestSpace.REQUESTER:
+            continue
+        if node.id in referenced:
+            continue
+        synthesized.append(
+            ReconciliationMapping(
+                kind=ReconciliationKind.MISSING_IN_AGENT,
+                requester_ref=node.id,
+                agent_ref="unmapped",
+                note="synthesized: no agent counterpart",
+            )
+        )
+    return tuple(synthesized)
+
+
+def _branch_id_of(node: ForestNode) -> str | None:
+    body = node.body
+    candidate = body.get("branch_id") if hasattr(body, "get") else None
+    if isinstance(candidate, str) and candidate:
+        return candidate
+    return None
+
+
+def compute_understanding_debt(
+    *,
+    requester_forest: Forest,
+    agent_forest: Forest,
+    reconciliation: ReconciliationGraph,
+) -> UnderstandingDebt:
+    """Compute the agent's self-computed UnderstandingDebt (pure function)."""
+
+    if not isinstance(requester_forest, Forest):
+        raise TypeError("requester_forest must be a Forest")
+    if not isinstance(agent_forest, Forest):
+        raise TypeError("agent_forest must be a Forest")
+    if not isinstance(reconciliation, ReconciliationGraph):
+        raise TypeError("reconciliation must be a ReconciliationGraph")
+
+    synthesized = _synthesize_missing_edges(requester_forest, reconciliation)
+    missing_ids: list[str] = []
+    expansion_ids: list[str] = []
+    disagreement_ids: list[str] = []
+    for edge in (*synthesized, *reconciliation.list_edges()):
+        if edge.kind is ReconciliationKind.MISSING_IN_AGENT:
+            missing_ids.append(edge.requester_ref)
+        elif edge.kind is ReconciliationKind.AGENT_EXPANSION_UNCONFIRMED:
+            expansion_ids.append(edge.requester_ref)
+        elif edge.kind in {
+            ReconciliationKind.CONTRADICTION,
+            ReconciliationKind.TOPOLOGY_MISMATCH,
+            ReconciliationKind.ORACLE_MISMATCH,
+        }:
+            disagreement_ids.append(edge.requester_ref)
+
+    # Branches present in the requester forest without any aligned counterpart.
+    aligned_branches: set[str] = set()
+    requester_branches: set[str] = set()
+    for node in requester_forest.current_nodes():
+        branch = _branch_id_of(node)
+        if branch is not None:
+            requester_branches.add(branch)
+    for edge in reconciliation.list_edges():
+        if edge.kind not in SHARED_FOREST_ALIGNMENT_KINDS:
+            continue
+        requester_node = requester_forest._current.get(edge.requester_ref)  # type: ignore[attr-defined]
+        if requester_node is None:
+            continue
+        branch = _branch_id_of(requester_node)
+        if branch is not None:
+            aligned_branches.add(branch)
+    obligations = tuple(sorted(requester_branches - aligned_branches))
+
+    return UnderstandingDebt(
+        missing_in_agent=tuple(missing_ids),
+        agent_expansion_unconfirmed=tuple(expansion_ids),
+        active_disagreements=tuple(disagreement_ids),
+        research_obligations=obligations,
+    )
+
+
+def catch_up_triggers(debt: UnderstandingDebt) -> tuple[str, ...]:
+    """Return catch-up event ids: every node missing in the agent forest."""
+
+    if not isinstance(debt, UnderstandingDebt):
+        raise TypeError("debt must be an UnderstandingDebt")
+    return debt.missing_in_agent
+
+
+@dataclass(frozen=True, slots=True)
+class DisclosureTrigger:
+    """Disclosure event id: agent expansion that affects a requester-owned decision."""
+
+    node_id: str
+    agent_ref: str
+    evidence_id: str
+    reason: str
+
+    def __post_init__(self) -> None:
+        validate_identifier(self.node_id, "node_id")
+        if not isinstance(self.agent_ref, str) or not self.agent_ref:
+            raise ValueError("agent_ref must be a non-empty string")
+        if not isinstance(self.evidence_id, str) or not self.evidence_id:
+            raise ValueError("evidence_id must be a non-empty string")
+        if not isinstance(self.reason, str) or not self.reason:
+            raise ValueError("reason must be a non-empty string")
+
+
+_DECISION_OWNING_ROLES: frozenset[AuthorityRole] = frozenset(
+    {AuthorityRole.DECISION_OWNER, AuthorityRole.APPROVAL_REQUIRED, AuthorityRole.AUTHORITY_SCOPE}
+)
+
+
+def disclosure_triggers(state: "CognitionState") -> tuple[DisclosureTrigger, ...]:
+    """Return disclosure triggers for evidence-backed agent expansions on requester-owned decisions.
+
+    A trigger fires when:
+    * a requester node has a DECISION_OWNER/APPROVAL_REQUIRED/AUTHORITY_SCOPE role,
+    * the reconciliation graph carries an AGENT_EXPANSION_UNCONFIRMED edge for it,
+    * the agent's body references evidence that is present in ``state.evidence``.
+    """
+
+    if state is None or not hasattr(state, "evidence"):
+        raise TypeError("disclosure_triggers requires a CognitionState")
+    evidence_by_id: dict[str, object] = {
+        getattr(artifact, "evidence_id", None): artifact for artifact in state.evidence
+    }
+    triggers: list[DisclosureTrigger] = []
+    for edge in state.reconciliation.list_edges():
+        if edge.kind is not ReconciliationKind.AGENT_EXPANSION_UNCONFIRMED:
+            continue
+        requester_node = state.requester_forest._current.get(edge.requester_ref)  # type: ignore[attr-defined]
+        if requester_node is None or requester_node.origin_role not in _DECISION_OWNING_ROLES:
+            continue
+        agent_node = state.agent_forest._current.get(edge.agent_ref)  # type: ignore[attr-defined]
+        if agent_node is None:
+            continue
+        body = agent_node.body
+        evidence_id = body.get("evidence_id") if hasattr(body, "get") else None
+        evidence_backed = body.get("evidence_backed") if hasattr(body, "get") else False
+        if not isinstance(evidence_id, str) or not isinstance(evidence_backed, bool) or not evidence_backed:
+            continue
+        if evidence_id not in evidence_by_id:
+            continue
+        triggers.append(
+            DisclosureTrigger(
+                node_id=edge.requester_ref,
+                agent_ref=edge.agent_ref,
+                evidence_id=evidence_id,
+                reason="evidence-backed agent expansion on requester-owned decision",
+            )
+        )
+    return tuple(triggers)
+
+
+@dataclass(slots=True)
+class BoundedReconstitutionTrigger:
+    """Signal that the Requester Forest is too sparse for normal cognition.
+
+    ``mode == "bounded_reconnaissance"`` means the agent must READ context
+    (not invent requirements) to fill the gap. ``mode == "none"`` means no
+    trigger. The trigger never mutates either forest.
+    """
+
+    fired: bool
+    mode: str
+    reason: str
+
+    @classmethod
+    def evaluate(cls, state: "CognitionState") -> "BoundedReconstitutionTrigger":
+        if state is None or not hasattr(state, "requester_forest"):
+            raise TypeError("BoundedReconstitutionTrigger.evaluate requires a CognitionState")
+        nodes = state.requester_forest.current_nodes()
+        if len(nodes) < 2:
+            return cls(fired=True, mode="bounded_reconnaissance", reason="fewer than 2 requester nodes")
+        average = sum(node.confidence for node in nodes) / len(nodes)
+        if average < 0.4:
+            return cls(
+                fired=True,
+                mode="bounded_reconnaissance",
+                reason=f"mean confidence below 0.4 (got {average:.3f})",
+            )
+        return cls(fired=False, mode="none", reason="forest dense and confident")
