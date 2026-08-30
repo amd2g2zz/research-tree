@@ -43,6 +43,7 @@ from .assurance import (
 )
 from .authority import AuthorityRole, authority_scope, role_of
 from .closure import ASSESSMENT_KIND, ClosureAssessmentError, OracleService, SlotClosureAssessment, SlotClosureAssessor
+from .cognition import CognitionState, compute_alignment_per_branch
 from .completion_inputs import CompletionInputError, CompletionInputRegistrar, delivery_manifest_digest
 from .content_store import (
     ContentAddressedStore,
@@ -270,6 +271,9 @@ from .preferences import (
 from .problem_forest import (
     RECONCILIATION_KIND_VALUES,
     AgentForest,
+    AlignmentScore,
+    BoundedReconstitutionTrigger,
+    DisclosureTrigger,
     Forest,
     ForestNode,
     ForestSpace,
@@ -277,6 +281,11 @@ from .problem_forest import (
     ReconciliationKind,
     ReconciliationMapping,
     SharedBriefView,
+    SharedForestFilter,
+    UnderstandingDebt,
+    catch_up_triggers,
+    compute_understanding_debt,
+    disclosure_triggers,
 )
 from .readiness import (
     READINESS_RECORD_KIND,
@@ -431,6 +440,16 @@ __all__ = [
     "AdaptiveResearchPolicy",
     "DecisionSlotDeficit",
     "InsightSignal",
+    "AlignmentScore",
+    "BoundedReconstitutionTrigger",
+    "CognitionState",
+    "DisclosureTrigger",
+    "SharedForestFilter",
+    "UnderstandingDebt",
+    "catch_up_triggers",
+    "compute_alignment_per_branch",
+    "compute_understanding_debt",
+    "disclosure_triggers",
     "PolicyConfiguration",
     "PolicyDisposition",
     "PolicyProposal",
