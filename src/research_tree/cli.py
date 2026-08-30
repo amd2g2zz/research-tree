@@ -285,6 +285,14 @@ def _doctor(arguments: argparse.Namespace) -> dict[str, Any]:
             "failure_reasons": [*readiness["failure_reasons"], *lifecycle_readiness["failure_reasons"]],
         }
         result = {**result, "lifecycle": lifecycle_result}
+    provider_readiness = {
+        # issue #326: static installation health and live provider readiness are
+        # separate sections.  Provider state is probe-declared ("unknown" when not
+        # probed); no credentials or raw gateway logs are ever included.
+        "state": "unknown",
+        "note": "live provider readiness requires an explicit probe; not evaluated here",
+    }
+    result = {**result, "provider_readiness": provider_readiness}
     return _stable_payload(
         "doctor",
         status="healthy" if readiness["ready"] else "attention_required",
