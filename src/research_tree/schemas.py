@@ -8,18 +8,10 @@ backfilled; see docs/adr/ADR-007-pydantic-boundary.md.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 
 class StrictModel(BaseModel):
     """Base for schemas: unknown keys are an error, like the legacy whitelist."""
 
     model_config = ConfigDict(extra="forbid")
-
-
-class PolicyProposalRef(StrictModel):
-    """Lineage reference recorded when an AdaptiveResearchPolicy proposal is consumed."""
-
-    proposal_id: str = Field(min_length=1)
-    kind: str = Field(min_length=1)
-    method_boundary: str = Field(min_length=1)

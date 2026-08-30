@@ -2414,15 +2414,15 @@ class ResearchRunCoordinator:
             slots = thaw_json(target.payload).get("decision_slots") if target is not None else None
         deficits = [
             {
-                "slot_id": slot.get("id"),
+                "slot_id": slot["id"],
                 "question": slot.get("question", slot.get("objective", "Close the decision slot")),
                 "priority": slot.get("priority", "P1"),
-                "closure_oracle": slot.get(
-                    "closure_oracle", slot.get("success_oracle", f"slot-{slot.get('id')}-closed")
-                ),
+                "closure_oracle": slot.get("closure_oracle") or slot.get("success_oracle") or "",
             }
             for slot in slots
-            if isinstance(slot, Mapping) and slot.get("id")
+            if isinstance(slot, Mapping)
+            and slot.get("id")
+            and (slot.get("closure_oracle") or slot.get("success_oracle"))
         ]
         if not deficits:
             return None

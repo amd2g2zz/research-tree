@@ -24,6 +24,14 @@ ruled on 2026-08-29 that new code must carry enforced (pydantic) annotations.
    recorded in `pyproject.toml` are consumed by this same boundary: new files
    carry zero exemptions, touched files clear theirs opportunistically.
 
+## Review disposition (2026-08-30, issue #347)
+
+The placeholder `PolicyProposalRef` was deleted (zero production consumers);
+`StrictModel` stays as the boundary. The dependency itself stays in the test
+group: the maintainer ruling is "route decided, dependency in place, first
+real schema consumer pending" — removing pydantic now would just re-add it at
+the first consumer.
+
 ## Alternatives considered
 
 - Full pydantic migration of all modules: rejected — couples 4 issue PRs to a
