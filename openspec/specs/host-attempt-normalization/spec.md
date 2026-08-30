@@ -1,3 +1,5 @@
+<!-- generated from openspec/changes/normalize-host-attempt-outcomes:PR #349 (#326) at alpha3-batch2-fixup-sync -->
+
 ## ADDED Requirements
 
 ### Requirement: host attempts must normalize before canonical ingestion

@@ -1,3 +1,5 @@
+<!-- generated from openspec/changes/host-capability-discovery:PR #373 (#322) at alpha3-batch2-fixup-sync -->
+
 ## ADDED Requirements
 
 ### Requirement: host capability discovery is governed

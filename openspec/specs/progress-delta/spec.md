@@ -1,3 +1,5 @@
+<!-- generated from openspec/changes/progress-delta:PR #365 (#329) at alpha3-batch2-fixup-sync -->
+
 ## ADDED Requirements
 
 ### Requirement: visible progress is derived from canonical delta

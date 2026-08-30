@@ -1,3 +1,5 @@
+<!-- generated from openspec/changes/baseline-freshness-policy:PR #350 (#327) at alpha3-batch2-fixup-sync -->
+
 ## ADDED Requirements
 
 ### Requirement: repository baselines carry freshness admission

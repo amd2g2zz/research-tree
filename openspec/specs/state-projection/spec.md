@@ -1,3 +1,5 @@
+<!-- generated from openspec/changes/canonical-state-projection:PR #368 (#320) at alpha3-batch2-fixup-sync -->
+
 ## ADDED Requirements
 
 ### Requirement: state projection is canonical

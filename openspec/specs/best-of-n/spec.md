@@ -1,3 +1,5 @@
+<!-- generated from openspec/changes/best-of-n:PR #370 (#334) at alpha3-batch2-fixup-sync -->
+
 ## ADDED Requirements
 
 ### Requirement: high-impact decisions compare candidates

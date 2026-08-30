@@ -1,3 +1,5 @@
+<!-- generated from openspec/changes/canonical-lifecycle-facade:PR #371 (#325) at alpha3-batch2-fixup-sync -->
+
 ## ADDED Requirements
 
 ### Requirement: lifecycle facade reads canonical state

@@ -1,3 +1,5 @@
+<!-- generated from openspec/changes/shared-brief-workspace:PR #377 (#321) at alpha3-batch2-fixup-sync -->
+
 ## ADDED Requirements
 
 ### Requirement: Shared Brief workspace is durable and auditable

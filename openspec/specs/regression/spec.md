@@ -1,3 +1,5 @@
+<!-- generated from openspec/changes/black-box-regression-evaluation:PR #379 (#323) at alpha3-batch2-fixup-sync -->
+
 ## ADDED Requirements
 
 ### Requirement: black-box regression covers cognition, growth, and disagreement

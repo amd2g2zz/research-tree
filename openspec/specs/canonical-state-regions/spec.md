@@ -1,3 +1,5 @@
+<!-- generated from openspec/changes/canonical-state-regions:PR #364 (#324) at alpha3-batch2-fixup-sync -->
+
 ## ADDED Requirements
 
 ### Requirement: canonical state is orthogonal regions

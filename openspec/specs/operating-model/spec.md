@@ -1,3 +1,5 @@
+<!-- generated from openspec/changes/organizational-operating-model:PR #380 (#330) at alpha3-batch2-fixup-sync -->
+
 ## ADDED Requirements
 
 ### Requirement: Human Brief carries an organizational operating model

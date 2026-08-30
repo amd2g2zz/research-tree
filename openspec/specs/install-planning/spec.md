@@ -1,3 +1,5 @@
+<!-- generated from openspec/changes/heterogeneous-install-plan:PR #357 (#328) at alpha3-batch2-fixup-sync -->
+
 ## ADDED Requirements
 
 ### Requirement: install produces a per-host plan first
