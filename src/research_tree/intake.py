@@ -9,8 +9,9 @@ import subprocess
 from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
+from .authority import AuthorityRole
 from .domain import (
     ArtifactRef,
     ArtifactRevision,
@@ -26,6 +27,7 @@ from .freshness import (
 from .freshness import (
     assess as _assess_freshness,
 )
+from .problem_forest import Forest, ForestNode, ForestSpace
 from .run_ledger import RunLedger
 
 INPUT_LEDGER_ARTIFACT_KIND = "input-ledger-entry"
@@ -555,6 +557,55 @@ class RepositoryInspector:
         root = Path(repository_root).resolve(strict=False)
         target = Path(resolved_target).resolve(strict=False)
         return "symlink_not_followed" if RepositoryInspector._is_within_root(root, target) else "external_symlink"
+
+    def collect_problem_forest(
+        self,
+        *,
+        baseline: dict[str, object] | None = None,
+        intent_text: str = "",
+        repository_root: str | Path | None = None,
+    ) -> "Forest":
+        """Return a sparse Requester Forest from a baseline.
+
+        Sparse by design: vague intent or absent anchors must NOT fabricate
+        requirements. Returns at most one anchor node per distinct
+        ``kind`` in the baseline (e.g. ``goal``, ``unknown``); lower
+        confidence for vague intent so the bounded-reconnaissance trigger
+        fires downstream.
+        """
+
+        anchor_payload = baseline if isinstance(baseline, Mapping) else None
+        if anchor_payload is None and repository_root is not None:
+            anchor_payload = self.inspect(repository_root)
+        intent_is_vague = not isinstance(intent_text, str) or len(intent_text.strip()) < 8
+        nodes: list[ForestNode] = []
+        if anchor_payload is not None:
+            anchors = anchor_payload.get("anchors")
+            if isinstance(anchors, list) and anchors:
+                representative = anchors[0]
+                if isinstance(representative, Mapping):
+                    path = str(representative.get("path") or "unknown")
+                    symbol = representative.get("symbol")
+                    body = {
+                        "statement": f"baseline anchor observed at {path}",
+                        "kind": "baseline_anchor",
+                    }
+                    if symbol is not None:
+                        body["symbol"] = str(symbol)
+                    nodes.append(
+                        ForestNode.create(
+                            node_id=f"r-baseline-{path.replace('/', '-')[:48]}",
+                            space=ForestSpace.REQUESTER,
+                            origin_role=AuthorityRole.INTENT_OWNER,
+                            source_ref=f"intake:baseline:{path}",
+                            body=body,
+                            confidence=0.3 if intent_is_vague else 0.6,
+                        )
+                    )
+        forest = Forest()
+        for node in nodes:
+            forest = forest.append(node)
+        return forest
 
     def _git_revision(self, root: Path) -> dict[str, object]:
         inside_repository = self._git(root, "rev-parse", "--is-inside-work-tree")

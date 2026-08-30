@@ -41,6 +41,7 @@ from .assurance import (
     validate_assurance_resolution_payload,
     validate_assurance_selection_payload,
 )
+from .authority import AuthorityRole, authority_scope, role_of
 from .closure import ASSESSMENT_KIND, ClosureAssessmentError, OracleService, SlotClosureAssessment, SlotClosureAssessor
 from .completion_inputs import CompletionInputError, CompletionInputRegistrar, delivery_manifest_digest
 from .content_store import (
@@ -266,6 +267,17 @@ from .preferences import (
     PreferenceValidationError,
     UserPreferenceProfile,
 )
+from .problem_forest import (
+    RECONCILIATION_KIND_VALUES,
+    AgentForest,
+    Forest,
+    ForestNode,
+    ForestSpace,
+    ReconciliationGraph,
+    ReconciliationKind,
+    ReconciliationMapping,
+    SharedBriefView,
+)
 from .readiness import (
     READINESS_RECORD_KIND,
     CanonicalReadinessVerifier,
@@ -400,9 +412,11 @@ from .work_items import (
 )
 
 __all__ = [
+    "AgentForest",
     "ArtifactNotFoundError",
     "ArtifactRef",
     "ArtifactRevision",
+    "AuthorityRole",
     "ASSURANCE_ADAPTER_SELECTION_KIND",
     "ASSURANCE_EVIDENCE_KIND",
     "ASSURANCE_FOLLOW_UP_KIND",
@@ -454,6 +468,8 @@ __all__ = [
     "AlignmentReadinessError",
     "ALIGNMENT_GRAPH_KIND",
     "ALIGNMENT_HANDOFF_KIND",
+    "authority_scope",
+    "role_of",
     "initialize_research_from_alignment",
     "AssuranceAdapterSet",
     "AssuranceError",
@@ -489,6 +505,9 @@ __all__ = [
     "EvaluationError",
     "FindingPackError",
     "FEEDBACK_LINEAGE_KIND",
+    "Forest",
+    "ForestNode",
+    "ForestSpace",
     "CORRECTION_EVENT_KIND",
     "CorrectionBinding",
     "CorrectionEvent",
@@ -648,6 +667,10 @@ __all__ = [
     "PortfolioBatch",
     "PortfolioExecution",
     "REASSESSMENT_DISPOSITIONS",
+    "RECONCILIATION_KIND_VALUES",
+    "ReconciliationGraph",
+    "ReconciliationKind",
+    "ReconciliationMapping",
     "REJECTION_REASONS",
     "ReassessmentPolicy",
     "RejectedMethod",
@@ -656,6 +679,7 @@ __all__ = [
     "SELECTION_REASONS",
     "SUBQUESTION_KINDS",
     "SearchPortfolio",
+    "SharedBriefView",
     "SearchPortfolioExecutor",
     "SearchPortfolioError",
     "Subquestion",
