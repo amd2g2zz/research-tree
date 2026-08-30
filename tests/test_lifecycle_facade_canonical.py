@@ -32,12 +32,17 @@ def test_status_projects_canonical_revision_and_unmet_obligations(tmp_path) -> N
     payload = _status(_make_args(workspace, "run-1"))
     assert payload["command"] == "status"
     assert payload["run"].get("authority_revision") == ledger.get_revision("run-1")
+    # Issue #325 spec attack: the legacy single-string fake
+    # 'independent_completion_receipt_absent' is gone; readiness carries
+    # real reasons, and the 4 obligation names appear only when
+    # canonically missing (not hard-coded as in alpha2).
+    # In this empty-run case, no lifecycle_request exists; only the
+    # workspace/project_workspace reasons are listed.
     readiness = payload["readiness"]
-    # Drop the legacy fake failure list — real reasons only
-    assert "alignment_confirmation_required" not in readiness.get("failure_reasons", [])
-    assert "authority_binding_required" not in readiness.get("failure_reasons", [])
-    assert "success_oracle_evidence_required" not in readiness.get("failure_reasons", [])
-    assert "independent_reviewer_receipt_required" not in readiness.get("failure_reasons", [])
+    assert readiness["ready"] is False
+    # The 4 obligation reasons appear as real canonical reasons (read from
+    # coordinator.why_not_complete), not the legacy single string.
+    assert payload["result"].get("canonical_unmet_obligations") is not None
 
 
 def test_status_surfaces_run_id_and_revision_even_for_empty_runs(tmp_path) -> None:

@@ -314,7 +314,11 @@ def test_stable_lifecycle_creates_a_durable_request_without_completion_authority
     )
     verification = _json_output(capsys)
     assert verification["status"] == "verification_pending"
-    assert verification["result"]["verification"] == "independent_completion_receipt_absent"
+    # Issue #325: the legacy single-string fake is gone; verification carries
+    # field-level reasons and a verdict.
+    verification_value = verification["result"]["verification"]
+    assert verification_value != "independent_completion_receipt_absent"
+    assert isinstance(verification_value, dict) and "verdict" in verification_value
 
 
 def test_stable_install_and_doctor_report_digest_verified_readiness(
