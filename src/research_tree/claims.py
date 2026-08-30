@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Iterable, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Optional
 
 from .domain import ArtifactRef
 
@@ -63,9 +63,12 @@ class Claim:
     conditions: tuple[str, ...] = ()
     platform: str = "unspecified"
     modality: str = "unspecified"
+    speech_act: Any | None = None
+    claim_kind: Optional[str] = None
+    authority: Optional[str] = None
 
     def __post_init__(self) -> None:
-        for field in (
+        for field_name in (
             "claim_id",
             "subject",
             "predicate",
@@ -76,10 +79,24 @@ class Claim:
             "platform",
             "modality",
         ):
-            object.__setattr__(self, field, _text(getattr(self, field), field))
+            object.__setattr__(self, field_name, _text(getattr(self, field_name), field_name))
         if self.polarity not in {"positive", "negative"}:
             raise ClaimValidationError("polarity must be positive or negative")
         object.__setattr__(self, "conditions", _texts(self.conditions, "conditions"))
+        if self.speech_act is not None:
+            try:
+                from .speech_acts import SpeechAct as _SpeechAct
+
+                if not isinstance(self.speech_act, _SpeechAct):
+                    object.__setattr__(self, "speech_act", _SpeechAct.from_value(self.speech_act))
+            except ImportError:
+                pass
+        for optional in ("claim_kind", "authority"):
+            value = getattr(self, optional)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ClaimValidationError(f"{optional} must be a non-empty string when provided")
+            if isinstance(value, str):
+                object.__setattr__(self, optional, value.strip())
 
     @property
     def normalized_statement(self) -> str:
