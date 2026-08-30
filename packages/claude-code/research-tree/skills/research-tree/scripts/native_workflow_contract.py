@@ -7,7 +7,7 @@ import json
 import re
 from typing import Any, Mapping, Sequence
 
-HOSTS = ("codex", "claude-code", "hermes")
+HOSTS = ("codex", "claude-code", "hermes", "pi")
 CAPABILITIES = (
     "native_dynamic_workflow",
     "dynamic_delegation",
@@ -27,6 +27,7 @@ HOST_SURFACES = {
     "claude-code": "claude-dynamic-phases",
     "codex": "codex-concurrent-ready",
     "hermes": "hermes-delegation-batch",
+    "pi": "pi-native-reconnaissance",
 }
 EXECUTION_MODES = ("agent", "workflow", "hybrid")
 MODE_REQUIREMENTS = {
