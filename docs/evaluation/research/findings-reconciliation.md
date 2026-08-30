@@ -134,6 +134,35 @@ alpha3 第一批 4 issue 全部合入 dev（squash）：
 
 无证据支持的项（试点未跑）：凡涉及"A2 更好/更差"的方向性判断均待试点数据。
 
+## 6.2 Batch-2 落地记录（2026-08-30，主会话）
+
+alpha3 第二批 16 个 issue（含 6 个 post-batch + 4 个 wave 4 ledger 改写）全部合入 dev（squash）。plan：`.claude/PRPs/plans/alpha3-batch2-foundation.plan.md`。
+
+| Wave | Issue | PR | Commit | 落点 | 状态 |
+|---|---|---|---|---|---|
+| 0 | #326 host_attempts | #349 | a597e7e | 7 disposition + `worker_finished_eligible` | merged |
+| 0 | #327 freshness | #350 | 3f009b3 | `FreshnessPolicy` + `assess()` 5 dispositions | merged |
+| 0 | #328 heterogeneous-install-plan | #357 | 66db780 | `plan_heterogeneous_install` per-host data | merged |
+| 0 | #325 lifecycle facade | #371 | 163d3e7 | `_verify` reads canonical, `_doctor` 4-section | merged |
+| 1 | #314 problem forest | #352 | 90c291c | `ForestSpace` (5) + `ReconciliationKind` (8) | merged |
+| 1 | #316 claim+speech_act+authority | #356 | 7abf602 | `SpeechAct`/`BELIEF_STATUSES`/`transition` | merged |
+| 2 | #315 cognition (4 forests) | #358 | 11938f2 | `compute_alignment_per_branch` | merged |
+| 2 | #317 disagreement | #361 | 0ef2f73 | `PressureSignal`/`PressureLedger` | merged |
+| 2 | #318 growth-aware readiness | #363 | c55e970 | `BranchState` per-branch handoff | merged |
+| 3 | #324 orthogonal state regions | #364 | 72f0fa7 | `STATE_REGIONS` 5-tuple + cross-region fail-closed | merged |
+| 3 | #329 progress delta | #365 | 2b4b848 | `ProgressDelta` + `project_delta` | merged |
+| 3 | #320 state projection | #368 | ecd0311 | `StateProjection` 11 facets | merged |
+| 3 | #334 best-of-N | #370 | f3addcc | `select_candidate` + P0 single-candidate guard | merged |
+| post | #322 host capability (Pi) | #373 | 698515a | Pi discovery + governed compat path | merged |
+| post | #319 reconnaissance | #375 | 244fa4a | `ReconnaissancePlan` ≥2 methods | merged |
+| post | #321 shared brief | #377 | 884a508 | `SharedBrief.from_workspace` evidence chain | merged |
+| post | #323 black-box regression | #379 | 3901624 | `BlackBoxFixture` + `score_run` | merged |
+| post | #330 operating model | #380 | cc6fa80 | `OperatingModelProjection` + role/SLA | merged |
+| Wave 4 | #84 benchmark (rewritten) | — | 659693f (master ref) | alpha2 relocation + rolling-Alpha tier | merged |
+| Wave 4 | #67 epic (rewritten) | — | — | close per #331 rolling-Alpha policy | merged |
+
+**Batch-2 治理账本（meta-arbitration 2026-08-30）**：3 个审查 subagent（code-review / ponytail-review / silent-failure-hunter）独立 FAIL，识别 7 条 BLOCKING（4 CRITICAL + 3 HIGH）。见 `.claude/PRPs/reports/alpha3-batch2-meta-arbitration-2026-08-30.md` 与对应 issue #381-#387。Batch-2 fixup 详见 `.claude/PRPs/plans/alpha3-batch2-fixup-silent-failures-and-governance.plan.md`。
+
 ## 7. 本核销的边界与未验证项
 
 - 全部锚点来自 `git show 0aa67a7:` / `git grep ... 0aa67a7`，未运行测试（判定基于代码结构与调用关系）。
