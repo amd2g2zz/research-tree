@@ -17,6 +17,19 @@ from .contradictions import (
     render_contradiction_packet,
 )
 from .decision_frame import DECISION_FRAME_KIND, DecisionFrame
+from .dispute import (
+    DISPUTE_PACKET_KIND,
+    PROVIDER_VALIDATION_KIND,
+    DisputeAuditTrail,
+    DisputeDisposition,
+    DisputeDispositionError,
+    DisputePacket,
+    PressureLedger,
+    PressureSignal,
+    append_signal,
+    dispute_packet_from_payload,
+    evaluate_dispute,
+)
 from .domain import (
     ArtifactRef,
     ArtifactRevision,
@@ -2817,6 +2830,234 @@ class ResearchRunCoordinator:
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
         return created[-1]
+
+    def ingest_pressure_signal(
+        self,
+        *,
+        run_id: str,
+        disputed_claim_id: str,
+        signal: PressureSignal,
+        source: str,
+        timestamp: str,
+        quality: str = "low",
+        contradiction_id: str | None = None,
+        validation_state: str | None = None,
+        expected_revision: int | None = None,
+    ) -> ArtifactRevision:
+        """Record one pressure signal against a disputed claim without flipping anything silently.
+
+        Pressure events never mutate the underlying contradiction packet's status.
+        They append a new ``DISPUTE_PACKET_KIND`` ledger artifact carrying the
+        updated pressure ledger, the latest independent-validation state, and
+        the full audit trail.  ``provider_validation`` events additionally
+        write a ``PROVIDER_VALIDATION_KIND`` audit artifact.
+        """
+
+        validate_identifier(run_id, "run_id")
+        validate_identifier(disputed_claim_id, "disputed_claim_id")
+        if not isinstance(signal, PressureSignal):
+            raise CoordinatorConflictError(f"signal must be a PressureSignal; got {signal!r}")
+        if not isinstance(source, str) or not source.strip():
+            raise CoordinatorConflictError("pressure source is required")
+        if not isinstance(timestamp, str) or not timestamp.strip():
+            raise CoordinatorConflictError("pressure timestamp is required")
+        if signal is PressureSignal.INDEPENDENT_VALIDATION and not isinstance(validation_state, str):
+            raise DisputeDispositionError("provider_validation events require a validation_state")
+        if validation_state is not None and validation_state not in {
+            "none",
+            "requested",
+            "passed",
+            "failed",
+            "inconclusive",
+        }:
+            raise DisputeDispositionError(f"unknown validation_state: {validation_state!r}")
+
+        artifacts = self.ledger.load_run(run_id).artifacts
+        existing_packet = None
+        if contradiction_id is not None:
+            try:
+                existing_packet = self.ledger.get_artifact(ArtifactRef(run_id, contradiction_id, 1))
+            except RuntimeStoreError:
+                existing_packet = None
+        if existing_packet is None and contradiction_id is not None:
+            existing_packet = next(
+                (item for item in artifacts if item.kind == CONTRADICTION_PACKET_KIND and item.id == contradiction_id),
+                None,
+            )
+        if contradiction_id is not None and existing_packet is None:
+            raise CoordinatorConflictError(f"unknown contradiction_id: {contradiction_id}")
+
+        dispute_artifacts = sorted(
+            (item for item in artifacts if item.kind == DISPUTE_PACKET_KIND),
+            key=lambda item: (item.round_id, item.id, item.revision),
+        )
+        latest_dispute = None
+        for item in reversed(dispute_artifacts):
+            if item.payload.get("disputed_claim_id") != disputed_claim_id:
+                continue
+            latest_dispute = item
+            break
+
+        previous_ledger: PressureLedger = ()
+        previous_validation = "none"
+        previous_signals: tuple[PressureSignal, ...] = ()
+        previous_position = "requester disputes claim"
+        agent_position = f"agent holds claim {disputed_claim_id} by evidence"
+        audit_trail = DisputeAuditTrail()
+        if latest_dispute is not None:
+            decoded = dispute_packet_from_payload(latest_dispute.payload)
+            previous_signals = decoded.pressure_signals
+            previous_validation = decoded.independent_validation_state
+            previous_position = decoded.requester_position
+            previous_audit = decoded.audit_trail
+            for raw in previous_audit.entries:
+                audit_trail = DisputeAuditTrail(entries=(*audit_trail.entries, raw))
+            for raw in latest_dispute.payload.get("pressure_ledger", ()):
+                if not isinstance(raw, Mapping):
+                    continue
+                previous_ledger = append_signal(
+                    previous_ledger,
+                    signal=PressureSignal(str(raw.get("signal"))),
+                    timestamp=str(raw.get("timestamp", "")),
+                    source=str(raw.get("source", "")),
+                    quality=str(raw.get("quality", "low")),
+                )
+
+        # The base for evidence-quality comparison comes from the contradiction packet.
+        evidence_basis: dict[str, Any] = {}
+        if existing_packet is not None:
+            claim_a = existing_packet.payload.get("claim_a") if isinstance(existing_packet.payload, Mapping) else None
+            if isinstance(claim_a, Mapping):
+                evidence_basis["basis_refs"] = list(claim_a.get("basis_refs", ())) or [
+                    f"contradiction:{contradiction_id}"
+                ]
+                evidence_basis["quality"] = claim_a.get("evidence_quality", "medium")
+            else:
+                evidence_basis["basis_refs"] = [f"contradiction:{contradiction_id}"]
+                evidence_basis["quality"] = "medium"
+        else:
+            evidence_basis["basis_refs"] = [f"claim:{disputed_claim_id}"]
+            evidence_basis["quality"] = "medium"
+
+        new_ledger = append_signal(
+            previous_ledger,
+            signal=signal,
+            timestamp=timestamp,
+            source=source,
+            quality=quality,
+        )
+        combined_signals: tuple[PressureSignal, ...] = tuple(dict.fromkeys(previous_signals + (signal,)))
+        effective_validation = (
+            validation_state
+            if signal is PressureSignal.INDEPENDENT_VALIDATION and validation_state is not None
+            else previous_validation
+        )
+
+        claim_state = {
+            "disputed_claim_id": disputed_claim_id,
+            "supported_by": evidence_basis,
+            "disputed": True,
+            "requester_position": previous_position,
+            "agent_position": agent_position,
+        }
+        evaluated: DisputePacket = evaluate_dispute(
+            claim_state=claim_state,
+            pressure_signals=combined_signals,
+            evidence_updates=(),
+            audit_trail=audit_trail,
+            independent_validation=effective_validation,
+            timestamp=timestamp,
+        )
+        # Reconciliation: keep the prior audit trail without re-deriving.
+        evaluated = DisputePacket(
+            dispute_id=evaluated.dispute_id,
+            disputed_claim_id=evaluated.disputed_claim_id,
+            requester_position=evaluated.requester_position or previous_position,
+            agent_position=evaluated.agent_position or agent_position,
+            evidence_basis=evaluated.evidence_basis,
+            pressure_signals=evaluated.pressure_signals,
+            independent_validation_state=evaluated.independent_validation_state,
+            recommended_verification_path=evaluated.recommended_verification_path,
+            audit_trail=audit_trail,
+            contradiction_id=contradiction_id,
+        )
+
+        dispute_id = f"dispute-{disputed_claim_id}"
+        latest_dispute_id = latest_dispute.id if latest_dispute is not None else dispute_id
+        ledger_id = f"{latest_dispute_id}-ledger"
+        current = self._latest_state(run_id)
+        current_ref = self._artifact_ref(current)
+        expected = expected_revision if expected_revision is not None else self.ledger.get_revision(run_id)
+        dispute_payload = {
+            **evaluated.to_dict(),
+            "pressure_ledger": [entry.to_dict() for entry in new_ledger],
+            "disposition": evaluated.audit_trail.entries[-1].disposition.value
+            if evaluated.audit_trail.entries
+            else evaluated.independent_validation_state
+            if evaluated.independent_validation_state in {"passed", "failed", "inconclusive"}
+            else DisputeDisposition.AGENT_HOLDS.value,
+        }
+        entries: list[tuple[str, str, dict[str, Any], tuple[ArtifactRef, ...]]] = [
+            (
+                ledger_id,
+                DISPUTE_PACKET_KIND,
+                dispute_payload,
+                (current_ref,),
+            )
+        ]
+        parents: tuple[ArtifactRef, ...] = (current_ref,)
+        if existing_packet is not None:
+            parents = (*parents, self._artifact_ref(existing_packet))
+        if signal is PressureSignal.INDEPENDENT_VALIDATION:
+            sanitized_ts = "".join(
+                character for character in timestamp.lower() if character.isalnum() or character == "-"
+            )[:16]
+            provider_id = "provider-validation-" + disputed_claim_id + "-" + sanitized_ts
+            entries.append(
+                (
+                    provider_id,
+                    PROVIDER_VALIDATION_KIND,
+                    {
+                        "disputed_claim_id": disputed_claim_id,
+                        "validation_state": effective_validation,
+                        "timestamp": timestamp,
+                        "source": source,
+                        "quality": quality,
+                    },
+                    parents,
+                )
+            )
+        try:
+            appended = self.ledger.append_artifact_batch(run_id, tuple(entries), expected_revision=expected)
+        except LedgerConflictError as error:
+            raise CoordinatorConflictError("stale_revision") from error
+        # If the evaluator's audit_trail differs from the persisted trail, append a flip entry now.
+        flip_entries = [entry for entry in evaluated.audit_trail.entries if entry not in audit_trail.entries]
+        if flip_entries:
+            flip_payload = {
+                "disputed_claim_id": disputed_claim_id,
+                "pressure_signals": [signal.value for signal in combined_signals],
+                "entries": [entry.to_dict() for entry in flip_entries],
+                "timestamp": timestamp,
+                "contradiction_id": contradiction_id,
+            }
+            flip_id = f"dispute-audit-{disputed_claim_id}-{timestamp}"
+            try:
+                appended = self.ledger.append_artifact_batch(
+                    run_id,
+                    (
+                        (
+                            flip_id,
+                            DISPUTE_PACKET_KIND,
+                            flip_payload,
+                            (current_ref, *appended),
+                        ),
+                    ),
+                    expected_revision=self.ledger.get_revision(run_id),
+                )
+            except LedgerConflictError as error:
+                raise CoordinatorConflictError("stale_revision") from error
+        return appended[-1]
 
     def recover(self, run_id: str) -> dict[str, Any]:
         reconciled: list[str] = []
