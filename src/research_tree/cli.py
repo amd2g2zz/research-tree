@@ -202,31 +202,44 @@ def _lifecycle_artifacts(ledger: RunLedger, run_id: str) -> list[Any]:
 def _runtime_readiness(
     workspace: Path, arguments: argparse.Namespace, ledger: RunLedger
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Issue #325: read canonical state; do NOT hard-code a fake failure list.
+
+    Surfaces the real failure reasons reported by the coordinator
+    (``why_not_complete``) plus static project-workspace checks.  Returns
+    a real ``ready`` boolean; the per-field reason list is constructed
+    from canonical evidence, not a constant.
+    """
+
     run_root = _project_run_root(workspace, arguments.project_id, arguments.run_id)
     manifest_path = run_root / "manifest.json"
     artifacts = _lifecycle_artifacts(ledger, arguments.run_id)
-    failures = [
-        "alignment_confirmation_required",
-        "authority_binding_required",
-        "success_oracle_evidence_required",
-        "independent_reviewer_receipt_required",
-    ]
-    if not manifest_path.is_file():
-        failures.insert(0, "project_workspace_missing")
     request = next((artifact for artifact in artifacts if artifact.kind == LIFECYCLE_REQUEST_KIND), None)
-    if request is None:
-        failures.insert(0, "lifecycle_request_missing")
-        request_payload: dict[str, Any] = {}
-    else:
-        request_payload = dict(request.payload)
+    request_payload: dict[str, Any] = dict(request.payload) if request is not None else {}
     event_directory = run_root / "events"
     observed_events = len(tuple(event_directory.glob("*.json"))) if event_directory.is_dir() else 0
+    failures: list[str] = []
+    if not manifest_path.is_file():
+        failures.append("project_workspace_missing")
+    if request is None:
+        failures.append("lifecycle_request_missing")
+    # Real canonical reasons from the coordinator
+    try:
+        coordinator = ResearchRunCoordinator(ledger)
+        why = coordinator.why_not_complete(arguments.run_id)
+    except Exception:
+        why = None
+    canonical_obligations: tuple[str, ...] = ()
+    if isinstance(why, Mapping):
+        canonical_obligations = tuple(why.get("unmet_obligations", ()) or ())
+    failures.extend(canonical_obligations)
+    ready = not failures
     result = {
         "request": request_payload,
         "lifecycle_artifact_count": len(artifacts),
         "observed_hook_event_count": observed_events,
+        "canonical_unmet_obligations": list(canonical_obligations),
     }
-    return {"ready": False, "failure_reasons": failures}, result
+    return {"ready": ready, "failure_reasons": failures}, result
 
 
 def _install(arguments: argparse.Namespace) -> dict[str, Any]:
@@ -292,7 +305,14 @@ def _doctor(arguments: argparse.Namespace) -> dict[str, Any]:
         "state": "unknown",
         "note": "live provider readiness requires an explicit probe; not evaluated here",
     }
-    result = {**result, "provider_readiness": provider_readiness}
+    # Issue #325: 4-section doctor split — installation / host_capability / run_readiness / completion_verification
+    result = {
+        **result,
+        "installation": {"hosts": statuses, "state": "ready" if readiness["ready"] else "attention_required"},
+        "host_capability": provider_readiness,
+        "run_readiness": {"ready": readiness["ready"], "reasons": readiness["failure_reasons"]},
+        "completion_verification": {"state": "unknown", "note": "verify with --run-id for canonical status"},
+    }
     return _stable_payload(
         "doctor",
         status="healthy" if readiness["ready"] else "attention_required",
@@ -408,14 +428,70 @@ def _status(arguments: argparse.Namespace) -> dict[str, Any]:
 
 
 def _verify(arguments: argparse.Namespace) -> dict[str, Any]:
+    """Issue #325: validate canonical completion receipt; field-level reasons on failure."""
+
     payload = _status(arguments)
     payload["command"] = "verify"
-    payload["status"] = "verification_pending"
-    payload["result"] = {
-        **payload["result"],
-        "verification": "independent_completion_receipt_absent",
-    }
+    ledger = RunLedger(arguments.workspace.expanduser().resolve())
+    revision = ledger.get_revision(arguments.run_id)
+    receipt_status = _validate_canonical_receipt(ledger, arguments.run_id, revision)
+    payload["status"] = receipt_status["status"]
+    payload["result"] = {**payload["result"], "verification": receipt_status["details"]}
     return payload
+
+
+def _validate_canonical_receipt(ledger: RunLedger, run_id: str, revision: int) -> dict[str, Any]:
+    """Read coordinator.why_not_complete and classify the verification state.
+
+    Returns a ``status`` ("verified" | "verification_pending" with reasons
+    | "verification_failed" with field-level reasons) and a ``details`` dict
+    suitable for the verify payload.
+    """
+
+    try:
+        coordinator = ResearchRunCoordinator(ledger)
+        why = coordinator.why_not_complete(run_id)
+    except Exception as error:
+        return {
+            "status": "verification_failed",
+            "details": {
+                "verdict": "canonical_unreachable",
+                "reasons": [f"coordinator_error: {error}"],
+            },
+        }
+    if not isinstance(why, Mapping):
+        return {
+            "status": "verification_pending",
+            "details": {
+                "verdict": "canonical_unavailable",
+                "reasons": ["coordinator returned no canonical state"],
+            },
+        }
+    unmet = tuple(why.get("unmet_obligations", ()) or ())
+    package_id = why.get("package_id")
+    host_id = why.get("host_id")
+    if unmet:
+        return {
+            "status": "verification_pending",
+            "details": {
+                "verdict": "unmet_obligations",
+                "reasons": list(unmet),
+                "package_id": package_id,
+                "host_id": host_id,
+                "revision": revision,
+            },
+        }
+    # All canonical obligations met → verified
+    return {
+        "status": "verified",
+        "details": {
+            "verdict": "all_canonical_obligations_met",
+            "reasons": [],
+            "package_id": package_id,
+            "host_id": host_id,
+            "revision": revision,
+        },
+    }
 
 
 def _internal_run(arguments: argparse.Namespace) -> tuple[str | None, Any]:
