@@ -18,6 +18,7 @@ from .feedback import CORRECTION_EVENT_KIND, STALE_STATE_QUARANTINE_KIND
 from .growth import BranchState, compute_readiness_delta
 from .interaction_state import InteractionEvent, InteractionReducer, InteractionReduction, InteractionState
 from .run_ledger import LedgerConflictError, RunLedger
+from .speech_acts import AuthorityTransitionError
 
 ALIGNMENT_ACTION_KIND = "alignment-action"
 ALIGNMENT_ATTEMPT_KIND = "alignment-attempt"
@@ -429,7 +430,7 @@ class AlignmentProtocol:
                     from .speech_acts import transition
 
                     status = transition("candidate", speech_act)
-                except Exception as error:  # noqa: BLE001 - propagate as AlignmentProtocolError
+                except AuthorityTransitionError as error:
                     raise AlignmentProtocolError(str(error)) from error
             else:
                 status = "supported" if basis else "candidate"
