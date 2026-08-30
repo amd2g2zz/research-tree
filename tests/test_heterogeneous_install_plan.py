@@ -159,7 +159,6 @@ def test_one_host_conflict_does_not_fail_plan_for_others(tmp_path) -> None:
     project = tmp_path / "project"
     project.mkdir()
     # Pre-create conflicting user-owned file at the resolved claude project target
-    layout = None  # conflict fixture doesn't need layout
     conflict_target = project.expanduser().resolve() / ".claude" / "skills" / "research-tree"
     conflict_target.mkdir(parents=True, exist_ok=True)
     (conflict_target / "SKILL.md").write_text("user-owned\n", encoding="utf-8")
