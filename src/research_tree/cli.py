@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -31,6 +32,7 @@ LIFECYCLE_SCHEMA_VERSION = 1
 HOSTS = ("codex", "claude", "hermes")
 LIFECYCLE_REQUEST_KIND = "lifecycle-request"
 LIFECYCLE_RESUME_KIND = "lifecycle-resume"
+log = logging.getLogger(__name__)
 
 
 class CliInputError(ValueError):
@@ -239,8 +241,19 @@ def _runtime_readiness(
     try:
         coordinator = ResearchRunCoordinator(ledger)
         why = coordinator.why_not_complete(arguments.run_id)
-    except Exception:
+    except (CoordinatorError, RuntimeStoreError, LedgerError, OSError) as error:
+        # Issue #382: bare ``except Exception`` here reproduced the legacy
+        # ``verification_pending`` shortcut that issue #325 was supposed to
+        # retire.  Narrow to the canonical error classes and surface a
+        # deterministic ``readiness_canonical_unreachable`` reason so the
+        # failure is observable; anything else still propagates.
+        log.warning(
+            "runtime_readiness_canonical_unreachable: %s",
+            error,
+            extra={"run_id": arguments.run_id, "error": str(error)},
+        )
         why = None
+        failures.append("readiness_canonical_unreachable")
     if isinstance(why, Mapping):
         for obligation in why.get("unmet_obligations", ()) or ():
             if obligation not in failures:
@@ -479,9 +492,27 @@ def _validate_canonical_receipt(ledger: RunLedger, run_id: str, revision: int) -
     try:
         coordinator = ResearchRunCoordinator(ledger)
         why = coordinator.why_not_complete(run_id)
-    except Exception as error:
+    except (StaleStateError, CoordinatorConflictError, LedgerConflictError) as error:
+        # Issue #382: stale / conflict state is an actionable failure, not
+        # a pending verdict.  Classify as ``verification_failed`` so callers
+        # re-enter alignment rather than waiting on a verdict that will
+        # never resolve on its own.
         return {
-            "status": "verification_pending",
+            "status": "verification_failed",
+            "details": {
+                "verdict": "canonical_conflict",
+                "reasons": [f"coordinator_conflict: {error}"],
+                "package_id": None,
+                "host_id": None,
+                "revision": revision,
+            },
+        }
+    except (CoordinatorError, RuntimeStoreError, LedgerError, OSError) as error:
+        # Transient / store-unavailable: surface as a failed verdict with
+        # the underlying error message so the failure exit-code path can
+        # retry.  Unexpected exceptions propagate (see ``main``).
+        return {
+            "status": "verification_failed",
             "details": {
                 "verdict": "canonical_unreachable",
                 "reasons": [f"coordinator_error: {error}"],
