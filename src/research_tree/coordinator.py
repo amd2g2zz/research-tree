@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -73,6 +74,8 @@ HUMAN_DECISION_REOPEN_KIND = "human-decision-reopen"
 TECHNICAL_PACKAGE_KIND_ALIAS = "technical-research-package"
 HUMAN_RESEARCH_REPORT_KIND = "human-research-report"
 
+logger = logging.getLogger(__name__)
+
 
 LIFECYCLE_STATES = (
     "alignment",
@@ -108,6 +111,15 @@ CORRECTION_SENSITIVE_EVENTS = frozenset(
 
 class CoordinatorError(RuntimeStoreError):
     """Base coordinator boundary error."""
+
+
+class CoordinatorConfigError(CoordinatorError):
+    """Raised when the canonical governance matrix is missing or malformed.
+
+    ADR-002 mandates that the lifecycle transition matrix is the single
+    authority. Silent fallback to a hardcoded legacy table violates that
+    contract by hiding governance drift.
+    """
 
 
 class CoordinatorConflictError(CoordinatorError):
@@ -190,7 +202,11 @@ _TRANSITIONS: dict[tuple[str, str], tuple[str, str]] = {
 
 
 def _load_lifecycle_transitions() -> dict[tuple[str, str], tuple[str, str]]:
-    """Load the repository's matrix so code and governance share one edge set."""
+    """Load the canonical lifecycle matrix. Raises on missing/malformed.
+
+    The legacy hardcoded ``_TRANSITIONS`` dict is no longer a silent fallback —
+    any governance drift now surfaces as ``CoordinatorConfigError``.
+    """
 
     matrix = (
         Path(__file__).resolve().parents[2]
@@ -202,15 +218,20 @@ def _load_lifecycle_transitions() -> dict[tuple[str, str], tuple[str, str]]:
     )
     try:
         payload = json.loads(matrix.read_text(encoding="utf-8"))
-        transitions = payload["transitions"]
-        loaded = {
-            (str(item["from"]), str(item["event"])): (str(item["to"]), str(item["actor"])) for item in transitions
-        }
-        if loaded:
-            return loaded
-    except (OSError, TypeError, ValueError, KeyError, json.JSONDecodeError):
-        pass
-    return _TRANSITIONS
+    except (OSError, json.JSONDecodeError) as error:
+        logger.error("canonical_lifecycle_matrix_missing_or_unreadable: %s", matrix)
+        raise CoordinatorConfigError(f"canonical_lifecycle_matrix_missing_or_unreadable: {matrix}") from error
+
+    transitions = payload.get("transitions") if isinstance(payload, Mapping) else None
+    if not transitions:
+        logger.error("canonical_lifecycle_matrix_malformed_no_transitions: %s", matrix)
+        raise CoordinatorConfigError(f"canonical_lifecycle_matrix_malformed_no_transitions: {matrix}")
+
+    loaded = {(str(item["from"]), str(item["event"])): (str(item["to"]), str(item["actor"])) for item in transitions}
+    if not loaded:
+        logger.error("canonical_lifecycle_matrix_empty_transitions: %s", matrix)
+        raise CoordinatorConfigError(f"canonical_lifecycle_matrix_empty_transitions: {matrix}")
+    return loaded
 
 
 _TRANSITIONS = _load_lifecycle_transitions()
