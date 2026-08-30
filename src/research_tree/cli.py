@@ -25,7 +25,7 @@ from .project_workspace import (
     resume_project_run,
 )
 from .run_ledger import LedgerConflictError, LedgerError, RunLedger
-from .skill_setup import SkillSetupError, install_skill, skill_status
+from .skill_setup import SkillSetupError, install_skill, plan_heterogeneous_install, skill_status
 
 LIFECYCLE_SCHEMA_VERSION = 1
 HOSTS = ("codex", "claude", "hermes")
@@ -268,31 +268,115 @@ def _runtime_readiness(
 
 
 def _install(arguments: argparse.Namespace) -> dict[str, Any]:
-    result = install_skill(
-        _selected_hosts(arguments.host),
+    """Issue #386: dispatch through plan_heterogeneous_install per entry action.
+
+    Replaces the legacy ``install_skill`` + ``skill_status`` path so the
+    ``plan_heterogeneous_install`` planner has at least one upstream
+    caller (issue #328 acceptance).  Per-entry dispatch:
+        install  → install_skill([host], ...) then mark status="current"
+        current  → no-op confirmation (status="current")
+        skipped  → preserve required_config snippet, no install_skill call
+        conflict → SkillSetupError failure envelope
+    """
+
+    hosts = _selected_hosts(arguments.host)
+    plan = plan_heterogeneous_install(
+        hosts=hosts,
         source=arguments.source,
         scope=arguments.scope,
-        mode=arguments.mode,
         home=arguments.home,
         project_root=arguments.project_root,
         codex_home=arguments.codex_home,
         dry_run=arguments.dry_run,
     )
-    status_result = skill_status(
-        _selected_hosts(arguments.host),
-        source=arguments.source,
-        scope=arguments.scope,
-        home=arguments.home,
-        project_root=arguments.project_root,
-        codex_home=arguments.codex_home,
-    )
-    statuses = {str(item["host"]): item for item in status_result["installations"]}
-    installations = [{**item, **statuses[str(item["host"])]} for item in result["installations"]]
-    result = {**result, "installations": installations}
-    readiness = _installation_readiness(installations)
-    return _stable_payload(
-        "install", status="installed" if readiness["ready"] else "planned", readiness=readiness, result=result
-    )
+
+    installations: list[dict[str, Any]] = []
+    skipped_required_config: list[dict[str, Any]] = []
+    for entry in plan["entries"]:
+        action = entry["action"]
+        host = entry["host"]
+        if action == "install":
+            sub = install_skill(
+                (host,),
+                source=arguments.source,
+                scope=arguments.scope,
+                mode=arguments.mode,
+                home=arguments.home,
+                project_root=arguments.project_root,
+                codex_home=arguments.codex_home,
+                dry_run=arguments.dry_run,
+            )
+            for installed in sub.get("installations", []):
+                installations.append(
+                    {
+                        **installed,
+                        "status": "current" if not arguments.dry_run else "planned",
+                        "current": not arguments.dry_run,
+                    }
+                )
+        elif action == "current":
+            installations.append(
+                {
+                    "host": host,
+                    "scope": entry.get("scope", arguments.scope),
+                    "mode": entry.get("mode", arguments.mode),
+                    "target": entry.get("target"),
+                    "package": entry.get("package"),
+                    "skill_source": entry.get("skill_source"),
+                    "action": "current",
+                    "discovery": entry.get("discovery"),
+                    "status": "current",
+                    "current": True,
+                    "reason": entry.get("reason"),
+                }
+            )
+        elif action == "skipped":
+            skipped_required_config.append(
+                {
+                    "host": host,
+                    "required_config": entry.get("required_config"),
+                    "reason": entry.get("reason"),
+                }
+            )
+        elif action == "conflict":
+            raise SkillSetupError(f"install_conflict: {host}={entry.get('reason', 'conflict')}")
+        else:  # pragma: no cover - defensive
+            raise SkillSetupError(f"install_unknown_action: {host}={action}")
+
+    # Issue #386: skipped hosts are not ready (no native target) — surface them in readiness.
+    readiness = _heterogeneous_readiness(installations, skipped_required_config)
+    plan_payload = {
+        "scope": plan.get("scope"),
+        "mode": plan.get("mode"),
+        "dry_run": plan.get("dry_run"),
+        "aggregate_ready": plan.get("aggregate_ready"),
+        "snippet_required": plan.get("snippet_required"),
+        "snippet": plan.get("snippet"),
+        "installations": installations,
+        "skipped_required_config": skipped_required_config,
+    }
+    status = "installed" if plan.get("aggregate_ready") else "partial"
+    return _stable_payload("install", status=status, readiness=readiness, result=plan_payload)
+
+
+def _heterogeneous_readiness(
+    installations: Sequence[Mapping[str, Any]],
+    skipped: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Issue #386: readiness combines installation status + skipped hosts.
+
+    Skipped hosts have no native target and cannot become current without an
+    external config snippet; treat them as a readiness failure so callers can
+    see that the install was partial, not silent.
+    """
+
+    failures = [
+        "skill_installation_not_current:" + str(item["host"])
+        for item in installations
+        if item.get("status") != "current"
+    ]
+    failures.extend("skill_installation_skipped:" + str(item["host"]) for item in skipped)
+    return {"ready": not failures, "failure_reasons": failures}
 
 
 def _doctor(arguments: argparse.Namespace) -> dict[str, Any]:
