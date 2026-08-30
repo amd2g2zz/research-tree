@@ -39,6 +39,7 @@ NODE_TYPES = frozenset(
         "argument",
         "strategy",
         "decision",
+        "claim",
     }
 )
 EDGE_RELATIONS = frozenset(
@@ -56,7 +57,22 @@ EDGE_RELATIONS = frozenset(
         "derived_from",
     }
 )
-NODE_STATUSES = frozenset({"candidate", "supported", "disputed", "resolved", "accepted", "deferred", "rejected"})
+NODE_STATUSES = frozenset(
+    {
+        "candidate",
+        "supported",
+        "disputed",
+        "resolved",
+        "accepted",
+        "deferred",
+        "rejected",
+        "isolated",
+        "corroborated",
+        "superseded",
+        "contested",
+        "unasserted",
+    }
+)
 EDGE_STATUSES = frozenset({"active", "superseded", "rejected"})
 CONFIDENCES = frozenset({"low", "medium", "high"})
 TRACK_PRIORITIES = frozenset({"P0", "P1", "P2"})
@@ -72,7 +88,7 @@ REQUIRED_ALIGNMENT_TYPES = (
     "feasibility",
     "strategy",
 )
-ACCEPTED_STATUSES = frozenset({"supported", "resolved", "accepted"})
+ACCEPTED_STATUSES = frozenset({"supported", "corroborated", "resolved", "accepted"})
 RESEARCHABLE_TYPES = frozenset({"unknown", "research_question", "disagreement"})
 
 
@@ -115,6 +131,18 @@ def _json(value: Any) -> str:
 
 def _digest(value: Any) -> str:
     return hashlib.sha256(_json(value).encode("utf-8")).hexdigest()
+
+
+def _normalize_node_status(value: Any) -> str:
+    """Map legacy/foreign graph node statuses into the unified vocabulary.
+
+    Deprecation warnings are emitted via :mod:`warnings` so consumers learn
+    about the new SpeechAct/AuthorityTransition vocabulary without crashing.
+    """
+
+    from .speech_acts import normalize_status as _normalize
+
+    return _normalize(value)
 
 
 def _atomic_write_json(path: Path, value: Mapping[str, Any]) -> None:
@@ -293,7 +321,24 @@ class AlignmentGraphStore:
             stagnant = int(controller["stagnant_turns"])
             status = node["status"]
             if outcome == "answered":
-                status = "resolved"
+                from .speech_acts import SpeechAct
+                from .speech_acts import transition as _speech_transition
+
+                normalized = _normalize_node_status(status)
+                try:
+                    status = _speech_transition(
+                        normalized,
+                        SpeechAct(
+                            kind="answered",
+                            speaker_role="agent",
+                            speaker_id="alignment-graph",
+                            addressee="human",
+                            authority_scope="research_owner",
+                            timestamp=_now(),
+                        ),
+                    )
+                except Exception:
+                    status = "candidate"
                 stagnant = 0
             elif outcome == "changed":
                 stagnant = 0
@@ -735,7 +780,7 @@ class AlignmentGraphStore:
                 "id": row["node_id"],
                 "type": row["node_type"],
                 "statement": row["statement"],
-                "status": row["status"],
+                "status": _normalize_node_status(row["status"]),
                 "impact": row["impact"],
                 "human_only": bool(row["human_only"]),
                 "confidence": row["confidence"],

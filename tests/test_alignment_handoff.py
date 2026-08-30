@@ -12,6 +12,21 @@ def _ready_service(tmp_path: Path) -> tuple[AlignmentProtocol, dict[str, object]
     ledger = RunLedger(tmp_path)
     ledger.create_run("run-handoff")
     service = AlignmentProtocol(ledger, "run-handoff")
+    ledger.append_artifact(
+        "run-handoff",
+        "evidence-anchor",
+        "alignment-evidence",
+        {"source": "test-fixture"},
+        parent_refs=(),
+        expected_revision=ledger.get_revision("run-handoff"),
+    )
+    basis_ref = [
+        {
+            "round_id": "run-handoff",
+            "artifact_id": "evidence-anchor",
+            "revision": 1,
+        }
+    ]
     planned = service.plan(
         [
             {
@@ -43,6 +58,7 @@ def _ready_service(tmp_path: Path) -> tuple[AlignmentProtocol, dict[str, object]
             field=field,
             statement=f"Confirmed {field}.",
             confidence="high",
+            basis_refs=basis_ref,
         )
     service.message(
         mirror="The bounded strategy is ready for your decision.",

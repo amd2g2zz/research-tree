@@ -82,6 +82,15 @@ def _text(value: Any, label: str) -> str:
     return value.strip()
 
 
+_LEGACY_BELIEF_STATUSES = frozenset({"answered", "supported", "accepted", "disputed", "deferred", "unknown", "refuted"})
+
+
+def _is_legacy_status(status: str) -> bool:
+    """Return True for statuses kept for backward compatibility with existing beliefs."""
+
+    return status in _LEGACY_BELIEF_STATUSES
+
+
 def _number(value: Any, label: str, *, minimum: float = 0.0, maximum: float = 10.0) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise AlignmentProtocolError(f"{label} must be numeric")
@@ -381,14 +390,27 @@ class AlignmentProtocol:
         supersedes: Sequence[ArtifactRef | Mapping[str, Any]] = (),
         disagreement: str | None = None,
         consequence: str | None = None,
-        status: str = "supported",
+        status: str | None = None,
+        speech_act: Any | None = None,
     ) -> dict[str, Any]:
         validate_identifier(belief_id, "belief_id")
         if actor not in BELIEF_ACTORS:
             raise AlignmentProtocolError("belief actor is unsupported")
         if confidence not in CONFIDENCES:
             raise AlignmentProtocolError("belief confidence is unsupported")
-        if status not in {"candidate", "supported", "refuted", "unknown"}:
+        if status is not None and status not in {
+            "candidate",
+            "supported",
+            "refuted",
+            "unknown",
+            "isolated",
+            "corroborated",
+            "rejected",
+            "superseded",
+            "contested",
+            "unasserted",
+            "resolved",
+        }:
             raise AlignmentProtocolError("belief status is unsupported")
         if human_only and actor != "human":
             raise AlignmentProtocolError("human-only fields require a human belief")
@@ -396,6 +418,20 @@ class AlignmentProtocol:
             raise AlignmentProtocolError("disagreement disposition is unsupported")
         basis = _refs(basis_refs, "basis_refs")
         superseded = _refs(supersedes, "supersedes")
+        if status is None:
+            from .speech_acts import SpeechAct
+
+            if speech_act is not None:
+                if not isinstance(speech_act, SpeechAct):
+                    raise AlignmentProtocolError("speech_act must be a SpeechAct when provided")
+                try:
+                    from .speech_acts import transition
+
+                    status = transition("candidate", speech_act)
+                except Exception as error:  # noqa: BLE001 - propagate as AlignmentProtocolError
+                    raise AlignmentProtocolError(str(error)) from error
+            else:
+                status = "supported" if basis else "candidate"
         payload = {
             "belief_id": belief_id,
             "actor": actor,
@@ -409,6 +445,8 @@ class AlignmentProtocol:
             "consequence": None if consequence is None else _text(consequence, "consequence"),
             "status": status,
         }
+        if speech_act is not None:
+            payload["speech_act"] = speech_act.to_dict()
         item = self._append(belief_id, ALIGNMENT_BELIEF_KIND, payload, parents=(*basis, *superseded))
         return self._view(item)
 
@@ -648,7 +686,12 @@ class AlignmentProtocol:
             payload = _payload(latest)
             if payload["human_only"] and payload["actor"] != "human":
                 fields[field] = "fail"
-            elif payload["status"] in {"supported", "accepted"}:
+            elif payload["status"] in {
+                "supported",
+                "accepted",
+                "corroborated",
+                "resolved",
+            }:
                 fields[field] = "pass"
                 refs.append(ArtifactRef(latest.round_id, latest.id, latest.revision))
             else:
