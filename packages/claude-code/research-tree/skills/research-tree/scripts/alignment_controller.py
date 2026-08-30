@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -13,6 +14,8 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
+
+log = logging.getLogger(__name__)
 
 SCHEMA = 2
 MAX_TURNS = 6
@@ -321,24 +324,32 @@ class AlignmentGraphStore:
             stagnant = int(controller["stagnant_turns"])
             status = node["status"]
             if outcome == "answered":
-                from .speech_acts import SpeechAct
+                from .speech_acts import AuthorityTransitionError, SpeechAct
                 from .speech_acts import transition as _speech_transition
 
                 normalized = _normalize_node_status(status)
+                speech_act = SpeechAct(
+                    kind="answered",
+                    speaker_role="agent",
+                    speaker_id="alignment-graph",
+                    addressee="human",
+                    authority_scope="research_owner",
+                    timestamp=_now(),
+                )
                 try:
-                    status = _speech_transition(
-                        normalized,
-                        SpeechAct(
-                            kind="answered",
-                            speaker_role="agent",
-                            speaker_id="alignment-graph",
-                            addressee="human",
-                            authority_scope="research_owner",
-                            timestamp=_now(),
-                        ),
+                    status = _speech_transition(normalized, speech_act)
+                except AuthorityTransitionError as error:
+                    log.warning(
+                        "alignment_graph_record_speech_transition_rejected",
+                        extra={
+                            "node_id": node_id,
+                            "from_status": normalized,
+                            "to_status": "candidate",
+                            "speech_act_kind": speech_act.kind,
+                            "error": str(error),
+                        },
                     )
-                except Exception:
-                    status = "candidate"
+                    raise
                 stagnant = 0
             elif outcome == "changed":
                 stagnant = 0
