@@ -313,12 +313,15 @@ def test_stable_lifecycle_creates_a_durable_request_without_completion_authority
         == 4
     )
     verification = _json_output(capsys)
-    assert verification["status"] == "verification_pending"
-    # Issue #325: the legacy single-string fake is gone; verification carries
-    # field-level reasons and a verdict.
+    # Issue #382: with the run never reaching canonical initialization,
+    # ``coordinator.why_not_complete`` raises ``CoordinatorConflictError``
+    # which the narrowed except clause maps to ``verification_failed``
+    # (not the legacy ``verification_pending`` shortcut).
+    assert verification["status"] == "verification_failed"
     verification_value = verification["result"]["verification"]
     assert verification_value != "independent_completion_receipt_absent"
     assert isinstance(verification_value, dict) and "verdict" in verification_value
+    assert verification_value["verdict"] == "canonical_conflict"
 
 
 def test_stable_install_and_doctor_report_digest_verified_readiness(
