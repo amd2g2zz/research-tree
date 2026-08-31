@@ -73,6 +73,10 @@ class CanonicalWorkItemCompiler:
         intent_hypothesis_ids: Sequence[str] | None = None,
         status: str | None = None,
         exception_reason: str | None = None,
+        guidance_defect: str | None = None,
+        redecomposition_flagged: bool = False,
+        policy_proposal_id: str | None = None,
+        policy_proposal_kind: str | None = None,
     ) -> ArtifactRevision:
         """Validate a bounded task before appending it with an exact revision."""
 
@@ -127,6 +131,14 @@ class CanonicalWorkItemCompiler:
                 "status": normalized_status,
                 "status_reason": status_reason,
             }
+            if guidance_defect is not None:
+                payload["guidance_defect"] = guidance_defect
+            if redecomposition_flagged:
+                payload["redecomposition_flagged"] = True
+            if policy_proposal_id is not None:
+                payload["policy_proposal_id"] = policy_proposal_id
+            if policy_proposal_kind is not None:
+                payload["policy_proposal_kind"] = policy_proposal_kind
         except (InvalidIdentifierError, TypeError, ValueError) as error:
             raise InvalidWorkItemError(str(error)) from error
 

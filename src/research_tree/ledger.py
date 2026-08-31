@@ -175,6 +175,13 @@ class CanonicalFindingPackCompiler:
                 decision_slot_id=slot["id"],
                 expected_revision=self._ledger.get_revision(round_id),
             )
+        from .coordinator import ResearchRunCoordinator
+
+        ResearchRunCoordinator(self._ledger).assess_finding_pack_contribution(
+            round_id,
+            finding,
+            expected_revision=self._ledger.get_revision(round_id),
+        )
         return finding
 
 

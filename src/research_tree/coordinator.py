@@ -30,6 +30,7 @@ from .contradictions import (
     render_contradiction_packet,
 )
 from .decision_frame import DECISION_FRAME_KIND, DecisionFrame
+from .decision_map import BLUEPRINT_TARGET_KIND
 from .domain import (
     ArtifactRef,
     ArtifactRevision,
@@ -58,9 +59,11 @@ from .strategy_projection import (
     STRATEGY_PROJECTION_KIND,
     StrategyProjection,
     StrategyProjectionError,
+    latest_confirmed,
     macro_stage,
     validate_falsifiability,
 )
+from .work_items import WORK_ITEM_KIND, CanonicalWorkItemCompiler
 
 FINDING_PACK_KIND = "finding-pack"
 CONTRADICTION_PACKET_KIND = "contradiction-packet"
@@ -108,6 +111,11 @@ CORRECTION_SENSITIVE_EVENTS = frozenset(
 )
 
 
+GOAL_CONTRIBUTION_ASSESSMENT_KIND = "goal-contribution-assessment"
+CONTRIBUTION_VERDICTS = ("advances", "partial", "no_contribution", "contradicts")
+_CONTRIBUTION_BLOCKING_VERDICTS = frozenset({"no_contribution", "contradicts"})
+
+
 class CoordinatorError(RuntimeStoreError):
     """Base coordinator boundary error."""
 
@@ -127,6 +135,150 @@ class CoordinatorConflictError(CoordinatorError):
 
 class CoordinatorEventConflictError(CoordinatorConflictError):
     """Raised when one event id is reused with a changed payload."""
+
+
+def _projection_entry_ids(entries: Any) -> set[str]:
+    ids: set[str] = set()
+    for entry in entries or ():
+        if isinstance(entry, Mapping) and isinstance(entry.get("id"), str) and entry["id"].strip():
+            ids.add(entry["id"])
+        elif isinstance(entry, str) and entry.strip():
+            ids.add(entry)
+    return ids
+
+
+def assess_goal_contribution(pack: Mapping[str, Any], slot: Mapping[str, Any], projection: Mapping[str, Any]):
+    """Classify one Finding Pack's contribution to the goal its Decision Slot serves.
+
+    Pure truth table over the pack payload, the slot payload, and the confirmed
+    StrategyProjection payload; it never reads the ledger and never reads any
+    worker-supplied ``confidence`` field (the verdict is evidence-only by design).
+
+    Verdicts, in short-circuit order:
+      1. any pack effect contradicting a slot alternative      -> CONTRADICTS
+      2. a supports effect on a slot alternative               -> ADVANCES
+      3. a corroborated claim bound to the served slot         -> ADVANCES
+      4. effects/claims/validation touching the served slot    -> PARTIAL
+      5. otherwise, or unverifiable serves wiring (fail-closed) -> NO_CONTRIBUTION
+    """
+
+    serves = slot.get("serves") if isinstance(slot, Mapping) else None
+    slot_id = slot.get("id") if isinstance(slot, Mapping) else None
+    if not isinstance(serves, Mapping):
+        return (
+            "no_contribution",
+            f"Decision Slot {slot_id} carries no serves link to a confirmed strategy-projection target",
+        )
+    target_id = serves.get("target_id")
+    oracle_ids = serves.get("oracle_ids") if isinstance(serves.get("oracle_ids"), Sequence) else ()
+    if not isinstance(target_id, str) or not target_id.strip():
+        return ("no_contribution", f"Decision Slot {slot_id} serves.target_id is missing")
+    projection_targets = _projection_entry_ids(projection.get("decision_targets"))
+    projection_oracles = _projection_entry_ids(projection.get("success_oracles"))
+    if target_id not in projection_targets:
+        return (
+            "no_contribution",
+            f"serves.target_id {target_id} is not a confirmed strategy-projection decision target",
+        )
+    unknown_oracles = [oracle_id for oracle_id in oracle_ids if oracle_id not in projection_oracles]
+    if unknown_oracles:
+        return (
+            "no_contribution",
+            f"serves.oracle_id {unknown_oracles[0]} is not a confirmed strategy-projection success oracle",
+        )
+    alternatives = {
+        option
+        for option in (slot.get("alternatives") if isinstance(slot.get("alternatives"), Sequence) else ())
+        if isinstance(option, str) and option.strip()
+    }
+    effects = pack.get("option_effects") if isinstance(pack.get("option_effects"), Sequence) else ()
+    touched = [
+        effect
+        for effect in effects
+        if isinstance(effect, Mapping) and isinstance(effect.get("option"), str) and effect["option"] in alternatives
+    ]
+    contradicted = next((effect for effect in touched if effect.get("effect") == "contradicts"), None)
+    if contradicted is not None:
+        return (
+            "contradicts",
+            f"option_effect contradicts Decision Slot alternative {contradicted['option']} served by target {target_id}",
+        )
+    supported = next((effect for effect in touched if effect.get("effect") in {"supports"}), None)
+    if supported is not None:
+        return (
+            "advances",
+            f"option_effect supports Decision Slot alternative {supported['option']} served by target {target_id}",
+        )
+    assessments = pack.get("claim_assessments") if isinstance(pack.get("claim_assessments"), Sequence) else ()
+    corroborated = next(
+        (
+            assessment["claim_id"]
+            for assessment in assessments
+            if isinstance(assessment, Mapping)
+            and assessment.get("state") == "corroborated"
+            and isinstance(assessment.get("claim_id"), str)
+        ),
+        None,
+    )
+    if corroborated is not None:
+        served_oracles = ", ".join(str(oracle_id) for oracle_id in oracle_ids) or target_id
+        return (
+            "advances",
+            f"corroborated claim {corroborated} maps to the served evidence standard of {served_oracles}",
+        )
+    if touched or assessments or pack.get("validation_result") is not None:
+        return (
+            "partial",
+            f"Finding Pack touches Decision Slot {slot_id} without advancing its alternatives or evidence standards",
+        )
+    return (
+        "no_contribution",
+        f"Finding Pack {pack.get('id')} touches neither the Decision Slot alternatives nor the served evidence standards",
+    )
+
+
+def partition_goal_contributions(
+    ledger: RunLedger,
+    round_id: str,
+    finding_packs: Sequence[ArtifactRevision],
+) -> tuple[tuple[ArtifactRevision, ...], tuple[ArtifactRevision, ...]]:
+    """Split candidate packs into (contributing, deferred) for tree consumption.
+
+    Packs whose latest recorded goal-contribution assessment carries a blocking
+    verdict (``no_contribution`` or ``contradicts``) are deferred: they never
+    enter the tree transition consumed set. Runs without a confirmed projection
+    have no goal wiring, so every pack contributes (prior behavior unchanged).
+    """
+
+    if not finding_packs:
+        return (), ()
+    snapshot = ledger.load_run(round_id)
+    if latest_confirmed(snapshot.artifacts) is None:
+        return tuple(finding_packs), ()
+    contributing: list[ArtifactRevision] = []
+    deferred: list[ArtifactRevision] = []
+    for pack in finding_packs:
+        if _pack_is_goal_blocking(snapshot.artifacts, pack):
+            deferred.append(pack)
+        else:
+            contributing.append(pack)
+    return tuple(contributing), tuple(deferred)
+
+
+def _pack_is_goal_blocking(artifacts: Sequence[ArtifactRevision], pack: ArtifactRevision) -> bool:
+    assessments = sorted(
+        (
+            item
+            for item in artifacts
+            if item.kind == GOAL_CONTRIBUTION_ASSESSMENT_KIND
+            and item.payload.get("finding_pack_id") == pack.id
+            and item.payload.get("finding_pack_revision") == pack.revision
+        ),
+        key=lambda item: (item.created_at, item.revision),
+    )
+    if not assessments:
+        return False
+    return assessments[-1].payload.get("verdict") in _CONTRIBUTION_BLOCKING_VERDICTS
 
 
 class StaleStateError(CoordinatorConflictError):
@@ -838,6 +990,8 @@ class ResearchRunCoordinator:
         expected_revision: int,
         replan_id: str | None = None,
         affected_refs: Sequence[ArtifactRef] = (),
+        affected_slot_ids: Sequence[str] = (),
+        guidance_defect: str | None = None,
     ) -> ArtifactRevision:
         """Record a method/depth/evidence correction without changing run identity."""
 
@@ -847,12 +1001,19 @@ class ResearchRunCoordinator:
         refs = tuple(affected_refs)
         if any(not isinstance(ref, ArtifactRef) or ref.round_id != run_id for ref in refs):
             raise CoordinatorConflictError("replan references must belong to the run")
+        slot_ids = [str(value) for value in affected_slot_ids]
+        if any(not value.strip() for value in slot_ids):
+            raise CoordinatorConflictError("replan affected_slot_ids entries must be non-empty strings")
+        if guidance_defect is not None and (not isinstance(guidance_defect, str) or not guidance_defect.strip()):
+            raise CoordinatorConflictError("replan guidance_defect must be a non-empty string")
         artifact_id = replan_id or "same-round-replan-" + hashlib.sha256(reason.encode("utf-8")).hexdigest()[:20]
         payload = {
             "classification": "same_round_replan",
             "reason": reason.strip(),
             "affected_refs": [ref.to_dict() for ref in refs],
             "source_state_ref": ArtifactRef(run_id, current.id, current.revision).to_dict(),
+            "affected_slot_ids": slot_ids,
+            "guidance_defect": guidance_defect,
         }
         try:
             return self.ledger.append_artifact(
@@ -865,6 +1026,199 @@ class ResearchRunCoordinator:
             )
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
+
+    def assess_finding_pack_contribution(
+        self,
+        run_id: str,
+        finding: ArtifactRevision,
+        *,
+        expected_revision: int,
+    ) -> ArtifactRevision | None:
+        """Assess one Finding Pack's contribution to the goal its slot serves.
+
+        Returns the goal-contribution-assessment artifact, or None when the
+        run has no confirmed StrategyProjection (prior ingestion behavior). A
+        blocking verdict additionally wires the guidance-adjust retry: a
+        same-round replan with slot granularity and the guidance defect, a
+        successor Work Item with adjusted guidance, and, on the second
+        consecutive no_contribution for the slot, a method_switch policy
+        consultation plus a redecomposition_flagged successor marker. Worker
+        confidence is never an input.
+        """
+
+        validate_identifier(run_id, "run_id")
+        if not isinstance(finding, ArtifactRevision) or finding.kind != FINDING_PACK_KIND or finding.round_id != run_id:
+            raise CoordinatorConflictError("contribution assessment requires a run Finding Pack")
+        snapshot = self.ledger.load_run(run_id)
+        projection = latest_confirmed(snapshot.artifacts)
+        if projection is None:
+            return None
+        slot = self._contribution_slot(snapshot.artifacts, finding)
+        projection_payload = thaw_json(projection.payload)
+        verdict, reason = assess_goal_contribution(thaw_json(finding.payload), slot, projection_payload)
+        assessment_id = (
+            "goal-contribution-"
+            + hashlib.sha256(
+                canonical_json_bytes(
+                    {
+                        "finding_pack_id": finding.id,
+                        "finding_pack_revision": finding.revision,
+                        "slot_id": slot.get("id"),
+                        "projection_id": projection_payload.get("projection_id"),
+                        "projection_revision": projection_payload.get("revision"),
+                    }
+                )
+            ).hexdigest()[:20]
+        )
+        try:
+            assessment = self.ledger.append_artifact(
+                run_id,
+                assessment_id,
+                GOAL_CONTRIBUTION_ASSESSMENT_KIND,
+                {
+                    "schema": 1,
+                    "id": assessment_id,
+                    "round_id": run_id,
+                    "finding_pack_id": finding.id,
+                    "finding_pack_revision": finding.revision,
+                    "slot_id": slot.get("id"),
+                    "projection_id": projection_payload.get("projection_id"),
+                    "projection_revision": projection_payload.get("revision"),
+                    "projection_digest": projection.payload.get("display_digest"),
+                    "verdict": verdict,
+                    "reason": reason,
+                },
+                parent_refs=(
+                    ArtifactRef(run_id, finding.id, finding.revision),
+                    ArtifactRef(run_id, projection.id, projection.revision),
+                ),
+                expected_revision=expected_revision,
+            )
+        except LedgerConflictError as error:
+            raise CoordinatorConflictError("stale_revision") from error
+        if verdict not in _CONTRIBUTION_BLOCKING_VERDICTS:
+            return assessment
+        consecutive = self._consecutive_no_contribution(run_id, str(slot.get("id")))
+        self._record_contribution_retry(run_id, finding, slot, verdict, reason, consecutive)
+        return assessment
+
+    def _contribution_slot(self, artifacts, finding):
+        target_id = finding.payload.get("blueprint_target_id")
+        slot_id = finding.payload.get("decision_slot_id")
+        candidates = [item for item in artifacts if item.kind == BLUEPRINT_TARGET_KIND and item.id == target_id]
+        target = max(candidates, key=lambda item: item.revision, default=None)
+        if target is None:
+            raise CoordinatorConflictError(f"unknown blueprint target for assessment: {target_id}")
+        for slot in target.payload.get("slots", ()):
+            if isinstance(slot, Mapping) and slot.get("id") == slot_id:
+                return thaw_json(slot)
+        raise CoordinatorConflictError(f"Decision Slot absent from Blueprint Target: {slot_id}")
+
+    def _consecutive_no_contribution(self, run_id: str, slot_id: str) -> int:
+        """Count the trailing no_contribution run along the slot assessment chain."""
+
+        snapshot = self.ledger.load_run(run_id)
+        chain = sorted(
+            (
+                item
+                for item in snapshot.artifacts
+                if item.kind == GOAL_CONTRIBUTION_ASSESSMENT_KIND and item.payload.get("slot_id") == slot_id
+            ),
+            key=lambda item: (item.created_at, item.revision, str(item.payload.get("finding_pack_id"))),
+        )
+        count = 0
+        for item in reversed(chain):
+            if item.payload.get("verdict") == "no_contribution":
+                count += 1
+            else:
+                break
+        return count
+
+    def _record_contribution_retry(
+        self,
+        run_id: str,
+        finding: ArtifactRevision,
+        slot: Mapping[str, Any],
+        verdict: str,
+        reason: str,
+        consecutive: int,
+    ) -> ArtifactRevision:
+        slot_id = str(slot.get("id"))
+        self.record_same_round_replan(
+            run_id,
+            reason=reason,
+            expected_revision=self.ledger.get_revision(run_id),
+            affected_slot_ids=(slot_id,),
+            guidance_defect=reason,
+        )
+        snapshot = self.ledger.load_run(run_id)
+        ordinal = 1 + sum(
+            1
+            for item in snapshot.artifacts
+            if item.kind == WORK_ITEM_KIND
+            and item.payload.get("decision_slot_id") == slot_id
+            and item.payload.get("guidance_defect")
+        )
+        proposal = self._method_switch_proposal(slot) if consecutive >= 2 else None
+        target = max(
+            (
+                item
+                for item in snapshot.artifacts
+                if item.kind == BLUEPRINT_TARGET_KIND and item.id == finding.payload.get("blueprint_target_id")
+            ),
+            key=lambda item: item.revision,
+        )
+        touchpoints = slot.get("repository_touchpoints")
+        return CanonicalWorkItemCompiler(self.ledger).compile(
+            round_id=run_id,
+            work_item_id=f"work-{slot_id}-retry-{ordinal}",
+            blueprint_target=target,
+            decision_slot_id=slot_id,
+            kind="repository_analysis" if touchpoints else "external_research",
+            scope=slot.get("question", f"Close Decision Slot {slot_id}")
+            + f" Adjusted after goal-contribution retry ({verdict}): {reason}",
+            exclusions="Do not close the Decision Slot, select an alternative, or add unrelated scope."
+            + f" Previous guidance was defective: {reason}",
+            decision_change_reason="The result can change the selected alternative among: "
+            + ", ".join(str(option) for option in slot.get("alternatives", ()))
+            + ".",
+            depends_on=(),
+            methods=("repository_inspection",) if touchpoints else ("primary_docs",),
+            budget={"tool_calls": 8, "time": "bounded"},
+            completion_rule="Return a Finding Pack or state why evidence is unavailable.",
+            guidance_defect=reason,
+            redecomposition_flagged=consecutive >= 2,
+            policy_proposal_id=proposal.action_id if proposal is not None else None,
+            policy_proposal_kind=proposal.kind if proposal is not None else None,
+            expected_revision=self.ledger.get_revision(run_id),
+        )
+
+    def _method_switch_proposal(self, slot: Mapping[str, Any]):
+        """Consult the scheduling policy with a method_switch deficit (ADR-006)."""
+
+        if self.policy is None:
+            return None
+        slot_id = str(slot.get("id"))
+        validation = slot.get("validation") if isinstance(slot.get("validation"), Mapping) else {}
+        closure_oracle = str(validation.get("oracle") or slot.get("evidence_standard") or "").strip()
+        if not closure_oracle:
+            closure_oracle = f"Decision Slot {slot_id} closes with evidence"
+        priority = str(slot.get("priority")) if str(slot.get("priority")) in {"P0", "P1", "P2", "P3"} else "P1"
+        evaluation = self.policy.evaluate(
+            slots=[
+                {
+                    "slot_id": slot_id,
+                    "question": str(slot.get("question") or f"Close Decision Slot {slot_id}"),
+                    "priority": priority,
+                    "closure_oracle": closure_oracle,
+                    "missing_dimensions": ("method_switch",),
+                }
+            ]
+        )
+        proposal = evaluation.proposals[0] if evaluation.proposals else None
+        if proposal is not None and proposal.kind != "method_switch":
+            return None
+        return proposal
 
     def persist_search_portfolio_lineage(
         self,
