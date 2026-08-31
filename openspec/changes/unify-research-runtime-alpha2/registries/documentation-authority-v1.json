@@ -246,7 +246,7 @@
       "validation_rule": "governed"
     },
     {
-      "path": "docs/history/方案设计.md",
+      "path": "docs/history/\u65b9\u6848\u8bbe\u8ba1.md",
       "class": "historical",
       "authority": "historical",
       "audience": "maintainers-and-auditors",
@@ -258,7 +258,7 @@
       "validation_rule": "governed"
     },
     {
-      "path": "docs/history/需求理解.md",
+      "path": "docs/history/\u9700\u6c42\u7406\u89e3.md",
       "class": "historical",
       "authority": "historical",
       "audience": "maintainers-and-auditors",
@@ -368,6 +368,19 @@
       "superseded_by": "successor source",
       "validation_rule": "governed",
       "legacy_compatibility": "The host-facing source names the persisted legacy artifact for compatibility."
+    },
+    {
+      "path": "openspec/specs/",
+      "class": "normative",
+      "authority": "openspec",
+      "audience": "implementers-and-reviewers",
+      "owner": "spec-owner",
+      "lifecycle": "active",
+      "canonical_edit": "selected spec directory",
+      "update_trigger": "capability contract change",
+      "superseded_by": null,
+      "validation_rule": "governed",
+      "legacy_compatibility": "Archived batch-2 specs supersede prior alpha2 docs for the same capability."
     }
   ]
 }
