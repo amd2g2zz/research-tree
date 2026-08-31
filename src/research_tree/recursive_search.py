@@ -542,7 +542,7 @@ def _grow_from_finding(
         {
             "kind": "deep_dive",
             "question": str(item),
-            "trigger": "legacy remaining_uncertainty",
+            "trigger": "remaining_uncertainty",
             "evidence_needed": "Evidence that resolves this uncertainty.",
             "oracle": "The uncertainty is resolved, bounded, or converted to a fallback.",
             "estimated_cost": 1.0,

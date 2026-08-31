@@ -242,9 +242,9 @@ def _runtime_readiness(
         coordinator = ResearchRunCoordinator(ledger)
         why = coordinator.why_not_complete(arguments.run_id)
     except (CoordinatorError, RuntimeStoreError, LedgerError, OSError) as error:
-        # Issue #382: bare ``except Exception`` here reproduced the legacy
-        # ``verification_pending`` shortcut that issue #325 was supposed to
-        # retire.  Narrow to the canonical error classes and surface a
+        # Issue #382: a broad ``except Exception`` here would reproduce the
+        # retired ``verification_pending`` shortcut that issue #325 was supposed
+        # to retire.  Narrow to the canonical error classes and surface a
         # deterministic ``readiness_canonical_unreachable`` reason so the
         # failure is observable; anything else still propagates.
         log.warning(
@@ -283,7 +283,7 @@ def _runtime_readiness(
 def _install(arguments: argparse.Namespace) -> dict[str, Any]:
     """Issue #386: dispatch through plan_heterogeneous_install per entry action.
 
-    Replaces the legacy ``install_skill`` + ``skill_status`` path so the
+    Replaces the retired ``install_skill`` + ``skill_status`` path so the
     ``plan_heterogeneous_install`` planner has at least one upstream
     caller (issue #328 acceptance).  Per-entry dispatch:
         install  → install_skill([host], ...) then mark status="current"
