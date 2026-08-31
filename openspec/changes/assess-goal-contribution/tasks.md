@@ -36,3 +36,17 @@
 
 - [x] 5.1 Run the full gate battery: pytest, ruff check/format, package check,
       openspec strict validation, docs and repository layout checks.
+
+## 6. Review Fixes (alpha3 batch-3)
+
+- [x] 6.1 Make the method_switch consult reachable on the only wired path: the
+      consult falls back to a default `AdaptiveResearchPolicy` when the caller
+      injects none (the ledger compile hook constructs a bare coordinator).
+- [x] 6.2 Enforce rule 3/4 oracle mapping: corroborated claims advance only when
+      their evidence tokens intersect a served oracle's `evidence_standard_ids`;
+      unrelated packs fail closed to `no_contribution`.
+- [x] 6.3 Fail the partition closed for packs without an assessment in
+      confirmed-projection runs (defer + log; recovery honors it).
+- [x] 6.4 Cap the method_switch escalation at one consult per slot and deduplicate
+      the streak by logical pack identity; lock cross-slot isolation and
+      advances-interrupt reset with tests.
