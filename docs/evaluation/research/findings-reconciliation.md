@@ -169,3 +169,14 @@ alpha3 第二批 16 个 issue（含 6 个 post-batch + 4 个 wave 4 ledger 改�
 - worker A+D 曾误报 cli.py 不存在，已主会话复核纠正（`git show 0aa67a7:src/research_tree/cli.py | wc -l` = 523）。
 - 外部业界对照（Zeno/STORM/Tree of Thoughts 等）三次派发均因环境 API 400 失败，未完成——如需再做，建议换网络环境重试。
 - `git pull` 为纯 fast-forward（HEAD=db7e256 是 0aa67a7 的祖先，已验证）；唯一注意：5 个本地 untracked 文件会被 origin 完成态版本覆盖（openspec/changes/add-durable-interaction-state/* + tests/test_durable_interaction_state.py）。
+
+## 6.3 Batch-3 记录（mainline purge + goal wiring，2026-09-01）
+
+§5/§6.1/6.2 记录的"行为层-运行时断层"与"合并未接线"病在 goal 域复现并被本批根治：
+
+- **审计附录 A1**（#420 开工前）发现 StrategyProjection 生命周期（display_strategy/confirm_handoff）与 alignment_handoff.initialize_research_from_alignment 均为**零生产接线**——与 #320/#329/#330/#334 同病。#427 按 R1 修订以 CLI strategy 动词接线（host event 为 non-authoritative 载体不承载确认权威），confirm→initialize_research_from_alignment 桥接打通"确认→建树"。此为 F1 断层在 goal 域的闭环。
+- **A6 教训（R4）**：§A6 字面 grep 门与 merge 设计互斥（wire 值必须保留）——规格字面门需与设计路线同时校订。**A7 教训（终审#1）**：§A7 字面文件集过时（feedback.py 从无此二函数）——归档账本按意图口径备案。
+- **registry 悬空引用缺陷类**：#420-#428 五个 PR 连续在治理 registry 中发现/修复 dangling 路径引用（机械门按历史 revision 校验不查 HEAD 存在性）。#445 落地 `missing_tests_entrypoint` 机械门禁后该类永久关闭——验证"机械门禁优先于人工扫描"（maker-checker 规则）。
+- **捎带覆盖丢失**（#420 复审 HIGH）：删除测试文件时锚定幸存行为的用例被静默连带删除，pytest 全绿掩盖之。终审以 settrace 机械追踪 + 变异注入确认恢复有效性。教训：删测试与删代码需独立对账。
+- **输出腐坏事故群**：多个 maker 会话出现长文本编辑损坏（alignment_handoff.py 整文件覆盖、cli.py 吞 def main、project_workspace 手术损坏）——全部被"全量 diff 复查 + 全量测试"兜住，无一入库。长文件编辑应优先脚本化行区间操作。
+- 终态：**§A-§D 全绿 + 对抗终审×2 零 CRITICAL/HIGH**（验收记录：docs/evaluation/research/batch3-acceptance-record.md）。goal 环（confirmed→serves→贡献判定→完成门）首次全链进入生产路径；R3 助纠协议（苏格拉底澄清/坚持→警告→照做+waiver）同时落地于 runtime 校验与行为层锚句。
