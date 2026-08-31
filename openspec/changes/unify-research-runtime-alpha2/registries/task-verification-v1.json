@@ -8,7 +8,7 @@
         "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_alpha1_baseline.py",
+        "command": "uv run pytest -q",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "30b93ba063c66ab48ca2344a932094302f5186163a9cc4c7c260c3abba8b9620",
@@ -110,7 +110,7 @@
         "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_alignment_protocol.py tests/test_alignment_actions.py tests/test_alignment_beliefs.py tests/test_alignment_messages.py tests/test_alignment_handoff.py && uv run ruff check src/research_tree/alignment_protocol.py tests/test_alignment_protocol.py tests/test_alignment_actions.py tests/test_alignment_beliefs.py tests/test_alignment_messages.py tests/test_alignment_handoff.py && uv run ruff format --check src/research_tree/alignment_protocol.py tests/test_alignment_protocol.py tests/test_alignment_actions.py tests/test_alignment_beliefs.py tests/test_alignment_messages.py tests/test_alignment_handoff.py",
+        "command": "uv run pytest -q && uv run ruff check && uv run ruff format --check",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "0c2afd23e0f2acf69b5bf88435a5595835d01404dbe350cb53c10809e631481d",
@@ -161,7 +161,7 @@
         "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_alpha2_semantic_delivery.py tests/test_alpha2_delivery_lifecycle.py tests/test_deliveries.py tests/test_e2e_blueprint.py; uv run ruff check src/research_tree/acceptance.py src/research_tree/delivery.py src/research_tree/__init__.py tests/test_alpha2_semantic_delivery.py tests/test_alpha2_delivery_lifecycle.py tests/test_deliveries.py tests/test_e2e_blueprint.py; uv run ruff format --check src/research_tree/acceptance.py src/research_tree/delivery.py src/research_tree/__init__.py tests/test_alpha2_semantic_delivery.py tests/test_alpha2_delivery_lifecycle.py tests/test_deliveries.py tests/test_e2e_blueprint.py",
+        "command": "uv run pytest -q tests/test_alpha2_semantic_delivery.py tests/test_alpha2_delivery_lifecycle.py tests/test_deliveries.py; uv run ruff check src/research_tree/acceptance.py src/research_tree/delivery.py src/research_tree/__init__.py tests/test_alpha2_semantic_delivery.py tests/test_alpha2_delivery_lifecycle.py tests/test_deliveries.py; uv run ruff format --check src/research_tree/acceptance.py src/research_tree/delivery.py src/research_tree/__init__.py tests/test_alpha2_semantic_delivery.py tests/test_alpha2_delivery_lifecycle.py tests/test_deliveries.py",
         "exit_code": 0,
         "environment_digest": "d476b6ec39a19742178e4da2b44aa787397dbce695427af4097bfcfe8f0abd0c",
         "output_digest": "a2a93ed6a02097710b7db3f10f457d5860cbc48a92da4872700fbb6b5831037e",
@@ -294,7 +294,7 @@
         "evaluation/cases/correction-invalidation-v1.json"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_feedback_rounds.py tests/test_alignment_protocol.py tests/test_research_run_coordinator.py && uv run ruff check src/research_tree/feedback.py src/research_tree/coordinator.py src/research_tree/alignment_protocol.py src/research_tree/__init__.py tests/test_feedback_rounds.py tests/test_alignment_protocol.py && uv run ruff format --check src/research_tree/feedback.py src/research_tree/coordinator.py src/research_tree/alignment_protocol.py src/research_tree/__init__.py tests/test_feedback_rounds.py tests/test_alignment_protocol.py",
+        "command": "uv run pytest -q tests/test_feedback_rounds.py tests/test_research_run_coordinator.py && uv run ruff check src/research_tree/feedback.py src/research_tree/coordinator.py src/research_tree/__init__.py tests/test_feedback_rounds.py && uv run ruff format --check src/research_tree/feedback.py src/research_tree/coordinator.py src/research_tree/__init__.py tests/test_feedback_rounds.py",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "8ca54e0c50c8b12ca1af98dd1dfb3b67bc0439484f2e14d25ccad31c4cc2c534",
@@ -347,7 +347,7 @@
         "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_native_dynamic_workflows.py tests/test_host_event_protocol.py tests/test_worker_orchestration.py",
+        "command": "uv run pytest -q tests/test_host_event_protocol.py tests/test_worker_orchestration.py",
         "exit_code": 0,
         "environment_digest": "37f06035cca23f27ec913ec6c57a4bf557524adbc80fe136467f5e89216dae14",
         "output_digest": "e5e607e103d3d836b0726ee4b50b13c6cf166cc3e95104af310ddc357213937f",
@@ -403,7 +403,7 @@
         "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_user_preferences.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py && uv run ruff check src/research_tree/preferences.py src/research_tree/strategy_projection.py src/research_tree/run_ledger.py src/research_tree/cli.py src/research_tree/__init__.py tests/test_user_preferences.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py && uv run ruff format --check src/research_tree/preferences.py src/research_tree/strategy_projection.py src/research_tree/run_ledger.py src/research_tree/cli.py src/research_tree/__init__.py tests/test_user_preferences.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py",
+        "command": "uv run pytest -q tests/test_strategy_projection.py tests/test_sqlite_ledger.py && uv run ruff check src/research_tree/strategy_projection.py src/research_tree/run_ledger.py src/research_tree/cli.py src/research_tree/__init__.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py && uv run ruff format --check src/research_tree/strategy_projection.py src/research_tree/run_ledger.py src/research_tree/cli.py src/research_tree/__init__.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "f0b54146e5db39568c3885117f130b6d6d1dc1668a8c17bd10ab042ae94d47f9",
@@ -548,7 +548,7 @@
         "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py tests/test_native_dynamic_workflows.py tests/test_hermes_execution_adapter.py tests/test_hermes_host_events.py && uv run ruff check scripts/build_skill_packages.py scripts/hermes_skill_adapter.py scripts/hermes_execution_adapter.py scripts/hermes_event_adapter.py scripts/hermes_runtime_hook.py tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py && uv run ruff format --check scripts/build_skill_packages.py scripts/hermes_skill_adapter.py scripts/hermes_execution_adapter.py scripts/hermes_event_adapter.py scripts/hermes_runtime_hook.py tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py && uv run python scripts/build_skill_packages.py --check",
+        "command": "uv run pytest -q tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py tests/test_hermes_execution_adapter.py tests/test_hermes_host_events.py && uv run ruff check scripts/build_skill_packages.py scripts/hermes_skill_adapter.py scripts/hermes_execution_adapter.py scripts/hermes_event_adapter.py scripts/hermes_runtime_hook.py tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py && uv run ruff format --check scripts/build_skill_packages.py scripts/hermes_skill_adapter.py scripts/hermes_execution_adapter.py scripts/hermes_event_adapter.py scripts/hermes_runtime_hook.py tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py && uv run python scripts/build_skill_packages.py --check",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "4ccb75bc40b84320cb250d3c5d23064a61797d66b4177b1dffba4c31b70d582c",
@@ -582,7 +582,7 @@
         "openspec/changes/archive/register-canonical-delivery-acceptance/evidence/issue-157-delivery-acceptance.json"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_completion_delivery_registration.py tests/test_strict_delivery_lineage.py tests/test_alpha2_delivery_lifecycle.py tests/test_completion_input_registration.py tests/test_deliveries.py tests/test_e2e_blueprint.py && uv run ruff check src/research_tree/completion_inputs.py src/research_tree/run_ledger.py src/research_tree/delivery.py src/research_tree/__init__.py tests/test_completion_delivery_registration.py tests/test_strict_delivery_lineage.py tests/test_alpha2_delivery_lifecycle.py && uv run ruff format --check src/research_tree/completion_inputs.py src/research_tree/run_ledger.py src/research_tree/delivery.py src/research_tree/__init__.py tests/test_completion_delivery_registration.py tests/test_alpha2_delivery_lifecycle.py",
+        "command": "uv run pytest -q tests/test_completion_delivery_registration.py tests/test_strict_delivery_lineage.py tests/test_alpha2_delivery_lifecycle.py tests/test_completion_input_registration.py tests/test_deliveries.py && uv run ruff check src/research_tree/completion_inputs.py src/research_tree/run_ledger.py src/research_tree/delivery.py src/research_tree/__init__.py tests/test_completion_delivery_registration.py tests/test_strict_delivery_lineage.py tests/test_alpha2_delivery_lifecycle.py && uv run ruff format --check src/research_tree/completion_inputs.py src/research_tree/run_ledger.py src/research_tree/delivery.py src/research_tree/__init__.py tests/test_completion_delivery_registration.py tests/test_alpha2_delivery_lifecycle.py",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "cf53f319c436b03c631c4652b1cf6ac182f60b36c07afd9bfa133fb8ade08c62",
@@ -889,7 +889,7 @@
         "local://.research-tree/verification-runs/issue-180/group-79-receipt.json"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_decision_ledger.py tests/test_deliveries.py tests/test_strict_delivery_lineage.py tests/test_assurance_adapters.py tests/test_readiness.py tests/test_openspec_export.py tests/test_e2e_blueprint.py tests/test_openspec_execution_governance.py tests/test_integrated_evidence_receipt.py && uv run ruff check tests/canonical_finding_fixture.py tests/legacy_runstore_fixture.py tests/test_assurance_adapters.py tests/test_decision_ledger.py tests/test_deliveries.py tests/test_readiness.py tests/test_openspec_export.py tests/test_strict_delivery_lineage.py && uv run ruff format --check tests/canonical_finding_fixture.py tests/legacy_runstore_fixture.py tests/test_assurance_adapters.py tests/test_decision_ledger.py tests/test_deliveries.py tests/test_strict_delivery_lineage.py && openspec validate canonicalize-findingpack-decision-delivery-consumers --strict && uv run python scripts/check_openspec_governance.py && uv run python scripts/check_docs.py && uv run python scripts/build_skill_packages.py --check",
+        "command": "uv run pytest -q tests/test_decision_ledger.py tests/test_deliveries.py tests/test_strict_delivery_lineage.py tests/test_readiness.py tests/test_openspec_execution_governance.py tests/test_integrated_evidence_receipt.py && uv run ruff check tests/canonical_finding_fixture.py tests/test_decision_ledger.py tests/test_deliveries.py tests/test_readiness.py tests/test_strict_delivery_lineage.py && uv run ruff format --check tests/canonical_finding_fixture.py tests/test_decision_ledger.py tests/test_deliveries.py tests/test_strict_delivery_lineage.py && openspec validate canonicalize-findingpack-decision-delivery-consumers --strict && uv run python scripts/check_openspec_governance.py && uv run python scripts/check_docs.py && uv run python scripts/build_skill_packages.py --check",
         "exit_code": 0,
         "environment_digest": "d7376b615db9b16aa41392640c306aa22d65d89dc56f24df6f3e602ad2b0e560",
         "output_digest": "0b6e7a37681d32e32aca33f656d691bb9599b74bab6c91afc299e6d48afc3582",
@@ -940,7 +940,7 @@
         "local://.research-tree/verification-runs/issue-176/group-82-receipt.json"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_runstore_openspec_export_removal.py tests/test_runtime_discoverability.py tests/test_openspec_execution_governance.py tests/test_integrated_evidence_receipt.py tests/test_skill_packages.py && uv run ruff check src/research_tree/__init__.py src/research_tree/openspec_governance.py tests/test_runstore_openspec_export_removal.py tests/test_runtime_discoverability.py tests/test_openspec_execution_governance.py tests/test_integrated_evidence_receipt.py tests/test_skill_packages.py && uv run ruff format --check src/research_tree/__init__.py src/research_tree/openspec_governance.py tests/test_runstore_openspec_export_removal.py tests/test_runtime_discoverability.py tests/test_openspec_execution_governance.py tests/test_integrated_evidence_receipt.py tests/test_skill_packages.py && openspec validate remove-runstore-openspec-exporter --strict && uv run python scripts/check_openspec_governance.py && uv run python scripts/check_docs.py && uv run python scripts/build_skill_packages.py --check",
+        "command": "uv run pytest -q tests/test_runstore_openspec_export_removal.py tests/test_runtime_discoverability.py tests/test_openspec_execution_governance.py tests/test_integrated_evidence_receipt.py tests/test_skill_packages.py && uv run ruff check src/research_tree/__init__.py scripts/openspec_governance.py tests/test_runstore_openspec_export_removal.py tests/test_runtime_discoverability.py tests/test_openspec_execution_governance.py tests/test_integrated_evidence_receipt.py tests/test_skill_packages.py && uv run ruff format --check src/research_tree/__init__.py scripts/openspec_governance.py tests/test_runstore_openspec_export_removal.py tests/test_runtime_discoverability.py tests/test_openspec_execution_governance.py tests/test_integrated_evidence_receipt.py tests/test_skill_packages.py && openspec validate remove-runstore-openspec-exporter --strict && uv run python scripts/check_openspec_governance.py && uv run python scripts/check_docs.py && uv run python scripts/build_skill_packages.py --check",
         "exit_code": 0,
         "environment_digest": "d7376b615db9b16aa41392640c306aa22d65d89dc56f24df6f3e602ad2b0e560",
         "output_digest": "33d7f2909dd95aba15bd81b182f14c22f7e61b2a23d111279af874c7e2ca9195",

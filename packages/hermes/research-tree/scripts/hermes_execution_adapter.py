@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from context_ledger_contract import ContextBudget, ContextLedgerError, ContextReadLedger
 from hermes_event_adapter import (
     HermesEventError,
     build_hermes_event,
@@ -37,11 +38,6 @@ except ImportError:
         install_project_hooks,
         probe_lifecycle_hook,
     )
-
-try:
-    from research_tree.context_ledger import ContextBudget, ContextLedgerError, ContextReadLedger
-except ImportError:
-    from context_ledger_contract import ContextBudget, ContextLedgerError, ContextReadLedger
 
 try:
     from research_tree.host_capabilities import (

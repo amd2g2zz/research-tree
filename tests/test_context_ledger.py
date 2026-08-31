@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
 
-from research_tree.context_ledger import ContextBudget, ContextLedgerError, ContextReadLedger
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from context_ledger_contract import ContextBudget, ContextLedgerError, ContextReadLedger  # noqa: E402
 
 
 def ledger(workspace: Path, budget: ContextBudget | None = None) -> ContextReadLedger:

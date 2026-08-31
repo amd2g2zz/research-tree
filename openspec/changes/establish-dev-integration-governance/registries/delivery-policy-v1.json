@@ -31,7 +31,6 @@
     "scripts/hermes_runtime_hook.py",
     "src/research_tree/alignment_graph.py",
     "src/research_tree/host_capabilities.py",
-    "src/research_tree/alignment_protocol.py",
     "src/research_tree/claims.py",
     "src/research_tree/speech_acts.py",
     "src/research_tree/skill_activation.py",

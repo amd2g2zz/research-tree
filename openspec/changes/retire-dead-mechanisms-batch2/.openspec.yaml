@@ -1,0 +1,7 @@
+schema: spec-driven
+created: 2026-08-31
+goal: "Retire the seven graph-verified dead mechanisms of issue #421 with
+  their re-exports, dedicated tests, dangling references, and registry paths,
+  under the ADR-006 deletion evidence standard; the two modules with live
+  hard consumers (CI governance, packaged context ledger contract) are
+  relocated to scripts/ instead of deleted."

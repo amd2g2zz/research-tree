@@ -225,13 +225,6 @@ def observe(
     record["project_id"] = project_id
     record["run_id"] = run_id
     path = _write_record(root, record, run_root / "events")
-    try:
-        from .durable_interaction_state import DurableInteractionController
-
-        controller = DurableInteractionController.initialize(root, project_id=project_id, run_id=run_id, host=host)
-        controller.consume_recorded_lifecycle_event(record)
-    except (OSError, ValueError):
-        pass
     if debug:
         try:
             from .debug_trace import emit_trace
