@@ -431,7 +431,15 @@ def strategy_arguments(workspace: Path) -> list[str]:
 
 def json_output(capsys: pytest.CaptureFixture[str]) -> dict:
     captured = capsys.readouterr()
-    return json.loads(captured.out)
+    # Issue #440: strip the balanced rt:* tag wrapper before parsing.
+    import re as _re
+
+    out = captured.out.strip()
+    open_match = _re.search(r"<rt:(?:tool-output|error)[^>]*>", out)
+    if open_match:
+        close = "</rt:tool-output>" if "<rt:tool-output" in out else "</rt:error>"
+        out = out[open_match.end() : out.rindex(close)]
+    return json.loads(out)
 
 
 # ---------------------------------------------------------------------------

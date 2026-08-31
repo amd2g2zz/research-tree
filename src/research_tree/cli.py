@@ -20,6 +20,7 @@ from .coordinator import (
     StaleStateError,
 )
 from .domain import ArtifactRef, ArtifactRevision, RuntimeStoreError
+from .origins import close_tag, open_tag
 from .project_workspace import (
     ProjectWorkspaceError,
     initialize_project_run,
@@ -740,9 +741,13 @@ def _failure(error: Exception, run_id: str | None) -> tuple[int, dict[str, Any]]
         exit_code = 9
 
     return exit_code, {
+        "schema_version": LIFECYCLE_SCHEMA_VERSION,
+        "contract": "research-tree-lifecycle",
+        "command": "error",
         "code": code,
         "category": category,
         "retryability": retryability,
+        "exit_code": exit_code,
         "run_id": run_id,
         "safe_message": code,
         "unmet_obligations": unmet_obligations,
@@ -752,7 +757,20 @@ def _failure(error: Exception, run_id: str | None) -> tuple[int, dict[str, Any]]
 
 
 def _emit(payload: Mapping[str, Any]) -> None:
-    print(json.dumps(payload, sort_keys=True))
+    command = str(payload.get("command", "unknown"))
+    body = json.dumps(payload, sort_keys=True)
+    attributes = {"source": "research-tree-cli", "command": command}
+    if isinstance(payload.get("category"), str) and payload["category"] != "success":
+        attributes["category"] = str(payload["category"])
+        attributes["retryability"] = str(bool(payload.get("retryability"))).lower()
+        attributes["exit-code"] = str(payload.get("exit_code", 2))
+        print(open_tag("rt:error", attributes) + body + close_tag("rt:error"))
+        return
+    run = payload.get("run") if isinstance(payload.get("run"), Mapping) else {}
+    revision = run.get("authority_revision")
+    if revision is not None:
+        attributes["rev"] = str(revision)
+    print(open_tag("rt:tool-output", attributes) + body + close_tag("rt:tool-output"))
 
 
 def _latest_strategy_projection(ledger: RunLedger, run_id: str) -> ArtifactRevision:

@@ -21,7 +21,15 @@ from research_tree import cli
 def _json_output(capsys: pytest.CaptureFixture[str]) -> dict[str, Any]:
     captured = capsys.readouterr()
     assert captured.err == ""
-    return __import__("json").loads(captured.out)
+    # Issue #440: strip the balanced rt:* tag wrapper before parsing.
+    import re as _re
+
+    out = captured.out.strip()
+    open_match = _re.search(r"<rt:(?:tool-output|error)[^>]*>", out)
+    if open_match:
+        close = "</rt:tool-output>" if "<rt:tool-output" in out else "</rt:error>"
+        out = out[open_match.end() : out.rindex(close)]
+    return __import__("json").loads(out)
 
 
 def _install_arguments(tmp_path: Path, *, hosts: list[str], scope: str = "project") -> list[str]:
@@ -318,7 +326,15 @@ def test_install_conflict_action_returns_failure_envelope(
 
     captured = capsys.readouterr()
     import json as _json
+    import re as _re
 
-    envelope = _json.loads(captured.out)
+    # Issue #440: strip the balanced rt:error tag wrapper before parsing.
+    out = captured.out.strip()
+    open_match = _re.search(r"<rt:(?:tool-output|error)[^>]*>", out)
+    if open_match:
+        close = "</rt:tool-output>" if "<rt:tool-output" in out else "</rt:error>"
+        out = out[open_match.end() : out.rindex(close)]
+
+    envelope = _json.loads(out)
     assert envelope["code"].startswith("install_conflict")
     assert envelope["category"] == "invalid_input"
