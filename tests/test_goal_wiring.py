@@ -22,7 +22,7 @@ from research_tree.alignment_graph import (
 )
 from research_tree.alignment_handoff import goal_decomposition, initialize_research_from_alignment
 from research_tree.cli import main as cli_main
-from research_tree.coordinator import ResearchRunCoordinator
+from research_tree.coordinator import CoordinatorConflictError, ResearchRunCoordinator
 from research_tree.decision_frame import DecisionFrame, IntentHypothesis
 from research_tree.decision_map import CanonicalBlueprintTargetCompiler, InvalidBlueprintTargetError
 from research_tree.domain import ArtifactRef, ArtifactRevision
@@ -144,9 +144,10 @@ def projection(
     decision_targets: tuple = ("decision-1",),
     success_oracles: tuple = ("oracle-1",),
     status: str = "displayed",
+    projection_id: str = "projection-1",
 ) -> StrategyProjection:
     return StrategyProjection.create(
-        projection_id="projection-1",
+        projection_id=projection_id,
         run_id=run_id,
         decision_frame_ref=frame_ref,
         alignment_handoff_ref=handoff_ref,
@@ -694,5 +695,104 @@ def test_display_rejects_dangling_decision_target_oracle_reference(tmp_path: Pat
     assert cli_main([*arguments, "display"]) == 2
     failure = json_output(capsys)
     assert failure["code"] == "decision_targets[0] oracle_ids entry not in success_oracles: oracle-missing"
+    assert coordinator.state(RUN_ID) == state_before
+    assert not any(item.kind == "lifecycle-event" for item in ledger.load_run(RUN_ID).artifacts)
+
+
+# ---------------------------------------------------------------------------
+# R3: falsifiability gate at the coordinator authority layer
+# ---------------------------------------------------------------------------
+
+
+def _core_artifacts(ledger: RunLedger) -> tuple[ArtifactRevision, ArtifactRevision, ArtifactRevision]:
+    run_artifacts = ledger.load_run(RUN_ID).artifacts
+    return (
+        next(item for item in run_artifacts if item.kind == "alignment-handoff"),
+        next(item for item in run_artifacts if item.kind == "decision-frame"),
+        next(item for item in run_artifacts if item.kind == "blueprint-target"),
+    )
+
+
+def _unfalsifiable_projection(ledger: RunLedger) -> StrategyProjection:
+    """A projection whose success oracle is a bare string (no evidence standards).
+
+    Persisted directly through the coordinator API with a hand-forged ``displayed``
+    status — the bypass vector the authority layer must close.
+    """
+
+    handoff, frame, target = _core_artifacts(ledger)
+    return projection(
+        RUN_ID,
+        frame_ref=ArtifactRef(RUN_ID, frame.id, frame.revision),
+        handoff_ref=ArtifactRef(RUN_ID, handoff.id, handoff.revision),
+        target_ref=ArtifactRef(RUN_ID, target.id, target.revision),
+        decision_targets=({"id": "decision-1", "oracle_ids": ("oracle-1",)},),
+        success_oracles=("oracle-1",),
+        status="displayed",
+        projection_id="projection-unfalsifiable",
+    )
+
+
+def test_display_strategy_rejects_unfalsifiable_projection_without_cli(tmp_path: Path) -> None:
+    workspace, ledger, coordinator, _target, _projection_file = wired_run(tmp_path)
+    unfalsifiable = _unfalsifiable_projection(ledger)
+    coordinator.persist_strategy_projection(unfalsifiable, expected_revision=ledger.get_revision(RUN_ID))
+    state_before = coordinator.state(RUN_ID)
+    revision_before = ledger.get_revision(RUN_ID)
+
+    with pytest.raises(CoordinatorConflictError, match="evidence_standard_ids"):
+        coordinator.display_strategy(RUN_ID, unfalsifiable, expected_revision=revision_before)
+
+    assert coordinator.state(RUN_ID) == state_before
+    assert ledger.get_revision(RUN_ID) == revision_before
+    assert not any(item.kind == "lifecycle-event" for item in ledger.load_run(RUN_ID).artifacts)
+    statuses = [
+        item.payload["status"]
+        for item in ledger.load_run(RUN_ID).artifacts
+        if item.kind == "strategy-projection"
+    ]
+    assert statuses == ["draft"]
+
+
+def test_display_strategy_rejects_dangling_oracle_reference_without_cli(tmp_path: Path) -> None:
+    workspace, ledger, coordinator, _target, _projection_file = wired_run(tmp_path)
+    handoff, frame, target = _core_artifacts(ledger)
+    dangling = projection(
+        RUN_ID,
+        frame_ref=ArtifactRef(RUN_ID, frame.id, frame.revision),
+        handoff_ref=ArtifactRef(RUN_ID, handoff.id, handoff.revision),
+        target_ref=ArtifactRef(RUN_ID, target.id, target.revision),
+        decision_targets=({"id": "decision-1", "oracle_ids": ("oracle-missing",)},),
+        success_oracles=({"id": "oracle-1", "evidence_standard_ids": ("standard-1",)},),
+        status="displayed",
+        projection_id="projection-dangling",
+    )
+    coordinator.persist_strategy_projection(dangling, expected_revision=ledger.get_revision(RUN_ID))
+    state_before = coordinator.state(RUN_ID)
+    revision_before = ledger.get_revision(RUN_ID)
+
+    with pytest.raises(CoordinatorConflictError, match="oracle-missing"):
+        coordinator.display_strategy(RUN_ID, dangling, expected_revision=revision_before)
+
+    assert coordinator.state(RUN_ID) == state_before
+    assert ledger.get_revision(RUN_ID) == revision_before
+    assert not any(item.kind == "lifecycle-event" for item in ledger.load_run(RUN_ID).artifacts)
+
+
+def test_confirm_handoff_requires_displayed_projection(tmp_path: Path) -> None:
+    workspace, ledger, coordinator, _target, projection_file = wired_run(tmp_path)
+    proposal = StrategyProjection.from_dict(json.loads(projection_file.read_text(encoding="utf-8")))
+    coordinator.persist_strategy_projection(proposal, expected_revision=ledger.get_revision(RUN_ID))
+    state_before = coordinator.state(RUN_ID)
+
+    with pytest.raises(CoordinatorConflictError, match="strategy_projection_not_displayed"):
+        coordinator.confirm_handoff(
+            RUN_ID,
+            projection_ref=ArtifactRef(RUN_ID, proposal.projection_id, proposal.revision),
+            confirmation=f"I accept the displayed strategy {proposal.display_digest} and authorize research.",
+            expected_revision=ledger.get_revision(RUN_ID),
+            actor="human",
+        )
+
     assert coordinator.state(RUN_ID) == state_before
     assert not any(item.kind == "lifecycle-event" for item in ledger.load_run(RUN_ID).artifacts)
