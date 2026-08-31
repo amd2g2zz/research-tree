@@ -147,6 +147,86 @@ def _projection_entry_ids(entries: Any) -> set[str]:
     return ids
 
 
+def _string_tokens(value: Any) -> set[str]:
+    """Non-empty trimmed string members of a sequence value."""
+
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        return set()
+    return {entry.strip() for entry in value if isinstance(entry, str) and entry.strip()}
+
+
+def _mapping_entries(value: Any) -> tuple[Mapping[str, Any], ...]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        return ()
+    return tuple(entry for entry in value if isinstance(entry, Mapping))
+
+
+def _served_evidence_standards(serves: Mapping[str, Any], projection: Mapping[str, Any]) -> dict[str, frozenset[str]]:
+    """Evidence standards declared per served success oracle (serves order kept)."""
+
+    served: dict[str, frozenset[str]] = {}
+    for oracle_id in serves.get("oracle_ids") or ():
+        if not isinstance(oracle_id, str) or not oracle_id.strip():
+            continue
+        standards: set[str] = set()
+        for oracle in _mapping_entries(projection.get("success_oracles")):
+            if oracle.get("id") == oracle_id:
+                standards |= _string_tokens(oracle.get("evidence_standard_ids"))
+        served[oracle_id] = frozenset(standards)
+    return served
+
+
+def _claim_evidence_tokens(pack: Mapping[str, Any], claim_id: str) -> frozenset[str]:
+    """Evidence tokens a claim actually carries: grounding identities, provenance
+    clusters, and the evidence artifacts its groundings and grounding refs name."""
+
+    tokens: set[str] = set()
+    for grounding in _mapping_entries(pack.get("claim_groundings")):
+        if grounding.get("claim_id") != claim_id:
+            continue
+        token = grounding.get("grounding_id")
+        if isinstance(token, str) and token.strip():
+            tokens.add(token.strip())
+        anchor = grounding.get("anchor")
+        if isinstance(anchor, Mapping):
+            token = anchor.get("ref")
+            if isinstance(token, str) and token.strip():
+                tokens.add(token.strip())
+            reference = anchor.get("artifact_ref")
+            if isinstance(reference, Mapping):
+                token = reference.get("artifact_id")
+                if isinstance(token, str) and token.strip():
+                    tokens.add(token.strip())
+    for assessment in _mapping_entries(pack.get("claim_assessments")):
+        if assessment.get("claim_id") != claim_id:
+            continue
+        tokens |= _string_tokens(assessment.get("grounding_ids"))
+        tokens |= _string_tokens(assessment.get("provenance_clusters"))
+        for reference in _mapping_entries(assessment.get("grounding_refs")):
+            token = reference.get("artifact_id")
+            if isinstance(token, str) and token.strip():
+                tokens.add(token.strip())
+    return frozenset(tokens)
+
+
+def _claim_oracle_mapping(
+    pack: Mapping[str, Any],
+    claim_id: str,
+    standards_by_oracle: Mapping[str, frozenset[str]],
+) -> tuple[str, str] | None:
+    """First served oracle whose evidence standards intersect the claim's evidence
+    tokens, as ``(oracle_id, standard_id)``; None when the claim maps to none."""
+
+    tokens = _claim_evidence_tokens(pack, claim_id)
+    if not tokens:
+        return None
+    for oracle_id, standards in standards_by_oracle.items():
+        overlap = sorted(tokens & standards)
+        if overlap:
+            return oracle_id, overlap[0]
+    return None
+
+
 def assess_goal_contribution(pack: Mapping[str, Any], slot: Mapping[str, Any], projection: Mapping[str, Any]):
     """Classify one Finding Pack's contribution to the goal its Decision Slot serves.
 
@@ -157,8 +237,12 @@ def assess_goal_contribution(pack: Mapping[str, Any], slot: Mapping[str, Any], p
     Verdicts, in short-circuit order:
       1. any pack effect contradicting a slot alternative      -> CONTRADICTS
       2. a supports effect on a slot alternative               -> ADVANCES
-      3. a corroborated claim bound to the served slot         -> ADVANCES
-      4. effects/claims/validation touching the served slot    -> PARTIAL
+      3. a corroborated claim grounding a served oracle's evidence
+         standard (the claim's grounding identities, provenance
+         clusters, or grounding evidence artifact ids intersect the
+         served oracle's ``evidence_standard_ids``)            -> ADVANCES
+      4. effects on slot alternatives, claims whose evidence maps
+         to a served oracle, or validation against the slot    -> PARTIAL
       5. otherwise, or unverifiable serves wiring (fail-closed) -> NO_CONTRIBUTION
     """
 
@@ -210,23 +294,31 @@ def assess_goal_contribution(pack: Mapping[str, Any], slot: Mapping[str, Any], p
             f"option_effect supports Decision Slot alternative {supported['option']} served by target {target_id}",
         )
     assessments = pack.get("claim_assessments") if isinstance(pack.get("claim_assessments"), Sequence) else ()
-    corroborated = next(
+    standards_by_oracle = _served_evidence_standards(serves, projection)
+    mapping = next(
         (
-            assessment["claim_id"]
-            for assessment in assessments
-            if isinstance(assessment, Mapping)
-            and assessment.get("state") == "corroborated"
+            (str(assessment["claim_id"]), mapped)
+            for assessment in _mapping_entries(assessments)
+            if assessment.get("state") == "corroborated"
             and isinstance(assessment.get("claim_id"), str)
+            and assessment["claim_id"].strip()
+            for mapped in (_claim_oracle_mapping(pack, assessment["claim_id"], standards_by_oracle),)
+            if mapped is not None
         ),
         None,
     )
-    if corroborated is not None:
-        served_oracles = ", ".join(str(oracle_id) for oracle_id in oracle_ids) or target_id
+    if mapping is not None:
+        claim_id, (oracle_id, standard_id) = mapping
         return (
             "advances",
-            f"corroborated claim {corroborated} maps to the served evidence standard of {served_oracles}",
+            f"corroborated claim {claim_id} grounds served oracle {oracle_id} via evidence standard {standard_id}",
         )
-    if touched or assessments or pack.get("validation_result") is not None:
+    touches_oracle = any(
+        _claim_oracle_mapping(pack, str(assessment.get("claim_id")), standards_by_oracle) is not None
+        for assessment in _mapping_entries(assessments)
+        if isinstance(assessment.get("claim_id"), str) and assessment["claim_id"].strip()
+    )
+    if touched or touches_oracle or pack.get("validation_result") is not None:
         return (
             "partial",
             f"Finding Pack touches Decision Slot {slot_id} without advancing its alternatives or evidence standards",
@@ -246,7 +338,13 @@ def partition_goal_contributions(
 
     Packs whose latest recorded goal-contribution assessment carries a blocking
     verdict (``no_contribution`` or ``contradicts``) are deferred: they never
-    enter the tree transition consumed set. Runs without a confirmed projection
+    enter the tree transition consumed set. In a run with a confirmed projection
+    a pending pack with NO recorded assessment is deferred as well (fail closed):
+    the compile hook assesses every compile-passed pack, so a missing assessment
+    means the hook was interrupted and the pack stays pending instead of being
+    silently waved into the consumed set. On-demand re-assessment is not done
+    here because the surrounding tree transition already pins ``expected_revision``;
+    appending mid-partition would strand it. Runs without a confirmed projection
     have no goal wiring, so every pack contributes (prior behavior unchanged).
     """
 
@@ -259,6 +357,9 @@ def partition_goal_contributions(
     deferred: list[ArtifactRevision] = []
     for pack in finding_packs:
         if _pack_is_goal_blocking(snapshot.artifacts, pack):
+            logger.warning(
+                "goal_contribution_pack_deferred: %s@%s (blocking or unassessed verdict)", pack.id, pack.revision
+            )
             deferred.append(pack)
         else:
             contributing.append(pack)
@@ -277,7 +378,9 @@ def _pack_is_goal_blocking(artifacts: Sequence[ArtifactRevision], pack: Artifact
         key=lambda item: (item.created_at, item.revision),
     )
     if not assessments:
-        return False
+        # Fail closed: an unassessed pack in a goal-wired run stays pending with a
+        # visible reason instead of being consumed on a default allow.
+        return True
     return assessments[-1].payload.get("verdict") in _CONTRIBUTION_BLOCKING_VERDICTS
 
 
@@ -1040,9 +1143,11 @@ class ResearchRunCoordinator:
         run has no confirmed StrategyProjection (prior ingestion behavior). A
         blocking verdict additionally wires the guidance-adjust retry: a
         same-round replan with slot granularity and the guidance defect, a
-        successor Work Item with adjusted guidance, and, on the second
-        consecutive no_contribution for the slot, a method_switch policy
-        consultation plus a redecomposition_flagged successor marker. Worker
+        successor Work Item with adjusted guidance and, once per slot, a
+        method_switch policy consultation with a redecomposition_flagged
+        successor marker on the second consecutive no_contribution (third and
+        further verdicts in the streak are deduplicated by logical pack
+        identity and still replan but never repeat the consult). Worker
         confidence is never an input.
         """
 
@@ -1115,7 +1220,12 @@ class ResearchRunCoordinator:
         raise CoordinatorConflictError(f"Decision Slot absent from Blueprint Target: {slot_id}")
 
     def _consecutive_no_contribution(self, run_id: str, slot_id: str) -> int:
-        """Count the trailing no_contribution run along the slot assessment chain."""
+        """Count the trailing no_contribution run along the slot assessment chain.
+
+        Assessments are deduplicated by logical pack identity first: only the
+        latest assessment per finding pack id participates, so recompiling the
+        same finding at revision+1 never double-counts the streak.
+        """
 
         snapshot = self.ledger.load_run(run_id)
         chain = sorted(
@@ -1126,13 +1236,36 @@ class ResearchRunCoordinator:
             ),
             key=lambda item: (item.created_at, item.revision, str(item.payload.get("finding_pack_id"))),
         )
+        latest_by_pack: dict[str, ArtifactRevision] = {}
+        for item in chain:
+            pack_id = str(item.payload.get("finding_pack_id"))
+            current = latest_by_pack.get(pack_id)
+            if current is None or (item.created_at, item.revision) >= (current.created_at, current.revision):
+                latest_by_pack[pack_id] = item
+        ordered = sorted(latest_by_pack.values(), key=lambda item: (item.created_at, item.revision))
         count = 0
-        for item in reversed(chain):
+        for item in reversed(ordered):
             if item.payload.get("verdict") == "no_contribution":
                 count += 1
             else:
                 break
         return count
+
+    def _slot_method_switch_consulted(self, run_id: str, slot_id: str) -> bool:
+        """Whether this slot already produced a method_switch policy consultation.
+
+        The escalation is one-shot per slot: the second consecutive
+        no_contribution consults the policy once; third and further verdicts in
+        the streak still record the slot-granularity replan and a retry
+        successor, but never repeat the consult or the redecomposition flag.
+        """
+
+        return any(
+            item.kind == WORK_ITEM_KIND
+            and item.payload.get("decision_slot_id") == slot_id
+            and item.payload.get("policy_proposal_kind") == "method_switch"
+            for item in self.ledger.load_run(run_id).artifacts
+        )
 
     def _record_contribution_retry(
         self,
@@ -1159,7 +1292,8 @@ class ResearchRunCoordinator:
             and item.payload.get("decision_slot_id") == slot_id
             and item.payload.get("guidance_defect")
         )
-        proposal = self._method_switch_proposal(slot) if consecutive >= 2 else None
+        escalate = consecutive >= 2 and not self._slot_method_switch_consulted(run_id, slot_id)
+        proposal = self._method_switch_proposal(slot) if escalate else None
         target = max(
             (
                 item
@@ -1167,7 +1301,12 @@ class ResearchRunCoordinator:
                 if item.kind == BLUEPRINT_TARGET_KIND and item.id == finding.payload.get("blueprint_target_id")
             ),
             key=lambda item: item.revision,
+            default=None,
         )
+        if target is None:
+            raise CoordinatorConflictError(
+                f"unknown blueprint target for contribution retry: {finding.payload.get('blueprint_target_id')}"
+            )
         touchpoints = slot.get("repository_touchpoints")
         return CanonicalWorkItemCompiler(self.ledger).compile(
             round_id=run_id,
@@ -1187,24 +1326,29 @@ class ResearchRunCoordinator:
             budget={"tool_calls": 8, "time": "bounded"},
             completion_rule="Return a Finding Pack or state why evidence is unavailable.",
             guidance_defect=reason,
-            redecomposition_flagged=consecutive >= 2,
+            redecomposition_flagged=escalate,
             policy_proposal_id=proposal.action_id if proposal is not None else None,
             policy_proposal_kind=proposal.kind if proposal is not None else None,
             expected_revision=self.ledger.get_revision(run_id),
         )
 
     def _method_switch_proposal(self, slot: Mapping[str, Any]):
-        """Consult the scheduling policy with a method_switch deficit (ADR-006)."""
+        """Consult the scheduling policy with a method_switch deficit (ADR-006).
 
-        if self.policy is None:
-            return None
+        The consult must stay reachable on every wired path, including the ledger
+        compile hook that constructs a bare ``ResearchRunCoordinator(ledger)``:
+        when no policy was injected, a default policy is constructed for the
+        consultation (used locally; the coordinator instance is never mutated).
+        """
+
+        policy = self.policy if self.policy is not None else AdaptiveResearchPolicy()
         slot_id = str(slot.get("id"))
         validation = slot.get("validation") if isinstance(slot.get("validation"), Mapping) else {}
         closure_oracle = str(validation.get("oracle") or slot.get("evidence_standard") or "").strip()
         if not closure_oracle:
             closure_oracle = f"Decision Slot {slot_id} closes with evidence"
         priority = str(slot.get("priority")) if str(slot.get("priority")) in {"P0", "P1", "P2", "P3"} else "P1"
-        evaluation = self.policy.evaluate(
+        evaluation = policy.evaluate(
             slots=[
                 {
                     "slot_id": slot_id,

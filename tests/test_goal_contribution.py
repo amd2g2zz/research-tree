@@ -92,9 +92,7 @@ def test_verdict_truth_table_advances() -> None:
     verdict, reason = assess_goal_contribution(
         pack(
             [{"option": "isolated-worker", "effect": "limits", "claim_ids": ["claim-1"]}],
-            claim_assessments=[
-                {"claim_id": "claim-1", "state": "corroborated", "grounding_ids": ("standard-1",)}
-            ],
+            claim_assessments=[{"claim_id": "claim-1", "state": "corroborated", "grounding_ids": ("standard-1",)}],
         ),
         slot("slot-1"),
         PROJECTION,
@@ -166,7 +164,9 @@ def test_corroborated_claim_without_served_oracle_mapping_is_not_advances() -> N
     # With nothing else touching the slot, the unmapped corroborated claim is an
     # unrelated pack and fails closed to no_contribution.
     verdict, _ = assess_goal_contribution(
-        pack((), claim_assessments=[{"claim_id": "claim-1", "state": "corroborated", "grounding_ids": ("grounding-1",)}]),
+        pack(
+            (), claim_assessments=[{"claim_id": "claim-1", "state": "corroborated", "grounding_ids": ("grounding-1",)}]
+        ),
         slot("slot-1"),
         PROJECTION,
     )
@@ -448,11 +448,7 @@ def test_unassessed_pack_fails_closed_out_of_consumption(tmp_path: Path) -> None
 
     # Appended directly, so the compile hook never assessed this pack.
     unassessed_pack = _raw_pack(ledger, "finding-unassessed")
-    assert not [
-        item
-        for item in _assessments(ledger)
-        if item.payload.get("finding_pack_id") == "finding-unassessed"
-    ]
+    assert not [item for item in _assessments(ledger) if item.payload.get("finding_pack_id") == "finding-unassessed"]
 
     coordinator = ResearchRunCoordinator(ledger)
     init_run_state(ledger, coordinator, target)
@@ -463,9 +459,11 @@ def test_unassessed_pack_fails_closed_out_of_consumption(tmp_path: Path) -> None
         finding_packs=(advancing_pack, unassessed_pack),
         expected_revision=ledger.get_revision(RUN_ID),
     )
-    consumed = CanonicalResearchTreeStateService(ledger).latest(
-        round_id=RUN_ID, tree_id="research-tree"
-    ).payload["consumed_finding_ids"]
+    consumed = (
+        CanonicalResearchTreeStateService(ledger)
+        .latest(round_id=RUN_ID, tree_id="research-tree")
+        .payload["consumed_finding_ids"]
+    )
     assert "finding-advancing" in consumed
     assert "finding-unassessed" not in consumed
 
@@ -613,14 +611,10 @@ def test_streak_dedupes_by_logical_pack_identity(tmp_path: Path) -> None:
     init_run_state(ledger, coordinator, target)
 
     first_revision = _raw_pack(ledger, "finding-drift-1")
-    coordinator.assess_finding_pack_contribution(
-        RUN_ID, first_revision, expected_revision=ledger.get_revision(RUN_ID)
-    )
+    coordinator.assess_finding_pack_contribution(RUN_ID, first_revision, expected_revision=ledger.get_revision(RUN_ID))
     recompiled = _raw_pack(ledger, "finding-drift-1")
     assert recompiled.revision == first_revision.revision + 1
-    coordinator.assess_finding_pack_contribution(
-        RUN_ID, recompiled, expected_revision=ledger.get_revision(RUN_ID)
-    )
+    coordinator.assess_finding_pack_contribution(RUN_ID, recompiled, expected_revision=ledger.get_revision(RUN_ID))
 
     successors = _successor_works(ledger)
     assert len(successors) == 2
@@ -656,20 +650,14 @@ def test_cross_slot_isolation_no_escalation_leak(tmp_path: Path) -> None:
     )
     assert assessment.payload["verdict"] == "no_contribution"
 
-    slot_b_successors = [
-        item
-        for item in _successor_works(ledger)
-        if item.payload.get("decision_slot_id") == "slot-2"
-    ]
+    slot_b_successors = [item for item in _successor_works(ledger) if item.payload.get("decision_slot_id") == "slot-2"]
     assert len(slot_b_successors) == 1
     assert not slot_b_successors[0].payload.get("redecomposition_flagged")
     assert not slot_b_successors[0].payload.get("policy_proposal_id")
     # Slot A did escalate on its own second consecutive verdict.
-    slot_a_escalated = [
-        item
-        for item in _successor_works(ledger)
-        if item.payload.get("decision_slot_id") == "slot-1"
-    ][-1]
+    slot_a_escalated = [item for item in _successor_works(ledger) if item.payload.get("decision_slot_id") == "slot-1"][
+        -1
+    ]
     assert slot_a_escalated.payload["redecomposition_flagged"] is True
 
 
