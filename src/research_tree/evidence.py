@@ -378,8 +378,6 @@ class EvidenceResolver:
         artifact = self._resolve_ledger_artifact(anchor)
         if artifact.status != "active":
             raise EvidenceValidationError("anchor references inactive evidence")
-        if artifact.evidence_class == "legacy_unspecified":
-            raise EvidenceValidationError("evidence class is not authoritative")
         if artifact.extractor_version != anchor.extractor_version:
             raise EvidenceValidationError("extractor version mismatch")
         self._validate_locator(artifact)
@@ -516,8 +514,6 @@ class EvidenceRepository:
             raise EvidenceValidationError("artifact must be an EvidenceArtifact")
         if not isinstance(content, ContentObject):
             raise EvidenceValidationError("content must be a ContentObject")
-        if artifact.evidence_class == "legacy_unspecified":
-            raise EvidenceValidationError("evidence_class must be explicit")
         if (
             artifact.content_digest != content.digest
             or artifact.size_bytes != content.byte_size
