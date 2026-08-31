@@ -936,6 +936,64 @@ def test_trailing_corrupt_confirmation_rejects_compilation(tmp_path: Path) -> No
         )
 
 
+# ---------------------------------------------------------------------------
+# R4: defense-in-depth falsifiability re-entry (confirm + compile boundaries)
+# ---------------------------------------------------------------------------
+
+
+def test_confirm_handoff_rejects_unfalsifiable_projection(tmp_path: Path) -> None:
+    """A pre-gate (hand-written) handoff_pending ledger cannot confirm an unfalsifiable
+    projection: the confirm boundary re-validates the projection content itself."""
+
+    workspace, ledger, coordinator, _target, _projection_file = wired_run(tmp_path)
+    falsifiable = _displayed_projection(
+        ledger,
+        projection_id="projection-legit",
+        success_oracles=({"id": "oracle-1", "evidence_standard_ids": ("standard-1",)},),
+    )
+    coordinator.persist_strategy_projection(falsifiable, expected_revision=ledger.get_revision(RUN_ID))
+    coordinator.display_strategy(RUN_ID, falsifiable, expected_revision=ledger.get_revision(RUN_ID))
+    unfalsifiable = _unfalsifiable_projection(ledger)
+    ledger.append_strategy_projection(
+        RUN_ID,
+        unfalsifiable.projection_id,
+        unfalsifiable.to_dict(),
+        parent_refs=(
+            unfalsifiable.decision_frame_ref,
+            unfalsifiable.alignment_handoff_ref,
+            unfalsifiable.target_ref,
+        ),
+        expected_revision=ledger.get_revision(RUN_ID),
+    )
+    state_before = coordinator.state(RUN_ID)
+
+    with pytest.raises(CoordinatorConflictError, match="evidence_standard_ids"):
+        coordinator.confirm_handoff(
+            RUN_ID,
+            projection_ref=ArtifactRef(RUN_ID, unfalsifiable.projection_id, unfalsifiable.revision),
+            confirmation=f"I accept {unfalsifiable.display_digest} and authorize research.",
+            expected_revision=ledger.get_revision(RUN_ID),
+            actor="human",
+        )
+
+    assert coordinator.state(RUN_ID) == state_before
+    assert not any(item.kind == "lifecycle-event" for item in ledger.load_run(RUN_ID).artifacts)
+
+
+def test_compile_rejects_unfalsifiable_confirmed_projection(tmp_path: Path) -> None:
+    """The serves basis itself must be falsifiable: a hand-confirmed legacy projection with
+    bare-string oracles cannot authorize work items."""
+
+    ledger, target = goal_run(tmp_path, slots=(slot("slot-1"),), success_oracles=("oracle-1",))
+
+    with pytest.raises(InvalidWorkItemError, match="unfalsifiable"):
+        CanonicalWorkItemCompiler(ledger).compile(
+            **work_item_arguments(target), expected_revision=ledger.get_revision(RUN_ID)
+        )
+
+    assert not any(item.kind == WORK_ITEM_KIND for item in ledger.load_run(RUN_ID).artifacts)
+
+
 def test_superseded_confirmation_rejects_compilation(tmp_path: Path) -> None:
     ledger, target = goal_run(tmp_path, slots=(slot("slot-1"),))
     confirmed = next(item for item in ledger.load_run(RUN_ID).artifacts if item.kind == "strategy-projection")
