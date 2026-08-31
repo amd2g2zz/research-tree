@@ -11,12 +11,77 @@ import hashlib
 from typing import Any, Mapping, Sequence
 
 from .acceptance import DeliveryAcceptance, delivery_pair_digest
-from .domain import ArtifactRef, ArtifactRevision, canonical_json_bytes, thaw_json, validate_identifier
+from .domain import (
+    ArtifactRef,
+    ArtifactRevision,
+    DataIntegrityError,
+    canonical_json_bytes,
+    thaw_json,
+    validate_identifier,
+)
 from .run_ledger import LedgerIntegrityError, RunLedger
 
 
 class CompletionInputError(LedgerIntegrityError):
     """Raised when a proposed canonical completion input is not admissible."""
+
+
+GOAL_SATISFACTION_ROLE = "goal_satisfaction"
+GOAL_SATISFACTION_KIND = "goal-satisfaction"
+GOAL_SATISFACTION_VERDICTS = ("satisfied", "partial", "unmet", "waived")
+# Ledger artifact kinds a goal_satisfaction verdict may cite as evidence. The
+# PRD also lists "experiment result"; no such artifact kind exists in the
+# runtime, so the set covers the three existing evidence classes.
+GOAL_SATISFACTION_EVIDENCE_KINDS = frozenset(
+    {"finding-pack", "slot-closure-assessment", "goal-contribution-assessment"}
+)
+
+
+def validate_goal_satisfaction_payload(payload: Any) -> dict[str, Any]:
+    """Validate one per-oracle goal_satisfaction payload and return its normalized fields.
+
+    Every field violation raises ``CompletionInputError`` naming the field, so a
+    rejected registration always says which key was inadmissible.
+    """
+
+    required = {"schema", "oracle_id", "verdict", "evidence_refs", "waiver_reason"}
+    if not isinstance(payload, Mapping):
+        raise CompletionInputError("goal_satisfaction payload must be an object")
+    if set(payload) != required:
+        raise CompletionInputError("goal_satisfaction payload fields do not match schema")
+    if payload["schema"] != 1:
+        raise CompletionInputError("goal_satisfaction payload schema must be 1")
+    oracle_id = payload["oracle_id"]
+    if not isinstance(oracle_id, str) or not oracle_id.strip():
+        raise CompletionInputError("goal_satisfaction oracle_id must be a non-empty string")
+    verdict = payload["verdict"]
+    if verdict not in GOAL_SATISFACTION_VERDICTS:
+        raise CompletionInputError("goal_satisfaction verdict must be one of: satisfied, partial, unmet, waived")
+    refs_value = payload["evidence_refs"]
+    if not isinstance(refs_value, (list, tuple)) or isinstance(refs_value, (str, bytes)):
+        raise CompletionInputError("goal_satisfaction evidence_refs must be a sequence of artifact references")
+    evidence_refs: list[ArtifactRef] = []
+    for value in refs_value:
+        try:
+            evidence_refs.append(ArtifactRef.from_dict(value))
+        except (DataIntegrityError, TypeError, ValueError) as error:
+            raise CompletionInputError("goal_satisfaction evidence_refs entries must be artifact references") from error
+    waiver_reason = payload["waiver_reason"]
+    if waiver_reason is not None and (not isinstance(waiver_reason, str) or not waiver_reason.strip()):
+        raise CompletionInputError("goal_satisfaction waiver_reason must be a non-empty string or null")
+    if verdict == "waived":
+        if waiver_reason is None:
+            raise CompletionInputError("waived verdict requires a non-empty waiver_reason")
+    elif waiver_reason is not None:
+        raise CompletionInputError(f"{verdict} verdict requires waiver_reason: null")
+    if verdict in {"satisfied", "partial"} and not evidence_refs:
+        raise CompletionInputError(f"{verdict} verdict requires non-empty evidence_refs")
+    return {
+        "oracle_id": oracle_id,
+        "verdict": verdict,
+        "evidence_refs": tuple(evidence_refs),
+        "waiver_reason": waiver_reason,
+    }
 
 
 class CompletionInputRegistrar:
@@ -258,6 +323,47 @@ class CompletionInputRegistrar:
             expected_revision=expected_revision,
         )
 
+    def write_goal_satisfaction(
+        self,
+        *,
+        round_id: str,
+        registration_id: str,
+        oracle_id: str,
+        verdict: str,
+        evidence_refs: Sequence[ArtifactRef] = (),
+        waiver_reason: str | None = None,
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        """Register one per-oracle goal_satisfaction completion input (issuer: coordinator).
+
+        The payload's ``evidence_refs`` are bound to the registration's exact
+        parent lineage, so a satisfied/partial verdict can never cite evidence
+        the ledger does not hold.
+        """
+
+        round_id = validate_identifier(round_id, "round_id")
+        registration_id = validate_identifier(registration_id, "registration_id")
+        payload = {
+            "schema": 1,
+            "oracle_id": oracle_id,
+            "verdict": verdict,
+            "evidence_refs": [ref.to_dict() for ref in evidence_refs],
+            "waiver_reason": waiver_reason,
+        }
+        validated = validate_goal_satisfaction_payload(payload)
+        parents = _refs(validated["evidence_refs"])
+        return self._write(
+            round_id=round_id,
+            artifact_id=registration_id,
+            role=GOAL_SATISFACTION_ROLE,
+            kind=GOAL_SATISFACTION_KIND,
+            payload=payload,
+            parent_refs=parents,
+            issuer="coordinator",
+            issuer_evidence={"oracle_id": validated["oracle_id"], "verdict": validated["verdict"]},
+            expected_revision=expected_revision,
+        )
+
     def write_evaluation(
         self,
         *,
@@ -417,4 +523,13 @@ def _acceptance_from_mapping(value: Mapping[str, Any]) -> DeliveryAcceptance:
     )
 
 
-__all__ = ["CompletionInputError", "CompletionInputRegistrar", "delivery_manifest_digest"]
+__all__ = [
+    "CompletionInputError",
+    "CompletionInputRegistrar",
+    "GOAL_SATISFACTION_EVIDENCE_KINDS",
+    "GOAL_SATISFACTION_KIND",
+    "GOAL_SATISFACTION_ROLE",
+    "GOAL_SATISFACTION_VERDICTS",
+    "delivery_manifest_digest",
+    "validate_goal_satisfaction_payload",
+]

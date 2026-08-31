@@ -774,6 +774,7 @@ class RunLedger:
             "technical_delivery": "technical-research-package",
             "human_delivery": "human-research-report",
             "acceptance": "delivery-acceptance",
+            "goal_satisfaction": "goal-satisfaction",
         }
         required_issuers = {
             "technical_delivery": "canonical-delivery-compiler-v1",

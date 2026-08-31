@@ -3282,6 +3282,10 @@ class ResearchRunCoordinator:
                     else:
                         manifold["acceptance_ref"] = acceptance_ref.to_dict()
                         diagnostics["acceptance_ref"] = {"status": "pass", "ref": acceptance_ref.to_dict()}
+        goal_satisfaction = self._goal_satisfaction_diagnostic(run_id, registrations)
+        diagnostics["goal_satisfaction"] = goal_satisfaction
+        if goal_satisfaction["status"] == "pass":
+            manifold["goal_satisfaction_refs"] = goal_satisfaction["refs"]
         diagnostics.setdefault(
             "technical_delivery_ref",
             {"status": "fail", "reason": "pair_incomplete"},
@@ -3295,6 +3299,87 @@ class ResearchRunCoordinator:
             {"status": "fail", "reason": "pair_incomplete"},
         )
         return manifold, diagnostics
+
+    def _goal_satisfaction_diagnostic(
+        self, run_id: str, registrations: Mapping[str, tuple[ArtifactRevision, ...]]
+    ) -> dict[str, Any]:
+        """Issue #429: gate completion on the confirmed projection's success oracles.
+
+        Fail-closed semantics: a run whose confirmation record does not resolve
+        to a confirmed projection can never pass (``goal_satisfaction_unknown``),
+        every projection oracle needs exactly one current goal_satisfaction
+        registration (duplicates fail ``oracle_duplicate``), and a missing or
+        ``unmet`` verdict leaves the oracle uncovered (``oracle_uncovered``).
+        A ``satisfied``/``partial`` verdict only counts when at least one of its
+        evidence references resolves to a current, non-quarantined artifact of an
+        admissible evidence kind in this run; a waived verdict always counts
+        because the registrar already required its non-empty ``waiver_reason``.
+        """
+
+        from .completion_inputs import (
+            GOAL_SATISFACTION_EVIDENCE_KINDS,
+            GOAL_SATISFACTION_ROLE,
+            CompletionInputError,
+            validate_goal_satisfaction_payload,
+        )
+        from .strategy_projection import latest_confirmed
+
+        snapshot = self.ledger.load_run(run_id)
+        projection = latest_confirmed(snapshot.artifacts)
+        if projection is None:
+            return {"status": "fail", "reason": "goal_satisfaction_unknown"}
+        oracle_ids: list[str] = []
+        for oracle in projection.payload.get("success_oracles") or ():
+            if isinstance(oracle, Mapping) and isinstance(oracle.get("id"), str) and oracle["id"].strip():
+                oracle_id = str(oracle["id"])
+            elif isinstance(oracle, str) and oracle.strip():
+                oracle_id = oracle
+            else:
+                continue
+            if oracle_id not in oracle_ids:
+                oracle_ids.append(oracle_id)
+        by_oracle: dict[str, list[tuple[ArtifactRevision, dict[str, Any]]]] = {}
+        for item in registrations.get(GOAL_SATISFACTION_ROLE, ()):
+            try:
+                parsed = validate_goal_satisfaction_payload(thaw_json(item.payload))
+            except CompletionInputError:
+                continue
+            by_oracle.setdefault(parsed["oracle_id"], []).append((item, parsed))
+        duplicates = [oracle for oracle in oracle_ids if len(by_oracle.get(oracle, ())) > 1]
+        if duplicates:
+            return {"status": "fail", "reason": "oracle_duplicate", "oracles": duplicates}
+        latest_revision: dict[str, int] = {}
+        indexed: dict[tuple[str, int], ArtifactRevision] = {}
+        for item in snapshot.artifacts:
+            indexed[(item.id, item.revision)] = item
+            if item.revision > latest_revision.get(item.id, 0):
+                latest_revision[item.id] = item.revision
+        quarantined = self._quarantined_refs(run_id)
+        uncovered: list[str] = []
+        for oracle in oracle_ids:
+            registered = by_oracle.get(oracle, ())
+            if len(registered) != 1:
+                uncovered.append(oracle)
+                continue
+            item, parsed = registered[0]
+            verdict = parsed["verdict"]
+            if verdict == "unmet":
+                uncovered.append(oracle)
+            elif verdict == "waived":
+                continue
+            elif not any(
+                reference.round_id == run_id
+                and reference not in quarantined
+                and latest_revision.get(reference.artifact_id) == reference.revision
+                and indexed.get((reference.artifact_id, reference.revision)) is not None
+                and indexed[(reference.artifact_id, reference.revision)].kind in GOAL_SATISFACTION_EVIDENCE_KINDS
+                for reference in parsed["evidence_refs"]
+            ):
+                uncovered.append(oracle)
+        if uncovered:
+            return {"status": "fail", "reason": "oracle_uncovered", "oracles": uncovered}
+        refs = [self._artifact_ref(by_oracle[oracle][0][0]).to_dict() for oracle in oracle_ids]
+        return {"status": "pass", "refs": refs}
 
     def _completion_obligations(self, run_id: str) -> tuple[str, ...]:
         """Evaluate completion from ledger evidence, never host supplied claims."""
@@ -3319,12 +3404,19 @@ class ResearchRunCoordinator:
         missing = self._completion_obligations(run_id)
         if not missing and current.payload.get("state") == "completed":
             missing = ()
+        diagnostics = self._completion_manifold(run_id)[1]
+        next_actions = ["resolve:" + item for item in missing]
+        goal_detail = diagnostics.get("goal_satisfaction")
+        if isinstance(goal_detail, Mapping) and goal_detail.get("reason") == "oracle_uncovered":
+            next_actions.extend(
+                "resolve:goal_satisfaction:" + str(oracle_id) for oracle_id in goal_detail.get("oracles", ())
+            )
         return {
             "run_id": run_id,
             "state": current.payload["state"],
             "unmet_obligations": missing,
-            "field_diagnostics": self._completion_manifold(run_id)[1],
-            "next_actions": ["resolve:" + item for item in missing],
+            "field_diagnostics": diagnostics,
+            "next_actions": next_actions,
             "quarantined_paths": self._quarantine_paths(run_id),
             "state_digest": current.payload["state_digest"],
         }
