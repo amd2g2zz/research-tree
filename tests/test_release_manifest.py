@@ -1,8 +1,11 @@
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
+HARNESS_ROOT = ROOT / "evaluation" / "harness"
+sys.path.insert(0, str(HARNESS_ROOT))
 
 
 def test_public_release_case_and_retained_manifest_are_governed() -> None:
