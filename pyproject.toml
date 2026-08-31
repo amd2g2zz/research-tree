@@ -59,3 +59,12 @@ max-positional-args = 10
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+# Include the lifecycle matrix inside the installed wheel so coordinator can
+# load it at import time. Without this, _load_lifecycle_transitions raises
+# CoordinatorConfigError on a freshly installed environment (see issue #407).
+# ADR-002 mandates a single canonical source for the lifecycle matrix.
+"research_tree" = [
+    "data/*.json",
+]

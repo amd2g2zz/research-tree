@@ -27,6 +27,10 @@ class _MatrixPathFactory:
     The chain works because ``parents[2]`` returns a real ``pathlib.Path``
     (``tmp_path``), and the subsequent ``/ "openspec" / ...`` segments build
     a real path object on top of that real path.
+
+    Also exposes ``joinpath`` so the production ``importlib.resources.files()
+    .joinpath("data/lifecycle-matrix-v1.json")`` path returns the same
+    ``tmp_path``-relative target as the Path chain.
     """
 
     def __init__(self, redirect_to: Path) -> None:
@@ -49,9 +53,44 @@ class _MatrixPathFactory:
             return self._redirect_to / other
         return self  # type: ignore[return-value]
 
+    def joinpath(self, *parts: str) -> Path:
+        # Map the wheel resource lookup back to the same test fixture.
+        # Production: research_tree/data/lifecycle-matrix-v1.json
+        # Test fixture: <tmp_path>/openspec/changes/unify-research-runtime-alpha2/
+        #               registries/lifecycle-matrix-v1.json (canonical repo path)
+        # We use the canonical repo path so all test fixtures land in one place.
+        target = self._redirect_to
+        for part in parts:
+            target = target / part
+        # If the joined path doesn't exist but a canonical repo-path version
+        # does, redirect to the repo-path version (test only writes to that path).
+        if not target.exists():
+            canonical = (
+                self._redirect_to / "openspec" / "changes" / "unify-research-runtime-alpha2" / "registries" / parts[-1]
+            )
+            if canonical.exists():
+                return canonical
+        return target
+
 
 def _patch_matrix_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Replace ``Path`` inside the coordinator module with the test factory."""
+    """Redirect both candidate lookups in coordinator._load_lifecycle_transitions
+    to ``tmp_path``.
+
+    Since issue #407, the loader tries ``importlib.resources.files("research_tree")
+    .joinpath("data/lifecycle-matrix-v1.json")`` first, then falls back to the
+    repo-relative Path. Both lookups must point at the same test fixture so the
+    happy-path test sees the valid matrix and the failure-path tests can stub
+    the file as missing/malformed.
+    """
+
+    def fake_files(_package: str) -> _MatrixPathFactory:
+        return _MatrixPathFactory(tmp_path)
+
+    monkeypatch.setattr(
+        "research_tree.coordinator.importlib.resources.files",
+        fake_files,
+    )
     factory = _MatrixPathFactory(tmp_path)
     monkeypatch.setattr("research_tree.coordinator.Path", factory)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.resources
 import json
 import logging
 from dataclasses import dataclass
@@ -206,32 +207,61 @@ def _load_lifecycle_transitions() -> dict[tuple[str, str], tuple[str, str]]:
 
     The legacy hardcoded ``_TRANSITIONS`` dict is no longer a silent fallback —
     any governance drift now surfaces as ``CoordinatorConfigError``.
+
+    Lookup order:
+    1. ``importlib.resources`` from the installed wheel (canonical for production)
+    2. Repo-relative path (canonical for editable / dev installs)
     """
 
-    matrix = (
-        Path(__file__).resolve().parents[2]
-        / "openspec"
-        / "changes"
-        / "unify-research-runtime-alpha2"
-        / "registries"
-        / "lifecycle-matrix-v1.json"
+    # All candidates use Traversable/Path objects that implement read_text().
+    candidates: list[tuple[Any, str]] = [
+        # (path, source-label) — try wheel resource first
+        (importlib.resources.files("research_tree").joinpath("data/lifecycle-matrix-v1.json"), "wheel_resource"),
+        # then repo-relative (editable install / dev)
+        (
+            Path(__file__).resolve().parents[2]
+            / "openspec"
+            / "changes"
+            / "unify-research-runtime-alpha2"
+            / "registries"
+            / "lifecycle-matrix-v1.json",
+            "repo_relative",
+        ),
+    ]
+
+    last_error: Exception | None = None
+    for path, source in candidates:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, AttributeError) as error:
+            logger.error("canonical_lifecycle_matrix_candidate_missing: %s (source=%s, error=%s)", path, source, error)
+            last_error = error
+            continue
+        try:
+            payload = json.loads(text)
+        except (json.JSONDecodeError, ValueError) as error:
+            logger.error("canonical_lifecycle_matrix_malformed_json: %s (source=%s)", path, source)
+            raise CoordinatorConfigError(
+                f"canonical_lifecycle_matrix_malformed_json: {path} (source={source})"
+            ) from error
+        transitions = payload.get("transitions") if isinstance(payload, Mapping) else None
+        if not transitions:
+            logger.error("canonical_lifecycle_matrix_malformed_no_transitions: %s (source=%s)", path, source)
+            raise CoordinatorConfigError(
+                f"canonical_lifecycle_matrix_malformed_no_transitions: {path} (source={source})"
+            )
+        loaded = {
+            (str(item["from"]), str(item["event"])): (str(item["to"]), str(item["actor"])) for item in transitions
+        }
+        if not loaded:
+            logger.error("canonical_lifecycle_matrix_empty_transitions: %s (source=%s)", path, source)
+            raise CoordinatorConfigError(f"canonical_lifecycle_matrix_empty_transitions: {path} (source={source})")
+        return loaded
+
+    # No source succeeded — surface the most specific error.
+    raise CoordinatorConfigError(
+        f"canonical_lifecycle_matrix_missing_or_unreadable: tried {[s for _, s in candidates]}; last_error={last_error!r}"
     )
-    try:
-        payload = json.loads(matrix.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        logger.error("canonical_lifecycle_matrix_missing_or_unreadable: %s", matrix)
-        raise CoordinatorConfigError(f"canonical_lifecycle_matrix_missing_or_unreadable: {matrix}") from error
-
-    transitions = payload.get("transitions") if isinstance(payload, Mapping) else None
-    if not transitions:
-        logger.error("canonical_lifecycle_matrix_malformed_no_transitions: %s", matrix)
-        raise CoordinatorConfigError(f"canonical_lifecycle_matrix_malformed_no_transitions: {matrix}")
-
-    loaded = {(str(item["from"]), str(item["event"])): (str(item["to"]), str(item["actor"])) for item in transitions}
-    if not loaded:
-        logger.error("canonical_lifecycle_matrix_empty_transitions: %s", matrix)
-        raise CoordinatorConfigError(f"canonical_lifecycle_matrix_empty_transitions: {matrix}")
-    return loaded
 
 
 _TRANSITIONS = _load_lifecycle_transitions()
