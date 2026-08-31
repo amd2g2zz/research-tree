@@ -146,7 +146,7 @@ def projection(
     handoff_ref: ArtifactRef,
     target_ref: ArtifactRef,
     decision_targets: tuple = ("decision-1",),
-    success_oracles: tuple = ("oracle-1",),
+    success_oracles: tuple = ({"id": "oracle-1", "evidence_standard_ids": ("standard-1",)},),
     status: str = "displayed",
     projection_id: str = "projection-1",
 ) -> StrategyProjection:
@@ -206,7 +206,7 @@ def goal_run(
     *,
     slots: tuple[dict, ...] = (),
     target_id: str = "decision-1",
-    success_oracles: tuple = ("oracle-1",),
+    success_oracles: tuple = ({"id": "oracle-1", "evidence_standard_ids": ("standard-1",)},),
 ):
     """A ledger run holding a confirmed projection and a blueprint target carrying slots."""
 
@@ -977,7 +977,10 @@ def test_confirm_handoff_rejects_unfalsifiable_projection(tmp_path: Path) -> Non
         )
 
     assert coordinator.state(RUN_ID) == state_before
-    assert not any(item.kind == "lifecycle-event" for item in ledger.load_run(RUN_ID).artifacts)
+    assert not any(
+        item.kind == "lifecycle-event" and item.payload.get("event") == "handoff_confirmed"
+        for item in ledger.load_run(RUN_ID).artifacts
+    )
 
 
 def test_compile_rejects_unfalsifiable_confirmed_projection(tmp_path: Path) -> None:

@@ -537,6 +537,13 @@ class ResearchRunCoordinator:
         artifact, projection = self.require_strategy_projection(projection_ref, run_id=run_id, require_displayed=True)
         if projection.display_digest not in confirmation:
             raise CoordinatorConflictError("confirmation_digest_mismatch")
+        # Defense in depth: the guard cannot vouch for artifacts written before the gate
+        # existed or outside the coordinator, so confirmation re-validates the projection
+        # content itself — a single gate failure must not fail the whole chain open.
+        try:
+            validate_falsifiability(projection)
+        except StrategyProjectionError as error:
+            raise CoordinatorConflictError(str(error)) from error
         payload = {
             "projection_ref": ArtifactRef(run_id, artifact.id, artifact.revision).to_dict(),
             "display_digest": projection.display_digest,

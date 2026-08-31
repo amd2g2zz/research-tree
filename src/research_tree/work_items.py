@@ -14,7 +14,12 @@ from .domain import (
     validate_identifier,
 )
 from .run_ledger import RunLedger
-from .strategy_projection import StrategyProjection, latest_confirmed
+from .strategy_projection import (
+    StrategyProjection,
+    StrategyProjectionError,
+    latest_confirmed,
+    validate_falsifiability,
+)
 
 WORK_ITEM_KIND = "work-item"
 ROUND_SUPERSESSION_KIND = "round-supersession"
@@ -359,6 +364,13 @@ def _slot_serves(
     if projection is None:
         raise InvalidWorkItemError(f"work item requires a confirmed strategy-projection: {round_id}")
     projection_model = StrategyProjection.from_dict(dict(projection.payload))
+    # Defense in depth: the confirmed basis of every serves validation must itself be
+    # falsifiable. A hand-written (pre-gate) ledger can carry a confirmed event over an
+    # unfalsifiable projection; a single gate failure must not fail the whole chain open.
+    try:
+        validate_falsifiability(projection_model)
+    except StrategyProjectionError as error:
+        raise InvalidWorkItemError(f"confirmed strategy-projection is unfalsifiable: {error}") from error
     target_ids = {_projection_entry_id(entry) for entry in projection_model.decision_targets}
     target_ids.discard(None)
     if target_id not in target_ids:
