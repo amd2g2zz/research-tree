@@ -110,7 +110,7 @@
         "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_alignment_protocol.py tests/test_alignment_actions.py tests/test_alignment_beliefs.py tests/test_alignment_messages.py tests/test_alignment_handoff.py && uv run ruff check src/research_tree/alignment_protocol.py tests/test_alignment_protocol.py tests/test_alignment_actions.py tests/test_alignment_beliefs.py tests/test_alignment_messages.py tests/test_alignment_handoff.py && uv run ruff format --check src/research_tree/alignment_protocol.py tests/test_alignment_protocol.py tests/test_alignment_actions.py tests/test_alignment_beliefs.py tests/test_alignment_messages.py tests/test_alignment_handoff.py",
+        "command": "uv run pytest -q && uv run ruff check && uv run ruff format --check",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "0c2afd23e0f2acf69b5bf88435a5595835d01404dbe350cb53c10809e631481d",
@@ -294,7 +294,7 @@
         "evaluation/cases/correction-invalidation-v1.json"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_feedback_rounds.py tests/test_alignment_protocol.py tests/test_research_run_coordinator.py && uv run ruff check src/research_tree/feedback.py src/research_tree/coordinator.py src/research_tree/alignment_protocol.py src/research_tree/__init__.py tests/test_feedback_rounds.py tests/test_alignment_protocol.py && uv run ruff format --check src/research_tree/feedback.py src/research_tree/coordinator.py src/research_tree/alignment_protocol.py src/research_tree/__init__.py tests/test_feedback_rounds.py tests/test_alignment_protocol.py",
+        "command": "uv run pytest -q tests/test_feedback_rounds.py tests/test_research_run_coordinator.py && uv run ruff check src/research_tree/feedback.py src/research_tree/coordinator.py src/research_tree/__init__.py tests/test_feedback_rounds.py && uv run ruff format --check src/research_tree/feedback.py src/research_tree/coordinator.py src/research_tree/__init__.py tests/test_feedback_rounds.py",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "8ca54e0c50c8b12ca1af98dd1dfb3b67bc0439484f2e14d25ccad31c4cc2c534",
@@ -403,7 +403,7 @@
         "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_user_preferences.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py && uv run ruff check src/research_tree/preferences.py src/research_tree/strategy_projection.py src/research_tree/run_ledger.py src/research_tree/cli.py src/research_tree/__init__.py tests/test_user_preferences.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py && uv run ruff format --check src/research_tree/preferences.py src/research_tree/strategy_projection.py src/research_tree/run_ledger.py src/research_tree/cli.py src/research_tree/__init__.py tests/test_user_preferences.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py",
+        "command": "uv run pytest -q tests/test_strategy_projection.py tests/test_sqlite_ledger.py && uv run ruff check src/research_tree/strategy_projection.py src/research_tree/run_ledger.py src/research_tree/cli.py src/research_tree/__init__.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py && uv run ruff format --check src/research_tree/strategy_projection.py src/research_tree/run_ledger.py src/research_tree/cli.py src/research_tree/__init__.py tests/test_strategy_projection.py tests/test_sqlite_ledger.py",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "f0b54146e5db39568c3885117f130b6d6d1dc1668a8c17bd10ab042ae94d47f9",
