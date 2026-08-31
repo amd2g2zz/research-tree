@@ -340,18 +340,24 @@ def _source_revision_is_ancestor(repository: Path, source_revision: str) -> bool
     return completed.returncode == 0
 
 
+def _command_path_candidates(command: str) -> tuple[Path, ...]:
+    candidates: list[Path] = []
+    for raw_token in shlex.split(command, posix=False):
+        token = raw_token.strip("\"'")
+        candidate = Path(token)
+        if candidate.suffix != ".py" or candidate.is_absolute():
+            continue
+        candidates.append(candidate)
+    return tuple(candidates)
+
+
 def _missing_acceptance_entrypoints(
     command: str,
     repository: Path,
     source_revision: str | None,
 ) -> tuple[str, ...]:
-    tokens = shlex.split(command, posix=False)
     missing: list[str] = []
-    for raw_token in tokens:
-        token = raw_token.strip("\"'")
-        candidate = Path(token)
-        if candidate.suffix != ".py" or candidate.is_absolute():
-            continue
+    for candidate in _command_path_candidates(command):
         if (repository / candidate).is_file():
             continue
         if (
@@ -366,6 +372,16 @@ def _missing_acceptance_entrypoints(
             continue
         missing.append(candidate.as_posix())
     return tuple(sorted(set(missing)))
+
+
+def _missing_tests_paths(commands: Sequence[str], repository: Path) -> tuple[str, ...]:
+    missing: set[str] = set()
+    for command in commands:
+        for candidate in _command_path_candidates(command):
+            path = candidate.as_posix()
+            if path.startswith("tests/") and not (repository / candidate).is_file():
+                missing.add(path)
+    return tuple(sorted(missing))
 
 
 def _dependency_violation(
@@ -477,6 +493,21 @@ def validate_governance(inputs: GovernanceInputs, *, repository: Path | None = N
                         code="missing_acceptance_entrypoint",
                         subject=group_id,
                         message=(f"verified group {group_id} acceptance entrypoint does not exist: {entrypoint}"),
+                    )
+                )
+        if repository is not None:
+            commands = [groups[group_id].acceptance_command]
+            receipt = record.command_receipt
+            if isinstance(receipt, Mapping):
+                receipt_command = receipt.get("command")
+                if isinstance(receipt_command, str):
+                    commands.append(receipt_command)
+            for tests_path in _missing_tests_paths(commands, repository):
+                violations.append(
+                    GovernanceViolation(
+                        code="missing_tests_entrypoint",
+                        subject=group_id,
+                        message=(f"task group {group_id} command references missing tests/ entrypoint: {tests_path}"),
                     )
                 )
 

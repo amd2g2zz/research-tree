@@ -59,6 +59,15 @@
   `source_revision`, and `recorded_at` are historical records bound to their
   recorded source revision and are intentionally not rewritten; each
   `acceptance_command` and its paired receipt `command` remain identical.
+- [x] 2.5 Close the defect class mechanically: `scripts/openspec_governance.py`
+  now scans every task-execution alpha2 acceptance command plus its paired
+  task-verification receipt command for `tests/` path tokens and reports a
+  `missing_tests_entrypoint` violation when the path is absent from repository
+  HEAD, for every group state (planned included) — closing the gap that let
+  dev-absent suites survive review rounds. Red-first tests added to
+  `tests/test_openspec_governance.py`; the gate was verified to fail on a
+  reintroduced residue (group 17) and to pass (exit 0, zero violations) on the
+  repaired registries.
 
 ## 3. Verification And Handoff
 

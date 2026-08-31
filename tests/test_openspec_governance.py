@@ -18,6 +18,134 @@ def registry_groups() -> dict[int, dict[str, object]]:
     return {item["group"]: item for item in payload["groups"]}
 
 
+def write_registry_fixtures(
+    tmp_path: Path,
+    *,
+    acceptance_command: str,
+    receipt_command: str | None = None,
+    state: str = "verified",
+) -> tuple[Path, Path, Path, Path]:
+    group_path = tmp_path / "groups.json"
+    group_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "groups": [
+                    {
+                        "group": 1,
+                        "depends_on": [],
+                        "owner": "runtime",
+                        "outputs": ["output-1"],
+                        "acceptance_command": acceptance_command,
+                        "rollback": "disable feature",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    verification_record: dict[str, object] = {"group": 1, "state": state}
+    if receipt_command is not None:
+        verification_record.update(
+            {
+                "evidence_refs": ["evidence-1"],
+                "command_receipt": {
+                    "command": receipt_command,
+                    "exit_code": 0,
+                    "environment_digest": "a" * 64,
+                    "output_digest": "b" * 64,
+                    "source_revision": "c" * 40,
+                    "raw_output_ref": "evidence/output-1.txt",
+                    "recorded_at": "2026-08-10T00:00:00+00:00",
+                },
+                "rollback": "disable feature",
+            }
+        )
+    verification_path = tmp_path / "verification.json"
+    verification_path.write_text(
+        json.dumps({"schema_version": 1, "groups": [verification_record]}),
+        encoding="utf-8",
+    )
+    issues_path = tmp_path / "issues.json"
+    issues_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "issues": [
+                    {
+                        "issue": 53,
+                        "primary_group": 1,
+                        "supporting_groups": [],
+                        "capabilities": ["durable-runtime"],
+                        "openspec_change": "fixture-change",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    capabilities_path = tmp_path / "capabilities.json"
+    capabilities_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "capability_rows": [{"capability": "durable-runtime", "github_issue": "#53", "task_groups": [1]}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return group_path, verification_path, issues_path, capabilities_path
+
+
+def missing_tests_entrypoint_violations(report: object) -> list[object]:
+    return [violation for violation in report.violations if violation.code == "missing_tests_entrypoint"]  # type: ignore[attr-defined]
+
+
+def test_command_pair_referencing_absent_tests_path_is_rejected(tmp_path: Path) -> None:
+    command = "uv run pytest -q tests/test_absent_suite.py"
+
+    report = validate_governance(
+        load_governance_inputs(*write_registry_fixtures(tmp_path, acceptance_command=command, receipt_command=command)),
+        repository=tmp_path,
+    )
+
+    violations = missing_tests_entrypoint_violations(report)
+    assert len(violations) == 1
+    assert violations[0].subject == 1
+    assert violations[0].message == (
+        "task group 1 command references missing tests/ entrypoint: tests/test_absent_suite.py"
+    )
+
+
+def test_command_pair_with_existing_tests_path_stays_valid(tmp_path: Path) -> None:
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_present_suite.py").write_text("", encoding="utf-8")
+    command = "uv run pytest -q tests/test_present_suite.py"
+
+    report = validate_governance(
+        load_governance_inputs(*write_registry_fixtures(tmp_path, acceptance_command=command, receipt_command=command)),
+        repository=tmp_path,
+    )
+
+    assert missing_tests_entrypoint_violations(report) == []
+    assert report.valid is True
+
+
+def test_planned_command_with_absent_tests_path_is_rejected(tmp_path: Path) -> None:
+    command = "uv run pytest -q tests/test_future_absent_suite.py"
+
+    report = validate_governance(
+        load_governance_inputs(*write_registry_fixtures(tmp_path, acceptance_command=command, state="planned")),
+        repository=tmp_path,
+    )
+
+    violations = missing_tests_entrypoint_violations(report)
+    assert len(violations) == 1
+    assert violations[0].subject == 1
+    assert "tests/test_future_absent_suite.py" in violations[0].message
+
+
 def test_group_14_acceptance_entrypoint_resolves() -> None:
     definition = registry_groups()[14]
 
