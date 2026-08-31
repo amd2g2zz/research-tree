@@ -8,9 +8,10 @@ import os
 import re
 import secrets
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, BinaryIO, Sequence
+from typing import Any, BinaryIO, Iterable, Sequence
 
 from .skill_activation import build_loader_receipt
 
@@ -32,6 +33,26 @@ HOST_EVENTS = {
     "claude": frozenset({"SessionStart", "SessionEnd", "PreCompact", "SubagentStop", "PostToolUse", "Stop"}),
     "hermes": frozenset({"on_session_start", "on_session_end"}),
 }
+TRACE_DIRECTORY = Path(".research-tree-debug") / "events"
+TRACE_HOSTS = frozenset({"codex", "claude", "hermes"})
+TRACE_PHASES = frozenset(
+    {
+        "lifecycle_observed",
+        "intake",
+        "reconnaissance",
+        "alignment_turn",
+        "alignment_checkpoint",
+        "alignment_blocked",
+        "research_started",
+        "implementation_started",
+        "worker_blocked",
+        "completed",
+        "aborted",
+    }
+)
+TRACE_STATUSES = frozenset({"started", "completed", "blocked", "skipped", "failed"})
+TRACE_IDENTIFIER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
+TRACE_CODE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,95}\Z")
 
 
 class LifecycleHookError(ValueError):
@@ -227,8 +248,6 @@ def observe(
     path = _write_record(root, record, run_root / "events")
     if debug:
         try:
-            from .debug_trace import emit_trace
-
             emit_trace(
                 host=host,
                 phase="lifecycle_observed",
@@ -292,6 +311,109 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"research-tree hook debug: {exc}", file=sys.stderr)
     print(json.dumps(host_response(arguments.host), separators=(",", ":")))
     return 0
+
+
+class DebugTraceError(ValueError):
+    """Raised when a debug trace would be ambiguous or unsafe to persist."""
+
+
+def _trace_find_project_root(start: Path) -> Path:
+    """Find the checkout that owns an opt-in debug trace."""
+    current = start.resolve(strict=False)
+    for candidate in (current, *current.parents):
+        if (
+            (candidate / "pyproject.toml").is_file()
+            and (candidate / "packages").is_dir()
+            and (candidate / "skill-src").is_dir()
+        ):
+            return candidate
+    raise DebugTraceError("debug tracing must run inside a Research Tree checkout")
+
+
+def _trace_inside(root: Path, candidate: Path) -> Path:
+    try:
+        resolved = candidate.resolve(strict=False)
+        resolved.relative_to(root)
+    except (OSError, ValueError) as exc:
+        raise DebugTraceError("debug trace path must remain inside the project") from exc
+    return resolved
+
+
+def _trace_project_root(project_root: Path | None) -> Path:
+    root = project_root.resolve(strict=False) if project_root is not None else _trace_find_project_root(Path.cwd())
+    if not ((root / "pyproject.toml").is_file() and (root / "packages").is_dir() and (root / "skill-src").is_dir()):
+        raise DebugTraceError("project root is not a Research Tree checkout")
+    return root
+
+
+def _trace_identifier(value: str | None, label: str) -> str | None:
+    if value is None:
+        return None
+    if not TRACE_IDENTIFIER_RE.fullmatch(value):
+        raise DebugTraceError(f"{label} must be a bounded identifier")
+    return value
+
+
+def _trace_codes(values: Iterable[str]) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        if not TRACE_CODE_RE.fullmatch(value):
+            raise DebugTraceError("debug code must be a bounded identifier")
+        result.append(value)
+    if len(result) > 16:
+        raise DebugTraceError("a debug trace accepts at most 16 codes")
+    return result
+
+
+def _trace_write_record(root: Path, record: dict[str, Any]) -> Path:
+    destination = _trace_inside(root, root / TRACE_DIRECTORY)
+    destination.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(record, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+    for _ in range(3):
+        prefix = f"{time.time_ns():020d}"
+        path = _trace_inside(root, destination / f"{prefix}-{secrets.token_hex(8)}.json")
+        try:
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            continue
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+        return path
+    raise DebugTraceError("could not allocate a debug trace file")
+
+
+def emit_trace(
+    *,
+    host: str,
+    phase: str,
+    status: str,
+    codes: Iterable[str] = (),
+    run_id: str | None = None,
+    project_root: Path | None = None,
+) -> dict[str, Any]:
+    """Persist one sanitized workflow transition and return its relative path."""
+    if host not in TRACE_HOSTS:
+        raise DebugTraceError(f"unsupported debug host: {host}")
+    if phase not in TRACE_PHASES:
+        raise DebugTraceError(f"unsupported debug phase: {phase}")
+    if status not in TRACE_STATUSES:
+        raise DebugTraceError(f"unsupported debug status: {status}")
+
+    root = _trace_project_root(project_root)
+    record: dict[str, Any] = {
+        "schema": 1,
+        "source": "research-tree-debug",
+        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+        "host": host,
+        "phase": phase,
+        "status": status,
+        "codes": _trace_codes(codes),
+    }
+    normalized_run_id = _trace_identifier(run_id, "run id")
+    if normalized_run_id is not None:
+        record["run_id"] = normalized_run_id
+    path = _trace_write_record(root, record)
+    return {"status": "recorded", "path": path.relative_to(root).as_posix()}
 
 
 if __name__ == "__main__":

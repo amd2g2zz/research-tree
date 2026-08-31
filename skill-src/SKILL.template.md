@@ -265,7 +265,7 @@ capabilities actually exposed in the current session.
   provider.
 - Run experiments only when a safe execution surface is available. Otherwise
   record the missing evidence without upgrading its level.
-- When debug tracing is enabled and `research-tree-debug` is available, emit sanitized phase events from `references/debug-tracing.md`; trace failure must never block research or target work.
+- Debug tracing is hook-only: the setup-managed lifecycle hook emits a sanitized `lifecycle_observed` trace when run with `--debug` (see `references/debug-tracing.md`); trace failure must never block research or target work.
 - Delegate only when a worker/subagent mechanism is available; otherwise run
   independent tracks sequentially.
 - Preserve the fields in bundled table templates, but render them as labeled

@@ -235,8 +235,7 @@ evaluation.
   logs before retrying with a new attempt ID.
 - Keep installed Skill files read-only during research. Store all run state and
   deliverables in the writable task workspace.
-- Use `research-tree-debug` only when available and explicitly diagnosing
-  behavior; trace failure must never block research.
+- Debug tracing is hook-only: the setup-managed lifecycle hook emits sanitized traces when run with `--debug`; trace failure must never block research.
 - Use `scripts/hermes_skill_adapter.py` only for package validation, prompt-risk
   diagnosis, gateway-log diagnosis, hook rendering, or staging.
 - After handoff, use `scripts/hermes_execution_adapter.py` to translate
