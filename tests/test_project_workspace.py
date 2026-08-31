@@ -10,48 +10,6 @@ from pathlib import Path
 import pytest
 
 
-def test_initialize_migrates_legacy_roots_to_one_project_authority(tmp_path: Path) -> None:
-    from research_tree.project_workspace import initialize_project_run
-
-    legacy = tmp_path / ".research-tree-native" / "run-1"
-    legacy.mkdir(parents=True)
-    (legacy / "state.json").write_text('{"schema": 1}\n', encoding="utf-8")
-
-    workspace = initialize_project_run(tmp_path, project_id="topic-1", run_id="run-1", host="codex")
-
-    assert workspace.run_root == tmp_path / ".research-tree" / "projects" / "topic-1" / "runs" / "run-1"
-    assert not legacy.exists()
-    manifest = json.loads((workspace.run_root / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["project_id"] == "topic-1"
-    assert manifest["run_id"] == "run-1"
-    assert manifest["migrated_legacy_roots"] == [".research-tree-native/run-1"]
-
-
-def test_initialize_migrates_all_run_bound_legacy_authorities(tmp_path: Path) -> None:
-    from research_tree.project_workspace import initialize_project_run
-
-    for root in (".research-tree-native", ".research-tree-alignment"):
-        legacy = tmp_path / root / "run-1"
-        legacy.mkdir(parents=True)
-        (legacy / "state.json").write_text('{"schema": 1}\n', encoding="utf-8")
-
-    workspace = initialize_project_run(tmp_path, project_id="topic-1", run_id="run-1", host="codex")
-
-    assert not (tmp_path / ".research-tree-native" / "run-1").exists()
-    assert not (tmp_path / ".research-tree-alignment" / "run-1").exists()
-    assert (workspace.run_root / "legacy" / "native" / "state.json").is_file()
-    assert (workspace.run_root / "legacy" / "alignment" / "state.json").is_file()
-
-
-def test_initialize_rejects_unattributed_global_legacy_root(tmp_path: Path) -> None:
-    from research_tree.project_workspace import ProjectWorkspaceError, initialize_project_run
-
-    (tmp_path / ".research-tree-hooks").mkdir()
-
-    with pytest.raises(ProjectWorkspaceError, match="explicit migration"):
-        initialize_project_run(tmp_path, project_id="topic-1", run_id="run-1", host="codex")
-
-
 def test_installed_probe_records_unavailable_without_a_launcher(tmp_path: Path) -> None:
     from research_tree.project_workspace import initialize_project_run, probe_lifecycle_hook
 

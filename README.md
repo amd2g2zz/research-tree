@@ -81,6 +81,10 @@ uv sync
 Requirements: Git, Python 3.11+, [uv](https://docs.astral.sh/uv/), and at
 least one supported agent host.
 
+Breaking change (alpha3): run workspaces created by previous releases are no
+longer migrated automatically on initialize. Recreate the run, or migrate the
+old run workspace manually before resuming it.
+
 Research Tree also provides a Python API for composed workflow services when
 you need to embed its governed research workflow in another agent or
 application.
