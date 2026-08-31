@@ -235,7 +235,7 @@
       "state": "verified",
       "evidence_refs": [
         "ci://delivery-governance/delivery-gate",
-        "openspec/changes/refactor-adaptive-research-policy/evidence/policy-fixtures.json"
+        "openspec/changes/archive/refactor-adaptive-research-policy/evidence/policy-fixtures.json"
       ],
       "command_receipt": {
         "command": "uv run pytest -q tests/test_insight_digest.py tests/test_policy_replay.py && uv run ruff check src/research_tree/policy.py src/research_tree/insights.py tests/test_insight_digest.py tests/test_policy_replay.py && uv run ruff format --check src/research_tree/policy.py src/research_tree/insights.py tests/test_insight_digest.py tests/test_policy_replay.py",
@@ -290,7 +290,7 @@
       "state": "verified",
       "evidence_refs": [
         "ci://delivery-governance/delivery-gate",
-        "openspec/changes/invalidate-stale-alignment-state/evidence/group-23-lineage.json",
+        "openspec/changes/archive/invalidate-stale-alignment-state/evidence/group-23-lineage.json",
         "evaluation/cases/correction-invalidation-v1.json"
       ],
       "command_receipt": {
@@ -579,7 +579,7 @@
       "group": 44,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/register-canonical-delivery-acceptance/evidence/issue-157-delivery-acceptance.json"
+        "openspec/changes/archive/register-canonical-delivery-acceptance/evidence/issue-157-delivery-acceptance.json"
       ],
       "command_receipt": {
         "command": "uv run pytest -q tests/test_completion_delivery_registration.py tests/test_strict_delivery_lineage.py tests/test_alpha2_delivery_lifecycle.py tests/test_completion_input_registration.py tests/test_deliveries.py tests/test_e2e_blueprint.py && uv run ruff check src/research_tree/completion_inputs.py src/research_tree/run_ledger.py src/research_tree/delivery.py src/research_tree/__init__.py tests/test_completion_delivery_registration.py tests/test_strict_delivery_lineage.py tests/test_alpha2_delivery_lifecycle.py && uv run ruff format --check src/research_tree/completion_inputs.py src/research_tree/run_ledger.py src/research_tree/delivery.py src/research_tree/__init__.py tests/test_completion_delivery_registration.py tests/test_alpha2_delivery_lifecycle.py",
@@ -596,7 +596,7 @@
       "group": 45,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/resolve-completion-manifold/evidence/issue-158-completion-manifold.json"
+        "openspec/changes/archive/resolve-completion-manifold/evidence/issue-158-completion-manifold.json"
       ],
       "command_receipt": {
         "command": "uv run pytest -q tests/test_completion_manifold.py tests/test_completion_input_registration.py tests/test_completion_delivery_registration.py tests/test_research_run_coordinator.py tests/test_replay.py tests/test_debug_trace.py tests/test_feedback_rounds.py && uv run ruff check src/research_tree/coordinator.py src/research_tree/run_ledger.py tests/test_completion_manifold.py tests/test_research_run_coordinator.py tests/test_replay.py && uv run ruff format --check src/research_tree/coordinator.py src/research_tree/run_ledger.py tests/test_completion_manifold.py tests/test_research_run_coordinator.py tests/test_replay.py",
@@ -732,7 +732,7 @@
       "group": 61,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/close-canonical-host-event-boundary/evidence/issue-151-boundary.json"
+        "openspec/changes/archive/close-canonical-host-event-boundary/evidence/issue-151-boundary.json"
       ],
       "command_receipt": {
         "command": "uv run pytest -q tests/test_host_event_protocol.py tests/test_native_execution_adapter.py tests/test_research_run_coordinator.py tests/test_hermes_execution_adapter.py tests/test_hermes_host_events.py tests/test_skill_packages.py && uv run ruff check src/research_tree/coordinator.py src/research_tree/host_events.py src/research_tree/native_workflows.py scripts/host_event_protocol.py scripts/native_execution_adapter.py scripts/hermes_event_adapter.py scripts/hermes_execution_adapter.py tests/test_host_event_protocol.py tests/test_native_execution_adapter.py tests/test_research_run_coordinator.py && uv run ruff format --check src/research_tree/coordinator.py src/research_tree/host_events.py src/research_tree/native_workflows.py scripts/host_event_protocol.py scripts/native_execution_adapter.py scripts/hermes_event_adapter.py scripts/hermes_execution_adapter.py tests/test_host_event_protocol.py tests/test_native_execution_adapter.py tests/test_research_run_coordinator.py && uv run python scripts/build_skill_packages.py --check",
@@ -784,7 +784,7 @@
       "group": 63,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/reconstruct-semantic-replay/evidence/issue-154-replay.json"
+        "openspec/changes/archive/reconstruct-semantic-replay/evidence/issue-154-replay.json"
       ],
       "command_receipt": {
         "command": "uv run pytest -q tests/test_replay.py tests/test_debug_trace.py && uv run ruff check src/research_tree/debug_trace.py tests/test_replay.py tests/test_debug_trace.py && uv run ruff format --check src/research_tree/debug_trace.py tests/test_replay.py tests/test_debug_trace.py && uv run python scripts/check_openspec_governance.py",
@@ -818,7 +818,7 @@
       "group": 75,
       "state": "verified",
       "evidence_refs": [
-        "openspec/changes/execute-search-portfolio-batches/evidence/issue-186-portfolio-execution.json"
+        "openspec/changes/archive/execute-search-portfolio-batches/evidence/issue-186-portfolio-execution.json"
       ],
       "command_receipt": {
         "command": "uv run pytest -q tests/test_search_portfolio.py tests/test_acquisition.py && uv run ruff check src/research_tree/search_portfolio.py src/research_tree/__init__.py tests/test_search_portfolio.py tests/test_acquisition.py && uv run ruff format --check src/research_tree/search_portfolio.py src/research_tree/__init__.py tests/test_search_portfolio.py tests/test_acquisition.py && uv run python scripts/check_openspec_governance.py",
