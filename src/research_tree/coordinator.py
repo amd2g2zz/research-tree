@@ -50,7 +50,6 @@ from .feedback import (
     CorrectionBinding,
     CorrectionEvent,
 )
-from .growth import BranchHandoff, GrowthError
 from .host_attempts import HostAttemptError, outcome_from_mapping, worker_finished_eligible
 from .host_events import HostEvent, HostEventError, HostEventSequenceError
 from .policy import AdaptiveResearchPolicy
@@ -514,7 +513,6 @@ class ResearchRunCoordinator:
         expected_revision: int,
         actor: str = "human",
         idempotency_key: str | None = None,
-        branch: BranchHandoff | Mapping[str, Any] | None = None,
     ) -> ArtifactRevision:
         if not isinstance(confirmation, str) or not confirmation.strip():
             raise CoordinatorConflictError("confirmation_required")
@@ -528,21 +526,6 @@ class ResearchRunCoordinator:
             "display_digest": projection.display_digest,
             "confirmation": confirmation,
         }
-        if branch is not None:
-            # Growth-aware, opt-in: seals this branch only; siblings stay open.
-            try:
-                handoff = branch if isinstance(branch, BranchHandoff) else BranchHandoff.create(**dict(branch))
-            except (GrowthError, TypeError) as error:
-                raise CoordinatorConflictError("branch_handoff_invalid") from error
-            payload.update(
-                {
-                    "growth_aware": True,
-                    "branch_id": handoff.branch_id,
-                    "branch_outcome": handoff.outcome,
-                    "branch_lineage_refs": list(handoff.lineage_refs),
-                    "branch_delta_summary": handoff.delta_summary,
-                }
-            )
         return self.transition(
             run_id,
             "handoff_confirmed",

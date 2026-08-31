@@ -12,13 +12,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Iterable, Mapping
+from typing import Iterable, Mapping
 
 from .authority import AuthorityRole
 from .domain import freeze_payload, utc_now, validate_identifier
-
-if TYPE_CHECKING:
-    from .cognition import CognitionState
 
 RECONCILIATION_KIND_VALUES: frozenset[str] = frozenset(
     {
@@ -643,7 +640,7 @@ _DECISION_OWNING_ROLES: frozenset[AuthorityRole] = frozenset(
 )
 
 
-def disclosure_triggers(state: "CognitionState") -> tuple[DisclosureTrigger, ...]:
+def disclosure_triggers(state) -> tuple[DisclosureTrigger, ...]:
     """Return disclosure triggers for evidence-backed agent expansions on requester-owned decisions.
 
     A trigger fires when:
@@ -699,7 +696,7 @@ class BoundedReconstitutionTrigger:
     reason: str
 
     @classmethod
-    def evaluate(cls, state: "CognitionState") -> "BoundedReconstitutionTrigger":
+    def evaluate(cls, state) -> "BoundedReconstitutionTrigger":
         if state is None or not hasattr(state, "requester_forest"):
             raise TypeError("BoundedReconstitutionTrigger.evaluate requires a CognitionState")
         nodes = state.requester_forest.current_nodes()

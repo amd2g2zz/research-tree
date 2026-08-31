@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-08-31
+goal: "Retire the 12 graph-verified dead modules of issue #420 with their
+  re-exports, dedicated tests, dangling references, and registry paths, under
+  the ADR-006 deletion evidence standard."
