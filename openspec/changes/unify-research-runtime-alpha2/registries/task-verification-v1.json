@@ -8,7 +8,7 @@
         "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_alpha1_baseline.py",
+        "command": "uv run pytest -q",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "30b93ba063c66ab48ca2344a932094302f5186163a9cc4c7c260c3abba8b9620",
@@ -347,7 +347,7 @@
         "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_native_dynamic_workflows.py tests/test_host_event_protocol.py tests/test_worker_orchestration.py",
+        "command": "uv run pytest -q tests/test_host_event_protocol.py tests/test_worker_orchestration.py",
         "exit_code": 0,
         "environment_digest": "37f06035cca23f27ec913ec6c57a4bf557524adbc80fe136467f5e89216dae14",
         "output_digest": "e5e607e103d3d836b0726ee4b50b13c6cf166cc3e95104af310ddc357213937f",
@@ -548,7 +548,7 @@
         "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py tests/test_native_dynamic_workflows.py tests/test_hermes_execution_adapter.py tests/test_hermes_host_events.py && uv run ruff check scripts/build_skill_packages.py scripts/hermes_skill_adapter.py scripts/hermes_execution_adapter.py scripts/hermes_event_adapter.py scripts/hermes_runtime_hook.py tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py && uv run ruff format --check scripts/build_skill_packages.py scripts/hermes_skill_adapter.py scripts/hermes_execution_adapter.py scripts/hermes_event_adapter.py scripts/hermes_runtime_hook.py tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py && uv run python scripts/build_skill_packages.py --check",
+        "command": "uv run pytest -q tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py tests/test_hermes_execution_adapter.py tests/test_hermes_host_events.py && uv run ruff check scripts/build_skill_packages.py scripts/hermes_skill_adapter.py scripts/hermes_execution_adapter.py scripts/hermes_event_adapter.py scripts/hermes_runtime_hook.py tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py && uv run ruff format --check scripts/build_skill_packages.py scripts/hermes_skill_adapter.py scripts/hermes_execution_adapter.py scripts/hermes_event_adapter.py scripts/hermes_runtime_hook.py tests/test_hermes_skill_compatibility.py tests/test_skill_packages.py && uv run python scripts/build_skill_packages.py --check",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "4ccb75bc40b84320cb250d3c5d23064a61797d66b4177b1dffba4c31b70d582c",

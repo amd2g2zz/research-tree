@@ -49,6 +49,16 @@
   revision and are intentionally not rewritten when command text is
   re-paired. Group 7's bare commands are the mechanical result of removing
   every retired path parameter (none survived), not a semantic expansion.
+- [x] 2.4 Final review sweep (pairing-only): drop the dev-absent
+  `tests/test_alpha1_baseline.py`, `tests/test_execution_boundary.py`, and
+  `tests/test_native_dynamic_workflows.py` parameters (suites deleted by
+  PR #434 / ee524ab) from the group 1/17/26/42 command pairs — minimal path
+  removal, exit-0 semantics preserved. Group 1 and 17 keep bare
+  `uv run pytest -q` commands as the mechanical result of removing every
+  retired path parameter (task 2.3 precedent). Receipt digests,
+  `source_revision`, and `recorded_at` are historical records bound to their
+  recorded source revision and are intentionally not rewritten; each
+  `acceptance_command` and its paired receipt `command` remain identical.
 
 ## 3. Verification And Handoff
 
