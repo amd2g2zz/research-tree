@@ -707,6 +707,8 @@ class CanonicalFeedbackRoundService:
         reason: str,
         expected_revision: int,
         affected_work_items: Sequence[ArtifactRevision] = (),
+        affected_slot_ids: Sequence[str] = (),
+        guidance_defect: str | None = None,
     ) -> ArtifactRevision:
         """Atomically append feedback material and its bounded replan."""
 
@@ -722,6 +724,7 @@ class CanonicalFeedbackRoundService:
             feedback_content = _nonempty_string(feedback_text, "feedback_text")
             feedback_locator = _nonempty_string(feedback_origin_locator, "feedback_origin_locator")
             works = _resolve_affected_work_items(snapshot.artifacts, affected_work_items, round_id)
+            slot_ids = _identifier_sequence(affected_slot_ids, "affected_slot_ids", allow_empty=True)
         except (InvalidIdentifierError, TypeError, ValueError) as error:
             raise InvalidFeedbackError(str(error)) from error
 
@@ -757,6 +760,10 @@ class CanonicalFeedbackRoundService:
             "feedback_input_id": feedback_input_id,
             "reason": normalized_reason,
             "affected_work_refs": [ArtifactRef(work.round_id, work.id, work.revision).to_dict() for work in works],
+            "affected_slot_ids": list(slot_ids),
+            "guidance_defect": None
+            if guidance_defect is None
+            else _nonempty_string(guidance_defect, "guidance_defect"),
         }
         validate_same_round_replan_payload(payload)
         _, replan = self._ledger.append_artifact_batch(
@@ -921,9 +928,10 @@ def validate_same_round_replan_payload(payload: Mapping[str, Any]) -> None:
     """Validate an internal replan that must not masquerade as a successor."""
 
     data = _mapping(payload, "same-round replan payload")
+    optional = {"affected_slot_ids", "guidance_defect"} & set(data)
     _require_exact_keys(
         data,
-        {"id", "round_id", "classification", "feedback_input_id", "reason", "affected_work_refs"},
+        {"id", "round_id", "classification", "feedback_input_id", "reason", "affected_work_refs"} | optional,
         "same-round replan payload",
     )
     _identifier(data["id"], "same-round replan id")
@@ -941,6 +949,15 @@ def validate_same_round_replan_payload(payload: Mapping[str, Any]) -> None:
         if parsed in seen:
             raise InvalidFeedbackError(f"duplicate affected Work Item: {parsed}")
         seen.add(parsed)
+
+    if "affected_slot_ids" in data:
+        slot_ids = _identifier_sequence(
+            data["affected_slot_ids"], "same-round replan affected_slot_ids", allow_empty=True
+        )
+        if len(set(slot_ids)) != len(slot_ids):
+            raise InvalidFeedbackError("same-round replan affected_slot_ids must not contain duplicate identifiers")
+    if "guidance_defect" in data and data["guidance_defect"] is not None:
+        _nonempty_string(data["guidance_defect"], "same-round replan guidance_defect")
 
 
 def _normalize_candidates(

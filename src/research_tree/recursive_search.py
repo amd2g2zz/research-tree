@@ -325,14 +325,17 @@ class CanonicalRecursiveResearchCoordinator:
         expected_revision: int,
     ) -> ArtifactRevision:
         previous = self._states.latest(round_id=round_id, tree_id=tree_id)
-        state = apply_research_results(previous.payload, finding_packs)
+        contributing, _deferred = self._goal_contributing(round_id, finding_packs)
+        if not contributing:
+            return previous
+        state = apply_research_results(previous.payload, contributing)
         if state["transition_index"] == previous.payload["transition_index"]:
             return previous
         return self._states.transition(
             round_id=round_id,
             previous=previous,
             state=state,
-            consumed_findings=finding_packs,
+            consumed_findings=contributing,
             expected_revision=expected_revision,
         )
 
@@ -349,14 +352,26 @@ class CanonicalRecursiveResearchCoordinator:
         )
         if not pending:
             return previous
-        state = apply_research_results(previous.payload, pending)
+        contributing, _deferred = self._goal_contributing(round_id, pending)
+        if not contributing:
+            return previous
+        state = apply_research_results(previous.payload, contributing)
         return self._states.transition(
             round_id=round_id,
             previous=previous,
             state=state,
-            consumed_findings=pending,
+            consumed_findings=contributing,
             expected_revision=expected_revision,
         )
+
+    def _goal_contributing(self, round_id: str, finding_packs):
+        """Drop packs whose goal-contribution verdict blocks tree consumption."""
+
+        if not finding_packs:
+            return (), ()
+        from .coordinator import partition_goal_contributions
+
+        return partition_goal_contributions(self._states._ledger, round_id, finding_packs)
 
     def finalize_delivery(
         self,
