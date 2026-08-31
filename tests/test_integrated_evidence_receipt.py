@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 
-from research_tree.openspec_governance import (
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from openspec_governance import (  # noqa: E402
     default_registry_paths,
     load_governance_inputs,
     validate_governance,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_ROOT = ROOT / "openspec" / "changes" / "unify-research-runtime-alpha2" / "registries"
 RECEIPT = (
     ROOT
