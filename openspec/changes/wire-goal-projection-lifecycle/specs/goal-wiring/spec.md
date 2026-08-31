@@ -112,12 +112,17 @@ acknowledgements.
 
 ### Requirement: Displayed projections are falsifiable
 
-`display_strategy` MUST reject a projection whose success oracles are not evidence-bound —
-every success oracle entry must carry non-empty `evidence_standard_ids`, and every
-decision-target `oracle_ids` reference must resolve inside `success_oracles`. The review is
-enforced at the coordinator authority layer; `strategy display` pre-flights the same rules
-before committing the displayed revision so a rejected display appends no artifact. Rejected
-displays MUST NOT mutate run state.
+The `alignment_projection_ready` transition guard MUST reject a projection whose success
+oracles are not evidence-bound — every success oracle entry must carry non-empty
+`evidence_standard_ids`, and every decision-target `oracle_ids` reference must resolve inside
+`success_oracles`. Because the review lives in the transition guard, EVERY caller is gated:
+`display_strategy` and any direct `coordinator.transition()` call are equivalent. The guard
+records the failure as `projection_unfalsifiable` naming the violated oracle rule,
+distinguishable from the `projection_required` reason used for digest/status failures.
+`display_strategy` keeps a field-specific pre-check so a rejected display names the rule and
+appends no artifact (a guard rejection appends a `lifecycle-rejection` artifact).
+`strategy display` pre-flights the same rules before committing the displayed revision.
+Rejected displays MUST NOT mutate run state.
 
 #### Scenario: Oracle without evidence standards is rejected at display
 
@@ -135,6 +140,50 @@ displays MUST NOT mutate run state.
   coordinator API with a hand-forged `displayed` status and `display_strategy` is called
 - **THEN** `display_strategy` rejects it naming `evidence_standard_ids`
 - **AND** the run state, run revision, and lifecycle-event count are unchanged.
+
+#### Scenario: A direct transition call is gated like display
+
+- **WHEN** `coordinator.transition("alignment_projection_ready", ...)` is invoked directly
+  (display_strategy bypassed) with a persisted projection whose success oracles are bare
+  strings
+- **THEN** the transition is rejected with reason `projection_unfalsifiable` naming
+  `evidence_standard_ids`
+- **AND** the run state is unchanged, no `lifecycle-event` is appended, and exactly one
+  `lifecycle-rejection` artifact records the named reason.
+
+#### Scenario: Guard failure reasons are distinguishable
+
+- **WHEN** the same direct call carries a mismatched `display_digest`
+- **THEN** the rejection reason is `projection_required`, distinguishable from the
+  falsifiability reason.
+
+#### Scenario: The guard admits falsifiable projections from any caller
+
+- **WHEN** the direct call carries a falsifiable displayed projection
+- **THEN** the transition proceeds to `handoff_pending`.
+
+### Requirement: Falsifiability is re-entered at the confirm and compile boundaries
+
+`confirm_handoff` MUST re-validate the projection content after its displayed-status and
+digest checks, and slot serves compilation MUST validate the confirmed projection basis
+before serves resolution. A hand-written (pre-gate) ledger that carries an unfalsifiable
+projection under a `handoff_confirmed` event MUST therefore be refused at confirmation and
+at work item compilation.
+
+#### Scenario: A pre-gate unfalsifiable projection cannot be confirmed
+
+- **WHEN** the run is at `handoff_pending` (displayed via a falsifiable projection) and an
+  unfalsifiable projection is appended directly to the ledger
+- **THEN** `confirm_handoff` against that projection fails naming `evidence_standard_ids`
+- **AND** the run state is unchanged and no `handoff_confirmed` event is appended.
+
+#### Scenario: An unfalsifiable confirmed basis cannot authorize work items
+
+- **WHEN** a work item is compiled in a run whose confirmation names a projection with
+  bare-string success oracles
+- **THEN** compilation fails with `confirmed strategy-projection is unfalsifiable: ...`
+  naming the violated oracle rule
+- **AND** no work item artifact is appended.
 
 ### Requirement: Handoff payloads project the goal decomposition
 

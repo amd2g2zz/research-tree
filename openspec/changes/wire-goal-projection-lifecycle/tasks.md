@@ -58,3 +58,12 @@
       (docstring-as-contract: the supersession sentence is now implemented, not rewritten).
 - [x] 7.4 Document in `goal_decomposition` that Decision Slots without a serves link are
       skipped (legacy slots pre-#427 do not appear in the mapping).
+- [x] 7.5 Sink the falsifiability gate into the `alignment_projection_ready` transition
+      guard so EVERY caller is gated (display_strategy and direct `coordinator.transition()`
+      alike); keep display_strategy's field-specific pre-check for zero-mutation rejections;
+      record guard falsifiability failures as `projection_unfalsifiable` (naming the oracle
+      rule), distinguishable from the `projection_required` digest/status reason.
+- [x] 7.6 Re-enter falsifiability at the confirm and compile boundaries (defense in depth):
+      `confirm_handoff` re-validates after its displayed/digest checks, and slot serves
+      compilation validates the confirmed projection basis before serves resolution, each
+      with a pre-gate-ledger bypass simulation negative test.

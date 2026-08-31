@@ -22,7 +22,8 @@ lifecycle into the production path first, then lands slot `serves` validation on
   `initialize_research_from_alignment` so confirmation produces the research tree.
 - Decision Slot payload gains the required `serves: {target_id, oracle_ids}` link (slot
   whitelist in `decision_map.py`); `CanonicalWorkItemCompiler` validates it against the run's
-  current confirmed projection, rejecting the whole work item otherwise.
+  current confirmed (and falsifiability-checked) projection, rejecting the whole work item
+  otherwise.
 - Confirmation is recorded by the run's `handoff_confirmed` lifecycle event; the confirmed
   projection basis is the projection revision that event names (digest-matched), queried via
   `strategy_projection.latest_confirmed`.
@@ -47,9 +48,10 @@ lifecycle into the production path first, then lands slot `serves` validation on
 - `src/research_tree/decision_map.py` — slot whitelist gains required serves shape.
 - `src/research_tree/alignment_handoff.py` — handoff payload: confirmed flag + goal
   decomposition.
-- `src/research_tree/coordinator.py` — `display_strategy` enforces the falsifiability
-  review at the authority layer before the `alignment_projection_ready` transition; the CLI
-  display verb pre-flights the same rules for message fidelity, and confirm keeps
-  `actor="human"` with the digest guard.
+- `src/research_tree/coordinator.py` — the `alignment_projection_ready` transition guard
+  enforces the falsifiability review for every caller (display_strategy included); the
+  display method and the CLI display verb pre-flight the same rules for message fidelity
+  and zero-mutation rejections, confirm re-validates the projection content, and confirm
+  keeps `actor="human"` with the digest guard.
 - tests: new `tests/test_goal_wiring.py` contract tests; existing fixtures gain serves and a
   confirmed-projection setup.
