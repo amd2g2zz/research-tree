@@ -108,7 +108,10 @@ def goal_decomposition(artifacts: Sequence[ArtifactRevision]) -> tuple[dict[str,
 
     Entries derive directly from Decision Slots that carry a serves link, ordered by
     priority then slot id, so strategy display and handoff payloads state which part
-    of the confirmed StrategyProjection each Decision Slot advances.
+    of the confirmed StrategyProjection each Decision Slot advances. Slots without a
+    serves link are skipped and appear nowhere in the mapping: this is transitional
+    behavior for legacy slots authored before the serves whitelist existed (#427);
+    newly compiled slots always carry serves.
     """
 
     latest: dict[str, ArtifactRevision] = {}

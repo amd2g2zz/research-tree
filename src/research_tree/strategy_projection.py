@@ -328,10 +328,20 @@ class StrategyProjection:
 def latest_confirmed(artifacts: Sequence[ArtifactRevision]) -> ArtifactRevision | None:
     """Return the projection revision the run lifecycle has authoritatively confirmed.
 
-    Confirmation is the run's ``handoff_confirmed`` lifecycle event, which names the
-    exact projection reference and displayed digest the human authorized. Projections
-    that are merely draft or displayed, or superseded by a later revision, are never
-    returned: the fail-closed answer is ``None``.
+    Confirmation is the run's ``handoff_confirmed`` ``lifecycle-event`` artifact that
+    names the exact projection reference and displayed digest the human authorized,
+    ordered by ``(created_at, revision)``. The answer is the fail-closed ``None`` when
+    the tail of the confirmation record cannot be trusted:
+
+    - A ``handoff_confirmed`` event that cannot be resolved to the projection revision
+      it names (unparseable reference, unknown projection revision, digest mismatch) and
+      that is not older than the last resolvable confirmation poisons the tail: the
+      query returns ``None`` rather than silently re-arming the older confirmation.
+    - A confirmed revision that has been superseded by a later revision of the same
+      projection is no longer authoritative; the fail-closed answer is ``None`` until
+      the newer revision is itself confirmed.
+
+    Projections that are merely draft or displayed are never returned.
     """
 
     projections = {
@@ -343,20 +353,48 @@ def latest_confirmed(artifacts: Sequence[ArtifactRevision]) -> ArtifactRevision 
     for artifact in artifacts:
         if artifact.kind != _LIFECYCLE_EVENT_KIND or artifact.payload.get("event") != _HANDOFF_CONFIRMED_EVENT:
             continue
-        payload = artifact.payload.get("payload")
-        projection_value = payload.get("projection_ref") if isinstance(payload, Mapping) else None
-        digest = payload.get("display_digest") if isinstance(payload, Mapping) else None
-        try:
-            reference = ArtifactRef.from_dict(projection_value)
-        except (TypeError, ValueError, DataIntegrityError):
-            continue
-        projection = projections.get((reference.artifact_id, reference.revision))
-        if projection is None or projection.payload.get("display_digest") != digest:
-            continue
-        events.append(((artifact.created_at, artifact.revision), projection))
-    if not events:
+        events.append(((artifact.created_at, artifact.revision), _resolved_confirmation(artifact, projections)))
+    resolvable = [(key, projection) for key, projection in events if projection is not None]
+    if not resolvable:
         return None
-    return max(events, key=lambda item: item[0])[1]
+    last_key, last_projection = max(resolvable, key=lambda item: item[0])
+    if any(key >= last_key for key, projection in events if projection is None):
+        return None
+    if _latest_revision_by_id(projections).get(last_projection.id) != last_projection.revision:
+        return None
+    return last_projection
+
+
+def _resolved_confirmation(
+    artifact: ArtifactRevision, projections: Mapping[tuple[str, int], ArtifactRevision]
+) -> ArtifactRevision | None:
+    """Resolve a handoff_confirmed event to the projection revision it authorizes.
+
+    Returns ``None`` for an event that cannot be resolved: an unparseable
+    ``projection_ref``, a projection revision absent from the artifacts, or a
+    displayed-digest mismatch.
+    """
+
+    payload = artifact.payload.get("payload")
+    projection_value = payload.get("projection_ref") if isinstance(payload, Mapping) else None
+    digest = payload.get("display_digest") if isinstance(payload, Mapping) else None
+    try:
+        reference = ArtifactRef.from_dict(projection_value)
+    except (TypeError, ValueError, DataIntegrityError):
+        return None
+    projection = projections.get((reference.artifact_id, reference.revision))
+    if projection is None or projection.payload.get("display_digest") != digest:
+        return None
+    return projection
+
+
+def _latest_revision_by_id(projections: Mapping[tuple[str, int], ArtifactRevision]) -> dict[str, int]:
+    latest: dict[str, int] = {}
+    for artifact_id, revision in projections:
+        current = latest.get(artifact_id)
+        if current is None or revision > current:
+            latest[artifact_id] = revision
+    return latest
 
 
 def validate_falsifiability(projection: StrategyProjection) -> None:

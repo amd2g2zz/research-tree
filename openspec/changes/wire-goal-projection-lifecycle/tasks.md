@@ -51,3 +51,10 @@
 - [x] 7.2 Document the persist-status boundary: `persist_strategy_projection` accepts any
       valid projection status (status alone confers no authority) because display and
       confirmation carry the authority gates.
+- [x] 7.3 Make `latest_confirmed` fail closed: a `handoff_confirmed` event that cannot be
+      resolved and is not older than the last resolvable confirmation returns `None`
+      instead of silently re-arming the older confirmation; a confirmed revision
+      superseded by a later revision of the same projection is no longer returned
+      (docstring-as-contract: the supersession sentence is now implemented, not rewritten).
+- [x] 7.4 Document in `goal_decomposition` that Decision Slots without a serves link are
+      skipped (legacy slots pre-#427 do not appear in the mapping).

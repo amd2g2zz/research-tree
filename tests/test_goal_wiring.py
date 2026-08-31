@@ -831,9 +831,7 @@ def _lifecycle_confirm_event(
 
 def test_trailing_corrupt_confirmation_rejects_compilation(tmp_path: Path) -> None:
     ledger, target = goal_run(tmp_path, slots=(slot("slot-1"),))
-    confirmed = next(
-        item for item in ledger.load_run(RUN_ID).artifacts if item.kind == "strategy-projection"
-    )
+    confirmed = next(item for item in ledger.load_run(RUN_ID).artifacts if item.kind == "strategy-projection")
     _lifecycle_confirm_event(
         ledger,
         "event-corrupt-confirm",
@@ -849,9 +847,7 @@ def test_trailing_corrupt_confirmation_rejects_compilation(tmp_path: Path) -> No
 
 def test_superseded_confirmation_rejects_compilation(tmp_path: Path) -> None:
     ledger, target = goal_run(tmp_path, slots=(slot("slot-1"),))
-    confirmed = next(
-        item for item in ledger.load_run(RUN_ID).artifacts if item.kind == "strategy-projection"
-    )
+    confirmed = next(item for item in ledger.load_run(RUN_ID).artifacts if item.kind == "strategy-projection")
     revised_payload = thaw_json(confirmed.payload)
     revised_payload["revision"] = 2
     revised_payload["display_payload"]["revision"] = 2

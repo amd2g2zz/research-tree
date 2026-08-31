@@ -69,6 +69,20 @@ MUST NOT be treated as confirmed.
 - **WHEN** a projection has been displayed but not confirmed
 - **THEN** `latest_confirmed` returns no confirmed projection for the run.
 
+#### Scenario: A late unresolvable confirmation fails closed instead of re-arming the old one
+
+- **WHEN** a `handoff_confirmed` event that cannot be resolved to the projection revision it
+  names (unparseable reference, unknown revision, digest mismatch) is newer than the last
+  resolvable confirmation
+- **THEN** `latest_confirmed` returns no confirmed projection for the run
+- **AND** work item compilation fails requiring a confirmed strategy-projection.
+
+#### Scenario: A superseded confirmation is no longer a basis
+
+- **WHEN** a later revision of the confirmed projection exists in the run
+- **THEN** `latest_confirmed` returns no confirmed projection until the newer revision is
+  itself confirmed.
+
 ### Requirement: The projection lifecycle is drivable through the CLI with human authority
 
 The stable CLI MUST expose `strategy propose`, `strategy display`, and `strategy confirm`.

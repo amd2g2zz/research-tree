@@ -255,7 +255,9 @@ def _stored(
     )
 
 
-def _confirm_event(event_id: str, projection_ref: ArtifactRef, display_digest: str, *, created_at: str) -> ArtifactRevision:
+def _confirm_event(
+    event_id: str, projection_ref: ArtifactRef, display_digest: str, *, created_at: str
+) -> ArtifactRevision:
     """A handoff_confirmed lifecycle event naming a projection ref and displayed digest."""
 
     payload = {
@@ -265,7 +267,7 @@ def _confirm_event(event_id: str, projection_ref: ArtifactRef, display_digest: s
         "to": "autonomous_research",
         "actor": "human",
         "payload": {
-            "projection_ref": projection_ref.to_dict(),
+            "projection_ref": projection_ref.to_dict() if isinstance(projection_ref, ArtifactRef) else projection_ref,
             "display_digest": display_digest,
             "confirmation": f"I accept {display_digest} and authorize research.",
         },
@@ -310,7 +312,9 @@ def test_latest_confirmed_fails_closed_on_trailing_corrupt_confirmation() -> Non
         artifacts = (
             _stored(model, revision=1, created_at=T0),
             _confirm_event("event-good", _ref("projection-1", 1), model.display_digest, created_at=T1),
-            _corrupt_event("event-corrupt", _ref("projection-1", 1), model.display_digest, corrupted=corrupted, created_at=T2),
+            _corrupt_event(
+                "event-corrupt", _ref("projection-1", 1), model.display_digest, corrupted=corrupted, created_at=T2
+            ),
         )
         assert latest_confirmed(artifacts) is None, corrupted
 
@@ -318,7 +322,9 @@ def test_latest_confirmed_fails_closed_on_trailing_corrupt_confirmation() -> Non
 def test_latest_confirmed_tolerates_a_corrupt_confirm_superseded_by_a_valid_one() -> None:
     model = projection()
     first = _stored(model, revision=1, created_at=T0)
-    corrupt = _corrupt_event("event-corrupt", _ref("projection-1", 1), model.display_digest, corrupted="digest", created_at=T1)
+    corrupt = _corrupt_event(
+        "event-corrupt", _ref("projection-1", 1), model.display_digest, corrupted="digest", created_at=T1
+    )
     good = _confirm_event("event-good", _ref("projection-1", 1), model.display_digest, created_at=T2)
     assert latest_confirmed((first, corrupt, good)) == first
 
