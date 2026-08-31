@@ -14,6 +14,9 @@ Issue #317 acceptance criteria:
   disposition; repeated high-quality counter-evidence does.
 * Every disposition change is auditable: a recorded reason and the influences
   that flipped it.
+
+Issue #424 merged the dispute module into ``research_tree.contradictions``;
+this suite keeps every assertion and now imports from the merged module.
 """
 
 from __future__ import annotations
@@ -22,16 +25,12 @@ from typing import Any
 
 import pytest
 
-from research_tree.contradictions import ContradictionPacket, ContradictionStatus
-from research_tree.coordinator import (
-    CONTRADICTION_PACKET_KIND,
-    PROVIDER_VALIDATION_KIND,
-    RESEARCH_RUN_STATE_KIND,
-    ResearchRunCoordinator,
-)
-from research_tree.dispute import (
+from research_tree.contradictions import (
     DISPOSITION_PRECEDENCE,
     DISPUTE_PACKET_KIND,
+    PROVIDER_VALIDATION_KIND,
+    ContradictionPacket,
+    ContradictionStatus,
     DisputeAuditTrail,
     DisputeDisposition,
     DisputeDispositionError,
@@ -42,6 +41,11 @@ from research_tree.dispute import (
     evaluate_dispute,
     record_audit,
     recorded_audit_trail,
+)
+from research_tree.coordinator import (
+    CONTRADICTION_PACKET_KIND,
+    RESEARCH_RUN_STATE_KIND,
+    ResearchRunCoordinator,
 )
 from research_tree.run_ledger import RunLedger
 
@@ -536,3 +540,36 @@ def test_recorded_audit_trail_returns_full_history() -> None:
     history = recorded_audit_trail(result)
     assert history
     assert history[-1].disposition is DisputeDisposition.REQUESTER_RESOLVES
+
+
+# ---------------------------------------------------------------------------
+# Issue #424: the dispute module is merged into contradictions
+# ---------------------------------------------------------------------------
+
+
+def test_dispute_module_is_retired() -> None:
+    """``research_tree.dispute`` no longer exists after the merge."""
+
+    with pytest.raises(ModuleNotFoundError):
+        import research_tree.dispute  # noqa: F401
+
+
+def test_abandoned_dispute_entrypoints_retire() -> None:
+    """Four dead dispute entrypoints retire with the merge (issue #424).
+
+    ``derive_dispute_from_contradiction``, ``derive_with_disputes``,
+    ``claim_ids_in``, and ``record_provider_validation`` had zero consumers in
+    production and tests; the merge drops them and this case locks their
+    absence in the merged module.
+    """
+
+    import research_tree.contradictions as contradictions_module
+
+    for name in (
+        "claim_ids_in",
+        "derive_dispute_from_contradiction",
+        "derive_with_disputes",
+        "record_provider_validation",
+    ):
+        assert not hasattr(contradictions_module, name)
+        assert name not in contradictions_module.__all__
