@@ -318,6 +318,14 @@ def test_completion_exposes_all_missing_obligations_and_ignores_worker_finish(tm
 def test_completion_requires_all_canonical_obligations_and_is_terminally_idempotent(tmp_path) -> None:
     ledger, coordinator, _, target, _ = _initialize(tmp_path)
     _register_canonical_completion_inputs(ledger, "run-57", target)
+    CompletionInputRegistrar(ledger).write_goal_satisfaction(
+        round_id="run-57",
+        registration_id="goal-oracle-1",
+        oracle_id="oracle-1",
+        verdict="waived",
+        waiver_reason="Canonical completion fixture; goal coverage is contracted in test_goal_gate.py.",
+        expected_revision=ledger.get_revision("run-57"),
+    )
     _advance_to_awaiting_acceptance(ledger, coordinator)
 
     completed = coordinator.transition(

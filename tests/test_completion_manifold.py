@@ -153,6 +153,14 @@ def _register_minimal_manifold(ledger: RunLedger, target):
         acceptance=acceptance,
         expected_revision=ledger.get_revision(run_id),
     )
+    registrar.write_goal_satisfaction(
+        round_id=run_id,
+        registration_id="goal-oracle-1",
+        oracle_id="oracle-1",
+        verdict="waived",
+        waiver_reason="Delivery-mechanics fixture; goal coverage itself is contracted in test_goal_gate.py.",
+        expected_revision=ledger.get_revision(run_id),
+    )
 
 
 def test_registered_manifold_completes_once_and_records_digest(tmp_path: Path) -> None:
@@ -176,6 +184,7 @@ def test_registered_manifold_completes_once_and_records_digest(tmp_path: Path) -
         "technical_delivery_ref",
         "human_delivery_ref",
         "acceptance_ref",
+        "goal_satisfaction_refs",
     }
     assert coordinator.why_not_complete("run-57")["unmet_obligations"] == ()
 
