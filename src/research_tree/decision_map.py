@@ -249,6 +249,7 @@ def _normalize_slots(
                 "status",
                 "bounded_research_need",
                 "fallback",
+                "serves",
             },
             label,
         )
@@ -317,9 +318,22 @@ def _normalize_slots(
                 "status": status,
                 "bounded_research_need": bounded_need,
                 "fallback": _nonempty_string(candidate["fallback"], f"{label}.fallback"),
+                "serves": _normalize_serves(candidate["serves"], label),
             }
         )
     return normalized
+
+
+def _normalize_serves(value: Any, label: str) -> dict[str, Any]:
+    """Normalize the slot's required serves link (shape only; projection basis checked at compile)."""
+
+    if not isinstance(value, Mapping):
+        raise InvalidBlueprintTargetError(f"{label}.serves must be a mapping")
+    _require_exact_keys(value, {"target_id", "oracle_ids"}, f"{label}.serves")
+    return {
+        "target_id": _identifier(value["target_id"], f"{label}.serves.target_id"),
+        "oracle_ids": list(_identifier_sequence(value["oracle_ids"], f"{label}.serves.oracle_ids", allow_empty=True)),
+    }
 
 
 def _normalize_touchpoints(

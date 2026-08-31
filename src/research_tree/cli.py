@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .alignment_graph import AlignmentGraphError, AlignmentGraphStore, database_path
+from .alignment_handoff import goal_decomposition, initialize_research_from_alignment
 from .coordinator import (
     CompletionBlockedError,
     CoordinatorConflictError,
@@ -17,7 +19,7 @@ from .coordinator import (
     ResearchRunCoordinator,
     StaleStateError,
 )
-from .domain import ArtifactRef, RuntimeStoreError
+from .domain import ArtifactRef, ArtifactRevision, RuntimeStoreError
 from .project_workspace import (
     ProjectWorkspaceError,
     initialize_project_run,
@@ -27,6 +29,13 @@ from .project_workspace import (
 )
 from .run_ledger import LedgerConflictError, LedgerError, RunLedger
 from .skill_setup import SkillSetupError, install_skill, plan_heterogeneous_install, skill_status
+from .strategy_projection import (
+    STRATEGY_PROJECTION_KIND,
+    StrategyProjection,
+    StrategyProjectionError,
+    validate_falsifiability,
+)
+from .tree_state import RESEARCH_TREE_STATE_KIND
 
 LIFECYCLE_SCHEMA_VERSION = 1
 HOSTS = ("codex", "claude", "hermes")
@@ -43,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="research-tree",
         description="Stable, host-neutral lifecycle commands; the canonical coordinator retains completion authority.",
-        epilog="Commands: install, doctor, run, resume, status, verify.",
+        epilog="Commands: install, doctor, run, resume, status, strategy, verify.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     commands = parser.add_subparsers(dest="command", required=True)
@@ -83,6 +92,23 @@ def build_parser() -> argparse.ArgumentParser:
     _add_workspace(verify)
     _add_single_host(verify)
     _add_run_identity(verify, required=True)
+
+    strategy = commands.add_parser(
+        "strategy",
+        help="project the goal onto slots and drive draft, display, and confirmation",
+    )
+    _add_workspace(strategy)
+    strategy.add_argument("--project-id", required=True)
+    strategy.add_argument("--run-id", required=True)
+    strategy_verbs = strategy.add_subparsers(dest="strategy_verb", required=True)
+    propose = strategy_verbs.add_parser("propose", help="persist a reviewed strategy projection draft")
+    propose.add_argument("--projection", required=True, type=Path)
+    strategy_verbs.add_parser("display", help="display the projection after falsifiability review")
+    confirm = strategy_verbs.add_parser(
+        "confirm",
+        help="confirm the displayed projection with the digest-bearing human authorization",
+    )
+    confirm.add_argument("--confirmation", required=True)
 
     return parser
 
@@ -729,6 +755,160 @@ def _emit(payload: Mapping[str, Any]) -> None:
     print(json.dumps(payload, sort_keys=True))
 
 
+def _latest_strategy_projection(ledger: RunLedger, run_id: str) -> ArtifactRevision:
+    """Resolve the current strategy-projection revision for the run."""
+
+    candidates = [item for item in ledger.load_run(run_id).artifacts if item.kind == STRATEGY_PROJECTION_KIND]
+    if not candidates:
+        raise CoordinatorConflictError("strategy_projection_missing")
+    return max(candidates, key=lambda item: item.revision)
+
+
+def _strategy(arguments: argparse.Namespace) -> dict[str, Any]:
+    """Dispatch strategy lifecycle verbs onto the authoritative coordinator API."""
+
+    workspace = arguments.workspace.expanduser().resolve()
+    ledger = RunLedger(workspace)
+    coordinator = ResearchRunCoordinator(ledger)
+    if arguments.strategy_verb == "propose":
+        return _strategy_propose(coordinator, ledger, arguments)
+    if arguments.strategy_verb == "display":
+        return _strategy_display(coordinator, ledger, arguments)
+    if arguments.strategy_verb == "confirm":
+        return _strategy_confirm(coordinator, ledger, arguments)
+    raise CliInputError("unsupported_strategy_verb")
+
+
+def _strategy_propose(
+    coordinator: ResearchRunCoordinator,
+    ledger: RunLedger,
+    arguments: argparse.Namespace,
+) -> dict[str, Any]:
+    """Persist a reviewed projection draft through coordinator.persist_strategy_projection."""
+
+    document = _read_json_object(arguments.projection)
+    try:
+        proposal = StrategyProjection.from_dict(document)
+    except StrategyProjectionError as error:
+        raise CliInputError("strategy_projection_invalid") from error
+    if proposal.run_id != arguments.run_id:
+        raise CliInputError("strategy_projection_cross_run")
+    stored = coordinator.persist_strategy_projection(proposal, expected_revision=ledger.get_revision(arguments.run_id))
+    return _stable_payload(
+        f"strategy.{arguments.strategy_verb}",
+        status="proposed",
+        run={"project_id": arguments.project_id, "run_id": arguments.run_id, "authority_revision": None},
+        result={
+            "projection_ref": ArtifactRef(arguments.run_id, stored.projection_id, stored.revision).to_dict(),
+            "status": stored.status,
+        },
+    )
+
+
+def _strategy_display(
+    coordinator: ResearchRunCoordinator,
+    ledger: RunLedger,
+    arguments: argparse.Namespace,
+) -> dict[str, Any]:
+    """Review the draft, commit the displayed revision, and advance the run state."""
+
+    run_id = arguments.run_id
+    latest = _latest_strategy_projection(ledger, run_id)
+    artifact, projection = coordinator.require_strategy_projection(
+        ArtifactRef(run_id, latest.id, latest.revision),
+        run_id=run_id,
+    )
+    try:
+        validate_falsifiability(projection)
+    except StrategyProjectionError as error:
+        raise CoordinatorConflictError(str(error)) from error
+    if projection.status == "draft":
+        values = projection.to_dict()
+        for derived in ("schema_version", "kind", "display_payload", "display_digest", "content_hash"):
+            values.pop(derived)
+        values["status"] = "displayed"
+        values["revision"] = projection.revision + 1
+        values["decision_frame_ref"] = projection.decision_frame_ref
+        values["alignment_handoff_ref"] = projection.alignment_handoff_ref
+        values["target_ref"] = projection.target_ref
+        revised = StrategyProjection.create(**values)
+        ledger.append_strategy_projection(
+            run_id,
+            revised.projection_id,
+            revised.to_dict(),
+            parent_refs=(
+                ArtifactRef(run_id, artifact.id, artifact.revision),
+                revised.decision_frame_ref,
+                revised.alignment_handoff_ref,
+                revised.target_ref,
+            ),
+            expected_revision=ledger.get_revision(run_id),
+        )
+        projection = revised
+        artifact = _latest_strategy_projection(ledger, run_id)
+    coordinator.display_strategy(
+        run_id,
+        projection,
+        expected_revision=ledger.get_revision(run_id),
+    )
+    return _stable_payload(
+        f"strategy.{arguments.strategy_verb}",
+        status="displayed",
+        run={"project_id": arguments.project_id, "run_id": run_id, "authority_revision": None},
+        result={
+            "projection_ref": ArtifactRef(run_id, artifact.id, artifact.revision).to_dict(),
+            "display_digest": projection.display_digest,
+            "goal_decomposition": list(goal_decomposition(ledger.load_run(run_id).artifacts)),
+        },
+    )
+
+
+def _strategy_confirm(
+    coordinator: ResearchRunCoordinator,
+    ledger: RunLedger,
+    arguments: argparse.Namespace,
+) -> dict[str, Any]:
+    """Confirm the displayed projection with the human's digest-bearing authorization."""
+
+    run_id = arguments.run_id
+    workspace = arguments.workspace.expanduser().resolve()
+    database = database_path(workspace, run_id, arguments.project_id)
+    try:
+        AlignmentGraphStore(database).compile_handoff()
+    except AlignmentGraphError as error:
+        raise CoordinatorConflictError("alignment_not_confirmed") from error
+    latest = _latest_strategy_projection(ledger, run_id)
+    confirmed_state = coordinator.confirm_handoff(
+        run_id,
+        projection_ref=ArtifactRef(run_id, latest.id, latest.revision),
+        confirmation=arguments.confirmation,
+        expected_revision=ledger.get_revision(run_id),
+        actor="human",
+    )
+    trees = [item for item in ledger.load_run(run_id).artifacts if item.kind == RESEARCH_TREE_STATE_KIND]
+    tree_ref = None
+    if not trees:
+        created = initialize_research_from_alignment(
+            ledger,
+            round_id=run_id,
+            tree_id=f"tree-{run_id}",
+            alignment_database=database,
+            expected_revision=ledger.get_revision(run_id),
+        )
+        tree_ref = ArtifactRef(run_id, created.id, created.revision).to_dict()
+    return _stable_payload(
+        "strategy.confirm",
+        status="confirmed",
+        run={"project_id": arguments.project_id, "run_id": run_id, "authority_revision": ledger.get_revision(run_id)},
+        result={
+            "projection_ref": ArtifactRef(run_id, latest.id, latest.revision).to_dict(),
+            "display_digest": confirmed_state.payload.get("strategy_display_digest"),
+            "state": confirmed_state.payload.get("state"),
+            "tree_ref": tree_ref,
+        },
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     raw_arguments = list(sys.argv[1:] if argv is None else argv)
     if raw_arguments[:1] == ["internal"]:
@@ -758,6 +938,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arguments.command == "verify":
             _emit(_verify(arguments))
             return 4
+        if arguments.command == "strategy":
+            payload = _strategy(arguments)
+            _emit(payload)
+            return 0
         resolved_run_id, result = _internal_run(arguments)
     except (
         CliInputError,

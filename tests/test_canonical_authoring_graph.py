@@ -52,6 +52,9 @@ def test_canonical_work_item_compiler_requires_current_revision(tmp_path) -> Non
     from research_tree import ArtifactRef, CanonicalWorkItemCompiler, LedgerConflictError
 
     ledger, _resolver, _record, _model, _brief, target, *_rest = canonical_context(tmp_path)
+    from test_goal_wiring import attach_confirmed_projection
+
+    attach_confirmed_projection(ledger, RUN_ID, target)
     compiler = CanonicalWorkItemCompiler(ledger)
     expected_revision = ledger.get_revision(RUN_ID)
     arguments = {
@@ -80,6 +83,9 @@ def test_canonical_work_item_planner_appends_through_one_ledger(tmp_path) -> Non
     from research_tree import CanonicalWorkItemPlanner
 
     ledger, _resolver, _record, _model, _brief, target, *_rest = canonical_context(tmp_path)
+    from test_goal_wiring import attach_confirmed_projection
+
+    attach_confirmed_projection(ledger, RUN_ID, target)
 
     planned = CanonicalWorkItemPlanner(ledger).plan(
         round_id=RUN_ID,
@@ -99,6 +105,9 @@ def test_canonical_work_item_status_appends_exact_work_and_target_lineage(tmp_pa
     from research_tree.domain import thaw_json
 
     ledger, _resolver, _record, _model, _brief, target, *_rest = canonical_context(tmp_path)
+    from test_goal_wiring import attach_confirmed_projection
+
+    attach_confirmed_projection(ledger, RUN_ID, target)
     work = CanonicalWorkItemCompiler(ledger).compile(
         round_id=RUN_ID,
         work_item_id="work-item-status",
