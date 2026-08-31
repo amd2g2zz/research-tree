@@ -807,9 +807,7 @@ def test_direct_transition_rejects_unfalsifiable_projection(tmp_path: Path) -> N
             "coordinator",
             expected_revision=ledger.get_revision(RUN_ID),
             payload={
-                "projection_ref": ArtifactRef(
-                    RUN_ID, unfalsifiable.projection_id, unfalsifiable.revision
-                ).to_dict(),
+                "projection_ref": ArtifactRef(RUN_ID, unfalsifiable.projection_id, unfalsifiable.revision).to_dict(),
                 "display_digest": unfalsifiable.display_digest,
             },
         )
@@ -836,9 +834,7 @@ def test_direct_transition_digest_failure_reason_stays_projection_required(tmp_p
             "coordinator",
             expected_revision=ledger.get_revision(RUN_ID),
             payload={
-                "projection_ref": ArtifactRef(
-                    RUN_ID, unfalsifiable.projection_id, unfalsifiable.revision
-                ).to_dict(),
+                "projection_ref": ArtifactRef(RUN_ID, unfalsifiable.projection_id, unfalsifiable.revision).to_dict(),
                 "display_digest": "f" * 64,
             },
         )
