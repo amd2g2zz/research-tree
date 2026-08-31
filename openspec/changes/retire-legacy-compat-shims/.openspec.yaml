@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-08-31
+goal: "Retire the 11 live compat shims of issue #422 from src/research_tree
+  with zero residual vocabulary, rename maps, sentinel branches, dual-schema
+  acceptance, non-canonical ingress, or auto-migration; single current schema
+  and vocabulary only."

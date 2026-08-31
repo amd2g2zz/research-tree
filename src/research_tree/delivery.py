@@ -2545,10 +2545,8 @@ def _anchors(value: Any) -> str:
 
 
 def _anchor_label(value: Mapping[str, Any]) -> str:
-    """Render both legacy semantic anchors and strict typed evidence anchors."""
+    """Render a strict typed evidence anchor for the finding table."""
 
-    if "kind" in value and "ref" in value:
-        return f"{value['kind']}:{value['ref']}"
     if "artifact_ref" in value and "selector_type" in value:
         try:
             reference = ArtifactRef.from_dict(value["artifact_ref"])

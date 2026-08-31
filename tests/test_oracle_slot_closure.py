@@ -876,61 +876,6 @@ def test_changed_or_missing_bound_content_cannot_issue_a_token(tmp_path, artifac
     assert assessment.payload["checks"]["evidence"] is False
 
 
-def test_raw_bound_legacy_evidence_cannot_issue_a_token(tmp_path) -> None:
-    ledger, service = _service(tmp_path)
-    _, _, run = _oracle_run(service, ledger)
-    target, decision, findings = _assessment_inputs(ledger)
-    anchor = EvidenceAnchor.from_dict(findings[0].payload["observations"][0]["anchor"])
-    assert anchor.artifact_ref is not None
-    evidence = ledger.get_artifact(anchor.artifact_ref)
-    content = ledger.get_bound_content(anchor.artifact_ref)
-    legacy_payload = thaw_json(evidence.payload)
-    legacy_payload["evidence_id"] = "evidence-legacy"
-    legacy_payload["evidence_class"] = "legacy_unspecified"
-    legacy = ledger.append_artifact_with_content(
-        RUN_ID,
-        "evidence-legacy",
-        EVIDENCE_ARTIFACT_KIND,
-        legacy_payload,
-        content,
-        ContentAddressedStore(ledger.workspace),
-        parent_refs=evidence.parent_refs,
-        expected_revision=ledger.get_revision(RUN_ID),
-    )
-    legacy_anchor = EvidenceAnchor(
-        artifact_ref=_ref(legacy),
-        artifact_digest=content.digest,
-        artifact_revision=legacy.revision,
-        selector_type=anchor.selector_type,
-        selector_value=anchor.selector_value,
-        extractor_version=anchor.extractor_version,
-        applicability=anchor.applicability,
-        confidence=anchor.confidence,
-        limitations=anchor.limitations,
-    )
-    legacy_finding = _finding(
-        ledger,
-        finding_id="finding-legacy",
-        target=target,
-        anchor=legacy_anchor,
-        effect="supports",
-    )
-    legacy_decision = _append(
-        ledger,
-        "decision-1",
-        "decision-ledger-entry",
-        dict(decision.payload),
-        (_ref(target), _ref(legacy_finding)),
-    )
-    assessor = SlotClosureAssessor(ledger, core_evaluator_id="core-evaluator")
-
-    assessment = _assess(assessor, ledger, target, legacy_decision, (legacy_finding,), oracle_runs=(run,))
-
-    assert assessment.payload["status"] == "inconclusive"
-    assert assessment.payload["closure_token"] is None
-    assert assessment.payload["checks"]["evidence"] is False
-
-
 def test_out_of_bounds_strict_anchor_cannot_issue_a_token(tmp_path) -> None:
     ledger, service = _service(tmp_path)
     _, _, run = _oracle_run(service, ledger)

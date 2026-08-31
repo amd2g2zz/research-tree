@@ -46,23 +46,6 @@ BELIEF_STATUSES: Final[frozenset[str]] = frozenset(
         "resolved",
     }
 )
-LEGACY_BELIEF_STATUSES: Final[frozenset[str]] = frozenset(
-    {
-        "answered",
-        "supported",
-        "accepted",
-        "disputed",
-        "deferred",
-        "rejected_legacy",
-    }
-)
-STATUS_LEGACY_MAP: Final[Mapping[str, str]] = {
-    "answered": "candidate",
-    "supported": "corroborated",
-    "accepted": "resolved",
-    "disputed": "contested",
-    "deferred": "candidate",
-}
 
 
 class AuthorityTransitionError(ValueError):
@@ -265,25 +248,15 @@ def transition(current: str, act: SpeechAct) -> str:
 
 
 def normalize_status(status: Any) -> str:
-    """Map a foreign/legacy status to the canonical vocabulary.
+    """Check ``status`` against the canonical vocabulary.
 
     Unrecognized statuses fall through as ``candidate`` so callers can keep
     consuming graph state without rejecting it.  A deprecation warning is
-    emitted via :mod:`warnings` so consumers see the migration signal.
+    emitted via :mod:`warnings` so consumers see the signal.
     """
 
     if isinstance(status, str) and status in BELIEF_STATUSES:
         return status
-    if isinstance(status, str) and status in STATUS_LEGACY_MAP:
-        canonical = STATUS_LEGACY_MAP[status]
-        import warnings
-
-        warnings.warn(
-            f"alignment-graph status {status!r} is deprecated; normalize to {canonical!r}",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return canonical
     import warnings
 
     warnings.warn(
@@ -299,11 +272,9 @@ __all__ = [
     "AuthorityTransition",
     "AuthorityTransitionError",
     "BELIEF_STATUSES",
-    "LEGACY_BELIEF_STATUSES",
     "SPEAKER_ROLES",
     "SPEECH_ACT_KINDS",
     "SpeechAct",
-    "STATUS_LEGACY_MAP",
     "normalize_status",
     "transition",
 ]

@@ -265,7 +265,7 @@ def _installation_status_detail(target: Path, source: Path) -> tuple[str, str, s
     try:
         _read_payload(target)
     except SkillSetupError as error:
-        reason = "missing_referenced_resource" if "referenced resource is missing" in str(error) else "legacy_payload"
+        reason = "missing_referenced_resource" if "referenced resource is missing" in str(error) else "invalid_payload"
         return "conflict", reason, source_digest, _payload_digest(target)
     target_digest = _payload_digest(target)
     if source_digest is not None and target_digest == source_digest:

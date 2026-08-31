@@ -137,12 +137,16 @@ def _digest(value: Any) -> str:
 
 
 def _normalize_node_status(value: Any) -> str:
-    """Map legacy/foreign graph node statuses into the unified vocabulary.
+    """Check graph node statuses against the unified graph vocabulary.
 
-    Deprecation warnings are emitted via :mod:`warnings` so consumers learn
-    about the new SpeechAct/AuthorityTransition vocabulary without crashing.
+    Values outside :data:`NODE_STATUSES` fall through to the SpeechAct
+    vocabulary check, which defaults unknown values to ``candidate`` with a
+    deprecation warning so stored graph state is surfaced without crashing.
     """
 
+    text = str(value)
+    if text in NODE_STATUSES:
+        return text
     from .speech_acts import normalize_status as _normalize
 
     return _normalize(value)

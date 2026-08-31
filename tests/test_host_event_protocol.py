@@ -243,14 +243,8 @@ def _append_attempt_artifact(ledger: RunLedger, artifact_id: str, kind: str, pay
 def test_generic_ingestion_cannot_append_or_bypass_projection(tmp_path) -> None:
     ledger, coordinator, _ = _coordinator(tmp_path)
     before = (ledger.get_revision("run-host"), len(ledger.load_run("run-host").artifacts))
-    with pytest.raises(CoordinatorConflictError, match="host_event_envelope_required"):
-        coordinator.ingest_event(
-            run_id="run-host",
-            event_id="forged-event",
-            attempt_id="attempt-host",
-            payload={"outcome": "success"},
-            expected_revision=before[0],
-        )
+    with pytest.raises(CoordinatorConflictError, match="host event must be a mapping"):
+        coordinator.ingest_host_event(None)
     assert (ledger.get_revision("run-host"), len(ledger.load_run("run-host").artifacts)) == before
 
 

@@ -92,6 +92,14 @@ def test_artifact_rejects_legacy_status_and_implicit_evidence_class() -> None:
         EvidenceArtifact(**fields)
 
 
+@pytest.mark.parametrize("evidence_class", ["legacy_unspecified", "totally-unknown-class"])
+def test_artifact_rejects_unknown_evidence_class_values(evidence_class) -> None:
+    """evidence_class is a closed vocabulary; unknown values fail closed (ADR-007)."""
+
+    with pytest.raises(EvidenceValidationError, match="evidence_class"):
+        EvidenceArtifact(**_artifact_fields(evidence_class=evidence_class))
+
+
 def test_resolver_has_no_artifact_map_constructor(tmp_path) -> None:
     store = ContentAddressedStore(tmp_path)
 

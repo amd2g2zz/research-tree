@@ -170,8 +170,8 @@ def test_semantic_delivery_requires_one_professional_pair():
     assert all(item["status"] == "pass" for item in result["depth_assessments"])
 
 
-def test_semantic_delivery_rejects_legacy_kind_and_manifest_drift():
-    with pytest.raises(AcceptanceError, match="legacy"):
+def test_semantic_delivery_rejects_non_canonical_kind_and_manifest_drift():
+    with pytest.raises(AcceptanceError, match="non-canonical kind"):
         validate_semantic_deliveries(_technical(), _human() | {"kind": "human-brief"})
     human = _human()
     human["manifest"] = deepcopy(human["manifest"])
