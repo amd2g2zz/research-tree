@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from research_tree import ReleaseManifest, evaluate_release
+from release_evaluation import ReleaseManifest, evaluate_release
 
 
 def run(path: Path) -> dict[str, Any]:

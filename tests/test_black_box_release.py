@@ -1,10 +1,15 @@
+import sys
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 def api():
-    from research_tree import InvalidReleaseManifest, ReleaseManifest, evaluate_release
+    sys.path.insert(0, str(ROOT / "evaluation" / "harness"))
+    from release_evaluation import InvalidReleaseManifest, ReleaseManifest, evaluate_release
 
     return InvalidReleaseManifest, ReleaseManifest, evaluate_release
 

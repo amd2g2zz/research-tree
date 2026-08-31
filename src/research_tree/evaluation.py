@@ -1,22 +1,18 @@
-"""Evaluate implementation-ready packages against time-split cases."""
+"""Validate persisted blueprint-evaluation records against time-split cases."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Protocol, Sequence, runtime_checkable
+from typing import Any, Mapping, Sequence
 
-from .delivery import TECHNICAL_RESEARCH_PACKAGE_KIND
 from .domain import (
     ArtifactRef,
-    ArtifactRevision,
     InvalidIdentifierError,
     RuntimeStoreError,
     freeze_payload,
     thaw_json,
     validate_identifier,
 )
-from .readiness import READINESS_RECORD_KIND, validate_readiness_record_payload
-from .run_ledger import RunLedger
 
 BLUEPRINT_EVALUATION_KIND = "blueprint-evaluation"
 EVALUATION_CHECK_NAMES = ("build", "fail_to_pass", "pass_to_pass")
@@ -113,16 +109,6 @@ class TimeSplitCase:
 
 
 @dataclass(frozen=True, slots=True)
-class EvaluationCheck:
-    """One independently executed build, acceptance, or regression check."""
-
-    name: str
-    status: str
-    command: str
-    summary: str
-
-
-@dataclass(frozen=True, slots=True)
 class EvaluationDiagnosis:
     """Maps an implementation outcome back to one product component."""
 
@@ -130,132 +116,6 @@ class EvaluationDiagnosis:
     summary: str
     decision_slot_id: str | None = None
     work_item_id: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class IndependentEvaluationResult:
-    """Evaluator-owned outcome returned by an independent implementation runner."""
-
-    checks: Sequence[EvaluationCheck]
-    diagnoses: Sequence[EvaluationDiagnosis] = ()
-    limitations: Sequence[str] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class SimplerBaselineResult:
-    """Outcome from an explicit, lower-information comparator."""
-
-    name: str
-    checks: Sequence[EvaluationCheck]
-    limitations: Sequence[str]
-
-
-@dataclass(frozen=True, slots=True)
-class IndependentEvaluationRequest:
-    """The only public inputs delivered to an implementation runner.
-
-    Hidden oracle material is configured by the evaluator outside this request.
-    The request deliberately has no host path, reference patch, discussion, or
-    hidden-oracle field.
-    """
-
-    case_id: str
-    corpus_version: str
-    baseline: Mapping[str, str]
-    environment: Mapping[str, str]
-    public_materials: tuple[Mapping[str, str], ...]
-    technical_package: Mapping[str, Any]
-    readiness: Mapping[str, Any]
-
-
-@runtime_checkable
-class IndependentImplementationRunner(Protocol):
-    """Run an implementation attempt in evaluator-owned isolation."""
-
-    def run(self, request: IndependentEvaluationRequest) -> IndependentEvaluationResult:
-        """Return separately named build, FAIL_TO_PASS, and PASS_TO_PASS outcomes."""
-
-
-class BlueprintEvaluationSuite:
-    """Persist versioned, diagnosable blueprint-evaluation artifacts."""
-
-    def __init__(self, ledger: RunLedger) -> None:
-        if not isinstance(ledger, RunLedger):
-            raise InvalidEvaluationError("canonical evaluation requires a RunLedger")
-        self._ledger = ledger
-
-    def evaluate(
-        self,
-        *,
-        round_id: str,
-        evaluation_id: str,
-        case: TimeSplitCase,
-        technical_package: ArtifactRevision,
-        readiness_record: ArtifactRevision,
-        cost: Mapping[str, Any],
-        clarification_burden: Mapping[str, Any],
-        implementation_runner: IndependentImplementationRunner,
-        baseline_result: SimplerBaselineResult,
-        expected_revision: int,
-    ) -> ArtifactRevision:
-        """Evaluate one exact package without exposing evaluator-owned material."""
-
-        try:
-            snapshot = self._ledger.load_run(round_id)
-            evaluation_identifier = _identifier(evaluation_id, "evaluation_id")
-            _ensure_id_compatibility(snapshot.artifacts, evaluation_identifier)
-            if not isinstance(case, TimeSplitCase):
-                raise InvalidEvaluationError("case must be a TimeSplitCase")
-            package = _resolve_exact(
-                snapshot.artifacts,
-                technical_package,
-                TECHNICAL_RESEARCH_PACKAGE_KIND,
-                "technical_package",
-            )
-            readiness = _resolve_exact(
-                snapshot.artifacts,
-                readiness_record,
-                READINESS_RECORD_KIND,
-                "readiness_record",
-            )
-            if package.round_id != round_id or readiness.round_id != round_id:
-                raise InvalidEvaluationError("package and readiness record must belong to evaluation round")
-            validate_readiness_record_payload(readiness.payload)
-            _ensure_readiness_matches_package(readiness, package)
-            normalized_cost = _normalize_count_mapping(cost, "cost")
-            normalized_burden = _normalize_count_mapping(clarification_burden, "clarification_burden")
-            request = _request_for(case, package, readiness)
-            outcome = _run_implementation_runner(implementation_runner, request)
-            comparison = _normalize_baseline_result(baseline_result)
-            structural_quality = _structural_quality(readiness)
-            payload = {
-                "case": case.to_dict(),
-                "technical_package_ref": _artifact_ref_dict(package),
-                "readiness_record_ref": _artifact_ref_dict(readiness),
-                "structural_quality": structural_quality,
-                "implementation_outcome": outcome,
-                "diagnoses": outcome["diagnoses"],
-                "comparison": {"baseline": comparison},
-                "cost": normalized_cost,
-                "clarification_burden": normalized_burden,
-            }
-            validate_blueprint_evaluation_payload(payload)
-        except (InvalidIdentifierError, TypeError, ValueError) as error:
-            raise InvalidEvaluationError(str(error)) from error
-
-        parents = (
-            ArtifactRef(round_id, package.id, package.revision),
-            ArtifactRef(round_id, readiness.id, readiness.revision),
-        )
-        from .completion_inputs import CompletionInputRegistrar
-
-        return CompletionInputRegistrar(self._ledger).write_evaluation(
-            round_id=round_id,
-            evaluation_id=evaluation_identifier,
-            payload=payload,
-            parent_refs=parents,
-            expected_revision=expected_revision,
-        )
 
 
 def validate_blueprint_evaluation_payload(payload: Mapping[str, Any]) -> None:
@@ -290,134 +150,6 @@ def validate_blueprint_evaluation_payload(payload: Mapping[str, Any]) -> None:
     _validate_baseline_payload(comparison["baseline"])
     _normalize_count_mapping(data["cost"], "cost")
     _normalize_count_mapping(data["clarification_burden"], "clarification_burden")
-
-
-def _request_for(
-    case: TimeSplitCase,
-    package: ArtifactRevision,
-    readiness: ArtifactRevision,
-) -> IndependentEvaluationRequest:
-    return IndependentEvaluationRequest(
-        case_id=case.id,
-        corpus_version=case.corpus_version,
-        baseline=freeze_payload(thaw_json(case.baseline)),
-        environment=freeze_payload(thaw_json(case.environment)),
-        public_materials=tuple(freeze_payload(thaw_json(item)) for item in case.public_materials),
-        technical_package=freeze_payload(
-            {
-                "ref": _artifact_ref_dict(package),
-                "content_hash": package.content_hash,
-                "document": thaw_json(package.payload.get("document")),
-            }
-        ),
-        readiness=freeze_payload(
-            {
-                "ref": _artifact_ref_dict(readiness),
-                "delivery_readiness": thaw_json(readiness.payload.get("delivery_readiness")),
-                "risk_verification": thaw_json(readiness.payload.get("risk_verification")),
-            }
-        ),
-    )
-
-
-def _run_implementation_runner(
-    runner: IndependentImplementationRunner,
-    request: IndependentEvaluationRequest,
-) -> dict[str, Any]:
-    if not isinstance(runner, IndependentImplementationRunner):
-        raise InvalidEvaluationError("implementation_runner must implement run(request)")
-    try:
-        result = runner.run(request)
-    except Exception as error:
-        raise InvalidEvaluationError(
-            f"implementation runner failed before returning an outcome: {type(error).__name__}"
-        ) from error
-    if not isinstance(result, IndependentEvaluationResult):
-        raise InvalidEvaluationError("implementation_runner.run must return an IndependentEvaluationResult")
-    checks = _normalize_checks(result.checks, "implementation outcome checks")
-    diagnoses = _normalize_diagnoses(result.diagnoses)
-    limitations = _strings(result.limitations, "implementation outcome limitations")
-    return {
-        "checks": checks,
-        "diagnoses": diagnoses,
-        "limitations": list(limitations),
-    }
-
-
-def _normalize_baseline_result(value: SimplerBaselineResult) -> dict[str, Any]:
-    if not isinstance(value, SimplerBaselineResult):
-        raise InvalidEvaluationError("baseline_result must be a SimplerBaselineResult")
-    return {
-        "name": _nonempty(value.name, "baseline_result name"),
-        "checks": _normalize_checks(value.checks, "baseline_result checks"),
-        "limitations": list(_strings(value.limitations, "baseline_result limitations")),
-    }
-
-
-def _structural_quality(readiness: ArtifactRevision) -> dict[str, Any]:
-    projection = _mapping(readiness.payload.get("delivery_readiness"), "readiness delivery_readiness")
-    gates = _mapping(projection.get("gates"), "readiness delivery gates")
-    checks = _mappings(readiness.payload.get("repository_anchor_checks"), "repository_anchor_checks")
-    if not checks:
-        anchor_accuracy: dict[str, Any] = {
-            "status": "not_applicable",
-            "resolved": 0,
-            "total": 0,
-        }
-    else:
-        resolved = sum(1 for check in checks if check.get("resolved") is True)
-        anchor_accuracy = {
-            "status": "pass" if resolved == len(checks) else "fail",
-            "resolved": resolved,
-            "total": len(checks),
-        }
-    return {
-        "decision_closure": _enum(
-            gates.get("decision_closure"),
-            "readiness decision_closure",
-            {"pass", "fail", "deferred"},
-        ),
-        "traceability": _enum(gates.get("traceability"), "readiness traceability", {"pass", "fail"}),
-        "repository_anchor_accuracy": anchor_accuracy,
-    }
-
-
-def _ensure_readiness_matches_package(readiness: ArtifactRevision, package: ArtifactRevision) -> None:
-    ref = _mapping(readiness.payload.get("technical_package_ref"), "readiness technical_package_ref")
-    expected = _artifact_ref_dict(package)
-    if thaw_json(ref) != expected:
-        raise InvalidEvaluationError("readiness_record does not belong to the exact technical_package")
-    if ArtifactRef(package.round_id, package.id, package.revision) not in readiness.parent_refs:
-        raise InvalidEvaluationError("readiness_record lacks exact technical_package parent lineage")
-
-
-def _resolve_exact(
-    artifacts: Sequence[ArtifactRevision],
-    artifact: ArtifactRevision,
-    expected_kind: str,
-    label: str,
-) -> ArtifactRevision:
-    if not isinstance(artifact, ArtifactRevision) or artifact.kind != expected_kind:
-        raise InvalidEvaluationError(f"{label} must be a {expected_kind} ArtifactRevision")
-    exact = next(
-        (
-            item
-            for item in artifacts
-            if item.id == artifact.id and item.revision == artifact.revision and item.kind == expected_kind
-        ),
-        None,
-    )
-    if exact is None or exact.round_id != artifact.round_id:
-        raise InvalidEvaluationError(f"{label} must resolve to an exact stored {expected_kind}")
-    return exact
-
-
-def _ensure_id_compatibility(artifacts: Sequence[ArtifactRevision], artifact_id: str) -> None:
-    foreign = {item.kind for item in artifacts if item.id == artifact_id and item.kind != BLUEPRINT_EVALUATION_KIND}
-    if foreign:
-        raise InvalidEvaluationError(
-            f"evaluation_id {artifact_id!r} is already used by artifact kinds: {sorted(foreign)}"
-        )
 
 
 def _normalize_source(value: Any) -> dict[str, str]:
@@ -466,35 +198,6 @@ def _normalize_public_materials(value: Any) -> list[dict[str, str]]:
                 "locator": _nonempty(material["locator"], f"{label}.locator"),
             }
         )
-    return normalized
-
-
-def _normalize_checks(value: Any, label: str) -> list[dict[str, str]]:
-    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
-        raise InvalidEvaluationError(f"{label} must be a sequence of EvaluationCheck values")
-    normalized: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for index, item in enumerate(value):
-        if not isinstance(item, EvaluationCheck):
-            raise InvalidEvaluationError(f"{label}[{index}] must be an EvaluationCheck")
-        name = _enum(item.name, f"{label}[{index}].name", set(EVALUATION_CHECK_NAMES))
-        if name in seen:
-            raise InvalidEvaluationError(f"{label} repeats check {name}")
-        seen.add(name)
-        normalized.append(
-            {
-                "name": name,
-                "status": _enum(
-                    item.status,
-                    f"{label}[{index}].status",
-                    set(EVALUATION_CHECK_STATUSES),
-                ),
-                "command": _nonempty(item.command, f"{label}[{index}].command"),
-                "summary": _nonempty(item.summary, f"{label}[{index}].summary"),
-            }
-        )
-    if set(seen) != set(EVALUATION_CHECK_NAMES):
-        raise InvalidEvaluationError(f"{label} must include exactly: {', '.join(EVALUATION_CHECK_NAMES)}")
     return normalized
 
 
@@ -622,10 +325,6 @@ def _validate_ref(value: Any, label: str) -> None:
         _identifier(data["artifact_id"], f"{label}.artifact_id"),
         _positive_int(data["revision"], f"{label}.revision"),
     )
-
-
-def _artifact_ref_dict(artifact: ArtifactRevision) -> dict[str, Any]:
-    return ArtifactRef(artifact.round_id, artifact.id, artifact.revision).to_dict()
 
 
 def _mappings(value: Any, label: str) -> list[Mapping[str, Any]]:
