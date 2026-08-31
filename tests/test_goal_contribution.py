@@ -25,7 +25,6 @@ from research_tree.coordinator import (
 )
 from research_tree.domain import ArtifactRef
 from research_tree.feedback import CanonicalFeedbackRoundService
-from research_tree.policy import AdaptiveResearchPolicy
 from research_tree.tree_state import CanonicalResearchTreeStateService
 
 
@@ -61,6 +60,7 @@ def pack(
     option_effects=(),
     claim_assessments=(),
     validation_result=None,
+    claim_groundings=(),
     **extra,
 ) -> dict:
     payload = {
@@ -69,6 +69,7 @@ def pack(
         "blueprint_target_id": "blueprint-target",
         "option_effects": list(option_effects),
         "claim_assessments": list(claim_assessments),
+        "claim_groundings": list(claim_groundings),
         "validation_result": validation_result,
     }
     payload.update(extra)
@@ -86,11 +87,14 @@ def test_verdict_truth_table_advances() -> None:
     assert "isolated-worker" in reason
     assert "decision-1" in reason
 
-    # Rule 3: a corroborated claim advances even without a supporting effect.
+    # Rule 3: a corroborated claim advances only when it grounds a served oracle's
+    # evidence standard (the claim's grounding evidence must name a served standard).
     verdict, reason = assess_goal_contribution(
         pack(
             [{"option": "isolated-worker", "effect": "limits", "claim_ids": ["claim-1"]}],
-            claim_assessments=[{"claim_id": "claim-1", "state": "corroborated"}],
+            claim_assessments=[
+                {"claim_id": "claim-1", "state": "corroborated", "grounding_ids": ("standard-1",)}
+            ],
         ),
         slot("slot-1"),
         PROJECTION,
@@ -98,6 +102,19 @@ def test_verdict_truth_table_advances() -> None:
     assert verdict == "advances"
     assert "claim-1" in reason
     assert "oracle-1" in reason
+
+    # Rule 3 mapping also reads the pack's claim grounding entries.
+    verdict, _ = assess_goal_contribution(
+        pack(
+            claim_assessments=[{"claim_id": "claim-1", "state": "corroborated"}],
+            claim_groundings=[
+                {"grounding_id": "standard-1", "claim_id": "claim-1", "anchor": {"kind": "source", "ref": "source:1"}}
+            ],
+        ),
+        slot("slot-1"),
+        PROJECTION,
+    )
+    assert verdict == "advances"
 
 
 def test_verdict_truth_table_partial() -> None:
@@ -111,13 +128,49 @@ def test_verdict_truth_table_partial() -> None:
     )
     assert verdict == "partial"
 
-    # Claims bound to the served slot with no corroborated admission only partially touch it.
+    # A candidate claim that grounds a served oracle touches it without corroborating it.
+    verdict, _ = assess_goal_contribution(
+        pack(
+            (),
+            claim_assessments=[{"claim_id": "claim-1", "state": "candidate", "grounding_ids": ("standard-1",)}],
+        ),
+        slot("slot-1"),
+        PROJECTION,
+    )
+    assert verdict == "partial"
+
+    # Claims that map to no served oracle standard do not touch the served slot:
+    # an otherwise unrelated pack fails closed to no_contribution.
     verdict, _ = assess_goal_contribution(
         pack((), claim_assessments=[{"claim_id": "claim-1", "state": "candidate"}]),
         slot("slot-1"),
         PROJECTION,
     )
+    assert verdict == "no_contribution"
+
+
+def test_corroborated_claim_without_served_oracle_mapping_is_not_advances() -> None:
+    # A corroborated claim whose grounding evidence names no served oracle standard
+    # never advances: it falls through to the rule-4 touch judgment.
+    verdict, reason = assess_goal_contribution(
+        pack(
+            [{"option": "isolated-worker", "effect": "limits", "claim_ids": ["claim-1"]}],
+            claim_assessments=[{"claim_id": "claim-1", "state": "corroborated", "grounding_ids": ("grounding-1",)}],
+        ),
+        slot("slot-1"),
+        PROJECTION,
+    )
     assert verdict == "partial"
+    assert "grounds served oracle" not in reason
+
+    # With nothing else touching the slot, the unmapped corroborated claim is an
+    # unrelated pack and fails closed to no_contribution.
+    verdict, _ = assess_goal_contribution(
+        pack((), claim_assessments=[{"claim_id": "claim-1", "state": "corroborated", "grounding_ids": ("grounding-1",)}]),
+        slot("slot-1"),
+        PROJECTION,
+    )
+    assert verdict == "no_contribution"
 
 
 def test_verdict_truth_table_no_contribution() -> None:
@@ -268,8 +321,11 @@ def _compile_pack(ledger: RunLedger, work, resolver, anchor, independent_anchor,
     )
 
 
-def _raw_pack(ledger: RunLedger, finding_id: str, option: str = "quantum") -> object:
-    """A persisted pack whose effects touch a foreign option: verdict no_contribution."""
+def _raw_pack(ledger: RunLedger, finding_id: str, option: str = "quantum", slot_id: str = "slot-1") -> object:
+    """A persisted pack whose effects touch a foreign option: verdict no_contribution.
+
+    Appended directly to the ledger, so the compile hook never assessed it.
+    """
 
     return ledger.append_artifact(
         RUN_ID,
@@ -277,7 +333,7 @@ def _raw_pack(ledger: RunLedger, finding_id: str, option: str = "quantum") -> ob
         "finding-pack",
         {
             "id": finding_id,
-            "decision_slot_id": "slot-1",
+            "decision_slot_id": slot_id,
             "blueprint_target_id": "blueprint-target",
             "observations": [{"claim": "An off-target observation.", "anchor": {"kind": "source", "ref": "source:1"}}],
             "option_effects": [{"option": option, "effect": "supports", "claim_ids": []}],
@@ -377,6 +433,50 @@ def test_no_contribution_excluded_from_tree_consumption(tmp_path: Path) -> None:
     assert "finding-non-contributing" not in consumed_after
 
 
+def test_unassessed_pack_fails_closed_out_of_consumption(tmp_path: Path) -> None:
+    """In a run with a confirmed projection, a pending pack with no recorded
+    assessment (e.g. a hook failure left it unassessed) is deferred instead of
+    silently waved into the consumed set; recovery does not launder it either."""
+
+    ledger, target = goal_run(tmp_path, slots=(slot("slot-1"),))
+    work = CanonicalWorkItemCompiler(ledger).compile(
+        **work_item_arguments(target), expected_revision=ledger.get_revision(RUN_ID)
+    )
+    resolver, anchor, independent_anchor = _evidence_setup(tmp_path, ledger)
+    advancing_pack = _compile_pack(ledger, work, resolver, anchor, independent_anchor, "finding-advancing")
+    assert len(_assessments(ledger)) == 1
+
+    # Appended directly, so the compile hook never assessed this pack.
+    unassessed_pack = _raw_pack(ledger, "finding-unassessed")
+    assert not [
+        item
+        for item in _assessments(ledger)
+        if item.payload.get("finding_pack_id") == "finding-unassessed"
+    ]
+
+    coordinator = ResearchRunCoordinator(ledger)
+    init_run_state(ledger, coordinator, target)
+    recursive = _tree(ledger)
+    recursive.ingest(
+        round_id=RUN_ID,
+        tree_id="research-tree",
+        finding_packs=(advancing_pack, unassessed_pack),
+        expected_revision=ledger.get_revision(RUN_ID),
+    )
+    consumed = CanonicalResearchTreeStateService(ledger).latest(
+        round_id=RUN_ID, tree_id="research-tree"
+    ).payload["consumed_finding_ids"]
+    assert "finding-advancing" in consumed
+    assert "finding-unassessed" not in consumed
+
+    recovered = CanonicalRecursiveResearchCoordinator(ledger).recover(
+        round_id=RUN_ID,
+        tree_id="research-tree",
+        expected_revision=ledger.get_revision(RUN_ID),
+    )
+    assert "finding-unassessed" not in recovered.payload["consumed_finding_ids"]
+
+
 def test_retry_successor_records_guidance_defect(tmp_path: Path) -> None:
     ledger, target = goal_run(tmp_path, slots=(slot("slot-1"),))
     CanonicalWorkItemCompiler(ledger).compile(
@@ -413,7 +513,9 @@ def test_second_no_contribution_triggers_method_switch(tmp_path: Path) -> None:
     CanonicalWorkItemCompiler(ledger).compile(
         **work_item_arguments(target), expected_revision=ledger.get_revision(RUN_ID)
     )
-    coordinator = ResearchRunCoordinator(ledger, policy=AdaptiveResearchPolicy())
+    # No policy injection: the coordinator is built exactly as the ledger compile
+    # hook builds it, so the method_switch consult must be reachable by default.
+    coordinator = ResearchRunCoordinator(ledger)
     init_run_state(ledger, coordinator, target)
 
     first_pack = _raw_pack(ledger, "finding-drift-1")
@@ -441,6 +543,165 @@ def test_second_no_contribution_triggers_method_switch(tmp_path: Path) -> None:
     assert len(replans) == 2
     assert replans[-1].payload["affected_slot_ids"] == ("slot-1",)
     assert replans[-1].payload["guidance_defect"] == second.payload["reason"]
+
+
+def test_ledger_hook_path_second_streak_carries_policy_proposal(tmp_path: Path) -> None:
+    """The wired path — the ledger hook's bare ``ResearchRunCoordinator(ledger)`` —
+    must reach the method_switch consult with no manual policy injection anywhere."""
+
+    ledger, target = goal_run(tmp_path, slots=(slot("slot-1"),))
+    work = CanonicalWorkItemCompiler(ledger).compile(
+        **work_item_arguments(target), expected_revision=ledger.get_revision(RUN_ID)
+    )
+    resolver, anchor, independent_anchor = _evidence_setup(tmp_path, ledger)
+    # The real compile hook assesses this pack (advances) with its own bare coordinator.
+    _compile_pack(ledger, work, resolver, anchor, independent_anchor, "finding-hook-advancing")
+
+    hook_coordinator = ResearchRunCoordinator(ledger)  # ledger.py hook construction, no policy
+    init_run_state(ledger, hook_coordinator, target)
+    hook_coordinator.assess_finding_pack_contribution(
+        RUN_ID, _raw_pack(ledger, "finding-hook-1"), expected_revision=ledger.get_revision(RUN_ID)
+    )
+    hook_coordinator.assess_finding_pack_contribution(
+        RUN_ID, _raw_pack(ledger, "finding-hook-2"), expected_revision=ledger.get_revision(RUN_ID)
+    )
+
+    successors = _successor_works(ledger)
+    assert len(successors) == 2
+    escalated = successors[-1]
+    assert escalated.payload["redecomposition_flagged"] is True
+    assert escalated.payload["policy_proposal_kind"] == "method_switch"
+    assert escalated.payload["policy_proposal_id"]
+
+
+def test_method_switch_consultation_capped_once_per_slot(tmp_path: Path) -> None:
+    """The escalation is one-shot per slot: the third and further consecutive
+    no_contribution verdicts still replan but never repeat the policy consult."""
+
+    ledger, target = goal_run(tmp_path, slots=(slot("slot-1"),))
+    CanonicalWorkItemCompiler(ledger).compile(
+        **work_item_arguments(target), expected_revision=ledger.get_revision(RUN_ID)
+    )
+    coordinator = ResearchRunCoordinator(ledger)
+    init_run_state(ledger, coordinator, target)
+    for index in range(1, 5):
+        coordinator.assess_finding_pack_contribution(
+            RUN_ID, _raw_pack(ledger, f"finding-cap-{index}"), expected_revision=ledger.get_revision(RUN_ID)
+        )
+
+    successors = _successor_works(ledger)
+    assert len(successors) == 4
+    flagged = [item for item in successors if item.payload.get("redecomposition_flagged")]
+    consulted = [item for item in successors if item.payload.get("policy_proposal_id")]
+    assert flagged == [successors[1]]
+    assert consulted == [successors[1]]
+    assert successors[1].payload["policy_proposal_kind"] == "method_switch"
+    # Every streak member still records the slot-granularity replan with the defect.
+    replans = [item for item in ledger.load_run(RUN_ID).artifacts if item.kind == "same-round-replan"]
+    assert len(replans) == 4
+
+
+def test_streak_dedupes_by_logical_pack_identity(tmp_path: Path) -> None:
+    """Recompiling the same finding at revision+1 must not double-count the streak:
+    only the latest assessment per logical pack identity participates."""
+
+    ledger, target = goal_run(tmp_path, slots=(slot("slot-1"),))
+    CanonicalWorkItemCompiler(ledger).compile(
+        **work_item_arguments(target), expected_revision=ledger.get_revision(RUN_ID)
+    )
+    coordinator = ResearchRunCoordinator(ledger)
+    init_run_state(ledger, coordinator, target)
+
+    first_revision = _raw_pack(ledger, "finding-drift-1")
+    coordinator.assess_finding_pack_contribution(
+        RUN_ID, first_revision, expected_revision=ledger.get_revision(RUN_ID)
+    )
+    recompiled = _raw_pack(ledger, "finding-drift-1")
+    assert recompiled.revision == first_revision.revision + 1
+    coordinator.assess_finding_pack_contribution(
+        RUN_ID, recompiled, expected_revision=ledger.get_revision(RUN_ID)
+    )
+
+    successors = _successor_works(ledger)
+    assert len(successors) == 2
+    assert not any(item.payload.get("redecomposition_flagged") for item in successors)
+
+    coordinator.assess_finding_pack_contribution(
+        RUN_ID, _raw_pack(ledger, "finding-drift-2"), expected_revision=ledger.get_revision(RUN_ID)
+    )
+    escalated = _successor_works(ledger)[-1]
+    assert escalated.payload["redecomposition_flagged"] is True
+    assert escalated.payload["policy_proposal_kind"] == "method_switch"
+
+
+def test_cross_slot_isolation_no_escalation_leak(tmp_path: Path) -> None:
+    """Slot A's consecutive no_contribution streak never escalates slot B."""
+
+    ledger, target = goal_run(tmp_path, slots=(slot("slot-1"), slot("slot-2")))
+    CanonicalWorkItemCompiler(ledger).compile(
+        **work_item_arguments(target), expected_revision=ledger.get_revision(RUN_ID)
+    )
+    coordinator = ResearchRunCoordinator(ledger)
+    init_run_state(ledger, coordinator, target)
+    coordinator.assess_finding_pack_contribution(
+        RUN_ID, _raw_pack(ledger, "finding-slot-a-1"), expected_revision=ledger.get_revision(RUN_ID)
+    )
+    coordinator.assess_finding_pack_contribution(
+        RUN_ID, _raw_pack(ledger, "finding-slot-a-2"), expected_revision=ledger.get_revision(RUN_ID)
+    )
+
+    slot_b_pack = _raw_pack(ledger, "finding-slot-b-1", slot_id="slot-2")
+    assessment = coordinator.assess_finding_pack_contribution(
+        RUN_ID, slot_b_pack, expected_revision=ledger.get_revision(RUN_ID)
+    )
+    assert assessment.payload["verdict"] == "no_contribution"
+
+    slot_b_successors = [
+        item
+        for item in _successor_works(ledger)
+        if item.payload.get("decision_slot_id") == "slot-2"
+    ]
+    assert len(slot_b_successors) == 1
+    assert not slot_b_successors[0].payload.get("redecomposition_flagged")
+    assert not slot_b_successors[0].payload.get("policy_proposal_id")
+    # Slot A did escalate on its own second consecutive verdict.
+    slot_a_escalated = [
+        item
+        for item in _successor_works(ledger)
+        if item.payload.get("decision_slot_id") == "slot-1"
+    ][-1]
+    assert slot_a_escalated.payload["redecomposition_flagged"] is True
+
+
+def test_advances_verdict_resets_consecutive_counter(tmp_path: Path) -> None:
+    """An advancing verdict interrupts the streak: the counter restarts from zero."""
+
+    ledger, target = goal_run(tmp_path, slots=(slot("slot-1"),))
+    CanonicalWorkItemCompiler(ledger).compile(
+        **work_item_arguments(target), expected_revision=ledger.get_revision(RUN_ID)
+    )
+    coordinator = ResearchRunCoordinator(ledger)
+    init_run_state(ledger, coordinator, target)
+    coordinator.assess_finding_pack_contribution(
+        RUN_ID, _raw_pack(ledger, "finding-drift-1"), expected_revision=ledger.get_revision(RUN_ID)
+    )
+    interrupting = _raw_pack(ledger, "finding-advancing", option="isolated-worker")
+    interrupted = coordinator.assess_finding_pack_contribution(
+        RUN_ID, interrupting, expected_revision=ledger.get_revision(RUN_ID)
+    )
+    assert interrupted.payload["verdict"] == "advances"
+
+    coordinator.assess_finding_pack_contribution(
+        RUN_ID, _raw_pack(ledger, "finding-drift-2"), expected_revision=ledger.get_revision(RUN_ID)
+    )
+    assert not any(item.payload.get("redecomposition_flagged") for item in _successor_works(ledger))
+
+    coordinator.assess_finding_pack_contribution(
+        RUN_ID, _raw_pack(ledger, "finding-drift-3"), expected_revision=ledger.get_revision(RUN_ID)
+    )
+    escalated = _successor_works(ledger)[-1]
+    assert escalated.payload["redecomposition_flagged"] is True
+    assert escalated.payload["policy_proposal_id"]
 
 
 def test_same_round_replan_accepts_slot_granularity(tmp_path: Path) -> None:
