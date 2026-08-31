@@ -159,7 +159,7 @@ def test_coordinator_rejects_worker_finished_with_semantic_failure(tmp_path) -> 
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "attempt_id": "attempt-h1",
                 "kind": "worker_finished",
-                "actor": "codex",
+                "actor": "worker",
                 "payload": {"outcome": "success", "attempt_outcome": outcome},
             }
         )
@@ -189,7 +189,7 @@ def test_coordinator_rejects_malformed_attempt_outcome_mapping(tmp_path) -> None
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "attempt_id": "attempt-h1",
                 "kind": "worker_finished",
-                "actor": "codex",
+                "actor": "worker",
                 "payload": {"outcome": "success", "attempt_outcome": {"process_exit": 0}},
             }
         )

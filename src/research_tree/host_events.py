@@ -14,6 +14,7 @@ from pathlib import PurePosixPath
 from typing import Any, Mapping
 
 from .domain import canonical_json_bytes, validate_identifier
+from .origins import ORIGIN_TYPES
 
 HOST_EVENT_SCHEMA_VERSION = 1
 HOST_EVENT_KINDS = frozenset(
@@ -118,6 +119,16 @@ class HostEvent:
         missing = [field for field in _REQUIRED_PAYLOAD_FIELDS[self.kind] if field not in self.payload]
         if missing:
             raise HostEventError(f"{self.kind} payload missing: {', '.join(missing)}")
+        # Issue #440: observations must carry a closed-vocabulary origin so
+        # downstream consumers can tell retellings from verified facts.
+        if self.kind == "observation":
+            origin = self.payload.get("origin")
+            if not isinstance(origin, str) or origin not in ORIGIN_TYPES:
+                raise HostEventError(
+                    f"observation payload origin must be one of {sorted(ORIGIN_TYPES)}; got {origin!r}"
+                )
+        if self.actor not in ORIGIN_TYPES:
+            raise HostEventError(f"actor must be one of {sorted(ORIGIN_TYPES)}; got {self.actor!r}")
         if self.kind == "provider_failure":
             if not ({"opaque_code", "error_code"} & set(self.payload)):
                 raise HostEventError("provider_failure payload missing: opaque_code or error_code")

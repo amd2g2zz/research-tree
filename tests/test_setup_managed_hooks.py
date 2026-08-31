@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import shutil
 import subprocess
@@ -286,5 +287,9 @@ def test_installed_global_hook_command_is_fail_open_in_an_unbound_workspace(
     )
 
     assert completed.returncode == 0
-    assert json.loads(completed.stdout) == {"continue": True}
+    # Issue #440: hook output is wrapped in a balanced <rt:event> pair.
+    assert re.search(r"<rt:event [^>]*>", completed.stdout)
+    assert completed.stdout.rstrip().endswith("</rt:event>")
+    inner = completed.stdout[completed.stdout.index(">") + 1 : completed.stdout.rindex("</rt:event>")]
+    assert json.loads(inner) == {"continue": True}
     assert not (workspace / ".research-tree").exists()

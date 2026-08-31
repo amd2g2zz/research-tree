@@ -194,7 +194,7 @@ def test_visible_plan_change_does_not_advance_canonical(tmp_path) -> None:
                 "expected_revision": ledger.get_revision("run-57"),
                 "sequence": 1,
                 "created_at": "2026-08-30T00:00:00+00:00",
-                "actor": "host",
+                "actor": "worker",
                 "kind": "workflow_phase_completed",
                 "payload": {
                     "workflow_id": "w1",

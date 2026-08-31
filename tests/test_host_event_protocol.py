@@ -74,7 +74,7 @@ def _event(ledger: RunLedger, *, event_id: str = "event-host", sequence: int = 1
             "attempt_id": "attempt-host",
             "expected_revision": ledger.get_revision("run-host") if expected_revision is None else expected_revision,
             "sequence": sequence,
-            "actor": "codex",
+            "actor": "worker",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "payload": payload,
         }
@@ -90,9 +90,9 @@ def test_envelope_digest_version_and_path_normalization() -> None:
             "attempt_id": "attempt-one",
             "expected_revision": 0,
             "sequence": 1,
-            "actor": "claude",
+            "actor": "worker",
             "created_at": "2026-08-11T00:00:00+00:00",
-            "payload": {"artifact_path": r"reports\result.json"},
+            "payload": {"artifact_path": r"reports\result.json", "origin": "worker"},
         }
     )
     assert event.payload["artifact_path"] == "reports/result.json"
@@ -120,7 +120,7 @@ def test_native_authoring_helper_matches_runtime_envelope() -> None:
         attempt_id="attempt-parity",
         expected_revision=3,
         sequence=1,
-        actor="codex",
+        actor="worker",
         payload=payload,
         created_at="2026-08-11T00:00:00+00:00",
     )
@@ -154,7 +154,7 @@ def test_ingestion_is_atomic_replayable_and_non_authoritative(tmp_path) -> None:
         )
     with pytest.raises(CoordinatorEventConflictError, match="event_id_conflict"):
         coordinator.ingest_host_event(
-            HostEvent.from_value({**event.to_dict(), "actor": "hermes", "expected_revision": 0})
+            HostEvent.from_value({**event.to_dict(), "actor": "agent", "expected_revision": 0})
         )
 
 
@@ -188,7 +188,7 @@ def test_recovery_event_pair_is_atomic_and_replayable(tmp_path, monkeypatch) -> 
                 "attempt_id": "attempt-host",
                 "expected_revision": revision,
                 "sequence": sequence,
-                "actor": "hermes",
+                "actor": "worker",
                 "causation_id": "unknown-1" if sequence > 1 else None,
                 "created_at": "2026-08-11T00:00:00+00:00",
                 "payload": payload,

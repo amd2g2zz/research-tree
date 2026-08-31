@@ -74,8 +74,12 @@ def build_hermes_event(*, kind: str, payload: Mapping[str, Any], **envelope: Any
     if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
         raise HermesEventError("sequence must be a positive integer")
     normalized = sanitize_provider_failure(payload) if kind == "provider_failure" else dict(payload)
+    # Issue #440: observations must carry a closed-vocabulary origin; Hermes
+    # is a worker host, so its events use the vocabulary value "worker".
+    if kind == "observation" and "origin" not in normalized:
+        normalized["origin"] = "worker"
     try:
-        return build_host_event(kind=kind, actor="hermes", payload=normalized, **envelope)
+        return build_host_event(kind=kind, actor="worker", payload=normalized, **envelope)
     except (TypeError, ValueError) as error:
         raise HermesEventError(str(error)) from error
 
