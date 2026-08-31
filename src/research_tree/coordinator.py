@@ -12,16 +12,11 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .contradictions import (
+    DISPUTE_PACKET_KIND,
+    PROVIDER_VALIDATION_KIND,
     ClaimBoundary,
     ContradictionDetector,
     ContradictionStatus,
-    claim_from_mapping,
-    render_contradiction_packet,
-)
-from .decision_frame import DECISION_FRAME_KIND, DecisionFrame
-from .dispute import (
-    DISPUTE_PACKET_KIND,
-    PROVIDER_VALIDATION_KIND,
     DisputeAuditTrail,
     DisputeDisposition,
     DisputeDispositionError,
@@ -29,9 +24,12 @@ from .dispute import (
     PressureLedger,
     PressureSignal,
     append_signal,
+    claim_from_mapping,
     dispute_packet_from_payload,
     evaluate_dispute,
+    render_contradiction_packet,
 )
+from .decision_frame import DECISION_FRAME_KIND, DecisionFrame
 from .domain import (
     ArtifactRef,
     ArtifactRevision,
