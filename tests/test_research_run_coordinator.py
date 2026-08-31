@@ -300,14 +300,8 @@ def test_legal_transition_enforces_matrix_actor_and_replay(tmp_path) -> None:
 def test_completion_exposes_all_missing_obligations_and_ignores_worker_finish(tmp_path) -> None:
     ledger, coordinator, _, _, _ = _initialize(tmp_path)
     _confirm_strategy(ledger, coordinator)
-    with pytest.raises(CoordinatorConflictError, match="host_event_envelope_required"):
-        coordinator.ingest_event(
-            run_id="run-57",
-            event_id="host-finished-1",
-            attempt_id="attempt-1",
-            payload={"worker_status": "finished", "all_tasks": True},
-            expected_revision=ledger.get_revision("run-57"),
-        )
+    with pytest.raises(CoordinatorConflictError, match="host event must be a mapping"):
+        coordinator.ingest_host_event(None)
 
     missing = coordinator.why_not_complete("run-57")
     assert "p0_closure_tokens" in missing["unmet_obligations"]
@@ -342,14 +336,8 @@ def test_completion_requires_all_canonical_obligations_and_is_terminally_idempot
 
 def test_host_event_duplicate_is_idempotent_and_conflict_is_rejected(tmp_path) -> None:
     ledger, coordinator, _, _, _ = _initialize(tmp_path)
-    with pytest.raises(CoordinatorConflictError, match="host_event_envelope_required"):
-        coordinator.ingest_event(
-            run_id="run-57",
-            event_id="event-1",
-            attempt_id="attempt-1",
-            payload={"kind": "finding", "value": 1},
-            expected_revision=ledger.get_revision("run-57"),
-        )
+    with pytest.raises(CoordinatorConflictError, match="host event must be a mapping"):
+        coordinator.ingest_host_event(None)
 
 
 def test_dispatch_requires_executable_oracle_and_recovery_quarantines_lease(tmp_path) -> None:

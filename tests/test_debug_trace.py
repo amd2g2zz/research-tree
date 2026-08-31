@@ -157,7 +157,7 @@ def test_explain_run_and_action_use_canonical_evidence(tmp_path: Path) -> None:
     assert explained["verified"] is True
     assert {item["obligation"] for item in explained["evidence_gaps"]} >= {
         "p0_closure_tokens",
-        "insights_non_blocking",
+        "insight_ref",
         "readiness_ref",
         "evaluation_ref",
         "technical_delivery_ref",

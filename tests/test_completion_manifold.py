@@ -216,7 +216,7 @@ def test_ambiguous_singleton_registration_is_not_selected(tmp_path: Path) -> Non
     why = coordinator.why_not_complete("run-57")
 
     assert why["field_diagnostics"]["insight_ref"]["reason"] == "ambiguous_registration"
-    assert "insights_non_blocking" in why["unmet_obligations"]
+    assert "insight_ref" in why["unmet_obligations"]
 
 
 def test_quarantined_registered_parent_reopens_completion_without_mutating_history(tmp_path: Path) -> None:

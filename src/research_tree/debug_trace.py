@@ -74,7 +74,7 @@ _SAFE_HOST_DIAGNOSTIC_FIELDS = frozenset(
 )
 _OBLIGATION_KINDS = {
     "p0_closure_tokens": frozenset({"slot-closure-assessment"}),
-    "insights_non_blocking": frozenset({"insight-digest"}),
+    "insight_ref": frozenset({"insight-digest"}),
     "readiness_ref": frozenset({"readiness-record"}),
     "evaluation_ref": frozenset({"blueprint-evaluation"}),
     "technical_delivery_ref": frozenset({"technical-research-package"}),
@@ -697,7 +697,7 @@ class CausalTraceService:
         inputs = coordinator._completion_inputs(run_id)
         insight = inputs.get("insight_ref")
         if insight is None or insight.payload.get("status") != "non_blocking":
-            missing.append("insights_non_blocking")
+            missing.append("insight_ref")
         readiness = inputs.get("readiness_ref")
         if readiness is None or readiness.payload.get("status") not in {"ready", "passed"}:
             missing.append("readiness_ref")

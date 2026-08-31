@@ -117,7 +117,7 @@ class CoordinatorConfigError(CoordinatorError):
     """Raised when the canonical governance matrix is missing or malformed.
 
     ADR-002 mandates that the lifecycle transition matrix is the single
-    authority. Silent fallback to a hardcoded legacy table violates that
+    authority. Silent fallback to a hardcoded table violates that
     contract by hiding governance drift.
     """
 
@@ -204,7 +204,7 @@ _TRANSITIONS: dict[tuple[str, str], tuple[str, str]] = {
 def _load_lifecycle_transitions() -> dict[tuple[str, str], tuple[str, str]]:
     """Load the canonical lifecycle matrix. Raises on missing/malformed.
 
-    The legacy hardcoded ``_TRANSITIONS`` dict is no longer a silent fallback —
+    The hardcoded ``_TRANSITIONS`` dict is no longer a silent fallback —
     any governance drift now surfaces as ``CoordinatorConfigError``.
 
     Lookup order:
@@ -1995,24 +1995,6 @@ class ResearchRunCoordinator:
             payload=transition_payload,
         )
 
-    def ingest_event(
-        self,
-        *,
-        event: HostEvent | Mapping[str, Any] | None = None,
-        run_id: str | None = None,
-        event_id: str | None = None,
-        attempt_id: str | None = None,
-        payload: Mapping[str, Any] | None = None,
-        expected_revision: int | None = None,
-    ) -> ArtifactRevision:
-        """Compatibility wrapper for the one canonical HostEvent ingress."""
-
-        if event is None:
-            raise CoordinatorConflictError("host_event_envelope_required")
-        if any(value is not None for value in (run_id, event_id, attempt_id, payload, expected_revision)):
-            raise CoordinatorConflictError("canonical_host_event_only")
-        return self.ingest_host_event(event)
-
     def ingest_host_event(self, event: HostEvent | Mapping[str, Any]) -> ArtifactRevision:
         """Validate and atomically persist one non-authoritative host event."""
 
@@ -2506,10 +2488,7 @@ class ResearchRunCoordinator:
             raise CoordinatorConflictError("run_id_required")
         current = self._latest_state(run_id)
         payload = thaw_json(current.payload)
-        region_values = payload.get("regions") or {}
-        if not region_values:
-            legacy_state = str(payload.get("state", "alignment"))
-            region_values = _legacy_to_regions(legacy_state)
+        region_values = _state_regions(str(payload["state"]))
         out = {}
         for region in self.STATE_REGIONS:
             entry = region_values.get(region, {})
@@ -2778,10 +2757,7 @@ class ResearchRunCoordinator:
     def _completion_obligations(self, run_id: str) -> tuple[str, ...]:
         """Evaluate completion from ledger evidence, never host supplied claims."""
         _, diagnostics = self._completion_manifold(run_id)
-        legacy_names = {"insight_ref": "insights_non_blocking"}
-        return tuple(
-            legacy_names.get(field, field) for field, detail in diagnostics.items() if detail.get("status") != "pass"
-        )
+        return tuple(field for field, detail in diagnostics.items() if detail.get("status") != "pass")
 
     def _acceptance_matches(
         self, acceptance: ArtifactRevision | None, technical: ArtifactRevision | None, human: ArtifactRevision | None
@@ -2833,11 +2809,7 @@ class ResearchRunCoordinator:
         if missing:
             raise CompletionBlockedError(missing)
         manifold, diagnostics = self._completion_manifold(run_id)
-        missing = tuple(
-            {"insight_ref": "insights_non_blocking"}.get(field, field)
-            for field, detail in diagnostics.items()
-            if detail.get("status") != "pass"
-        )
+        missing = tuple(field for field, detail in diagnostics.items() if detail.get("status") != "pass")
         if missing:
             raise CompletionBlockedError(missing)
         manifold_digest = _digest(manifold)
@@ -3216,8 +3188,11 @@ __all__ = [
 ]
 
 
-def _legacy_to_regions(state: str) -> dict:
-    """Map legacy single-string state to the five orthogonal regions (#324)."""
+def _state_regions(state: str) -> dict:
+    """Project one canonical lifecycle state into the five orthogonal regions (#324).
+
+    States without a canonical region projection fail closed.
+    """
 
     base = {"revision": 0, "updated_at": ""}
     mapping = {
@@ -3278,4 +3253,7 @@ def _legacy_to_regions(state: str) -> dict:
             "delivery": {"value": "completed", **base},
         },
     }
-    return mapping.get(state, mapping["alignment"])
+    try:
+        return mapping[state]
+    except KeyError as error:
+        raise IllegalTransitionError("illegal_transition") from error
