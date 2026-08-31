@@ -11,11 +11,13 @@
   relocations here as relocations, not silent disappearances.
 - [x] 1.3 Remove the retired `__init__` re-export blocks and `__all__` entries;
   point `scripts/check_openspec_governance.py` at the sibling module; update the
-  three governance suites and the context-ledger suite to the scripts-path
-  precedent (`test_hermes_host_events.py`); adapters import
-  `context_ledger_contract` directly; packages regenerated via
+  three governance suites to the scripts-path precedent
+  (`test_hermes_host_events.py`) and restore the context-ledger suite at its
+  original path `tests/test_context_ledger.py`, importing
+  `context_ledger_contract` from `scripts/` via the same sys.path precedent;
+  adapters import `context_ledger_contract` directly; packages regenerated via
   `build_skill_packages.py`.
-- [x] 1.4 Delete the eight dedicated test suites and trim the
+- [x] 1.4 Delete the nine dedicated test suites and trim the
   alignment_protocol / durable-interaction cases from the surviving suites;
   retire the displayed-confirmation case in `test_feedback_rounds.py` (it
   constructed `AlignmentProtocol` directly) together with its only consumer
@@ -30,6 +32,23 @@
   acceptance commands and their paired verification receipts (kept identical),
   and from the `project-user-preference-profile` delivery-matrix
   `source_modules` row.
+- [x] 2.3 Review follow-up (dangling-reference purge, pairing-only): drop the
+  retired `tests/test_assurance_adapters.py` parameter and the pre-existing
+  missing `tests/legacy_runstore_fixture.py` parameter (absent from `dev`
+  already) from the group-79 command pair — minimal path removal, exit-0
+  semantics preserved; repoint the group-82 command pair at
+  `scripts/openspec_governance.py` (module relocated in task 1.2); drop the
+  retired `src/research_tree/alignment_protocol.py` entry from
+  `delivery-policy-v1.json` `canonical_generation_inputs`; drop the retired
+  `PreferenceService` symbol from the `project-user-preference-profile`
+  delivery-matrix row, leaving `public_surface` present as an empty array
+  (schema-legal precedent: the `alpha2-contract-ratification` row in the same
+  matrix). Command edits are pairing-only: each `acceptance_command` and its
+  paired receipt `command` remain identical, while receipt digests and
+  `source_revision` are historical records bound to their recorded source
+  revision and are intentionally not rewritten when command text is
+  re-paired. Group 7's bare commands are the mechanical result of removing
+  every retired path parameter (none survived), not a semantic expansion.
 
 ## 3. Verification And Handoff
 

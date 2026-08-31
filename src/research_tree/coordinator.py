@@ -1188,7 +1188,6 @@ class ResearchRunCoordinator:
         finding_refs: Sequence[ArtifactRef | Mapping[str, Any]],
         reason: str,
         expected_revision: int,
-        durable_controller: Any | None = None,
         claim_ids: Sequence[str] | None = None,
         boundary: ClaimBoundary | str = ClaimBoundary.ADMISSION,
     ) -> ArtifactRevision:
@@ -1278,7 +1277,6 @@ class ResearchRunCoordinator:
             )
             if successor is None:
                 raise CoordinatorConflictError("contradiction successor state is missing")
-            self._retract_durable_claims(durable_controller, conflict.claim_ids)
             return successor
 
         current = self._latest_state(run_id)
@@ -1525,7 +1523,6 @@ class ResearchRunCoordinator:
             )[-1]
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
-        self._retract_durable_claims(durable_controller, conflict.claim_ids)
         return successor
 
     def resolve_contradiction(
@@ -1664,22 +1661,6 @@ class ResearchRunCoordinator:
             )
             revision = self.ledger.get_revision(run_id)
         return tuple(applied)
-
-    @staticmethod
-    def _retract_durable_claims(controller: Any | None, claim_ids: Sequence[str]) -> None:
-        if controller is None:
-            return
-        if not all(callable(getattr(controller, name, None)) for name in ("load", "contest_evidence_set")):
-            raise CoordinatorConflictError("durable contradiction controller is invalid")
-        current = controller.load()
-        dependencies = current.state.agent.pending_action_dependencies.values()
-        if not (
-            set(claim_ids).intersection(current.factual_beliefs)
-            or set(claim_ids).intersection(current.state.agent.assumptions)
-            or any(set(claim_ids).intersection(values) for values in dependencies)
-        ):
-            return
-        controller.contest_evidence_set(tuple(claim_ids), expected_revision=current.revision)
 
     def _validate_correction_for_apply(
         self, correction: CorrectionEvent
