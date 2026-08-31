@@ -25,7 +25,7 @@ from research_tree.cli import main as cli_main
 from research_tree.coordinator import CoordinatorConflictError, ResearchRunCoordinator
 from research_tree.decision_frame import DecisionFrame, IntentHypothesis
 from research_tree.decision_map import CanonicalBlueprintTargetCompiler, InvalidBlueprintTargetError
-from research_tree.domain import ArtifactRef, ArtifactRevision
+from research_tree.domain import ArtifactRef, ArtifactRevision, thaw_json
 from research_tree.run_ledger import RunLedger
 from research_tree.strategy_projection import StrategyProjection
 from research_tree.work_items import (
@@ -794,3 +794,78 @@ def test_confirm_handoff_requires_displayed_projection(tmp_path: Path) -> None:
 
     assert coordinator.state(RUN_ID) == state_before
     assert not any(item.kind == "lifecycle-event" for item in ledger.load_run(RUN_ID).artifacts)
+
+
+# ---------------------------------------------------------------------------
+# R3 review fixes 2+3: latest_confirmed fail-closed boundaries at compile
+# ---------------------------------------------------------------------------
+
+
+def _lifecycle_confirm_event(
+    ledger: RunLedger,
+    event_id: str,
+    projection_ref: ArtifactRef,
+    display_digest: str,
+) -> ArtifactRevision:
+    """Append a handoff_confirmed event, optionally against a non-matching digest."""
+
+    return _append(
+        ledger,
+        event_id,
+        "lifecycle-event",
+        {
+            "event_id": event_id,
+            "idempotency_key": event_id,
+            "event": "handoff_confirmed",
+            "from": "handoff_pending",
+            "to": "autonomous_research",
+            "actor": "human",
+            "payload": {
+                "projection_ref": projection_ref.to_dict(),
+                "display_digest": display_digest,
+                "confirmation": f"I accept {display_digest} and authorize research.",
+            },
+        },
+    )
+
+
+def test_trailing_corrupt_confirmation_rejects_compilation(tmp_path: Path) -> None:
+    ledger, target = goal_run(tmp_path, slots=(slot("slot-1"),))
+    confirmed = next(
+        item for item in ledger.load_run(RUN_ID).artifacts if item.kind == "strategy-projection"
+    )
+    _lifecycle_confirm_event(
+        ledger,
+        "event-corrupt-confirm",
+        ArtifactRef(RUN_ID, confirmed.id, confirmed.revision),
+        "f" * 64,
+    )
+
+    with pytest.raises(InvalidWorkItemError, match="confirmed strategy-projection"):
+        CanonicalWorkItemCompiler(ledger).compile(
+            **work_item_arguments(target), expected_revision=ledger.get_revision(RUN_ID)
+        )
+
+
+def test_superseded_confirmation_rejects_compilation(tmp_path: Path) -> None:
+    ledger, target = goal_run(tmp_path, slots=(slot("slot-1"),))
+    confirmed = next(
+        item for item in ledger.load_run(RUN_ID).artifacts if item.kind == "strategy-projection"
+    )
+    revised_payload = thaw_json(confirmed.payload)
+    revised_payload["revision"] = 2
+    revised_payload["display_payload"]["revision"] = 2
+    revised_payload["display_digest"] = "a" * 64
+    revised_payload["content_hash"] = "b" * 64
+    _append(
+        ledger,
+        confirmed.id,
+        "strategy-projection",
+        revised_payload,
+        (ArtifactRef(RUN_ID, confirmed.id, confirmed.revision),),
+    )
+
+    with pytest.raises(InvalidWorkItemError, match="confirmed strategy-projection"):
+        CanonicalWorkItemCompiler(ledger).compile(
+            **work_item_arguments(target), expected_revision=ledger.get_revision(RUN_ID)
+        )
