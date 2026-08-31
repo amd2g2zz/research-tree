@@ -194,19 +194,19 @@ def readiness_for_delivery(record: ArtifactRevision) -> Mapping[str, Any]:
 def validate_readiness_record_payload(payload: Mapping[str, Any]) -> None:
     """Validate the public, persisted readiness record schema recursively."""
 
-    legacy_keys = {
+    current_keys = {
         "technical_package_ref",
         "delivery_readiness",
         "diagnostics",
         "repository_anchor_checks",
         "source_refs",
+        "risk_verification",
     }
-    current_keys = legacy_keys | {"risk_verification"}
     actual_keys = set(payload)
-    if frozenset(actual_keys) not in {frozenset(legacy_keys), frozenset(current_keys)}:
+    if actual_keys != current_keys:
         raise InvalidReadinessError(
             "readiness record payload has unexpected keys; "
-            f"missing={sorted(legacy_keys - actual_keys)}, extra={sorted(actual_keys - current_keys)}"
+            f"missing={sorted(current_keys - actual_keys)}, extra={sorted(actual_keys - current_keys)}"
         )
     _validate_ref(payload["technical_package_ref"], "technical_package_ref")
     if "risk_verification" in payload:
@@ -238,7 +238,7 @@ def validate_readiness_record_payload(payload: Mapping[str, Any]) -> None:
     expected_diagnostics = _mappings(payload["diagnostics"], "diagnostics")
     for index, diagnostic in enumerate(expected_diagnostics):
         label = f"diagnostics[{index}]"
-        legacy_diagnostic_keys = {
+        current_diagnostic_keys = {
             "gate",
             "status",
             "summary",
@@ -246,15 +246,12 @@ def validate_readiness_record_payload(payload: Mapping[str, Any]) -> None:
             "decision_id",
             "work_item_id",
             "recommended_work",
+            "failure_category",
         }
-        current_diagnostic_keys = legacy_diagnostic_keys | {"failure_category"}
         diagnostic_keys = set(diagnostic)
-        if frozenset(diagnostic_keys) not in {
-            frozenset(legacy_diagnostic_keys),
-            frozenset(current_diagnostic_keys),
-        }:
+        if diagnostic_keys != current_diagnostic_keys:
             raise InvalidReadinessError(
-                f"{label} has unexpected keys; missing={sorted(legacy_diagnostic_keys - diagnostic_keys)}, "
+                f"{label} has unexpected keys; missing={sorted(current_diagnostic_keys - diagnostic_keys)}, "
                 f"extra={sorted(diagnostic_keys - current_diagnostic_keys)}"
             )
         gate = _enum(diagnostic["gate"], f"{label}.gate", set(READINESS_GATES))
@@ -462,7 +459,7 @@ def _strict_findings_are_authoritative(
                 _diagnostic(
                     "decision_closure",
                     "fail",
-                    f"Finding Pack {finding.id} uses non-authoritative legacy evidence.",
+                    f"Finding Pack {finding.id} uses non-authoritative evidence.",
                     slot_id=slot_id if isinstance(slot_id, str) else None,
                 )
             )
