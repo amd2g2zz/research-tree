@@ -35,8 +35,10 @@ Readiness record payloads SHALL validate against the current schema only:
 `repository_anchor_checks`, `source_refs`, and `risk_verification` are all
 required, and every diagnostic entry SHALL carry `failure_category`. Human
 deliveries SHALL declare only the canonical kind. Evidence artifacts SHALL
-resolve, close, and publish only with explicit, current evidence classes; no
-sentinel class value is special-cased.
+resolve, close, and publish only with an `evidence_class` drawn from the
+closed current vocabulary (`EVIDENCE_CLASSES`); unknown class values fail
+closed with an error naming the `evidence_class` field, and no sentinel class
+value is special-cased.
 
 #### Scenario: Stale readiness record is rejected
 
@@ -51,12 +53,23 @@ sentinel class value is special-cased.
   is not the canonical human-research-report kind
 - **THEN** validation raises the single non-canonical-kind acceptance error
 
+#### Scenario: Unknown evidence class is rejected
+
+- **WHEN** an evidence artifact is constructed with an `evidence_class`
+  outside the closed vocabulary (for example `legacy_unspecified` or any
+  other unlisted value)
+- **THEN** validation raises an evidence error naming the `evidence_class`
+  field
+
 ### Requirement: Canonical state regions project without a translation table
 
 `self_state` SHALL project the five orthogonal regions from the canonical
 lifecycle state recorded in the state payload, with no single-string state
 translation table and no silent default for unmapped states. States without a
-canonical region projection SHALL fail closed.
+canonical region projection SHALL fail closed. Every state in
+`LIFECYCLE_STATES` SHALL have a canonical region projection, and a state
+payload without a `state` field SHALL raise a typed conflict error instead of
+an untyped `KeyError`.
 
 #### Scenario: Unknown state fails closed
 
@@ -64,6 +77,21 @@ canonical region projection SHALL fail closed.
   projection
 - **THEN** the coordinator raises `IllegalTransitionError` instead of
   silently projecting a different state's regions
+
+#### Scenario: All thirteen canonical states project every region
+
+- **WHEN** `self_state` reads a state payload whose `state` is any of the 13
+  canonical `LIFECYCLE_STATES`
+- **THEN** every region projects a value drawn from the existing region
+  vocabulary, with resumable holds (`paused`, `blocked`) projecting their
+  predecessor research stage and terminal states (`superseded`,
+  `authority_blocked`, `failed`) projecting the terminal row
+
+#### Scenario: Missing state field raises a typed conflict
+
+- **WHEN** `self_state` reads a state payload that carries no `state` field
+- **THEN** the coordinator raises `CoordinatorConflictError` naming
+  `state_field_required` instead of an untyped `KeyError`
 
 ### Requirement: Run workspaces initialize without auto-migration
 

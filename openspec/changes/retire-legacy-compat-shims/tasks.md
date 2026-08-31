@@ -43,3 +43,23 @@
   retired-word grep gate (zero hits).
 - [x] 3.2 Commit on `feat/issue-422-legacy-purge` in shim groups and push;
   PR and merge are owned by the coordinator.
+
+## 4. Arbiter Adjudication Fixes
+
+- [x] 4.1 `coordinator.py`: `_state_regions` projects all 13
+  `LIFECYCLE_STATES` — resumable holds (`paused`, `blocked`) project their
+  predecessor research stage, terminal states (`superseded`,
+  `authority_blocked`, `failed`) project the terminal row; no new region
+  words invented; unknown states still raise `IllegalTransitionError`.
+- [x] 4.2 `coordinator.py`: `self_state` raises
+  `CoordinatorConflictError("state_field_required")` for a state payload
+  missing the `state` field instead of an untyped `KeyError`.
+- [x] 4.3 `evidence.py`: add the closed `EVIDENCE_CLASSES` vocabulary and
+  fail closed on unknown class values with a field-naming error message.
+- [x] 4.4 `tests/test_project_workspace.py`: positive non-migration contract
+  test (old-format roots untouched, no `migrated_legacy_roots` manifest key).
+- [x] 4.5 `readiness.py`: remove the always-true `if "risk_verification" in
+  payload` guards (the key is required by the exact-keys check); zero
+  behavior change.
+- [x] 4.6 Sync this spec/tasks with the implemented region projections,
+  evidence-class vocabulary, and typed conflict error.
