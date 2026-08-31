@@ -2488,6 +2488,8 @@ class ResearchRunCoordinator:
             raise CoordinatorConflictError("run_id_required")
         current = self._latest_state(run_id)
         payload = thaw_json(current.payload)
+        if "state" not in payload:
+            raise CoordinatorConflictError("state_field_required")
         region_values = _state_regions(str(payload["state"]))
         out = {}
         for region in self.STATE_REGIONS:
@@ -3246,6 +3248,51 @@ def _state_regions(state: str) -> dict:
             "delivery": {"value": "delivered", **base},
         },
         "completed": {
+            "cognitive": {"value": "settled", **base},
+            "workflow": {"value": "completed", **base},
+            "authority": {"value": "completed", **base},
+            "epistemic": {"value": "settled", **base},
+            "delivery": {"value": "completed", **base},
+        },
+        # Resumable holds project their predecessor stage: the lifecycle matrix
+        # enters and exits both inside the autonomous-research stage, so the
+        # stage regions carry over. paused keeps research_owner authority
+        # (resume needs no requester decision); blocked holds behind a
+        # not-yet-recorded method-or-authority decision, so the decision ball
+        # sits outside the run -> awaiting_requester.
+        "paused": {
+            "cognitive": {"value": "active", **base},
+            "workflow": {"value": "autonomous_research", **base},
+            "authority": {"value": "research_owner", **base},
+            "epistemic": {"value": "depth", **base},
+            "delivery": {"value": "not_started", **base},
+        },
+        "blocked": {
+            "cognitive": {"value": "active", **base},
+            "workflow": {"value": "autonomous_research", **base},
+            "authority": {"value": "awaiting_requester", **base},
+            "epistemic": {"value": "depth", **base},
+            "delivery": {"value": "not_started", **base},
+        },
+        # Terminal states (lifecycle-matrix-v1.json state_vocabulary.terminal)
+        # accept only idempotent reads and audit export: every region is
+        # concluded. The why (supersede / cancel / authority / fatal failure)
+        # lives in the state payload and lineage, not in the region values.
+        "superseded": {
+            "cognitive": {"value": "settled", **base},
+            "workflow": {"value": "completed", **base},
+            "authority": {"value": "completed", **base},
+            "epistemic": {"value": "settled", **base},
+            "delivery": {"value": "completed", **base},
+        },
+        "authority_blocked": {
+            "cognitive": {"value": "settled", **base},
+            "workflow": {"value": "completed", **base},
+            "authority": {"value": "completed", **base},
+            "epistemic": {"value": "settled", **base},
+            "delivery": {"value": "completed", **base},
+        },
+        "failed": {
             "cognitive": {"value": "settled", **base},
             "workflow": {"value": "completed", **base},
             "authority": {"value": "completed", **base},

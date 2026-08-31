@@ -16,6 +16,22 @@ from .run_ledger import LedgerError, RunLedger
 SELECTOR_TYPES = {"line", "symbol", "fragment", "page_section", "image_region", "input_revision", "experiment_field"}
 CONFIDENCES = {"low", "medium", "high"}
 STATUSES = {"active", "superseded", "rejected", "quarantined"}
+# Closed evidence-class vocabulary (issue #422: unknown class values fail
+# closed; no sentinel is special-cased). The six portfolio classes come from
+# the typed search-portfolio contract; `source` and `primary` are the classes
+# already carried by ledger evidence fixtures.
+EVIDENCE_CLASSES = frozenset(
+    {
+        "primary-source",
+        "independent-source",
+        "repository-observation",
+        "edge-case-fixture",
+        "validation-result",
+        "decision-consequence",
+        "source",
+        "primary",
+    }
+)
 EVIDENCE_ARTIFACT_KIND = "evidence-artifact"
 EVIDENCE_SCHEMA_VERSION = 1
 
@@ -92,6 +108,8 @@ class EvidenceArtifact:
         if self.license_note is not None:
             _text(self.license_note, "license_note")
         _text(self.evidence_class, "evidence_class")
+        if self.evidence_class not in EVIDENCE_CLASSES:
+            raise EvidenceValidationError(f"invalid evidence_class: {self.evidence_class}")
         if not isinstance(self.metadata, Mapping):
             raise EvidenceValidationError("metadata must be a mapping")
 

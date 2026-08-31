@@ -100,6 +100,26 @@ def test_project_hook_install_rolls_back_if_later_config_is_invalid(tmp_path: Pa
     assert codex_path.read_text(encoding="utf-8") == original
 
 
+def test_initialize_keeps_old_format_roots_and_manifest_has_no_migration_record(tmp_path: Path) -> None:
+    """Non-migration contract: old-format roots stay untouched; no migrated-roots record (#422)."""
+
+    from research_tree.project_workspace import initialize_project_run
+
+    old_root = tmp_path / ".research-tree-native" / "run-1"
+    old_root.mkdir(parents=True)
+    old_manifest = old_root / "manifest.json"
+    old_manifest.write_text(json.dumps({"schema": 1, "run_id": "run-1"}), encoding="utf-8")
+
+    workspace = initialize_project_run(tmp_path, project_id="topic-1", run_id="run-1", host="codex")
+
+    assert old_root.is_dir()
+    assert json.loads(old_manifest.read_text(encoding="utf-8")) == {"schema": 1, "run_id": "run-1"}
+    manifest = json.loads(workspace.manifest_path.read_text(encoding="utf-8"))
+    assert "migrated_legacy_roots" not in manifest
+    for directory in ("alignment", "plans", "attempts", "sessions", "events", "checkpoints", "logs", "deliveries"):
+        assert (workspace.run_root / directory).is_dir()
+
+
 def test_native_init_rejects_bad_handoff_without_creating_project_authority(tmp_path: Path) -> None:
     repository = Path(__file__).resolve().parents[1]
     bad_handoff = tmp_path / "handoff.json"

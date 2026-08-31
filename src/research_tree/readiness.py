@@ -209,14 +209,13 @@ def validate_readiness_record_payload(payload: Mapping[str, Any]) -> None:
             f"missing={sorted(current_keys - actual_keys)}, extra={sorted(actual_keys - current_keys)}"
         )
     _validate_ref(payload["technical_package_ref"], "technical_package_ref")
-    if "risk_verification" in payload:
-        validate_risk_verification_payload(payload["risk_verification"])
-        risk_evidence = _mapping(payload["risk_verification"], "risk_verification")
-        risk_package = _mapping(risk_evidence["technical_package"], "risk_verification.technical_package")
-        if risk_package["ref"] != payload["technical_package_ref"]:
-            raise InvalidReadinessError(
-                "risk_verification technical package ref must match readiness technical_package_ref"
-            )
+    validate_risk_verification_payload(payload["risk_verification"])
+    risk_evidence = _mapping(payload["risk_verification"], "risk_verification")
+    risk_package = _mapping(risk_evidence["technical_package"], "risk_verification.technical_package")
+    if risk_package["ref"] != payload["technical_package_ref"]:
+        raise InvalidReadinessError(
+            "risk_verification technical package ref must match readiness technical_package_ref"
+        )
     projection = _mapping(payload["delivery_readiness"], "delivery_readiness")
     _require_exact_keys(
         projection,
@@ -285,16 +284,15 @@ def validate_readiness_record_payload(payload: Mapping[str, Any]) -> None:
         _artifact_ref(ref, f"source_refs[{index}]")
         for index, ref in enumerate(_mappings(payload["source_refs"], "source_refs"))
     }
-    if "risk_verification" in payload:
-        risk_evidence = _mapping(payload["risk_verification"], "risk_verification")
-        baseline_refs = [
-            _artifact_ref(baseline["input_ref"], f"risk_verification.baselines[{index}].input_ref")
-            for index, baseline in enumerate(_mappings(risk_evidence["baselines"], "risk_verification.baselines"))
-        ]
-        if len(set(baseline_refs)) != len(baseline_refs):
-            raise InvalidReadinessError("risk_verification baselines must not repeat an input ref")
-        if not set(baseline_refs) <= source_refs:
-            raise InvalidReadinessError("risk_verification baseline refs must belong to the readiness source refs")
+    risk_evidence = _mapping(payload["risk_verification"], "risk_verification")
+    baseline_refs = [
+        _artifact_ref(baseline["input_ref"], f"risk_verification.baselines[{index}].input_ref")
+        for index, baseline in enumerate(_mappings(risk_evidence["baselines"], "risk_verification.baselines"))
+    ]
+    if len(set(baseline_refs)) != len(baseline_refs):
+        raise InvalidReadinessError("risk_verification baselines must not repeat an input ref")
+    if not set(baseline_refs) <= source_refs:
+        raise InvalidReadinessError("risk_verification baseline refs must belong to the readiness source refs")
 
 
 def _resolve_package_sources(
