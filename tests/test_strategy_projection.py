@@ -2,21 +2,63 @@ from __future__ import annotations
 
 import hashlib
 import json
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
 
-from research_tree.domain import ArtifactRef, canonical_json_bytes
+from research_tree.domain import (
+    SCHEMA_VERSION,
+    ArtifactRef,
+    ArtifactRevision,
+    canonical_json_bytes,
+)
 from research_tree.strategy_projection import (
     STRATEGY_PROJECTION_KIND,
     StrategyProjection,
     StrategyProjectionError,
+    latest_confirmed,
     macro_stage,
 )
 
+RUN_ID = "run-85"
+
 
 def _ref(artifact_id: str, revision: int = 1) -> ArtifactRef:
-    return ArtifactRef("run-85", artifact_id, revision)
+    return ArtifactRef(RUN_ID, artifact_id, revision)
+
+
+def _artifact(
+    artifact_id: str,
+    kind: str,
+    payload: dict,
+    *,
+    revision: int,
+    created_at: str,
+    parents: tuple[ArtifactRef, ...] = (),
+) -> ArtifactRevision:
+    """A hash-consistent ArtifactRevision with an explicit created_at for event ordering."""
+
+    body = {
+        "schema_version": SCHEMA_VERSION,
+        "id": artifact_id,
+        "round_id": RUN_ID,
+        "revision": revision,
+        "kind": kind,
+        "created_at": created_at,
+        "payload": payload,
+        "parent_refs": [ref.to_dict() for ref in parents],
+    }
+    return ArtifactRevision(
+        id=artifact_id,
+        round_id=RUN_ID,
+        revision=revision,
+        kind=kind,
+        created_at=created_at,
+        payload=payload,
+        parent_refs=parents,
+        content_hash=sha256(canonical_json_bytes(body)).hexdigest(),
+    )
 
 
 def projection(**overrides: object) -> StrategyProjection:
@@ -189,3 +231,108 @@ def test_runtime_source_has_no_legacy_projection_reader_branch() -> None:
     assert 'values.setdefault("preference_influences", ())' not in source
     assert 'legacy = "preference_influences" not in value' not in source
     assert "legacy_payload" not in source
+
+
+# ---------------------------------------------------------------------------
+# latest_confirmed: fail-closed boundaries
+# ---------------------------------------------------------------------------
+
+
+def _stored(
+    item: StrategyProjection,
+    *,
+    revision: int,
+    created_at: str,
+) -> ArtifactRevision:
+    """A stored strategy-projection artifact at an explicit revision and timestamp."""
+
+    return _artifact(
+        item.projection_id,
+        STRATEGY_PROJECTION_KIND,
+        item.to_dict(),
+        revision=revision,
+        created_at=created_at,
+    )
+
+
+def _confirm_event(
+    event_id: str, projection_ref: ArtifactRef, display_digest: str, *, created_at: str
+) -> ArtifactRevision:
+    """A handoff_confirmed lifecycle event naming a projection ref and displayed digest."""
+
+    payload = {
+        "event_id": event_id,
+        "event": "handoff_confirmed",
+        "from": "handoff_pending",
+        "to": "autonomous_research",
+        "actor": "human",
+        "payload": {
+            "projection_ref": projection_ref.to_dict() if isinstance(projection_ref, ArtifactRef) else projection_ref,
+            "display_digest": display_digest,
+            "confirmation": f"I accept {display_digest} and authorize research.",
+        },
+    }
+    return _artifact(event_id, "lifecycle-event", payload, revision=1, created_at=created_at)
+
+
+def _corrupt_event(
+    event_id: str,
+    projection_ref: ArtifactRef,
+    display_digest: str,
+    *,
+    corrupted: str,
+    created_at: str,
+) -> ArtifactRevision:
+    """A handoff_confirmed event that cannot be resolved to the projection it names."""
+
+    digest = "f" * 64 if corrupted == "digest" else display_digest
+    reference: object = projection_ref
+    if corrupted == "unparseable_ref":
+        reference = "projection-1"
+    if corrupted == "unknown_projection":
+        reference = ArtifactRef(RUN_ID, "projection-ghost", 1)
+    return _confirm_event(event_id, reference, digest, created_at=created_at)
+
+
+T0 = "2026-01-01T00:00:00+00:00"
+T1 = "2026-01-01T00:00:01+00:00"
+T2 = "2026-01-01T00:00:02+00:00"
+
+
+def test_latest_confirmed_returns_the_named_revision() -> None:
+    model = projection()
+    first = _stored(model, revision=1, created_at=T0)
+    good = _confirm_event("event-good", _ref("projection-1", 1), model.display_digest, created_at=T1)
+    assert latest_confirmed((first, good)) == first
+
+
+def test_latest_confirmed_fails_closed_on_trailing_corrupt_confirmation() -> None:
+    for corrupted in ("digest", "unparseable_ref", "unknown_projection"):
+        model = projection()
+        artifacts = (
+            _stored(model, revision=1, created_at=T0),
+            _confirm_event("event-good", _ref("projection-1", 1), model.display_digest, created_at=T1),
+            _corrupt_event(
+                "event-corrupt", _ref("projection-1", 1), model.display_digest, corrupted=corrupted, created_at=T2
+            ),
+        )
+        assert latest_confirmed(artifacts) is None, corrupted
+
+
+def test_latest_confirmed_tolerates_a_corrupt_confirm_superseded_by_a_valid_one() -> None:
+    model = projection()
+    first = _stored(model, revision=1, created_at=T0)
+    corrupt = _corrupt_event(
+        "event-corrupt", _ref("projection-1", 1), model.display_digest, corrupted="digest", created_at=T1
+    )
+    good = _confirm_event("event-good", _ref("projection-1", 1), model.display_digest, created_at=T2)
+    assert latest_confirmed((first, corrupt, good)) == first
+
+
+def test_latest_confirmed_superseded_confirm_fails_closed() -> None:
+    model = projection()
+    first = _stored(model, revision=1, created_at=T0)
+    confirm = _confirm_event("event-good", _ref("projection-1", 1), model.display_digest, created_at=T1)
+    second = _stored(model, revision=2, created_at=T2)
+    assert latest_confirmed((first, confirm, second)) is None
+    assert latest_confirmed((first, confirm)) == first

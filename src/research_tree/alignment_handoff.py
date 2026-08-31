@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from typing import Any, Mapping, Sequence
 
 from .alignment_graph import AlignmentGraphStore
+from .decision_map import BLUEPRINT_TARGET_KIND
 from .domain import ArtifactRef, ArtifactRevision, thaw_json, validate_identifier
 from .recursive_search import initialize_research_state
 from .run_ledger import RunLedger
@@ -73,7 +75,15 @@ def initialize_research_from_alignment(
             (
                 handoff_id,
                 ALIGNMENT_HANDOFF_KIND,
-                {key: value for key, value in compiled.items() if key not in {"alignment_graph", "baseline_findings"}},
+                {
+                    **{
+                        key: value
+                        for key, value in compiled.items()
+                        if key not in {"alignment_graph", "baseline_findings"}
+                    },
+                    "confirmed": True,
+                    "goal_decomposition": list(goal_decomposition(snapshot.artifacts)),
+                },
                 (graph_ref,),
             ),
             *((finding.id, finding.kind, thaw_json(finding.payload), finding.parent_refs) for finding in findings),
@@ -91,3 +101,39 @@ def initialize_research_from_alignment(
 
 def _next_revision(artifacts: tuple[ArtifactRevision, ...], artifact_id: str) -> int:
     return max((artifact.revision for artifact in artifacts if artifact.id == artifact_id), default=0) + 1
+
+
+def goal_decomposition(artifacts: Sequence[ArtifactRevision]) -> tuple[dict[str, Any], ...]:
+    """Project Decision Slots' serves links into the goal-to-slot decomposition.
+
+    Entries derive directly from Decision Slots that carry a serves link, ordered by
+    priority then slot id, so strategy display and handoff payloads state which part
+    of the confirmed StrategyProjection each Decision Slot advances. Slots without a
+    serves link are skipped and appear nowhere in the mapping: this is transitional
+    behavior for legacy slots authored before the serves whitelist existed (#427);
+    newly compiled slots always carry serves.
+    """
+
+    latest: dict[str, ArtifactRevision] = {}
+    for artifact in artifacts:
+        if artifact.kind != BLUEPRINT_TARGET_KIND:
+            continue
+        current = latest.get(artifact.id)
+        if current is None or artifact.revision > current.revision:
+            latest[artifact.id] = artifact
+    entries: list[dict[str, Any]] = []
+    for target in latest.values():
+        slots = target.payload.get("slots") or ()
+        for slot_entry in slots:
+            serves = slot_entry.get("serves") if isinstance(slot_entry, Mapping) else None
+            if not isinstance(serves, Mapping):
+                continue
+            entries.append(
+                {
+                    "slot_id": slot_entry.get("id"),
+                    "target_id": serves.get("target_id"),
+                    "oracle_ids": list(serves.get("oracle_ids") or ()),
+                    "priority": slot_entry.get("priority"),
+                }
+            )
+    return tuple(sorted(entries, key=lambda entry: (entry["priority"], entry["slot_id"])))

@@ -70,6 +70,7 @@ def _slot() -> dict[str, object]:
         "status": "open",
         "bounded_research_need": "compare both alternatives against the current boundary",
         "fallback": "retain the current boundary until this decision closes",
+        "serves": {"target_id": "decision-1", "oracle_ids": ["oracle-1"]},
     }
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from test_goal_wiring import attach_confirmed_projection
 
 
 def api():
@@ -154,6 +155,7 @@ def canonical_context_target(tmp_path: Path):
         },
         expected_revision=ledger.get_revision(round_record.id),
     )
+    attach_confirmed_projection(ledger, round_record.id, target)
     return modules, ledger, round_record, target
 
 
@@ -184,6 +186,7 @@ def slot(slot_id: str, *, priority: str) -> dict[str, object]:
         "status": "open",
         "bounded_research_need": "compare both alternatives against the current boundary",
         "fallback": "retain the current boundary until this decision closes",
+        "serves": {"target_id": "decision-1", "oracle_ids": ["oracle-1"]},
     }
 
 

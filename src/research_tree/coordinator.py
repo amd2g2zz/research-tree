@@ -59,6 +59,7 @@ from .strategy_projection import (
     StrategyProjection,
     StrategyProjectionError,
     macro_stage,
+    validate_falsifiability,
 )
 
 FINDING_PACK_KIND = "finding-pack"
@@ -412,7 +413,14 @@ class ResearchRunCoordinator:
     def persist_strategy_projection(
         self, projection: StrategyProjection, *, expected_revision: int
     ) -> ArtifactRevision:
-        """Append an immutable projection, replaying an identical write."""
+        """Append an immutable projection, replaying an identical write.
+
+        Persist accepts any valid projection status (draft through confirmed): the
+        status alone confers no authority. Advancing the run past alignment requires
+        the ``alignment_projection_ready`` transition, whose guard enforces the
+        falsifiability review on the exact revision for every caller, and confirmation
+        additionally requires the displayed status plus the digest-bearing confirmation.
+        """
 
         if not isinstance(projection, StrategyProjection):
             raise CoordinatorConflictError("strategy_projection_invalid")
@@ -490,6 +498,16 @@ class ResearchRunCoordinator:
             )
         if artifact.payload.get("display_digest") != projection.display_digest:
             raise CoordinatorConflictError("strategy_projection_stale")
+        # Field-specific falsifiability pre-check: a rejected display names the violated
+        # oracle rule and appends no artifact. Enforcement itself lives in the
+        # transition guard (_guard_passes), which re-validates the same projection
+        # content for EVERY caller of alignment_projection_ready — display_strategy
+        # included — so no run may advance past alignment on an unfalsifiable
+        # projection, whatever caller drove the transition.
+        try:
+            validate_falsifiability(projection)
+        except StrategyProjectionError as error:
+            raise CoordinatorConflictError(str(error)) from error
         return self.transition(
             run_id,
             "alignment_projection_ready",
@@ -519,6 +537,13 @@ class ResearchRunCoordinator:
         artifact, projection = self.require_strategy_projection(projection_ref, run_id=run_id, require_displayed=True)
         if projection.display_digest not in confirmation:
             raise CoordinatorConflictError("confirmation_digest_mismatch")
+        # Defense in depth: the guard cannot vouch for artifacts written before the gate
+        # existed or outside the coordinator, so confirmation re-validates the projection
+        # content itself — a single gate failure must not fail the whole chain open.
+        try:
+            validate_falsifiability(projection)
+        except StrategyProjectionError as error:
+            raise CoordinatorConflictError(str(error)) from error
         payload = {
             "projection_ref": ArtifactRef(run_id, artifact.id, artifact.revision).to_dict(),
             "display_digest": projection.display_digest,
@@ -1833,7 +1858,15 @@ class ResearchRunCoordinator:
         run_id: str,
         event: str,
         payload: Mapping[str, Any] | None = None,
-    ) -> bool:
+    ) -> tuple[bool, str | None]:
+        """Evaluate the transition guard for ``event``.
+
+        Returns ``(passed, failure_reason)``. ``failure_reason`` is ``None`` on pass
+        and on undifferentiated failures (which keep their event-default reason); it is
+        set when the guard can name the violated rule, e.g. the falsifiability review
+        on ``alignment_projection_ready``.
+        """
+
         inputs = self._completion_inputs(run_id)
         if event in {"alignment_projection_ready", "handoff_confirmed"}:
             projection_ref = (payload or {}).get("projection_ref")
@@ -1844,28 +1877,34 @@ class ResearchRunCoordinator:
                     reference, run_id=run_id, require_displayed=event == "handoff_confirmed"
                 )
             except CoordinatorConflictError:
-                return False
+                return False, None
             if display_digest != projection.display_digest or artifact.payload.get("display_digest") != display_digest:
-                return False
+                return False, None
             if event == "alignment_projection_ready":
-                return projection.status in {"displayed", "confirmed"}
+                if projection.status not in {"displayed", "confirmed"}:
+                    return False, None
+                try:
+                    validate_falsifiability(projection)
+                except StrategyProjectionError as error:
+                    return False, f"projection_unfalsifiable: {error}"
+                return True, None
             confirmation = (payload or {}).get("confirmation")
-            return isinstance(confirmation, str) and projection.display_digest in confirmation
+            return (isinstance(confirmation, str) and projection.display_digest in confirmation), None
         if event == "handoff_confirmed":
             current = self._latest_state(run_id)
             if current.payload.get("correction_event_id") is not None:
                 authority = (payload or {}).get("authority_binding")
                 if not isinstance(authority, Mapping):
-                    return False
+                    return False, None
                 bindings = authority.get("bindings")
                 if not isinstance(bindings, Mapping):
-                    return False
+                    return False, None
                 try:
                     binding = CorrectionBinding.from_value("handoff", bindings["handoff"])
                     handoff = self.ledger.get_artifact(binding.artifact_ref)
                 except (RuntimeStoreError, KeyError, TypeError, ValueError):
-                    return False
-                return bool(handoff.payload.get("confirmed") is True)
+                    return False, None
+                return bool(handoff.payload.get("confirmed") is True), None
             initial = min(self._states(run_id), key=lambda item: item.revision)
             handoff = next(
                 (
@@ -1875,19 +1914,24 @@ class ResearchRunCoordinator:
                 ),
                 None,
             )
-            return bool(handoff and handoff.payload.get("confirmed") is True)
+            return bool(handoff and handoff.payload.get("confirmed") is True), None
         if event == "all_slots_closed":
-            return "p0_closure_tokens" not in self._completion_obligations(run_id)
+            return "p0_closure_tokens" not in self._completion_obligations(run_id), None
         if event == "readiness_passed":
-            return bool(
-                inputs.get("readiness_ref")
-                and inputs["readiness_ref"].payload.get("status") in {"ready", "passed"}
-                and inputs.get("evaluation_ref")
-                and inputs["evaluation_ref"].payload.get("status") in {"passed", "pass"}
+            return (
+                bool(
+                    inputs.get("readiness_ref")
+                    and inputs["readiness_ref"].payload.get("status") in {"ready", "passed"}
+                    and inputs.get("evaluation_ref")
+                    and inputs["evaluation_ref"].payload.get("status") in {"passed", "pass"}
+                ),
+                None,
             )
         if event == "deliveries_compiled":
-            return inputs.get("technical_delivery_ref") is not None and inputs.get("human_delivery_ref") is not None
-        return True
+            return (
+                inputs.get("technical_delivery_ref") is not None and inputs.get("human_delivery_ref") is not None
+            ), None
+        return True, None
 
     def transition(
         self,
@@ -1959,22 +2003,22 @@ class ResearchRunCoordinator:
                 expected_revision=expected_revision,
             )
             raise IllegalTransitionError("actor_not_allowed")
-        if not self._guard_passes(run_id, event, transition_payload):
+        guard_passed, guard_failure = self._guard_passes(run_id, event, transition_payload)
+        if not guard_passed:
+            reason = guard_failure or (
+                "projection_required"
+                if event in {"alignment_projection_ready", "handoff_confirmed"}
+                else "guard_failed"
+            )
             self._record_rejection(
                 run_id=run_id,
                 current=current,
                 event=event,
                 actor=actor,
-                reason="projection_required"
-                if event in {"alignment_projection_ready", "handoff_confirmed"}
-                else "guard_failed",
+                reason=reason,
                 expected_revision=expected_revision,
             )
-            raise IllegalTransitionError(
-                "projection_required"
-                if event in {"alignment_projection_ready", "handoff_confirmed"}
-                else "guard_failed"
-            )
+            raise IllegalTransitionError(reason)
         if event == "delivery_accepted":
             return self.complete(
                 run_id,

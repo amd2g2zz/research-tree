@@ -181,6 +181,7 @@ def slot(slot_id: str, *, priority: str = "P0", with_repository: bool = True) ->
         "status": "open",
         "bounded_research_need": "compare the two alternatives against the current boundary",
         "fallback": "retain the current boundary until this decision closes",
+        "serves": {"target_id": "decision-1", "oracle_ids": ["oracle-1"]},
     }
 
 

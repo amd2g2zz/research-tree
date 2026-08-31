@@ -51,7 +51,7 @@ def prepare_strategy(ledger: RunLedger, coordinator: ResearchRunCoordinator, run
         evidence_expectations=("independent source",),
         autonomy_envelope={"allowed": ["research"]},
         replanning_policy={"same_round": ["depth"]},
-        success_oracles=("oracle-1",),
+        success_oracles=({"id": "oracle-1", "evidence_standard_ids": ("standard-1",)},),
         delivery_contract={"technical": "package", "human": "report"},
         stop_rule="oracles pass",
         preference_influences=(),

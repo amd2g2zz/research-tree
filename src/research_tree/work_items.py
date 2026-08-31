@@ -14,6 +14,12 @@ from .domain import (
     validate_identifier,
 )
 from .run_ledger import RunLedger
+from .strategy_projection import (
+    StrategyProjection,
+    StrategyProjectionError,
+    latest_confirmed,
+    validate_falsifiability,
+)
 
 WORK_ITEM_KIND = "work-item"
 ROUND_SUPERSESSION_KIND = "round-supersession"
@@ -80,6 +86,7 @@ class CanonicalWorkItemCompiler:
                 raise InvalidWorkItemError("blueprint_target must belong to work item round")
             slot_id = _identifier(decision_slot_id, "decision_slot_id")
             slot = _target_slot(target, slot_id)
+            serves = _slot_serves(slot, snapshot.artifacts, round_id)
             target_hypotheses = _identifier_sequence(slot.get("intent_hypothesis_ids"), "slot intent_hypothesis_ids")
             hypotheses = (
                 target_hypotheses
@@ -112,6 +119,7 @@ class CanonicalWorkItemCompiler:
                 "exclusions": _nonempty_string(exclusions, "exclusions"),
                 "decision_change_reason": _nonempty_string(decision_change_reason, "decision_change_reason"),
                 "depends_on": list(normalized_dependencies),
+                "serves": serves,
                 "methods": list(_enum_sequence(methods, "methods", WORK_METHODS)),
                 "budget": _normalize_budget(budget),
                 "completion_rule": _nonempty_string(completion_rule, "completion_rule"),
@@ -334,6 +342,57 @@ def _target_slot(target: ArtifactRevision, slot_id: str) -> Mapping[str, Any]:
         if slot.get("id") == slot_id:
             return slot
     raise InvalidWorkItemError(f"Decision Slot is absent from Blueprint Target: {slot_id}")
+
+
+def _slot_serves(
+    slot: Mapping[str, Any],
+    artifacts: Sequence[ArtifactRevision],
+    round_id: str,
+) -> dict[str, Any]:
+    """Validate the slot's serves link against the run's confirmed StrategyProjection."""
+
+    slot_id = slot.get("id")
+    raw = slot.get("serves")
+    if not isinstance(raw, Mapping):
+        raise InvalidWorkItemError(f"Decision Slot requires serves: {slot_id}")
+    _require_exact_keys(raw, {"target_id", "oracle_ids"}, "serves")
+    target_id = _identifier(raw["target_id"], "serves.target_id")
+    oracle_ids = _identifier_sequence(raw["oracle_ids"], "serves.oracle_ids", allow_empty=True)
+    if slot.get("priority") == "P0" and not oracle_ids:
+        raise InvalidWorkItemError(f"P0 slot requires non-empty serves.oracle_ids: {slot_id}")
+    projection = latest_confirmed(artifacts)
+    if projection is None:
+        raise InvalidWorkItemError(f"work item requires a confirmed strategy-projection: {round_id}")
+    projection_model = StrategyProjection.from_dict(dict(projection.payload))
+    # Defense in depth: the confirmed basis of every serves validation must itself be
+    # falsifiable. A hand-written (pre-gate) ledger can carry a confirmed event over an
+    # unfalsifiable projection; a single gate failure must not fail the whole chain open.
+    try:
+        validate_falsifiability(projection_model)
+    except StrategyProjectionError as error:
+        raise InvalidWorkItemError(f"confirmed strategy-projection is unfalsifiable: {error}") from error
+    target_ids = {_projection_entry_id(entry) for entry in projection_model.decision_targets}
+    target_ids.discard(None)
+    if target_id not in target_ids:
+        raise InvalidWorkItemError(
+            f"serves.target_id not in confirmed strategy-projection decision_targets: {target_id}"
+        )
+    oracle_set = {_projection_entry_id(entry) for entry in projection_model.success_oracles}
+    oracle_set.discard(None)
+    for oracle_id in oracle_ids:
+        if oracle_id not in oracle_set:
+            raise InvalidWorkItemError(
+                f"serves.oracle_id not in confirmed strategy-projection success_oracles: {oracle_id}"
+            )
+    return {"target_id": target_id, "oracle_ids": list(oracle_ids)}
+
+
+def _projection_entry_id(entry: Any) -> str | None:
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, Mapping) and isinstance(entry.get("id"), str):
+        return entry["id"]
+    return None
 
 
 def _resolve_dependencies(
