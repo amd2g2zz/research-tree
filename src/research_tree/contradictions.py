@@ -528,6 +528,9 @@ def render_contradiction_packet(packet: Mapping[str, Any]) -> str:
                     f"## Claim {index}: {raw.get('claim_id', 'unknown')}",
                     f"Statement: {raw.get('subject', '')} {raw.get('predicate', '')} {raw.get('value', '')}",
                     f"Polarity: {raw.get('polarity', 'unknown')}",
+                    # Issue #440: keep claim provenance visible to consuming
+                    # agents so retellings are not read as verified facts.
+                    f"Origin: {raw.get('origin', 'unknown')}",
                     "Applicability: "
                     + ", ".join(
                         f"{name}={raw.get(name, '')}"
