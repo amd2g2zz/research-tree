@@ -22,7 +22,11 @@ from research_tree.alignment_graph import (
 )
 from research_tree.alignment_handoff import goal_decomposition, initialize_research_from_alignment
 from research_tree.cli import main as cli_main
-from research_tree.coordinator import CoordinatorConflictError, ResearchRunCoordinator
+from research_tree.coordinator import (
+    CoordinatorConflictError,
+    IllegalTransitionError,
+    ResearchRunCoordinator,
+)
 from research_tree.decision_frame import DecisionFrame, IntentHypothesis
 from research_tree.decision_map import CanonicalBlueprintTargetCompiler, InvalidBlueprintTargetError
 from research_tree.domain import ArtifactRef, ArtifactRevision, thaw_json
@@ -713,12 +717,13 @@ def _core_artifacts(ledger: RunLedger) -> tuple[ArtifactRevision, ArtifactRevisi
     )
 
 
-def _unfalsifiable_projection(ledger: RunLedger) -> StrategyProjection:
-    """A projection whose success oracle is a bare string (no evidence standards).
-
-    Persisted directly through the coordinator API with a hand-forged ``displayed``
-    status — the bypass vector the authority layer must close.
-    """
+def _displayed_projection(
+    ledger: RunLedger,
+    *,
+    projection_id: str,
+    success_oracles: tuple,
+) -> StrategyProjection:
+    """A projection persisted-ready against the run's core artifacts with a displayed status."""
 
     handoff, frame, target = _core_artifacts(ledger)
     return projection(
@@ -727,10 +732,20 @@ def _unfalsifiable_projection(ledger: RunLedger) -> StrategyProjection:
         handoff_ref=ArtifactRef(RUN_ID, handoff.id, handoff.revision),
         target_ref=ArtifactRef(RUN_ID, target.id, target.revision),
         decision_targets=({"id": "decision-1", "oracle_ids": ("oracle-1",)},),
-        success_oracles=("oracle-1",),
+        success_oracles=success_oracles,
         status="displayed",
-        projection_id="projection-unfalsifiable",
+        projection_id=projection_id,
     )
+
+
+def _unfalsifiable_projection(ledger: RunLedger) -> StrategyProjection:
+    """A projection whose success oracle is a bare string (no evidence standards).
+
+    Persisted directly through the coordinator API with a hand-forged ``displayed``
+    status — the bypass vector the authority layer must close.
+    """
+
+    return _displayed_projection(ledger, projection_id="projection-unfalsifiable", success_oracles=("oracle-1",))
 
 
 def test_display_strategy_rejects_unfalsifiable_projection_without_cli(tmp_path: Path) -> None:
@@ -775,6 +790,86 @@ def test_display_strategy_rejects_dangling_oracle_reference_without_cli(tmp_path
     assert coordinator.state(RUN_ID) == state_before
     assert ledger.get_revision(RUN_ID) == revision_before
     assert not any(item.kind == "lifecycle-event" for item in ledger.load_run(RUN_ID).artifacts)
+
+
+def test_direct_transition_rejects_unfalsifiable_projection(tmp_path: Path) -> None:
+    """The gate holds for every caller: transition() invoked directly, display_strategy bypassed."""
+
+    workspace, ledger, coordinator, _target, _projection_file = wired_run(tmp_path)
+    unfalsifiable = _unfalsifiable_projection(ledger)
+    coordinator.persist_strategy_projection(unfalsifiable, expected_revision=ledger.get_revision(RUN_ID))
+    state_before = coordinator.state(RUN_ID)
+
+    with pytest.raises(IllegalTransitionError, match="projection_unfalsifiable"):
+        coordinator.transition(
+            RUN_ID,
+            "alignment_projection_ready",
+            "coordinator",
+            expected_revision=ledger.get_revision(RUN_ID),
+            payload={
+                "projection_ref": ArtifactRef(
+                    RUN_ID, unfalsifiable.projection_id, unfalsifiable.revision
+                ).to_dict(),
+                "display_digest": unfalsifiable.display_digest,
+            },
+        )
+
+    assert coordinator.state(RUN_ID) == state_before
+    assert not any(item.kind == "lifecycle-event" for item in ledger.load_run(RUN_ID).artifacts)
+    rejections = [item for item in ledger.load_run(RUN_ID).artifacts if item.kind == "lifecycle-rejection"]
+    assert len(rejections) == 1
+    assert "projection_unfalsifiable" in rejections[0].payload["reason"]
+    assert "evidence_standard_ids" in rejections[0].payload["reason"]
+
+
+def test_direct_transition_digest_failure_reason_stays_projection_required(tmp_path: Path) -> None:
+    """A digest failure keeps the generic reason, so the two guard failures are distinguishable."""
+
+    workspace, ledger, coordinator, _target, _projection_file = wired_run(tmp_path)
+    unfalsifiable = _unfalsifiable_projection(ledger)
+    coordinator.persist_strategy_projection(unfalsifiable, expected_revision=ledger.get_revision(RUN_ID))
+
+    with pytest.raises(IllegalTransitionError, match="projection_required"):
+        coordinator.transition(
+            RUN_ID,
+            "alignment_projection_ready",
+            "coordinator",
+            expected_revision=ledger.get_revision(RUN_ID),
+            payload={
+                "projection_ref": ArtifactRef(
+                    RUN_ID, unfalsifiable.projection_id, unfalsifiable.revision
+                ).to_dict(),
+                "display_digest": "f" * 64,
+            },
+        )
+
+    rejections = [item for item in ledger.load_run(RUN_ID).artifacts if item.kind == "lifecycle-rejection"]
+    assert [item.payload["reason"] for item in rejections] == ["projection_required"]
+
+
+def test_direct_transition_accepts_falsifiable_projection(tmp_path: Path) -> None:
+    """The guard closes the bypass without breaking legitimate direct callers."""
+
+    workspace, ledger, coordinator, _target, _projection_file = wired_run(tmp_path)
+    falsifiable = _displayed_projection(
+        ledger,
+        projection_id="projection-direct",
+        success_oracles=({"id": "oracle-1", "evidence_standard_ids": ("standard-1",)},),
+    )
+    coordinator.persist_strategy_projection(falsifiable, expected_revision=ledger.get_revision(RUN_ID))
+
+    state = coordinator.transition(
+        RUN_ID,
+        "alignment_projection_ready",
+        "coordinator",
+        expected_revision=ledger.get_revision(RUN_ID),
+        payload={
+            "projection_ref": ArtifactRef(RUN_ID, falsifiable.projection_id, falsifiable.revision).to_dict(),
+            "display_digest": falsifiable.display_digest,
+        },
+    )
+
+    assert state.payload["state"] == "handoff_pending"
 
 
 def test_confirm_handoff_requires_displayed_projection(tmp_path: Path) -> None:
