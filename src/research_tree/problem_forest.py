@@ -650,7 +650,9 @@ def disclosure_triggers(state) -> tuple[DisclosureTrigger, ...]:
     """
 
     if state is None or not hasattr(state, "evidence"):
-        raise TypeError("disclosure_triggers requires a CognitionState")
+        raise TypeError(
+            "disclosure_triggers requires a state with .evidence, .reconciliation, .requester_forest, .agent_forest"
+        )
     evidence_by_id: dict[str, object] = {
         getattr(artifact, "evidence_id", None): artifact for artifact in state.evidence
     }
@@ -698,7 +700,7 @@ class BoundedReconstitutionTrigger:
     @classmethod
     def evaluate(cls, state) -> "BoundedReconstitutionTrigger":
         if state is None or not hasattr(state, "requester_forest"):
-            raise TypeError("BoundedReconstitutionTrigger.evaluate requires a CognitionState")
+            raise TypeError("BoundedReconstitutionTrigger.evaluate requires a state with .requester_forest")
         nodes = state.requester_forest.current_nodes()
         if len(nodes) < 2:
             return cls(fired=True, mode="bounded_reconnaissance", reason="fewer than 2 requester nodes")

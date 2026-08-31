@@ -31,13 +31,14 @@ ADR-006 在同一证据标准下整文件删除 `orchestration.py`。
 
 ### Modified Capabilities
 
-（无既有 spec 文件声明本批模块为能力面；host-native-orchestration 能力的
-delivery-matrix `source_modules` 保留历史记录，native_workflows 的退役由本 change 记录。）
+（无既有 spec 文件声明本批模块为能力面；delivery-matrix 中 host-native-orchestration
+与 canonical-host-event-boundary 的 `source_modules` 已摘除 native_workflows 路径，
+native_workflows 的退役由本 change 记录。）
 
 ## Impact
 
 - **代码**：删除 `src/research_tree/` 下 12 个模块（约 1,418 行）与 11 个专属测试文件；
-  `__init__.py` 摘除 3 个 import 块与 17 个 `__all__` 条目；`coordinator.py`/
+  `__init__.py` 摘除 3 个 import 块与 16 个 `__all__` 条目；`coordinator.py`/
   `alignment_protocol.py`/`problem_forest.py` 摘除断裂引用点。
 - **治理**：`openspec/changes/unify-research-runtime-alpha2/registries/` 的
   task-execution-v1.json 与 task-verification-v1.json（group 61 命令对）摘除退役模块路径。
