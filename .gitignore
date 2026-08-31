@@ -71,7 +71,9 @@ pytestdebug.log
 # Repository-local installed skills and runtime state. These paths are never
 # cleaned by repository tooling; see the governed path registry.
 .agents/
-.claude/
+.claude/                    # runtime config (settings, logs, skills cache)
+!.claude/skills/            # team-shareable agent skills (project subagents load these)
+!.claude/agents/            # team-shareable custom subagent definitions
 .codex/
 .research-tree/
 
