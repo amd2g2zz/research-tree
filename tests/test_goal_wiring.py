@@ -747,11 +747,9 @@ def test_display_strategy_rejects_unfalsifiable_projection_without_cli(tmp_path:
     assert ledger.get_revision(RUN_ID) == revision_before
     assert not any(item.kind == "lifecycle-event" for item in ledger.load_run(RUN_ID).artifacts)
     statuses = [
-        item.payload["status"]
-        for item in ledger.load_run(RUN_ID).artifacts
-        if item.kind == "strategy-projection"
+        item.payload["status"] for item in ledger.load_run(RUN_ID).artifacts if item.kind == "strategy-projection"
     ]
-    assert statuses == ["draft"]
+    assert statuses == ["displayed"]
 
 
 def test_display_strategy_rejects_dangling_oracle_reference_without_cli(tmp_path: Path) -> None:

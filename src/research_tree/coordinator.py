@@ -59,6 +59,7 @@ from .strategy_projection import (
     StrategyProjection,
     StrategyProjectionError,
     macro_stage,
+    validate_falsifiability,
 )
 
 FINDING_PACK_KIND = "finding-pack"
@@ -412,7 +413,14 @@ class ResearchRunCoordinator:
     def persist_strategy_projection(
         self, projection: StrategyProjection, *, expected_revision: int
     ) -> ArtifactRevision:
-        """Append an immutable projection, replaying an identical write."""
+        """Append an immutable projection, replaying an identical write.
+
+        Persist accepts any valid projection status (draft through confirmed): the
+        status alone confers no authority. Advancing the run past alignment requires
+        ``display_strategy``, which enforces the falsifiability review on the exact
+        revision it displays, and confirmation additionally requires the displayed
+        status plus the digest-bearing confirmation.
+        """
 
         if not isinstance(projection, StrategyProjection):
             raise CoordinatorConflictError("strategy_projection_invalid")
@@ -490,6 +498,14 @@ class ResearchRunCoordinator:
             )
         if artifact.payload.get("display_digest") != projection.display_digest:
             raise CoordinatorConflictError("strategy_projection_stale")
+        # Authority-layer falsifiability gate: the CLI's display verb pre-checks the
+        # same rules for message fidelity, but this enforcement point is the
+        # guarantee — no run may advance past alignment on an unfalsifiable
+        # projection, whatever caller drove the transition.
+        try:
+            validate_falsifiability(projection)
+        except StrategyProjectionError as error:
+            raise CoordinatorConflictError(str(error)) from error
         return self.transition(
             run_id,
             "alignment_projection_ready",

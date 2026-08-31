@@ -818,6 +818,9 @@ def _strategy_display(
         ArtifactRef(run_id, latest.id, latest.revision),
         run_id=run_id,
     )
+    # Pre-flight the falsifiability review before committing the displayed revision so a
+    # rejected display leaves no appended artifact behind. The coordinator's
+    # display_strategy re-enforces the same gate at the authority layer for every caller.
     try:
         validate_falsifiability(projection)
     except StrategyProjectionError as error:

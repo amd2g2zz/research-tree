@@ -98,9 +98,11 @@ acknowledgements.
 
 ### Requirement: Displayed projections are falsifiable
 
-`strategy display` MUST reject a projection whose success oracles are not evidence-bound:
+`display_strategy` MUST reject a projection whose success oracles are not evidence-bound —
 every success oracle entry must carry non-empty `evidence_standard_ids`, and every
-decision-target `oracle_ids` reference must resolve inside `success_oracles`. Rejected
+decision-target `oracle_ids` reference must resolve inside `success_oracles`. The review is
+enforced at the coordinator authority layer; `strategy display` pre-flights the same rules
+before committing the displayed revision so a rejected display appends no artifact. Rejected
 displays MUST NOT mutate run state.
 
 #### Scenario: Oracle without evidence standards is rejected at display
@@ -112,6 +114,13 @@ displays MUST NOT mutate run state.
 
 - **WHEN** a decision target references an oracle id absent from `success_oracles`
 - **THEN** the display fails naming the dangling reference and the run state is unchanged.
+
+#### Scenario: Authority layer rejects an unfalsifiable projection without the CLI
+
+- **WHEN** a projection with string success oracles is persisted directly through the
+  coordinator API with a hand-forged `displayed` status and `display_strategy` is called
+- **THEN** `display_strategy` rejects it naming `evidence_standard_ids`
+- **AND** the run state, run revision, and lifecycle-event count are unchanged.
 
 ### Requirement: Handoff payloads project the goal decomposition
 

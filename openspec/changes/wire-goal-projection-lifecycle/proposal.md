@@ -47,7 +47,9 @@ lifecycle into the production path first, then lands slot `serves` validation on
 - `src/research_tree/decision_map.py` — slot whitelist gains required serves shape.
 - `src/research_tree/alignment_handoff.py` — handoff payload: confirmed flag + goal
   decomposition.
-- `src/research_tree/coordinator.py` — unchanged; the CLI calls the existing
-  `display_strategy`/`confirm_handoff` APIs (actor=human, digest guard preserved).
+- `src/research_tree/coordinator.py` — `display_strategy` enforces the falsifiability
+  review at the authority layer before the `alignment_projection_ready` transition; the CLI
+  display verb pre-flights the same rules for message fidelity, and confirm keeps
+  `actor="human"` with the digest guard.
 - tests: new `tests/test_goal_wiring.py` contract tests; existing fixtures gain serves and a
   confirmed-projection setup.

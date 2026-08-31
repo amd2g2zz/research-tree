@@ -40,3 +40,14 @@
 - [x] 6.1 Update existing fixtures (slot serves, confirmed-projection setup) and run the full
       gates: pytest, ruff check/format, package check, openspec strict validation, docs and
       repository layout checks.
+
+## 7. Review Hardening (alpha3 batch-3)
+
+- [x] 7.1 Sink the falsifiability gate into the coordinator authority layer:
+      `display_strategy` validates the projection revision it displays before the
+      `alignment_projection_ready` transition (CLI pre-check retained as the message-
+      fidelity layer); coordinator-level negative tests prove the persist→display→confirm
+      bypass is closed with state, revision, and lifecycle-event immutability.
+- [x] 7.2 Document the persist-status boundary: `persist_strategy_projection` accepts any
+      valid projection status (status alone confers no authority) because display and
+      confirmation carry the authority gates.
