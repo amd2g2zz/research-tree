@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-08-31
+goal: "Fold the opt-in debug-trace emitter into lifecycle_hook and retire the
+  debug-trace protocol, CLI, and causal replay service with zero residue."

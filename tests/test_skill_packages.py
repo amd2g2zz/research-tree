@@ -310,7 +310,7 @@ def test_all_host_packages_expose_opt_in_debug_tracing() -> None:
     for package in packages:
         skill_root = _skill_dir(package)
         skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
-        assert "research-tree-debug" in skill
+        assert "research-tree-debug" not in skill
         assert (skill_root / "references" / "debug-tracing.md").is_file()
 
 

@@ -119,17 +119,10 @@ Research Tree state.
 
 ## Debug Tracing
 
-Enable traces only for a bounded diagnosis:
-
-~~~bash
-uv run --frozen research-tree-debug emit \
-  --host codex --phase alignment_blocked --status blocked \
-  --code missing-success-oracle
-uv run --frozen research-tree-debug summary --limit 50
-~~~
-
-Traces contain approved reason codes and limited metadata. They are not a
-source of completion authority.
+Enable traces only for a bounded diagnosis by running the lifecycle hook with
+`--debug`; each recorded observation appends one sanitized event under
+`.research-tree-debug/events/`. Traces contain bounded reason codes and limited
+metadata. They are not a source of completion authority.
 
 ## Package And Repository Checks
 

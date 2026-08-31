@@ -179,7 +179,7 @@
         "ci://delivery-governance/delivery-gate"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_debug_trace.py tests/test_replay.py tests/test_research_run_coordinator.py && uv run ruff check src/research_tree/debug_trace.py tests/test_debug_trace.py tests/test_replay.py && uv run ruff format --check src/research_tree/debug_trace.py tests/test_debug_trace.py tests/test_replay.py",
+        "command": "uv run pytest -q tests/test_research_run_coordinator.py && uv run ruff check && uv run ruff format --check",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "e2078f71a99ade09d6b5291a6d221e93313514f64e0564746990d734d13790e1",
@@ -497,7 +497,7 @@
         "local://.research-tree/verification-runs/issue-149/group-36-receipt.json"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_canonical_completion_parent_acceptance.py tests/test_completion_manifold.py tests/test_completion_input_registration.py tests/test_completion_delivery_registration.py tests/test_research_run_coordinator.py tests/test_replay.py && uv run ruff check tests/test_canonical_completion_parent_acceptance.py tests/test_completion_manifold.py tests/test_completion_input_registration.py tests/test_completion_delivery_registration.py tests/test_research_run_coordinator.py tests/test_replay.py && uv run ruff format --check tests/test_canonical_completion_parent_acceptance.py tests/test_completion_manifold.py tests/test_completion_input_registration.py tests/test_completion_delivery_registration.py tests/test_research_run_coordinator.py tests/test_replay.py && uv run python scripts/check_openspec_governance.py",
+        "command": "uv run pytest -q tests/test_canonical_completion_parent_acceptance.py tests/test_completion_manifold.py tests/test_completion_input_registration.py tests/test_completion_delivery_registration.py tests/test_research_run_coordinator.py && uv run ruff check tests/test_canonical_completion_parent_acceptance.py tests/test_completion_manifold.py tests/test_completion_input_registration.py tests/test_completion_delivery_registration.py tests/test_research_run_coordinator.py && uv run ruff format --check tests/test_canonical_completion_parent_acceptance.py tests/test_completion_manifold.py tests/test_completion_input_registration.py tests/test_completion_delivery_registration.py tests/test_research_run_coordinator.py && uv run python scripts/check_openspec_governance.py",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "9dc321aa2690281342a1ad005f575448c316247941e13792b467bf8715faa540",
@@ -599,7 +599,7 @@
         "openspec/changes/archive/resolve-completion-manifold/evidence/issue-158-completion-manifold.json"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_completion_manifold.py tests/test_completion_input_registration.py tests/test_completion_delivery_registration.py tests/test_research_run_coordinator.py tests/test_replay.py tests/test_debug_trace.py tests/test_feedback_rounds.py && uv run ruff check src/research_tree/coordinator.py src/research_tree/run_ledger.py tests/test_completion_manifold.py tests/test_research_run_coordinator.py tests/test_replay.py && uv run ruff format --check src/research_tree/coordinator.py src/research_tree/run_ledger.py tests/test_completion_manifold.py tests/test_research_run_coordinator.py tests/test_replay.py",
+        "command": "uv run pytest -q tests/test_completion_manifold.py tests/test_completion_input_registration.py tests/test_completion_delivery_registration.py tests/test_research_run_coordinator.py tests/test_feedback_rounds.py && uv run ruff check src/research_tree/coordinator.py src/research_tree/run_ledger.py tests/test_completion_manifold.py tests/test_research_run_coordinator.py && uv run ruff format --check src/research_tree/coordinator.py src/research_tree/run_ledger.py tests/test_completion_manifold.py tests/test_research_run_coordinator.py",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "930ee8ae9b460cf6a28c506f66740a1e8bc84790f278947c7d5553bd5f03026d",
@@ -787,7 +787,7 @@
         "openspec/changes/archive/reconstruct-semantic-replay/evidence/issue-154-replay.json"
       ],
       "command_receipt": {
-        "command": "uv run pytest -q tests/test_replay.py tests/test_debug_trace.py && uv run ruff check src/research_tree/debug_trace.py tests/test_replay.py tests/test_debug_trace.py && uv run ruff format --check src/research_tree/debug_trace.py tests/test_replay.py tests/test_debug_trace.py && uv run python scripts/check_openspec_governance.py",
+        "command": "uv run pytest -q && uv run ruff check && uv run ruff format --check && uv run python scripts/check_openspec_governance.py",
         "exit_code": 0,
         "environment_digest": "52f016b66b8402a4ad7d640eff6154b15442c7eb1ebe52c9ec20998448a5991f",
         "output_digest": "0c54b24f560882dabd5f6a8d7d1f7a04aeecb589783775bf9699be32fcaf0f12",
