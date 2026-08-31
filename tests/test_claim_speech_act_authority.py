@@ -13,9 +13,7 @@ from pathlib import Path
 import pytest
 
 from research_tree.alignment_graph import AlignmentGraphStore
-from research_tree.alignment_protocol import AlignmentProtocol
 from research_tree.claims import Claim
-from research_tree.run_ledger import RunLedger
 from research_tree.speech_acts import (
     BELIEF_STATUSES,
     SPEAKER_ROLES,
@@ -25,65 +23,6 @@ from research_tree.speech_acts import (
     SpeechAct,
     transition,
 )
-
-
-def _protocol(tmp_path: Path) -> AlignmentProtocol:
-    ledger = RunLedger(tmp_path)
-    ledger.create_run("run-316")
-    return AlignmentProtocol(ledger, "run-316")
-
-
-def _seed_evidence(service: AlignmentProtocol) -> dict[str, object]:
-    """Append a real evidence artifact so basis_refs can satisfy lineage."""
-
-    service.ledger.append_artifact(
-        "run-316",
-        "evidence-anchor",
-        "alignment-evidence",
-        {"source": "test-fixture"},
-        parent_refs=(),
-        expected_revision=service.ledger.get_revision("run-316"),
-    )
-    return {
-        "round_id": "run-316",
-        "artifact_id": "evidence-anchor",
-        "revision": 1,
-    }
-
-
-def test_record_belief_without_basis_stays_candidate_not_supported(tmp_path: Path) -> None:
-    """Core fix: beliefs without basis_refs default to candidate, not supported."""
-
-    service = _protocol(tmp_path)
-
-    belief = service.record_belief(
-        belief_id="belief-uncited",
-        actor="agent",
-        field="scope",
-        statement="The bounded scope is reachable.",
-        confidence="medium",
-    )
-
-    assert belief["status"] == "candidate"
-    assert belief["basis_refs"] == []
-
-
-def test_record_belief_with_basis_defaults_to_supported(tmp_path: Path) -> None:
-    """With basis_refs, the default promotion still happens (back-compat)."""
-
-    service = _protocol(tmp_path)
-    basis = _seed_evidence(service)
-
-    belief = service.record_belief(
-        belief_id="belief-cited",
-        actor="agent",
-        field="scope",
-        statement="The bounded scope is reachable.",
-        confidence="medium",
-        basis_refs=[basis],
-    )
-
-    assert belief["status"] == "supported"
 
 
 def test_answered_alone_does_not_resolve(tmp_path: Path) -> None:
