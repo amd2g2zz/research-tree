@@ -15,7 +15,6 @@ from .domain import (
     validate_identifier,
 )
 from .feedback import CORRECTION_EVENT_KIND, STALE_STATE_QUARANTINE_KIND
-from .growth import BranchState, compute_readiness_delta
 from .interaction_state import InteractionEvent, InteractionReducer, InteractionReduction, InteractionState
 from .run_ledger import LedgerConflictError, RunLedger
 from .speech_acts import AuthorityTransitionError
@@ -716,25 +715,6 @@ class AlignmentProtocol:
             "digest": digest,
             "belief_refs": [reference.to_dict() for reference in refs],
         }
-
-    def growth_aware_readiness(
-        self,
-        *,
-        branches_before: Sequence[BranchState] = (),
-        branches_after: Sequence[BranchState] = (),
-        evidence_deltas: Mapping[str, Sequence[str]] | None = None,
-    ) -> dict[str, Any]:
-        """Opt-in readiness view: the canonical fields plus the growth delta.
-
-        Callers that do not opt in keep the exact ``readiness()`` payload.
-        """
-
-        delta = compute_readiness_delta(branches_before, branches_after, evidence_deltas or {})
-        result = self.readiness()
-        result["growth_aware"] = True
-        result["readiness_delta"] = delta.to_dict()
-        result["branches"] = [branch.to_dict() for branch in branches_after]
-        return result
 
     def confirm(
         self,

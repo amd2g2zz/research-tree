@@ -256,3 +256,19 @@ def test_black_box_briefs_keep_actions_bounded_and_digest_bound(
         )
         with pytest.raises(AlignmentProtocolError, match="generic acknowledgement"):
             service.confirm("okay", expected_digest=message["belief_digest"])
+
+
+def test_readiness_baseline_contract_survives_opt_in_removal(tmp_path: Path) -> None:
+    """readiness() keeps its baseline key contract when no opt-in extension is present.
+
+    Ported from origin/dev tests/test_growth_aware_alignment.py
+    (test_existing_callers_unaffected_when_opt_in_flag_absent, first half);
+    the growth-aware second half travelled with the retired growth module.
+    """
+
+    service = protocol(tmp_path)
+
+    baseline = service.readiness()
+
+    assert set(baseline) == {"ready", "fields", "reasons", "digest", "belief_refs"}
+    assert baseline["ready"] is False
