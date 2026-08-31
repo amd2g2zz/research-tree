@@ -356,3 +356,174 @@ def test_blueprint_evaluation_payload_rejects_invalid_cost_and_clarification_bur
     with pytest.raises(modules["InvalidEvaluationError"]) as missing_burden:
         modules["validate_blueprint_evaluation_payload"](missing_burden_key)
     assert "missing=['unanswered']" in str(missing_burden.value)
+
+
+def test_blueprint_evaluation_payload_rejects_environment_digest_without_sha256_prefix() -> None:
+    modules = api()
+    payload = evaluation_payload()
+    payload["case"]["environment"]["digest"] = "registry.example/python:3.12"
+
+    with pytest.raises(modules["InvalidEvaluationError"]) as raised:
+        modules["validate_blueprint_evaluation_payload"](payload)
+
+    assert "time-split case environment digest must use sha256:" in str(raised.value)
+
+
+def test_blueprint_evaluation_payload_rejects_empty_public_materials() -> None:
+    modules = api()
+    payload = evaluation_payload()
+    payload["case"]["public_materials"] = ()
+
+    with pytest.raises(modules["InvalidEvaluationError"]) as raised:
+        modules["validate_blueprint_evaluation_payload"](payload)
+
+    assert "time-split case public_materials must not be empty" in str(raised.value)
+
+
+def test_blueprint_evaluation_payload_rejects_string_diagnoses() -> None:
+    modules = api()
+    payload = evaluation_payload()
+    payload["diagnoses"] = "technical_package"
+
+    with pytest.raises(modules["InvalidEvaluationError"]) as raised:
+        modules["validate_blueprint_evaluation_payload"](payload)
+
+    assert "diagnoses must be a sequence of EvaluationDiagnosis values" in str(raised.value)
+
+
+def test_blueprint_evaluation_payload_rejects_non_diagnosis_entries() -> None:
+    modules = api()
+    payload = evaluation_payload()
+    payload["diagnoses"] = (42,)
+
+    with pytest.raises(modules["InvalidEvaluationError"]) as raised:
+        modules["validate_blueprint_evaluation_payload"](payload)
+
+    assert "diagnoses[0] must be an EvaluationDiagnosis or mapping" in str(raised.value)
+
+
+def test_blueprint_evaluation_payload_rejects_checks_that_are_not_a_sequence_of_mappings() -> None:
+    modules = api()
+    payload = evaluation_payload()
+    payload["implementation_outcome"]["checks"] = {"build": "pass"}
+
+    with pytest.raises(modules["InvalidEvaluationError"]) as raised:
+        modules["validate_blueprint_evaluation_payload"](payload)
+
+    assert "implementation_outcome checks must be a sequence of mappings" in str(raised.value)
+
+
+def test_blueprint_evaluation_payload_rejects_non_mapping_check_entries() -> None:
+    modules = api()
+    payload = evaluation_payload()
+    payload["implementation_outcome"]["checks"] = ("build",)
+
+    with pytest.raises(modules["InvalidEvaluationError"]) as raised:
+        modules["validate_blueprint_evaluation_payload"](payload)
+
+    assert "implementation_outcome checks[0] must be a mapping" in str(raised.value)
+
+
+def test_blueprint_evaluation_payload_rejects_limitations_that_are_not_a_string_sequence() -> None:
+    modules = api()
+    payload = evaluation_payload()
+    payload["implementation_outcome"]["limitations"] = "The evaluator does not measure rollout behavior."
+
+    with pytest.raises(modules["InvalidEvaluationError"]) as raised:
+        modules["validate_blueprint_evaluation_payload"](payload)
+
+    assert "implementation_outcome limitations must be a sequence of strings" in str(raised.value)
+
+
+def _invalidate_identifier(payload: dict[str, object], route: str) -> None:
+    if route == "technical_package_ref.round_id":
+        payload["technical_package_ref"]["round_id"] = "Round_001"
+    elif route == "readiness_record_ref.artifact_id":
+        payload["readiness_record_ref"]["artifact_id"] = "readiness/worker"
+    elif route == "case.id":
+        payload["case"]["id"] = "Case_ID"
+    else:
+        raise AssertionError(f"unknown identifier route: {route}")
+
+
+@pytest.mark.parametrize(
+    ("route", "label"),
+    [
+        ("technical_package_ref.round_id", "technical_package_ref.round_id"),
+        ("readiness_record_ref.artifact_id", "readiness_record_ref.artifact_id"),
+        ("case.id", "time-split case id"),
+    ],
+)
+def test_blueprint_evaluation_payload_rejects_invalid_identifiers(route: str, label: str) -> None:
+    modules = api()
+    payload = evaluation_payload()
+    _invalidate_identifier(payload, route)
+
+    with pytest.raises(modules["InvalidEvaluationError"]) as raised:
+        modules["validate_blueprint_evaluation_payload"](payload)
+
+    assert f"{label} must match" in str(raised.value)
+
+
+def test_blueprint_evaluation_payload_rejects_non_hex_baseline_digest() -> None:
+    modules = api()
+    payload = evaluation_payload()
+    payload["case"]["baseline"]["sha256"] = "g" * 64
+
+    with pytest.raises(modules["InvalidEvaluationError"]) as raised:
+        modules["validate_blueprint_evaluation_payload"](payload)
+
+    assert "time-split case baseline sha256 must be a lowercase SHA-256 hex digest" in str(raised.value)
+
+
+def test_blueprint_evaluation_payload_rejects_non_positive_revision() -> None:
+    modules = api()
+    payload = evaluation_payload()
+    payload["technical_package_ref"]["revision"] = 0
+
+    with pytest.raises(modules["InvalidEvaluationError"]) as raised:
+        modules["validate_blueprint_evaluation_payload"](payload)
+
+    assert "technical_package_ref.revision must be a positive integer" in str(raised.value)
+
+
+def test_blueprint_evaluation_payload_rejects_an_empty_check_command() -> None:
+    modules = api()
+    payload = evaluation_payload()
+    payload["implementation_outcome"]["checks"][0]["command"] = "   "
+
+    with pytest.raises(modules["InvalidEvaluationError"]) as raised:
+        modules["validate_blueprint_evaluation_payload"](payload)
+
+    assert "implementation_outcome checks[0].command must be a nonempty string" in str(raised.value)
+
+
+def test_not_applicable_behavior_retains_its_reason() -> None:
+    modules = api()
+    payload = evaluation_payload()
+    not_applicable = _check(
+        "fail_to_pass",
+        "not_applicable",
+        "none",
+        "No hidden acceptance exists for this change.",
+    )
+    payload["implementation_outcome"]["checks"] = (
+        _check("build", "pass", "uv run python -m compileall -q src", "The isolated build completed."),
+        not_applicable,
+        _check(
+            "pass_to_pass",
+            "pass",
+            "uv run python -m pytest -q regression",
+            "The pre-existing regression suite was evaluated.",
+        ),
+    )
+
+    assert modules["validate_blueprint_evaluation_payload"](payload) is None
+
+    outcome = payload["implementation_outcome"]["checks"][1]
+    assert outcome == {
+        "name": "fail_to_pass",
+        "status": "not_applicable",
+        "command": "none",
+        "summary": "No hidden acceptance exists for this change.",
+    }
