@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tomllib
@@ -67,7 +68,14 @@ def test_migration_console_surface_and_public_exports_are_removed() -> None:
 def _json_output(capsys: pytest.CaptureFixture[str]) -> dict:
     captured = capsys.readouterr()
     assert captured.err == ""
-    return json.loads(captured.out)
+    # Issue #440: stdout is wrapped in balanced rt:tool-output / rt:error
+    # tags; strip the wrapper and parse the JSON payload inside.
+    out = captured.out.strip()
+    open_match = re.search(r"<rt:(?:tool-output|error)[^>]*>", out)
+    if open_match:
+        close = "</rt:tool-output>" if "<rt:tool-output" in out else "</rt:error>"
+        out = out[open_match.end() : out.rindex(close)]
+    return json.loads(out)
 
 
 def _assert_envelope(payload: dict, run_id: str) -> None:

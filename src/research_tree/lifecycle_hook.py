@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, BinaryIO, Iterable, Sequence
 
+from .origins import close_tag, open_tag
 from .skill_activation import build_loader_receipt
 
 MAX_INPUT_BYTES = 64 * 1024
@@ -274,6 +275,23 @@ def host_response(host: str) -> dict[str, Any]:
     return {} if host == "hermes" else {"continue": True}
 
 
+def labeled_host_response(host: str) -> str:
+    """Return the host response wrapped in a balanced <rt:event> pair.
+
+    Issue #440: content the hook injects into a host agent's context must be
+    distinguishable from the agent's own reasoning, so the payload carries
+    the hook contract marker on the tag attributes.
+    """
+
+    payload = host_response(host)
+    body = json.dumps(payload, separators=(",", ":"))
+    opening = open_tag(
+        "rt:event",
+        {"contract": "research-tree-hook", "schema_version": "1", "host": host},
+    )
+    return opening + body + close_tag("rt:event")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="research-tree-hook",
@@ -309,7 +327,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Lifecycle observation must never block an agent session.
         if arguments.debug:
             print(f"research-tree hook debug: {exc}", file=sys.stderr)
-    print(json.dumps(host_response(arguments.host), separators=(",", ":")))
+    print(labeled_host_response(arguments.host))
     return 0
 
 

@@ -273,7 +273,7 @@ def worker_finished_event(
             "attempt_id": "attempt-1",
             "expected_revision": ledger.get_revision("run-portfolio"),
             "sequence": 1,
-            "actor": "worker-1",
+            "actor": "worker",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "payload": payload,
             "payload_digest": payload_digest(payload),
