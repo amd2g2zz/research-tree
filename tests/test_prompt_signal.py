@@ -52,6 +52,35 @@ class TestClassifierRules:
         signal = classify_prompt_signal("that's wrong, the API paginates")
         assert signal == {"category": "correction", "confidence": "high", "rule": "explicit_wrong"}
 
+    def test_actually_prefix_is_medium_confidence(self) -> None:
+        # Review calibration: a tentative "actually" add-on is not a clear
+        # overturn of a prior conclusion, so it must not ride at high.
+        signal = classify_prompt_signal("Actually, can you also add monitoring while you are at it?")
+        assert signal == {"category": "correction", "confidence": "medium", "rule": "actually_prefix"}
+
+    def test_continuation_semantics_downgrades_corrections(self) -> None:
+        # Review calibration: prompts that pair correction vocabulary with an
+        # explicit continue instruction are not overturns of the plan.
+        signal = classify_prompt_signal("no. 5 files remain, keep going")
+        assert signal == {"category": "correction", "confidence": "low", "rule": "explicit_no+continuation"}
+        signal = classify_prompt_signal("the path in the docs is wrong but continue with the plan")
+        assert signal == {"category": "correction", "confidence": "low", "rule": "explicit_wrong+continuation"}
+
+    def test_genuine_overturn_stays_high_even_with_continue_words_elsewhere(self) -> None:
+        # "Stop" semantics still outrank; and a correction without continuation
+        # semantics must stay high.
+        assert classify_prompt_signal("that's wrong, the API paginates")["confidence"] == "high"
+
+    def test_medium_confidence_correction_is_not_fed_to_the_run(self, tmp_path: Path) -> None:
+        root = project(tmp_path)
+        project_run(root)
+
+        result = _submit(root, "Actually, can you also add monitoring while you are at it?")
+
+        assert result["signal"]["category"] == "correction"
+        assert result["signal"]["confidence"] == "medium"
+        assert "run_signal_path" not in result
+
     def test_interruption_bare_stop(self) -> None:  # noqa: PLR6301
         assert classify_prompt_signal("stop") == {
             "category": "interruption",
@@ -95,7 +124,7 @@ class TestClassifierRules:
         assert set(PROMPT_SIGNAL_CATEGORIES) == {"correction", "interruption", "insight", "answer", "neutral"}
         for category, _, _, confidence in PROMPT_SIGNAL_RULES:
             assert category in PROMPT_SIGNAL_CATEGORIES
-            assert confidence in {"high", "low"}
+            assert confidence in {"high", "medium", "low"}
         # Every category except neutral has at least one rule.
         assert {category for category, _, _, _ in PROMPT_SIGNAL_RULES} == set(PROMPT_SIGNAL_CATEGORIES) - {"neutral"}
 
@@ -166,6 +195,37 @@ class TestSignalRecording:
         assert "run_signal_path" not in result
         assert len(list((root / ".research-tree-debug" / "signals").glob("*.json"))) == 1
         assert not (root / ".research-tree" / "projects").exists()
+
+    def test_signals_directory_is_capped_at_200_records(self, tmp_path: Path) -> None:
+        root = project(tmp_path)
+        project_run(root)
+        signals = root / ".research-tree-debug" / "signals"
+        signals.mkdir(parents=True)
+        for index in range(200):
+            name = f"20200101T000000000000Z-{index:016x}.json"
+            (signals / name).write_text('{"schema":1}\n', encoding="utf-8")
+
+        result = _submit(root, "No, use pytest not unittest")
+
+        assert result["status"] == "recorded"
+        remaining = sorted(path.name for path in signals.glob("*.json"))
+        assert len(remaining) == 200, "cap must retain the newest 200 records"
+        assert "20200101T000000000000Z-0000000000000000.json" not in remaining, "oldest record must be evicted"
+        assert "20200101T000000000000Z-00000000000000c7.json" in remaining, "newest legacy record must be retained"
+        remaining_sorted = sorted(remaining)
+        assert remaining_sorted[-1].startswith("20"), "the fresh record must survive the cap"
+
+    def test_signals_directory_below_cap_is_left_untouched(self, tmp_path: Path) -> None:
+        root = project(tmp_path)
+        project_run(root)
+        signals = root / ".research-tree-debug" / "signals"
+        signals.mkdir(parents=True)
+        for index in range(3):
+            (signals / f"20200101T000000000000Z-{index:016x}.json").write_text("{}", encoding="utf-8")
+
+        _submit(root, "yes, proceed")
+
+        assert len(list(signals.glob("*.json"))) == 4
 
     def test_low_confidence_correction_is_not_fed_to_the_run(self, tmp_path: Path) -> None:
         root = project(tmp_path)
