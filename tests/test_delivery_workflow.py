@@ -288,6 +288,56 @@ def test_release_promotion_targets_master_and_is_derived_from_dev() -> None:
     assert "release_contains_unintegrated_commits" in extra_commits.errors
 
 
+def test_release_promotion_skips_per_commit_mixed_output_recheck() -> None:
+    """A release branch replays squashed integration history, so per-commit
+    source/generated separation (already enforced on every dev PR) must not
+    be re-checked; only the branch-level release invariants apply (#478)."""
+    policy = load_delivery_policy(POLICY_PATH)
+
+    promotion = evaluate_pull_request(
+        policy=policy,
+        base_branch="master",
+        head_branch="release/0.1.0-alpha3",
+        title="release: 0.1.0-alpha3",
+        body="Promote the current dev integration revision.",
+        changed_files=[
+            "src/research_tree/cli.py",
+            "packages/hermes/research-tree/scripts/hermes_event_adapter.py",
+        ],
+        non_generated_lines=40,
+        commit_file_sets=[
+            {
+                "src/research_tree/cli.py",
+                "packages/hermes/research-tree/scripts/hermes_event_adapter.py",
+            }
+        ],
+        release_derived_from_dev=True,
+        release_has_unintegrated_commits=False,
+    )
+    assert promotion.passed is True
+    assert "generated_output_mixed_with_source_commit" not in promotion.errors
+
+    integration = evaluate_pull_request(
+        policy=policy,
+        base_branch="dev",
+        head_branch="fix/issue-88-sample",
+        title="fix: sample",
+        body="Closes #88",
+        changed_files=[
+            "src/research_tree/cli.py",
+            "packages/hermes/research-tree/scripts/hermes_event_adapter.py",
+        ],
+        non_generated_lines=40,
+        commit_file_sets=[
+            {
+                "src/research_tree/cli.py",
+                "packages/hermes/research-tree/scripts/hermes_event_adapter.py",
+            }
+        ],
+    )
+    assert "generated_output_mixed_with_source_commit" in integration.errors
+
+
 def test_integration_promotion_allows_dev_to_master_without_rechecking_history() -> None:
     policy = load_delivery_policy(POLICY_PATH)
     promotion = evaluate_pull_request(

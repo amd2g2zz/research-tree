@@ -472,9 +472,15 @@ def evaluate_pull_request(
         warnings.append("split_review_required")
 
     canonical_changed = any(_matches_any(path, policy.canonical_generation_inputs) for path in non_generated)
-    if generated and not canonical_changed and not is_integration_promotion:
+    if generated and not canonical_changed and not is_integration_promotion and not is_release:
         errors.append("generated_output_without_source_change")
-    if not is_integration_promotion:
+    # Issue #478 follow-up: per-commit source/generated hygiene is already
+    # enforced on every integration PR by the dev-side gate. A release
+    # branch is a whole-branch promotion whose own invariants are
+    # derived-from-dev and zero unintegrated commits, so replaying the
+    # per-commit check over the squashed integration history would reject
+    # every release that contains any regenerated package.
+    if not is_integration_promotion and not is_release:
         for commit_paths in commit_file_sets:
             commit_generated = {path for path in commit_paths if _matches_any(path, policy.generated_paths)}
             if commit_generated and commit_generated != commit_paths:
