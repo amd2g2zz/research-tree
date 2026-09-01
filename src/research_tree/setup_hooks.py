@@ -127,8 +127,13 @@ def _entry_commands(entry: object) -> tuple[str, ...]:
 
 
 def _owned_json_entry(entry: object, host: str) -> bool:
+    # Two ownership generations: the current launcher command, and the alpha2
+    # `uv run --project ... --frozen research-tree-hook ...` console-script
+    # entries. Legacy entries must count as owned so upgrades strip them
+    # instead of letting the failing uv command linger beside the launcher.
     return any(
-        "lifecycle_hook_launcher.py" in command and f"--host {host}" in command for command in _entry_commands(entry)
+        ("lifecycle_hook_launcher.py" in command and f"--host {host}" in command) or "research-tree-hook" in command
+        for command in _entry_commands(entry)
     )
 
 
