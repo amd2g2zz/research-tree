@@ -459,7 +459,7 @@ def _advance(ledger: RunLedger, coordinator: ResearchRunCoordinator) -> dict[str
     record = next(item for item in ledger.load_run(RUN_ID).artifacts if item.kind == COMPLETION_RECORD_KIND)
     return {
         "decision": "completed",
-        "state": str(thaw_json(record.payload).get("state")),
+        "state": thaw_json(record.payload).get("state"),
         "completion_record": {"artifact_id": record.id, "revision": record.revision},
         "final_state_digest": str(completed.payload.get("state_digest")),
     }

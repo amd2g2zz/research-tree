@@ -261,6 +261,7 @@ def run_contamination_supplement(workspace: Path) -> dict[str, Any]:
         "stage": "contamination-gate",
         "checks": checks,
         "duplicate_read_ratio_at_exceed": budget_receipt["duplicate_read_ratio"],
+        "declared_max_duplicate_read_ratio": 0.1,
         "read_counts": budget_receipt["read_counts"],
         "status": "passed" if passed else "failed",
     }
