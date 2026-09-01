@@ -118,6 +118,13 @@ Follow `references/skill-activation.md`: only exact `/research-tree activation-p
   `claude` for atomic task attempts, crash recovery, Finding Pack validation,
   and completion checks when Python is available; the native task list
   mirrors state, it never replaces it.
+- Host hooks run the fail-open launcher `scripts/lifecycle_hook_launcher.py`
+  with system Python; it imports the packaged `scripts/lifecycle_hook.py`,
+  `scripts/origins.py`, and `scripts/skill_activation.py` when the workspace
+  is not a checkout. Commands never use `uv run`, end with `|| exit 0`, and
+  include `UserPromptSubmit` (claude and codex; Hermes has no user-prompt
+  event, N/A). Prompt signals persist sanitized classification metadata only:
+  never the prompt text.
 - In source-checkout development, use `context-record` and `context-receipt`
   to bound source reads; unchanged rereads stay `cached` or `replayed`, and
   active run outputs stay excluded until `context-seal` binds their digest. A

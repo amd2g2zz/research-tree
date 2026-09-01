@@ -5,6 +5,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -60,10 +61,22 @@ def test_setup_install_deploys_global_hooks_and_preserves_host_configuration(
     assert json.loads(claude_config.read_text(encoding="utf-8"))["custom"] == {"theme": "dark"}
     assert 'model: "example/model"' in hermes_config.read_text(encoding="utf-8")
     for host, config in (("codex", codex_config), ("claude", claude_config)):
-        commands = [command for command in _commands(config) if "research-tree-hook" in command]
+        commands = [command for command in _commands(config) if "lifecycle_hook_launcher.py" in command]
         assert commands
-        assert all(f"--host {host}" in command for command in commands)
-        assert all(str(ROOT) in command for command in commands)
+        installed_launcher = str(
+            home / f".{host}" / "skills" / "research-tree" / "scripts" / "lifecycle_hook_launcher.py"
+        )
+        assert all(installed_launcher in command for command in commands)
+        assert all(sys.executable in command for command in commands)
+        assert all("uv" not in command for command in commands)
+        assert all("research-tree-hook" not in command for command in commands)
+    codex_payload = json.loads(codex_config.read_text(encoding="utf-8"))
+    installed_codex_prompt_events = [
+        hook["command"].split("--event ")[1].split(" ")[0]
+        for entry in codex_payload["hooks"]["UserPromptSubmit"]
+        for hook in entry.get("hooks", [])
+    ]
+    assert installed_codex_prompt_events == ["UserPromptSubmit"]
     hermes_text = hermes_config.read_text(encoding="utf-8")
     assert hermes_text.count("# research-tree-setup managed") == 7
     assert str(home / ".hermes" / "skills" / "research-tree" / "scripts" / "hermes_runtime_hook.py") in hermes_text
@@ -169,8 +182,8 @@ def test_setup_hook_install_is_idempotent_and_project_scope_still_uses_global_co
     )
 
     config = home / ".codex" / "hooks.json"
-    commands = [command for command in _commands(config) if "research-tree-hook" in command]
-    assert len(commands) == 7
+    commands = [command for command in _commands(config) if "lifecycle_hook_launcher.py" in command]
+    assert len(commands) == 8
     assert first["hooks"][0]["action"] == "installed"
     assert second["hooks"][0]["action"] == "unchanged"
     assert not (project / ".codex" / "hooks.json").exists()
@@ -261,6 +274,66 @@ def test_status_requires_current_setup_managed_hooks(tmp_path: Path) -> None:
     assert conflict["reason"] == "hooks_mismatch"
 
 
+ALPHA2_EVENT_COMMANDS = (
+    "uv run --project /opt/research-tree --frozen research-tree-hook --host {host} --event {event}",
+)
+
+
+def _alpha2_entry(host: str, event: str) -> dict[str, object]:
+    command = ALPHA2_EVENT_COMMANDS[0].format(host=host, event=event)
+    return {"type": "command", "command": command, "commandWindows": command, "timeout": 10}
+
+
+def test_install_replaces_alpha2_uv_managed_entries_with_launcher_entries(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    config = home / ".claude" / "settings.json"
+    config.parent.mkdir(parents=True)
+    legacy_events = (
+        "SessionStart",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "PreCompact",
+        "SubagentStop",
+        "PostToolUse",
+        "Stop",
+    )
+    config.write_text(
+        json.dumps({"hooks": {event: [{"hooks": [_alpha2_entry("claude", event)]}] for event in legacy_events}}),
+        encoding="utf-8",
+    )
+
+    result = install_skill(
+        ("claude",),
+        source=ROOT,
+        scope="user",
+        mode="copy",
+        home=home,
+        project_root=tmp_path / "project",
+    )
+
+    # The pre-install status must see the legacy residue as an owned conflict.
+    assert result["hooks"][0]["previous_status"] == "conflict"
+    payload = json.loads(config.read_text(encoding="utf-8"))
+    rendered = json.dumps(payload)
+    assert "research-tree-hook" not in rendered, "alpha2 uv-managed entries must be stripped on upgrade"
+    assert "uv run" not in rendered
+    for event in legacy_events:
+        entries = payload["hooks"][event]
+        assert len(entries) == 1, f"event {event} must keep exactly one managed entry"
+        command = entries[0]["hooks"][0]["command"]
+        assert "lifecycle_hook_launcher.py" in command
+        assert "--host claude" in command
+        assert f"--event {event}" in command
+    status = skill_status(
+        ("claude",),
+        source=ROOT,
+        scope="user",
+        home=home,
+        project_root=tmp_path / "project",
+    )["installations"][0]
+    assert status["hook_status"] == "current"
+
+
 def test_installed_global_hook_command_is_fail_open_in_an_unbound_workspace(
     tmp_path: Path,
 ) -> None:
@@ -275,7 +348,9 @@ def test_installed_global_hook_command_is_fail_open_in_an_unbound_workspace(
         home=home,
         project_root=workspace,
     )
-    command = next(command for command in _commands(home / ".codex" / "hooks.json") if "research-tree-hook" in command)
+    command = next(
+        command for command in _commands(home / ".codex" / "hooks.json") if "lifecycle_hook_launcher.py" in command
+    )
 
     completed = subprocess.run(
         shlex.split(command),

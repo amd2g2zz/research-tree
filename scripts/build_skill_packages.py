@@ -48,10 +48,13 @@ COMMON_FILES = (
     Path("references/research-quality-playbook.md"),
     Path("references/alignment-controller.md"),
     Path("references/skill-activation.md"),
+    Path("scripts/lifecycle_hook_launcher.py"),
 )
 COMMON_FILE_MAP = (
     (Path("src/research_tree/alignment_graph.py"), Path("scripts/alignment_controller.py")),
     (Path("src/research_tree/skill_activation.py"), Path("scripts/skill_activation.py")),
+    (Path("src/research_tree/lifecycle_hook.py"), Path("scripts/lifecycle_hook.py")),
+    (Path("src/research_tree/origins.py"), Path("scripts/origins.py")),
     (Path("src/research_tree/host_capabilities.py"), Path("scripts/native_workflow_contract.py")),
     (Path("src/research_tree/project_workspace.py"), Path("scripts/project_workspace_contract.py")),
 )
