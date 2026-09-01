@@ -2,14 +2,14 @@
 
 ## 1. Structural independence
 
-- [x] 1.1 Add `verification_principal` one-way identity-pair binding to
+- [x] 1.1 Add `verification_principal` salted-HMAC principal binding (per-run secret salt) to
       `independent_review.py`
 - [x] 1.2 Add `COORDINATOR_ISSUER` canonical coordinator principal to
       `completion_inputs.py` and use it for coordinator-authored registrations
 - [x] 1.3 Bind the durable `issuer` principal at write time in
       `write_alignment_verification` and `write_delivery_review`
 - [x] 1.4 Expose `RunLedger.completion_input_registration_principals`
-- [x] 1.5 Harden `verify_identity_independent` (issuer parameter,
+- [x] 1.5 Harden `verify_independent_review_principal` (issuer + principal keyword parameters,
       coordinator-principal exclusion) and wire both coordinator gates to the
       durable principals
 
