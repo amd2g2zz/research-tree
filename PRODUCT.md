@@ -180,6 +180,16 @@ with the current mirror, one unresolved gap, evidence added, the requester's
 response summary, the human/agent belief delta, and the resulting decision
 effect. If none of those fields changes, do not ask another question.
 
+The Human Research Report is an operating model, not only a report. It exposes the run's
+roles (research owner, platform integrator, governance auditor) with their
+handoff surfaces, the baseline-run SLA and concurrency-limit dimensions, the
+current blocker list with owners and resolution conditions (the
+`why_not_complete` resolve entries), the outcome layers (confirmed projection,
+per-oracle `goal_satisfaction` verdicts, slot contributions), adoption metrics
+as measured baselines, and a fallback plan for unavailable host capabilities.
+Fields sourced from runtime artifacts carry real run output; baseline-run
+dimensions carry measured baselines, never commitments.
+
 ### 4.3 Mutual cognitive alignment and strategy handoff
 
 The Research Strategy is not an agent proposal that the requester merely
@@ -423,6 +433,15 @@ trade-offs, important change from the prior result, and current risk. It is not
 a compressed copy of the technical package, but it must contain enough plain
 language reasoning for the requester to judge whether the work addresses the
 right problem and is worth continuing.
+
+As an operating model, it also exposes the seven operator fields: roles with
+handoff surfaces, baseline-run SLA and concurrency-limit dimensions, the
+current blocker list with owners and resolution conditions, the outcome layers
+(confirmed projection, per-oracle `goal_satisfaction` verdicts, slot
+contributions), adoption metrics as measured baselines, and a fallback plan
+for unavailable host capabilities. Fields sourced from runtime artifacts carry
+real run output; baseline-run dimensions carry measured baselines, never
+commitments.
 
 ### 7.3 Dual-delivery acceptance gate
 
