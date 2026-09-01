@@ -308,6 +308,19 @@ def _runtime_readiness(
     return {"ready": ready, "failure_reasons": failures}, result
 
 
+def _user_facing_installation(item: Mapping[str, Any]) -> dict[str, Any]:
+    """Issue #292 gate 4: keep the operator surface user-readable.
+
+    The ``skill_setup`` API retains digest verification and hook bookkeeping
+    internally; the lifecycle CLI echoes only the operator-facing fields so
+    ordinary users never see internal schema detail (payload digests, hook
+    config paths, activation placeholders, or the packaged-file manifest).
+    """
+
+    fields = ("host", "scope", "mode", "target", "action", "status", "reason", "discovery")
+    return {field: item[field] for field in fields if item.get(field) is not None}
+
+
 def _install(arguments: argparse.Namespace) -> dict[str, Any]:
     """Issue #386: dispatch through plan_heterogeneous_install per entry action.
 
@@ -350,7 +363,7 @@ def _install(arguments: argparse.Namespace) -> dict[str, Any]:
             for installed in sub.get("installations", []):
                 installations.append(
                     {
-                        **installed,
+                        **_user_facing_installation(installed),
                         "status": "current" if not arguments.dry_run else "planned",
                         "current": not arguments.dry_run,
                     }
@@ -358,17 +371,9 @@ def _install(arguments: argparse.Namespace) -> dict[str, Any]:
         elif action == "current":
             installations.append(
                 {
-                    "host": host,
-                    "scope": entry.get("scope", arguments.scope),
-                    "mode": entry.get("mode", arguments.mode),
-                    "target": entry.get("target"),
-                    "package": entry.get("package"),
-                    "skill_source": entry.get("skill_source"),
-                    "action": "current",
-                    "discovery": entry.get("discovery"),
+                    **_user_facing_installation(entry),
                     "status": "current",
                     "current": True,
-                    "reason": entry.get("reason"),
                 }
             )
         elif action == "skipped":
@@ -458,8 +463,12 @@ def _doctor(arguments: argparse.Namespace) -> dict[str, Any]:
     # Issue #325: 4-section doctor split — installation / host_capability / run_readiness / completion_verification
     result = {
         **result,
+        "installations": [_user_facing_installation(item) for item in result["installations"]],
         "installation": {
-            "hosts": {"claude-code": {"state": "unknown", "reason": "doctor probes on demand"}},
+            "hosts": {
+                host: {"state": "unknown", "reason": "doctor probes on demand"}
+                for host in _selected_hosts(arguments.host)
+            },
             "state": "ready" if readiness["ready"] else "attention_required",
         },
         "host_capability": provider_readiness,
@@ -516,10 +525,7 @@ def _run_lifecycle(arguments: argparse.Namespace) -> dict[str, Any]:
                 "artifact_id": request_artifact.id,
                 "revision": request_artifact.revision,
             },
-            "hook_probe": {
-                "status": hook_probe.status,
-                "record_path": str(hook_probe.record_path) if hook_probe.record_path else None,
-            },
+            "hook_probe": {"status": hook_probe.status},
             "lifecycle": runtime,
         },
     )
@@ -557,10 +563,7 @@ def _resume(arguments: argparse.Namespace) -> dict[str, Any]:
         readiness=readiness,
         result={
             "resume_ref": {"run_id": resumed.round_id, "artifact_id": resumed.id, "revision": resumed.revision},
-            "hook_probe": {
-                "status": hook_probe.status,
-                "record_path": str(hook_probe.record_path) if hook_probe.record_path else None,
-            },
+            "hook_probe": {"status": hook_probe.status},
             "lifecycle": runtime,
         },
     )
