@@ -274,6 +274,66 @@ def test_status_requires_current_setup_managed_hooks(tmp_path: Path) -> None:
     assert conflict["reason"] == "hooks_mismatch"
 
 
+ALPHA2_EVENT_COMMANDS = (
+    "uv run --project /opt/research-tree --frozen research-tree-hook --host {host} --event {event}",
+)
+
+
+def _alpha2_entry(host: str, event: str) -> dict[str, object]:
+    command = ALPHA2_EVENT_COMMANDS[0].format(host=host, event=event)
+    return {"type": "command", "command": command, "commandWindows": command, "timeout": 10}
+
+
+def test_install_replaces_alpha2_uv_managed_entries_with_launcher_entries(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    config = home / ".claude" / "settings.json"
+    config.parent.mkdir(parents=True)
+    legacy_events = (
+        "SessionStart",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "PreCompact",
+        "SubagentStop",
+        "PostToolUse",
+        "Stop",
+    )
+    config.write_text(
+        json.dumps({"hooks": {event: [{"hooks": [_alpha2_entry("claude", event)]}] for event in legacy_events}}),
+        encoding="utf-8",
+    )
+
+    result = install_skill(
+        ("claude",),
+        source=ROOT,
+        scope="user",
+        mode="copy",
+        home=home,
+        project_root=tmp_path / "project",
+    )
+
+    # The pre-install status must see the legacy residue as an owned conflict.
+    assert result["hooks"][0]["previous_status"] == "conflict"
+    payload = json.loads(config.read_text(encoding="utf-8"))
+    rendered = json.dumps(payload)
+    assert "research-tree-hook" not in rendered, "alpha2 uv-managed entries must be stripped on upgrade"
+    assert "uv run" not in rendered
+    for event in legacy_events:
+        entries = payload["hooks"][event]
+        assert len(entries) == 1, f"event {event} must keep exactly one managed entry"
+        command = entries[0]["hooks"][0]["command"]
+        assert "lifecycle_hook_launcher.py" in command
+        assert "--host claude" in command
+        assert f"--event {event}" in command
+    status = skill_status(
+        ("claude",),
+        source=ROOT,
+        scope="user",
+        home=home,
+        project_root=tmp_path / "project",
+    )["installations"][0]
+    assert status["hook_status"] == "current"
+
+
 def test_installed_global_hook_command_is_fail_open_in_an_unbound_workspace(
     tmp_path: Path,
 ) -> None:
