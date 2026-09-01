@@ -67,7 +67,11 @@ When interrupted use the correction protocol (`CorrectionEvent` kind
 `correction` or `reopen` committed via `apply_correction`) and, for a
 contradicted delivery, `apply_contradiction`
 when the checkout runtime is available; otherwise persist the equivalent
-intent in workspace artifacts. After delivery collect one of the
+intent in workspace artifacts. Before `strategy display` and before delivery
+acceptance, dispatch a fresh `delegate_task` child — never your own session —
+to independently restate the projection or judge each oracle against the
+Finding Packs; self-issued reviews are rejected by the runtime gates. After
+delivery collect one of the
 `ACCEPTANCE_DECISIONS` via `DeliveryAcceptance`; echo status from
 `research-tree status` before any user-visible status message
 when the checkout runtime is available; otherwise persist the equivalent
