@@ -158,8 +158,15 @@ explicitly confirmed projection.
    otherwise persist the equivalent intent in workspace artifacts.
 2. Display. `research-tree strategy display` shows a projection only after
    the falsifiability review (`validate_falsifiability`) accepts it: every
-   oracle names evidence standards, every target reference resolves. Display
-   is inspection, not acceptance.
+   oracle names evidence standards, every target reference resolves. Before
+   display, dispatch a fresh-context subagent that reads only the original
+   conversation and the projection draft, restates its own understanding of
+   outcome, scope, authority, and each success oracle, and records any
+   discrepancy with the draft. Register that restatement as the alignment
+   verification, naming the subagent's session identity as the verifier and
+   your session as the context — a verification issued by your own session is
+   rejected (`independent_verification_required`). Display is inspection, not
+   acceptance.
 3. Confirm. `research-tree strategy confirm` requires a confirmation that
    quotes the displayed digest; a bare "yes" is a rubber stamp and changes
    nothing. The downstream basis is `latest_confirmed`, fail-closed: draft,
@@ -276,9 +283,14 @@ The requester is authoritative about goals, never about truth.
   cites evidence that resolves to run artifacts; waived carries a waiver
   reason; unmet is explicit and never covers an oracle). While an oracle is
   uncovered the run cannot complete, and the blocker names
-  `resolve:goal_satisfaction:<oracle_id>`. Do not report completion while
-  the gate is blocked. Dissatisfaction, correction, or a depth objection
-  reopens the Living Brief for a new evidence-bearing batch.
+  `resolve:goal_satisfaction:<oracle_id>`. Independently, before delivery
+  acceptance dispatch a fresh-context subagent that reads only the Finding
+  Packs and the confirmed oracles — never your summary — and records a
+  per-oracle verdict with references to the packs it read; a delivery review
+  issued by your own session is rejected (`independent_review_required`).
+  Do not report completion while either gate is blocked. Dissatisfaction,
+  correction, or a depth objection reopens the Living Brief for a new
+  evidence-bearing batch.
 
 ## Completion standard
 
