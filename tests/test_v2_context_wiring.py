@@ -153,9 +153,7 @@ def test_run_start_blocked_without_admission(tmp_path: Path):
     bad.write_text(json.dumps(source, indent=2) + "\n", encoding="utf-8")
     workspace = tmp_path / "workspace"
     with pytest.raises(BaselineAdmissionError) as excinfo:
-        run_governed_evaluation(
-            workspace, scenarios=("interruption",), hosts=("codex",), baseline_registry=bad
-        )
+        run_governed_evaluation(workspace, scenarios=("interruption",), hosts=("codex",), baseline_registry=bad)
     assert excinfo.value.reason == "baseline-role-score-mismatch:research-architect"
     assert not (workspace / ".research-tree").exists()
 

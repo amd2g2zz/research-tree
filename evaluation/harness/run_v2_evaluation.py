@@ -679,9 +679,7 @@ def run_governed_evaluation(
     context_receipt = context_state["receipt"]
     context_exhausted = context_receipt["status"] == "budget_exceeded"
     matrix_receipt = build_receipt(list(cells))
-    packs = _finding_packs(
-        ledger, RUN_ID, cells, matrix_receipt, projection, context_receipt, admission_record
-    )
+    packs = _finding_packs(ledger, RUN_ID, cells, matrix_receipt, projection, context_receipt, admission_record)
     _register_completion_inputs(ledger, RUN_ID, target)
     verdicts = _register_goal_satisfactions(
         ledger, packs, matrix_receipt["status"], context_exhausted=context_exhausted
@@ -748,9 +746,7 @@ def run_governed_evaluation(
                 "context-admission-record; receipts account reads in file bytes (host-unmediated)"
             ),
         },
-        "blocker": (
-            {"reason": "context-budget-exhausted", "resumable": True} if context_exhausted else None
-        ),
+        "blocker": ({"reason": "context-budget-exhausted", "resumable": True} if context_exhausted else None),
     }
 
 

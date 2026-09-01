@@ -61,8 +61,10 @@ def _validate_baseline(baseline: Any) -> dict[str, Any]:
         raise BaselineAdmissionError("baseline-registry-invalid", "baseline role_scores must be an object")
     for role in ROLE_KEYS:
         score = scores.get(role)
-        if not isinstance(score, dict) or isinstance(score.get("value"), bool) or not isinstance(
-            score.get("value"), (int, float)
+        if (
+            not isinstance(score, dict)
+            or isinstance(score.get("value"), bool)
+            or not isinstance(score.get("value"), (int, float))
         ):
             raise BaselineAdmissionError("baseline-registry-invalid", f"role {role} must carry a numeric score value")
     return baseline
