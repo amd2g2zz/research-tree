@@ -30,16 +30,21 @@ valuable steering input evaporates unrecorded.
   user-prompt hook mechanism (N/A, documented). lifecycle_hook accepts the
   event for those hosts and classifies prompts with a heuristic rule table
   (`PROMPT_SIGNAL_RULES`) into
-  {correction, interruption, insight, answer, neutral} with high/low
-  confidence.
+  {correction, interruption, insight, answer, neutral} with high/medium/low
+  confidence; only prompts that clearly overturn a prior conclusion or
+  instruction rank as high-confidence corrections, and corrections carrying
+  continuation semantics are downgraded.
 - Signals are recorded append-only under `.research-tree-debug/signals/`
   as sanitized metadata records (category, confidence, rule, prompt
-  length, identifiers) — never the prompt text. Intermittent signals are
-  independent records, queryable by reading the directory.
+  length, identifiers) — never the prompt text. The directory is capped at
+  the newest 200 records; older records are evicted on append. Intermittent
+  signals are independent records, queryable by reading the directory.
 - High-confidence corrections with an active run context are additionally
   appended to the run's events directory with `route: "apply_correction"`
-  so the alignment step consumes them with full ledger context; the hook
-  cannot call `apply_correction` directly (CorrectionEvent requires
+  for operator and agent inspection; the automated alignment consumer that
+  would route them through apply_correction with full ledger context is
+  planned v2 work, so nothing reads these records automatically today. The
+  hook cannot call `apply_correction` directly (CorrectionEvent requires
   run/task/domain ids, digests, and the ledger revision only the workflow
   has). Without run context, only the signal is recorded (fail-open).
 - Packaging: the launcher plus packaged `lifecycle_hook.py` and

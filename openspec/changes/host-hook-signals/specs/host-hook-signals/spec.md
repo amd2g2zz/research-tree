@@ -69,7 +69,10 @@ requires run, task, and domain identifiers, artifact digests, and the
 ledger revision that only the workflow holds. When a high-confidence
 correction fires with an active run context, the hook SHALL append a
 signal record marked `route: "apply_correction"` to the run events
-directory so the alignment step consumes it with full ledger context.
+directory for operator and agent inspection. The automated alignment
+consumer that would route such records through apply_correction is
+planned v2 work: until it ships, no component reads these records
+automatically, and the route marker is the reserved integration point.
 Without an active run, only the standalone signal record is written. Any
 classifier or recorder failure SHALL NOT affect the host session: the
 lifecycle hook keeps its fail-open main() and the launcher exits 0 with a
@@ -80,7 +83,8 @@ single labeled host response.
 - **WHEN** a high-confidence correction fires and the reported workspace
   has an initialized run manifest
 - **THEN** a run-scoped record with route apply_correction is appended to
-  the run events directory
+  the run events directory for inspection, and no automated consumer acts
+  on it in this release
 
 #### Scenario: No run context records the signal only
 

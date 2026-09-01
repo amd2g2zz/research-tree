@@ -42,3 +42,18 @@
 
 - [x] 5.1 Full pytest (only the known docker loader test fails), ruff check +
   format, build --check, governance, layout, docs gates all green.
+
+## 6. Review fixes (#453 double review)
+
+- [x] 6.1 Upgrade path: ownership detection recognizes alpha2
+  `research-tree-hook` uv entries; install strips them and reports
+  conflict-then-current (`tests/test_setup_managed_hooks.py`, RED first).
+- [x] 6.2 Honesty: `route: "apply_correction"` run-event records have no
+  automated consumer in this release; recorded for operator and agent
+  inspection, alignment consumer is planned v2 work (docstring, proposal,
+  spec scenario reworded).
+- [x] 6.3 Classification calibration: `actually_prefix` medium; corrections
+  with continuation semantics downgraded to low with `+continuation` rule
+  suffix; only clear overturns stay high.
+- [x] 6.4 Signals directory capped at the newest 200 records with
+  fail-open eviction on append.
