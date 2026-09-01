@@ -143,6 +143,37 @@ class ProvenanceDescriptor:
         )
 
 
+def cluster_provenance_components(
+    provenances: Iterable[ProvenanceDescriptor],
+) -> tuple[tuple[str, frozenset[str]], ...]:
+    """Cluster resolved provenance descriptors sharing any upstream identity.
+
+    A mirror can carry a different URL or canonical label but still share a
+    content fingerprint, dataset, or citation-origin identity. Ownership
+    remains auditable but does not collapse a release record and an
+    independent installed-behavior observation into one source. Returns one
+    ``(cluster label, merged identities)`` pair per connected component, in
+    first-seen order; the first resolved descriptor names the component for
+    stable audit output and does not choose a preferred source.
+    """
+
+    components: list[tuple[set[str], str]] = []
+    for provenance in provenances:
+        identities = set(provenance.identities)
+        matches = [index for index, (known, _label) in enumerate(components) if known & identities]
+        if not matches:
+            components.append((identities, provenance.cluster_id))
+            continue
+        first = matches[0]
+        merged_identities, label = components[first]
+        merged_identities.update(identities)
+        for index in reversed(matches[1:]):
+            extra_identities, _extra_label = components.pop(index)
+            merged_identities.update(extra_identities)
+        components[first] = (merged_identities, label)
+    return tuple((label, frozenset(identities)) for identities, label in components)
+
+
 @dataclass(frozen=True, slots=True)
 class ClaimGrounding:
     """A claim binding to one exact canonical evidence selector.
@@ -280,21 +311,10 @@ class ClaimAdmissionEvaluator:
         output; it does not choose a preferred source.
         """
 
-        components: list[tuple[set[str], str]] = []
-        for grounding in groundings:
-            identities = set(grounding.provenance.identities)
-            matches = [index for index, (known, _label) in enumerate(components) if known & identities]
-            if not matches:
-                components.append((identities, grounding.provenance.cluster_id))
-                continue
-            first = matches[0]
-            merged_identities, label = components[first]
-            merged_identities.update(identities)
-            for index in reversed(matches[1:]):
-                extra_identities, _extra_label = components.pop(index)
-                merged_identities.update(extra_identities)
-            components[first] = (merged_identities, label)
-        return tuple(label for _identities, label in components)
+        return tuple(
+            label
+            for label, _identities in cluster_provenance_components(grounding.provenance for grounding in groundings)
+        )
 
 
 @dataclass(frozen=True, slots=True)

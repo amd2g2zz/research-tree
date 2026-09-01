@@ -8,6 +8,7 @@ from .alignment_handoff import (
     initialize_research_from_alignment,
 )
 from .authority import AuthorityRole, authority_scope, role_of
+from .claims import cluster_provenance_components
 from .closure import ASSESSMENT_KIND, ClosureAssessmentError, OracleService, SlotClosureAssessment, SlotClosureAssessor
 from .completion_inputs import CompletionInputError, CompletionInputRegistrar, delivery_manifest_digest
 from .content_store import (
@@ -33,6 +34,18 @@ from .coordinator import (
     IllegalTransitionError,
     ResearchRunCoordinator,
     StaleStateError,
+)
+from .cross_comparison import (
+    CROSS_COMPARISON_KIND,
+    CROSS_COMPARISON_SCHEMA_VERSION,
+    BatchCrossComparison,
+    CaptureRecord,
+    CrossComparisonError,
+    DuplicateCapture,
+    OutcomeMeasurement,
+    UpstreamIdentityGroup,
+    apply_cross_comparison,
+    compare_portfolio_batch,
 )
 from .decision_frame import (
     DECISION_FRAME_KIND,
@@ -580,10 +593,21 @@ __all__ = [
     "SUBQUESTION_KINDS",
     "SearchPortfolio",
     "SharedBriefView",
+    "CROSS_COMPARISON_KIND",
+    "CROSS_COMPARISON_SCHEMA_VERSION",
+    "BatchCrossComparison",
+    "CaptureRecord",
+    "CrossComparisonError",
+    "DuplicateCapture",
+    "OutcomeMeasurement",
+    "UpstreamIdentityGroup",
     "SearchPortfolioExecutor",
     "SearchPortfolioError",
     "Subquestion",
     "assess_acquisition_batch",
+    "apply_cross_comparison",
+    "cluster_provenance_components",
+    "compare_portfolio_batch",
     "derive_search_portfolio",
     "normalize_host_path",
     "normalize_host_payload",

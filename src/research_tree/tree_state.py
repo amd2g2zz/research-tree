@@ -134,6 +134,8 @@ def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
         "consumed_finding_ids",
         "delta_history",
         "penalty_history",
+        "cross_validation",
+        "recursion_receipt",
         "stop_reason",
     }
     if not isinstance(value, Mapping) or not required <= set(value) or set(value) - required:
@@ -141,8 +143,8 @@ def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
         raise ResearchTreeStateError(
             f"tree state has unexpected keys; missing={sorted(required - actual)}, extra={sorted(actual - required)}"
         )
-    if value.get("schema") != 1:
-        raise ResearchTreeStateError("tree state schema must be 1")
+    if value.get("schema") != 2:
+        raise ResearchTreeStateError("tree state schema must be 2")
     validate_identifier(value.get("id"), "tree state id")
     validate_identifier(value.get("round_id"), "tree state round_id")
     transition = value.get("transition_index")
@@ -157,6 +159,8 @@ def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
         "deliverables",
         "nodes",
         "evidence_baseline",
+        "cross_validation",
+        "recursion_receipt",
     ):
         if not isinstance(value.get(key), Mapping):
             raise ResearchTreeStateError(f"tree state {key} must be a mapping")
