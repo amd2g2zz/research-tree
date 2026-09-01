@@ -8,7 +8,7 @@ model, and that the shipped (packaged) alignment controller executes its own
 `record` path.
 
 Method: one fresh workspace (`.journey-workspace`), one governed run
-(`run-operator-facade`, project `proj-facade`). The operator authors seven
+(`run-operator-facade`, project `proj-facade`). The operator authors six
 plain JSON documents in the workspace; every runtime step below is a CLI
 verb. Commands are shown in the documented form (`uv run --frozen
 research-tree …`, `uv run python -m research_tree.alignment_graph …`); the
@@ -77,6 +77,8 @@ with the named graph-level reason — fail-closed, matching the v2 gate 1
 verdict.
 
 ## Step 3 — initialize: the bind bridge (v2 F1 closure)
+
+Re-run guidance: on a late-stage failure, re-run with the same idempotency key to resume.
 
 One verb now performs what v2 found unreachable: handoff resolution,
 blueprint-target compilation **with the compiled handoff bound as a parent**,
@@ -151,11 +153,11 @@ $ uv run --frozen research-tree strategy \
     confirm --confirmation "I accept the displayed digest a3cd89aa5d6cd967d345059719336f4c2e5bb91ec89830c65bc41c989f1b4819 and authorize the research."
 ```
 
-```json
-{"command": "strategy.confirm", "status": "confirmed", "rev": "18", "result": {
+```
+<rt:tool-output source="research-tree-cli" command="strategy.confirm" rev="18">{"command": "strategy.confirm", "status": "confirmed", "result": {
   "display_digest": "a3cd89aa5d6cd967d345059719336f4c2e5bb91ec89830c65bc41c989f1b4819",
   "projection_ref": {"artifact_id": "strategy-journey", "revision": 2, …},
-  "state": "autonomous_research"}, …}
+  "state": "autonomous_research"}, …}</rt:tool-output>
 [exit 0]
 ```
 

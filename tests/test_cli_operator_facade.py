@@ -575,3 +575,150 @@ def test_compile_rejects_foreign_handoff(tmp_path: Path) -> None:
             alignment_handoff=stranger,
             expected_revision=ledger.get_revision(RUN_ID),
         )
+
+
+def test_cli_initialize_unconfirmed_alignment_is_named_error(capsys, workspace: Path) -> None:
+    """HIGH-1: an unconfirmed alignment graph surfaces as a named rt:error, never a traceback."""
+
+    _prepare_run(capsys, workspace)
+    docs = _write_docs(workspace)
+    rc = cli_main(
+        [
+            "initialize",
+            *_common_args(workspace),
+            "--brief",
+            str(docs["brief"]),
+            "--blueprint",
+            str(docs["blueprint"]),
+        ]
+    )
+    out = capsys.readouterr().out
+    assert rc == 2, out
+    assert "<rt:error" in out
+    assert '"code": "alignment_not_confirmed"' in out
+    assert '"category": "invalid_input"' in out
+    assert '"retryability": false' in out
+    assert "Traceback" not in out
+    assert "sqlite" not in out.lower()
+
+
+def test_cli_initialize_retry_is_convergence_safe(capsys, workspace: Path) -> None:
+    """HIGH-2: an identical initialize retry must leave the ledger byte-identical."""
+
+    _prepare_run(capsys, workspace)
+    _confirm_alignment_graph(workspace)
+    docs = _write_docs(workspace)
+    initialize_args = (
+        "initialize",
+        *_common_args(workspace),
+        "--brief",
+        str(docs["brief"]),
+        "--blueprint",
+        str(docs["blueprint"]),
+        "--frame",
+        str(docs["frame"]),
+        "--idempotency-key",
+        "init-retry",
+    )
+    rc, payload = run_cli(capsys, *initialize_args)
+    assert rc == 0, payload
+    ledger = RunLedger(workspace)
+    revision_before = ledger.get_revision(RUN_ID)
+    count_before = len(ledger.load_run(RUN_ID).artifacts)
+
+    rc, payload = run_cli(capsys, *initialize_args)
+    assert rc == 0, payload
+    assert payload["run"]["authority_revision"] == revision_before
+    assert ledger.get_revision(RUN_ID) == revision_before
+    assert len(ledger.load_run(RUN_ID).artifacts) == count_before
+    frames = [item for item in ledger.load_run(RUN_ID).artifacts if item.kind == "decision-frame"]
+    assert len(frames) == 1
+
+
+def test_cli_propose_requires_verification_id(capsys, workspace: Path) -> None:
+    """M4: the alignment-verification document must carry an explicit id."""
+
+    _prepare_run(capsys, workspace)
+    _confirm_alignment_graph(workspace)
+    docs = _write_docs(workspace)
+    rc, _payload = run_cli(
+        capsys,
+        "initialize",
+        *_common_args(workspace),
+        "--brief",
+        str(docs["brief"]),
+        "--blueprint",
+        str(docs["blueprint"]),
+        "--frame",
+        str(docs["frame"]),
+    )
+    assert rc == 0
+    artifacts = RunLedger(workspace).load_run(RUN_ID).artifacts
+    target = next(item for item in artifacts if item.kind == "blueprint-target")
+    handoff = next(item for item in artifacts if item.kind == "alignment-handoff")
+    frame = next(item for item in artifacts if item.kind == "decision-frame")
+    projection = {
+        "projection_id": "strategy-no-id",
+        "run_id": RUN_ID,
+        "decision_frame_ref": {"round_id": RUN_ID, "artifact_id": frame.id, "revision": frame.revision},
+        "alignment_handoff_ref": {"round_id": RUN_ID, "artifact_id": handoff.id, "revision": handoff.revision},
+        "target_ref": {"round_id": RUN_ID, "artifact_id": target.id, "revision": target.revision},
+        "current_understanding": "Confirm the verification id gate.",
+        "assumptions": ["receipts"],
+        "decision_targets": [{"id": "decision-operator-cli", "oracle_ids": ["oracle-cli-confirmation"]}],
+        "tracks": [{"id": "track-operator"}],
+        "method_hypotheses": [{"method": "operator-cli-chain"}],
+        "depth": "deep",
+        "evidence_expectations": ["canonical receipts"],
+        "autonomy_envelope": {"allowed": ["research"], "authority": "research_owner"},
+        "replanning_policy": {"same_round": ["depth"]},
+        "success_oracles": [{"id": "oracle-cli-confirmation", "evidence_standard_ids": ["standard-cli"]}],
+        "delivery_contract": {"technical": "package", "human": "report"},
+        "stop_rule": "the confirmed strategy satisfies the oracle",
+        "preference_influences": [],
+        "revision": 1,
+        "status": "draft",
+    }
+    projection_path = workspace / "docs" / "projection-no-id.json"
+    projection_path.write_text(json.dumps(projection), encoding="utf-8")
+    verification = {
+        "schema": 1,
+        "round_id": RUN_ID,
+        "projection_ref": {"round_id": RUN_ID, "artifact_id": "strategy-no-id", "revision": 1},
+        "authority_fingerprint": "computed-by-the-cli",
+        "verifier_identity": "agent-verifier-support",
+        "session_context": "session-main",
+        "understood": {
+            "outcome": "Independently restated outcome.",
+            "scope": "Independently restated scope.",
+            "authority": "Independently restated authority.",
+            "success_oracles": [{"id": "oracle-cli-confirmation", "understanding": "Restated."}],
+        },
+        "discrepancies": [],
+    }
+    verification_path = workspace / "docs" / "verification-no-id.json"
+    verification_path.write_text(json.dumps(verification), encoding="utf-8")
+    rc, payload = run_cli(
+        capsys,
+        "strategy",
+        *_common_args(workspace),
+        "propose",
+        "--projection",
+        str(projection_path),
+        "--alignment-verification",
+        str(verification_path),
+    )
+    assert rc == 2, payload
+    assert payload["code"] == "alignment_verification_id_required"
+
+
+def test_cli_operating_model_json_envelope_is_consistent(capsys, workspace: Path) -> None:
+    """M1: the --json envelope derives status from run state and carries the revision."""
+
+    _prepare_run(capsys, workspace)
+    rc, payload = run_cli(capsys, "operating-model", "--json", *_common_args(workspace))
+    assert rc == 0, payload
+    assert payload["status"] == "prepared"
+    assert isinstance(payload["run"]["authority_revision"], int)
+    assert payload["readiness"]["ready"] is False
+    assert payload["readiness"]["failure_reasons"] == ["run_not_initialized"]

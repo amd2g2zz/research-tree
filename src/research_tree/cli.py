@@ -16,6 +16,7 @@ from .alignment_handoff import goal_decomposition, initialize_research_from_alig
 from .alignment_handoff import ALIGNMENT_HANDOFF_KIND
 from .completion_inputs import CompletionInputRegistrar
 from .coordinator import (
+    RESEARCH_RUN_STATE_KIND,
     CompletionBlockedError,
     CoordinatorConflictError,
     CoordinatorError,
@@ -23,8 +24,8 @@ from .coordinator import (
     ResearchRunCoordinator,
     StaleStateError,
 )
-from .decision_frame import DecisionFrame, IntentHypothesis
-from .decision_map import BLUEPRINT_TARGET_KIND, CanonicalBlueprintTargetCompiler
+from .decision_frame import DECISION_FRAME_KIND, DecisionFrame, IntentHypothesis
+from .decision_map import BLUEPRINT_TARGET_KIND, BlueprintTargetError, CanonicalBlueprintTargetCompiler
 from .delivery import compile_operating_model, render_operating_model
 from .domain import ArtifactRef, ArtifactRevision, RuntimeStoreError
 from .intake import CanonicalInputIntakeService
@@ -57,6 +58,10 @@ log = logging.getLogger(__name__)
 
 class CliInputError(ValueError):
     """Raised when a stable CLI input cannot be parsed safely."""
+
+    def __init__(self, message: str, *, diagnostic: str | None = None) -> None:
+        super().__init__(message)
+        self.diagnostic = diagnostic
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -91,7 +96,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     initialize = commands.add_parser(
         "initialize",
-        help="bind the compiled alignment handoff to a blueprint target and initialize the run",
+        help=(
+            "bind the compiled alignment handoff to a blueprint target and initialize the run; "
+            "on a late-stage failure re-run with the same idempotency key to resume"
+        ),
     )
     _add_workspace(initialize)
     _add_run_identity(initialize, required=True)
@@ -777,7 +785,7 @@ def _failure(error: Exception, run_id: str | None) -> tuple[int, dict[str, Any]]
         retryability = True
         exit_code = 9
 
-    return exit_code, {
+    payload = {
         "schema_version": LIFECYCLE_SCHEMA_VERSION,
         "contract": "research-tree-lifecycle",
         "command": "error",
@@ -791,6 +799,10 @@ def _failure(error: Exception, run_id: str | None) -> tuple[int, dict[str, Any]]
         "evidence_refs": [],
         "next_action": next_action,
     }
+    diagnostic = getattr(error, "diagnostic", None)
+    if diagnostic:
+        payload["diagnostic"] = str(diagnostic)
+    return exit_code, payload
 
 
 def _emit(payload: Mapping[str, Any]) -> None:
@@ -857,43 +869,6 @@ def _compile_working_brief(ledger: RunLedger, run_id: str, document: Mapping[str
     )
 
 
-def _resolve_working_brief(ledger: RunLedger, run_id: str, arguments: argparse.Namespace) -> ArtifactRevision:
-    if arguments.brief is not None:
-        return _compile_working_brief(ledger, run_id, _read_json_object(arguments.brief))
-    brief = _latest_kind(ledger.load_run(run_id).artifacts, WORKING_BRIEF_KIND)
-    if brief is None:
-        raise CoordinatorConflictError("working_brief_missing")
-    return brief
-
-
-def _resolve_blueprint_target(
-    ledger: RunLedger,
-    run_id: str,
-    arguments: argparse.Namespace,
-    brief: ArtifactRevision,
-    handoff: ArtifactRevision,
-) -> ArtifactRevision:
-    """Compile (with the handoff bind) or resolve the blueprint target of the run."""
-
-    if arguments.blueprint is not None:
-        document = _read_json_object(arguments.blueprint)
-        return CanonicalBlueprintTargetCompiler(ledger).compile(
-            round_id=run_id,
-            target_id=str(document["target_id"]),
-            working_brief=brief,
-            slots=tuple(document["slots"]),
-            change=dict(document["change"]),
-            expected_revision=ledger.get_revision(run_id),
-            alignment_handoff=handoff,
-        )
-    target = _latest_kind(ledger.load_run(run_id).artifacts, BLUEPRINT_TARGET_KIND)
-    if target is None:
-        raise CoordinatorConflictError("blueprint_target_missing")
-    if ArtifactRef(run_id, handoff.id, handoff.revision) not in target.parent_refs:
-        raise CoordinatorConflictError("blueprint_target_handoff_lineage")
-    return target
-
-
 def _persist_frame(
     coordinator: ResearchRunCoordinator,
     ledger: RunLedger,
@@ -901,9 +876,20 @@ def _persist_frame(
     frame_path: Path,
     target: ArtifactRevision,
 ) -> dict[str, Any]:
-    """Persist the decision frame document bound to the compiled blueprint target."""
+    """Persist the decision frame document bound to the compiled blueprint target.
+
+    Idempotent on frame_id: an identical retry resolves the stored frame and
+    appends nothing, so repeated initialize runs stay byte-identical (HIGH-2).
+    """
 
     document = dict(_read_json_object(frame_path))
+    frame_id = str(document.get("frame_id", ""))
+    stored_frames = [
+        item for item in ledger.load_run(run_id).artifacts if item.kind == DECISION_FRAME_KIND and item.id == frame_id
+    ]
+    if stored_frames:
+        stored = max(stored_frames, key=lambda item: item.revision)
+        return ArtifactRef(run_id, stored.id, stored.revision).to_dict()
     document["hypotheses"] = [IntentHypothesis.from_dict(item) for item in document.get("hypotheses", ())]
     document["target_ref"] = ArtifactRef(run_id, target.id, target.revision)
     try:
@@ -923,25 +909,62 @@ def _initialize(arguments: argparse.Namespace) -> dict[str, Any]:
     snapshot = ledger.load_run(run_id)
     handoff = _latest_kind(snapshot.artifacts, ALIGNMENT_HANDOFF_KIND)
     if handoff is None:
-        initialize_research_from_alignment(
-            ledger,
-            round_id=run_id,
-            tree_id=f"tree-{run_id}",
-            alignment_database=database_path(workspace, run_id, arguments.project_id),
-            expected_revision=ledger.get_revision(run_id),
-        )
+        try:
+            initialize_research_from_alignment(
+                ledger,
+                round_id=run_id,
+                tree_id=f"tree-{run_id}",
+                alignment_database=database_path(workspace, run_id, arguments.project_id),
+                expected_revision=ledger.get_revision(run_id),
+            )
+        except AlignmentGraphError as error:
+            raise CoordinatorConflictError("alignment_not_confirmed") from error
         snapshot = ledger.load_run(run_id)
         handoff = _latest_kind(snapshot.artifacts, ALIGNMENT_HANDOFF_KIND)
-    brief = _resolve_working_brief(ledger, run_id, arguments)
-    target = _resolve_blueprint_target(ledger, run_id, arguments, brief, handoff)
+    # Stored lineage wins (HIGH-2): once the run carries a blueprint target, retries
+    # resolve brief/target/frame from stored artifacts and never re-ingest or
+    # re-compile, so N identical retries leave the ledger byte-identical.
+    artifacts = snapshot.artifacts
+    target = _latest_kind(artifacts, BLUEPRINT_TARGET_KIND)
+    if target is None:
+        brief = _latest_kind(artifacts, WORKING_BRIEF_KIND)
+        if brief is None:
+            if arguments.brief is None:
+                raise CoordinatorConflictError("working_brief_missing")
+            brief = _compile_working_brief(ledger, run_id, _read_json_object(arguments.brief))
+        if arguments.blueprint is None:
+            raise CoordinatorConflictError("blueprint_target_missing")
+        document = _read_json_object(arguments.blueprint)
+        try:
+            target = CanonicalBlueprintTargetCompiler(ledger).compile(
+                round_id=run_id,
+                target_id=str(document["target_id"]),
+                working_brief=brief,
+                slots=tuple(document["slots"]),
+                change=dict(document["change"]),
+                expected_revision=ledger.get_revision(run_id),
+                alignment_handoff=handoff,
+            )
+        except BlueprintTargetError as error:
+            # An invariant-sentence input failure is invalid_input, never store_unavailable.
+            raise CliInputError("blueprint_target_invalid", diagnostic=str(error)) from error
+    else:
+        brief = _latest_kind(artifacts, WORKING_BRIEF_KIND)
+        if brief is None:
+            raise CoordinatorConflictError("working_brief_missing")
+        if ArtifactRef(run_id, handoff.id, handoff.revision) not in target.parent_refs:
+            raise CoordinatorConflictError("blueprint_target_handoff_lineage")
     coordinator = ResearchRunCoordinator(ledger)
-    state = coordinator.initialize(
-        run_id=run_id,
-        alignment_handoff=handoff,
-        blueprint_target=target,
-        expected_revision=ledger.get_revision(run_id),
-        idempotency_key=arguments.idempotency_key,
-    )
+    try:
+        state = coordinator.initialize(
+            run_id=run_id,
+            alignment_handoff=handoff,
+            blueprint_target=target,
+            expected_revision=ledger.get_revision(run_id),
+            idempotency_key=arguments.idempotency_key,
+        )
+    except CoordinatorConflictError as error:
+        raise _stable_conflict(error) from error
     frame_ref = None
     if arguments.frame is not None:
         frame_ref = _persist_frame(coordinator, ledger, run_id, arguments.frame, target)
@@ -962,25 +985,46 @@ def _initialize(arguments: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def _stable_conflict(error: CoordinatorConflictError) -> CoordinatorConflictError:
+    """Map coordinator invariant sentences to stable snake_case codes (M6)."""
+
+    mapped = {
+        "run is already initialized": "run_already_initialized",
+        "blueprint-target lineage does not include alignment-handoff": "blueprint_target_handoff_lineage",
+    }.get(str(error))
+    if mapped is None:
+        return error
+    wrapped = CoordinatorConflictError(mapped)
+    wrapped.diagnostic = str(error)
+    return wrapped
+
+
 def _operating_model(arguments: argparse.Namespace) -> str | dict[str, Any]:
-    """Render the canonical Human Brief operating model for operator reading (#470)."""
+    """Render the canonical operating model for operator reading (#470)."""
 
     workspace = arguments.workspace.expanduser().resolve()
     ledger = RunLedger(workspace)
     snapshot = ledger.load_run(arguments.run_id)
     model = compile_operating_model(arguments.run_id, snapshot.artifacts, ledger)
+    states = [item for item in snapshot.artifacts if item.kind == RESEARCH_RUN_STATE_KIND]
+    state = max(states, key=lambda item: item.revision).payload.get("state") if states else None
     if arguments.json:
         return _stable_payload(
             "operating-model",
-            status="ready",
+            status=str(state) if state else "prepared",
             run={
                 "project_id": arguments.project_id,
                 "run_id": arguments.run_id,
-                "authority_revision": None,
+                "authority_revision": ledger.get_revision(arguments.run_id),
             },
+            readiness={"ready": bool(state), "failure_reasons": [] if state else ["run_not_initialized"]},
             result={"operating_model": model},
         )
-    return render_operating_model(model)
+    markdown = render_operating_model(model)
+    attributes = {"source": "research-tree-cli", "command": "operating-model"}
+    if state is not None:
+        attributes["state"] = str(state)
+    return open_tag("rt:tool-output", attributes) + markdown + close_tag("rt:tool-output")
 
 
 def _projection_from_document(document: Mapping[str, Any]) -> StrategyProjection:
@@ -1031,17 +1075,36 @@ def _strategy_propose(
     proposal = _projection_from_document(_read_json_object(arguments.projection))
     if proposal.run_id != arguments.run_id:
         raise CliInputError("strategy_projection_cross_run")
-    stored = coordinator.persist_strategy_projection(proposal, expected_revision=ledger.get_revision(arguments.run_id))
+    # The verification document must name its own id; that gate runs before any
+    # write. Registration itself must follow the projection persist because the
+    # ledger enforces parent existence, so a registration failure discloses the
+    # stored projection ref in the failure payload (review M4).
+    alignment_verification = None
     if arguments.alignment_verification is not None:
-        verification = dict(_read_json_object(arguments.alignment_verification))
-        verification["projection_ref"] = ArtifactRef(arguments.run_id, stored.projection_id, stored.revision).to_dict()
-        verification["authority_fingerprint"] = authority_fingerprint(proposal)
-        CompletionInputRegistrar(ledger).write_alignment_verification(
-            round_id=arguments.run_id,
-            verification_id=str(verification.get("id")),
-            payload=verification,
-            expected_revision=ledger.get_revision(arguments.run_id),
-        )
+        alignment_verification = dict(_read_json_object(arguments.alignment_verification))
+        if not str(alignment_verification.get("id") or "").strip():
+            raise CliInputError("alignment_verification_id_required")
+    stored = coordinator.persist_strategy_projection(proposal, expected_revision=ledger.get_revision(arguments.run_id))
+    if alignment_verification is not None:
+        alignment_verification["projection_ref"] = ArtifactRef(
+            arguments.run_id, stored.projection_id, stored.revision
+        ).to_dict()
+        alignment_verification["authority_fingerprint"] = authority_fingerprint(proposal)
+        try:
+            CompletionInputRegistrar(ledger).write_alignment_verification(
+                round_id=arguments.run_id,
+                verification_id=str(alignment_verification.get("id")),
+                payload=alignment_verification,
+                expected_revision=ledger.get_revision(arguments.run_id),
+            )
+        except (RuntimeStoreError, CoordinatorError, ValueError) as error:
+            raise CliInputError(
+                "alignment_verification_not_registered",
+                diagnostic=(
+                    f"the projection draft is stored at {ArtifactRef(arguments.run_id, stored.projection_id, stored.revision).to_dict()}; "
+                    f"registration failed: {error}"
+                ),
+            ) from error
     return _stable_payload(
         f"strategy.{arguments.strategy_verb}",
         status="proposed",
@@ -1220,6 +1283,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (
         CliInputError,
         CoordinatorError,
+        AlignmentGraphError,
         RuntimeStoreError,
         LedgerError,
         ProjectWorkspaceError,
