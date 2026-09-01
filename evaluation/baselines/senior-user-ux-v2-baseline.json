@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "id": "senior-user-ux-v2-baseline",
+  "kind": "senior-user-ux-v2-baseline-registry",
+  "case_id": "senior-user-ux-v2",
+  "source_revision": "3d0f76c5de11cfd97e660b48a9728cfe29689a82",
+  "environment": "recorded from the #292 evaluation record (8/20 baseline run); registry format added under python>=3.11; uv",
+  "producer": "evaluation/harness/v2_baseline_admission.py (issue #472 gate 9; numbers quoted from the #292 issue record)",
+  "recorded_at": "2026-08-20T00:00:00Z",
+  "artifact_refs": [
+    "docs/evaluation/research/senior-user-ux-v2-baseline.md"
+  ],
+  "limitations": [
+    "The baseline evidence (per-role reports, transcripts, runtime logs, summary.json) is retained with the #292 evaluation record and is not re-derivable from in-repo artifacts.",
+    "Token-volume anchors exist for the research-architect and governance-auditor roles only; the platform-integrator role has no #292-quoted number.",
+    "The governance-auditor score uses a 0-10 scale and must not be averaged into the 0-100 role scores."
+  ],
+  "content_digest": "sha256:775c61c8a4f578e7383797fae6c76ec2daf5d47a70ed39e2f5c808e9b4d12f5e",
+  "baseline": {
+    "run_name": "senior-user-ux-20260820",
+    "role_scores": {
+      "research-architect": {
+        "value": 76,
+        "scale": "0-100",
+        "verdict": "conditional use for high-risk research pilots"
+      },
+      "platform-engineering-integrator": {
+        "value": 65,
+        "scale": "0-100",
+        "verdict": "isolated pilot viable; org-wide rollout not approved"
+      },
+      "governance-auditor": {
+        "value": 6.8,
+        "scale": "0-10",
+        "verdict": "conditional approval; unsuitable for unsupervised final authorization"
+      }
+    },
+    "score_separation_rule": "the three role scores stay visible and separate; the 0-10 governance score is never averaged into the 0-100 scores without a declared normalization rule (#292)",
+    "counting_bases": "quoted from the #292 issue record; the baseline evidence is retained with the #292 evaluation record and is not archived in this repository"
+  }
+}

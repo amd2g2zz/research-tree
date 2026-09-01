@@ -11,12 +11,22 @@ reports, transcripts, runtime logs, summary.json) is retained with the
 evaluation record referenced by #292 but is **not archived in this
 repository**. Every number below is quoted from the #292 issue record; none
 is re-derivable from in-repo artifacts. The pointer of record for the
-baseline artifacts is the #292 evaluation record itself. Requirement on the
-v2 run orchestration (the remaining #451 checklist work): the admission step
-cross-checks the baseline run name and the three role scores against this
-record and archives the cross-check in the admission receipt — until that
-lane lands, this sentence is a recorded requirement, not an existing
-mechanism.
+baseline artifacts is the #292 evaluation record itself.
+
+**Machine-readable registry (source of record for mechanical checks).** The
+baseline run name and the three role scores are registered, digest-sealed,
+in `evaluation/baselines/senior-user-ux-v2-baseline.json`
+(`senior-user-ux-v2-baseline`, immutable by `content_digest` over its
+`baseline` payload, per the evaluation-paths registered-baseline rules).
+This document is that registry's human rendering; the table below must
+agree with it. The admission step of the v2 run orchestration cross-checks
+the run's declared baseline against the registry at run start
+(`evaluation/harness/v2_baseline_admission.py`): a mismatch of the run name
+or any role score — or a missing, unreadable, invalid, or digest-broken
+registry — fails closed with a canonical admission reason, and a match is
+archived as the run's `context-admission-record` artifact. The sentence
+below that called this a recorded requirement describes the pre-#472 state;
+the mechanism now exists.
 
 ## Hard numbers (with counting basis)
 

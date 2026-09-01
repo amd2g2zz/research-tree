@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "evaluation" / "harness"))
 
 from run_v2_evaluation import (  # noqa: E402
+    DECLARED_CONTEXT_BUDGET,
     RUNTIME_ORACLES,
     WAIVED_REASONS,
     run_governed_evaluation,
@@ -73,7 +74,8 @@ def test_disclosures_survive_in_the_receipt(receipt):
     disclosures = receipt["disclosures"]
     assert disclosures["host_process_invoked"] is False
     assert set(disclosures["waived_oracles"]) == set(WAIVED_REASONS)
-    assert disclosures["declared_budget"] is None and disclosures["declared_budget_reason"]
+    assert disclosures["declared_budget"] == DECLARED_CONTEXT_BUDGET
+    assert disclosures["declared_budget_reason"]
 
 
 def test_review_identities_are_distinct_and_present(receipt):
