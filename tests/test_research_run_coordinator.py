@@ -23,7 +23,7 @@ from research_tree.decision_frame import DecisionFrame, IntentHypothesis
 from research_tree.domain import ArtifactRef
 from research_tree.feedback import CorrectionBinding
 from research_tree.run_ledger import RunLedger
-from research_tree.strategy_projection import StrategyProjection
+from research_tree.strategy_projection import StrategyProjection, authority_fingerprint
 
 
 def _append(ledger: RunLedger, run_id: str, artifact_id: str, kind: str, payload: dict, parents=()):
@@ -110,7 +110,7 @@ def _confirm_strategy(ledger: RunLedger, coordinator: ResearchRunCoordinator) ->
     coordinator.confirm_handoff(
         "run-57",
         projection_ref=ArtifactRef("run-57", projection.id, projection.revision),
-        confirmation=f"I accept {projection.display_digest} and authorize research.",
+        confirmation=f"I accept {projection.display_digest} authority-fingerprint {authority_fingerprint(projection)} and authorize research.",
         expected_revision=ledger.get_revision("run-57"),
     )
     return projection

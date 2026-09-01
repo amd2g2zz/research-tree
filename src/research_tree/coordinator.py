@@ -59,6 +59,7 @@ from .strategy_projection import (
     STRATEGY_PROJECTION_KIND,
     StrategyProjection,
     StrategyProjectionError,
+    authority_fingerprint,
     latest_confirmed,
     macro_stage,
     validate_falsifiability,
@@ -792,6 +793,15 @@ class ResearchRunCoordinator:
         artifact, projection = self.require_strategy_projection(projection_ref, run_id=run_id, require_displayed=True)
         if projection.display_digest not in confirmation:
             raise CoordinatorConflictError("confirmation_digest_mismatch")
+        # Issue #292 gate 1: the display digest alone cannot vouch for the
+        # authority-bearing fields — the user's confirmation must embed the
+        # authority fingerprint so a stale scope/authority cannot survive a
+        # broader authorization.
+        expected_fingerprint = authority_fingerprint(projection)
+        if "authority-fingerprint" not in confirmation:
+            raise CoordinatorConflictError("authority_fingerprint_required")
+        if expected_fingerprint not in confirmation:
+            raise CoordinatorConflictError("authority_fingerprint_mismatch")
         # Defense in depth: the guard cannot vouch for artifacts written before the gate
         # existed or outside the coordinator, so confirmation re-validates the projection
         # content itself — a single gate failure must not fail the whole chain open.
@@ -802,6 +812,7 @@ class ResearchRunCoordinator:
         payload = {
             "projection_ref": ArtifactRef(run_id, artifact.id, artifact.revision).to_dict(),
             "display_digest": projection.display_digest,
+            "authority_fingerprint": expected_fingerprint,
             "confirmation": confirmation,
         }
         return self.transition(
@@ -2387,7 +2398,16 @@ class ResearchRunCoordinator:
                     return False, f"projection_unfalsifiable: {error}"
                 return True, None
             confirmation = (payload or {}).get("confirmation")
-            return (isinstance(confirmation, str) and projection.display_digest in confirmation), None
+            if not (isinstance(confirmation, str) and projection.display_digest in confirmation):
+                return False, None
+            # Issue #292 gate 1: the fingerprint recorded at confirmation must
+            # still match the projection's authority fields — a post-confirm
+            # revise of scope/authority fails the guard here, blocking
+            # compilation before any execution.
+            recorded = (payload or {}).get("authority_fingerprint")
+            if recorded != authority_fingerprint(projection):
+                return False, "authority_fingerprint_drift"
+            return True, None
         if event == "handoff_confirmed":
             current = self._latest_state(run_id)
             if current.payload.get("correction_event_id") is not None:

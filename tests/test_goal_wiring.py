@@ -31,7 +31,7 @@ from research_tree.decision_frame import DecisionFrame, IntentHypothesis
 from research_tree.decision_map import CanonicalBlueprintTargetCompiler, InvalidBlueprintTargetError
 from research_tree.domain import ArtifactRef, ArtifactRevision, thaw_json
 from research_tree.run_ledger import RunLedger
-from research_tree.strategy_projection import StrategyProjection
+from research_tree.strategy_projection import StrategyProjection, authority_fingerprint
 from research_tree.work_items import (
     WORK_ITEM_KIND,
     CanonicalWorkItemCompiler,
@@ -886,7 +886,7 @@ def test_confirm_handoff_requires_displayed_projection(tmp_path: Path) -> None:
         coordinator.confirm_handoff(
             RUN_ID,
             projection_ref=ArtifactRef(RUN_ID, proposal.projection_id, proposal.revision),
-            confirmation=f"I accept the displayed strategy {proposal.display_digest} and authorize research.",
+            confirmation=f"I accept the displayed strategy {proposal.display_digest} authority-fingerprint {authority_fingerprint(proposal)} and authorize research.",
             expected_revision=ledger.get_revision(RUN_ID),
             actor="human",
         )
@@ -979,7 +979,7 @@ def test_confirm_handoff_rejects_unfalsifiable_projection(tmp_path: Path) -> Non
         coordinator.confirm_handoff(
             RUN_ID,
             projection_ref=ArtifactRef(RUN_ID, unfalsifiable.projection_id, unfalsifiable.revision),
-            confirmation=f"I accept {unfalsifiable.display_digest} and authorize research.",
+            confirmation=f"I accept {unfalsifiable.display_digest} authority-fingerprint {authority_fingerprint(unfalsifiable)} and authorize research.",
             expected_revision=ledger.get_revision(RUN_ID),
             actor="human",
         )
