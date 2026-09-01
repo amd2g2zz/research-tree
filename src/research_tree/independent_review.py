@@ -22,14 +22,26 @@ mirror the session identifiers the lifecycle hook already records host-side:
 ``session_context`` is the session/context lineage the review is bound to
 (the dispatching main session). An artifact without both identities is not
 independent and its gate rejects fail-closed.
+
+Issue #471 restates the independence threat model: the gates judge a review
+against its registration's durable ``issuer`` principal — an HMAC of the
+declared identity pair keyed with a secret per-run salt the ledger holds — so
+the principal is tamper-evident, cannot be minted from public material by
+out-of-process or cross-session adversaries, and never matches the
+coordinator's own principal. This is channel separation and
+coordinator-principal exclusion, NOT proof of subagent execution: a
+same-process adversary with full ledger access can read the salt, which is
+the tracked gate-3 boundary (unsupervised same-process authorization).
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 from typing import Any, Mapping, Sequence
 
 from .completion_inputs import CompletionInputError
-from .domain import ArtifactRef
+from .domain import ArtifactRef, canonical_json_bytes
 
 ALIGNMENT_VERIFICATION_KIND = "alignment-verification"
 DELIVERY_REVIEW_KIND = "delivery-review"
@@ -54,17 +66,92 @@ def _text(value: Any, label: str) -> str:
     return value
 
 
-def verify_identity_independent(verifier_identity: Any, session_context: Any) -> bool:
-    """Return whether a review's identities establish independence.
+def verification_principal(salt: str, verifier_identity: str, session_context: str) -> str:
+    """Derive the durable ledger principal a review's identity pair binds to (#471).
 
-    Fail-closed: missing, blank, or oversized identities are never independent,
-    and a verifier whose identity equals the session it reviews is self-review.
+    The principal is an HMAC-SHA256 over the declared identity pair, keyed with
+    a per-run secret salt the ledger generates at run creation and hands out
+    only through the registrar/gate channel (:meth:`RunLedger.
+    verification_principal`). Because the salt is secret, an out-of-process or
+    cross-session adversary cannot mint a principal from public material.
+
+    Threat model (restated per review A HIGH-2 / review B): this is
+    **tamper-evidence + channel separation + coordinator-principal exclusion**,
+    not proof of execution. The residual — a same-process adversary with full
+    ledger access can read the salt and mint a matching principal — is the
+    tracked gate-3 boundary (unsupervised same-process authorization); closing
+    it requires a subagent execution record the registrar can attribute, which
+    does not exist yet. Within the model, a principal cannot be swapped or
+    re-used across identity pairs after the fact, and a registration is
+    append-once.
     """
+
+    material = {
+        "issuer": INDEPENDENT_REVIEW_ISSUER,
+        "session_context": session_context.strip(),
+        "verifier_identity": verifier_identity.strip(),
+    }
+    digest = hmac.new(salt.encode("utf-8"), canonical_json_bytes(material), hashlib.sha256).hexdigest()
+    return f"{INDEPENDENT_REVIEW_ISSUER}@{digest}"
+
+
+def _identity_pair_wellformed(verifier_identity: Any, session_context: Any) -> bool:
+    """Fail-closed checks shared by both identity predicates (#462 + #471)."""
+
+    from .completion_inputs import COORDINATOR_ISSUER
 
     for value in (verifier_identity, session_context):
         if not isinstance(value, str) or not value.strip() or len(value) > _MAX_IDENTITY_LENGTH:
             return False
-    return verifier_identity.strip() != session_context.strip()
+    if verifier_identity.strip() == session_context.strip():
+        return False
+    # The coordinator principal can never be an independent verifier identity:
+    # a review declaring it (under any rename of the pair) is self-issuance.
+    if verifier_identity.strip() == COORDINATOR_ISSUER or session_context.strip() == COORDINATOR_ISSUER:
+        return False
+    return True
+
+
+def verify_identity_independent(verifier_identity: Any, session_context: Any) -> bool:
+    """Return whether a review's identities are well-formed and self-distinct.
+
+    #462 compatibility predicate (two arguments, no principal). It does NOT
+    establish production independence — with #471 the production gates use
+    :func:`verify_independent_review_principal`, which requires the durable
+    write-time principal. Keeping this two-argument form preserves the #462
+    caller contract unchanged.
+    """
+
+    return _identity_pair_wellformed(verifier_identity, session_context)
+
+
+def verify_independent_review_principal(
+    verifier_identity: Any,
+    session_context: Any,
+    *,
+    issuer: Any,
+    principal: Any,
+) -> bool:
+    """Return whether a review registration is structurally independent (#471).
+
+    The production display/delivery predicate. ``issuer`` (the registration's
+    durable ledger principal) and ``principal`` (the expected binding the gate
+    recomputed through the ledger's secret run salt) are REQUIRED keywords: a
+    call site that cannot supply them fails closed rather than open, so a gate
+    lookup miss can never pass as independent.
+
+    Independence holds only when the identity pair is well-formed and
+    self-distinct, does not claim the coordinator principal, and the durable
+    ``issuer`` equals the recomputed ``principal`` binding.
+    """
+
+    if not isinstance(issuer, str) or not issuer:
+        return False
+    if not isinstance(principal, str) or not principal:
+        return False
+    if not _identity_pair_wellformed(verifier_identity, session_context):
+        return False
+    return issuer == principal
 
 
 def validate_alignment_verification_payload(payload: Any) -> dict[str, Any]:
@@ -228,5 +315,7 @@ __all__ = [
     "IndependentReviewError",
     "validate_alignment_verification_payload",
     "validate_delivery_review_payload",
+    "verification_principal",
     "verify_identity_independent",
+    "verify_independent_review_principal",
 ]

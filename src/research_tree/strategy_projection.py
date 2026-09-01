@@ -11,6 +11,12 @@ from .domain import ArtifactRef, ArtifactRevision, DataIntegrityError, canonical
 STRATEGY_PROJECTION_KIND = "strategy-projection"
 STRATEGY_PROJECTION_SCHEMA_VERSION = 1
 _STATUSES = frozenset({"draft", "displayed", "confirmed", "superseded"})
+# Issue #471: marker artifact kind that explicitly invalidates a confirmed
+# projection's authorization once a post-confirm revision supersedes it. The
+# marker is append-only evidence: the superseded projection artifact itself is
+# immutable, and re-display of a successor requires the full independent gate.
+STRATEGY_PROJECTION_INVALIDATION_KIND = "strategy-projection-invalidation"
+STRATEGY_PROJECTION_INVALIDATION_SCHEMA_VERSION = 1
 # Coordinator's lifecycle-event artifacts (coordinator.LIFECYCLE_EVENT_KIND) carry the
 # authoritative confirmation record; importing it here would create a cycle.
 _LIFECYCLE_EVENT_KIND = "lifecycle-event"
@@ -395,6 +401,71 @@ def _latest_revision_by_id(projections: Mapping[tuple[str, int], ArtifactRevisio
         if current is None or revision > current:
             latest[artifact_id] = revision
     return latest
+
+
+def validate_strategy_projection_invalidation(payload: Any) -> dict[str, Any]:
+    """Validate one strategy-projection-invalidation marker payload (#471).
+
+    Every violation raises ``StrategyProjectionError`` naming the field, so a
+    malformed marker can never silently pass as invalidation evidence.
+    """
+
+    required = {
+        "schema",
+        "id",
+        "run_id",
+        "superseded_projection_ref",
+        "superseded_display_digest",
+        "superseded_authority_fingerprint",
+        "reason",
+    }
+    if not isinstance(payload, Mapping):
+        raise StrategyProjectionError("projection invalidation payload must be an object")
+    if set(payload) != required:
+        raise StrategyProjectionError("projection invalidation payload fields do not match schema")
+    if payload["schema"] != STRATEGY_PROJECTION_INVALIDATION_SCHEMA_VERSION:
+        raise StrategyProjectionError("projection invalidation schema must be 1")
+    for field in ("id", "run_id", "superseded_display_digest", "superseded_authority_fingerprint", "reason"):
+        value = payload[field]
+        if not isinstance(value, str) or not value.strip():
+            raise StrategyProjectionError(f"projection invalidation {field} must be a non-empty string")
+    if len(payload["superseded_display_digest"]) != 64 or len(payload["superseded_authority_fingerprint"]) != 64:
+        raise StrategyProjectionError("projection invalidation digests must be SHA-256 hex digests")
+    try:
+        superseded = ArtifactRef.from_dict(payload["superseded_projection_ref"])
+    except (TypeError, ValueError, DataIntegrityError) as error:
+        raise StrategyProjectionError(
+            "projection invalidation superseded_projection_ref must be an artifact reference"
+        ) from error
+    return {"superseded_projection_ref": superseded}
+
+
+def has_confirmation_history(artifacts: Sequence[ArtifactRevision], projection_id: str) -> bool:
+    """Return whether any ``handoff_confirmed`` event ever named this projection id.
+
+    Issue #471 (review A/B HIGH-1): post-confirm supersede semantics must key
+    on the projection's own confirmation history, not on the
+    ``latest_confirmed`` snapshot — the snapshot is permanently ``None`` once a
+    later revision supersedes a confirmation, which let a second post-confirm
+    ``revise_strategy`` fall back to the legacy displayed branch. Once a
+    projection id has been confirmed, EVERY subsequent revision — including
+    revisions after a later re-confirmation — is post-confirm and must be
+    written as a draft behind an invalidation marker; a re-confirmed revision
+    reached that state only by passing the full display gate itself.
+    """
+
+    for artifact in artifacts:
+        if artifact.kind != _LIFECYCLE_EVENT_KIND or artifact.payload.get("event") != _HANDOFF_CONFIRMED_EVENT:
+            continue
+        payload = artifact.payload.get("payload")
+        reference_value = payload.get("projection_ref") if isinstance(payload, Mapping) else None
+        try:
+            reference = ArtifactRef.from_dict(reference_value)
+        except (TypeError, ValueError, DataIntegrityError):
+            continue
+        if reference.artifact_id == projection_id:
+            return True
+    return False
 
 
 AUTHORITY_FIELD_LABELS = (

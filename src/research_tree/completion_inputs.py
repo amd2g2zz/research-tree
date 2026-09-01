@@ -29,6 +29,10 @@ class CompletionInputError(LedgerIntegrityError):
 GOAL_SATISFACTION_ROLE = "goal_satisfaction"
 GOAL_SATISFACTION_KIND = "goal-satisfaction"
 GOAL_SATISFACTION_VERDICTS = ("satisfied", "partial", "unmet", "waived")
+# Issue #471: the canonical ledger principal the coordinator itself writes
+# under. A review claiming this principal (directly or via a declared identity)
+# is coordinator self-issuance and can never satisfy an independent gate.
+COORDINATOR_ISSUER = "coordinator"
 # Ledger artifact kinds a goal_satisfaction verdict may cite as evidence. The
 # PRD also lists "experiment result"; no such artifact kind exists in the
 # runtime, so the set covers the three existing evidence classes.
@@ -359,7 +363,7 @@ class CompletionInputRegistrar:
             kind=GOAL_SATISFACTION_KIND,
             payload=payload,
             parent_refs=parents,
-            issuer="coordinator",
+            issuer=COORDINATOR_ISSUER,
             issuer_evidence={"oracle_id": validated["oracle_id"], "verdict": validated["verdict"]},
             expected_revision=expected_revision,
         )
@@ -383,7 +387,6 @@ class CompletionInputRegistrar:
         from .independent_review import (
             ALIGNMENT_VERIFICATION_KIND,
             ALIGNMENT_VERIFICATION_ROLE,
-            INDEPENDENT_REVIEW_ISSUER,
             IndependentReviewError,
             validate_alignment_verification_payload,
         )
@@ -398,6 +401,14 @@ class CompletionInputRegistrar:
             raise CompletionInputError("alignment verification payload id does not match verification_id")
         if validated["round_id"] != round_id:
             raise CompletionInputError("alignment verification payload round_id does not match round_id")
+        # Issue #471: the durable ledger principal is bound at write time to the
+        # declared identity pair through the ledger's secret run salt, so the
+        # gate judges independence against the registration's issuer rather
+        # than re-declared payload strings, and an out-of-process adversary
+        # cannot mint the principal from public material.
+        principal = self.ledger.verification_principal(
+            round_id, validated["verifier_identity"], validated["session_context"]
+        )
         return self._write(
             round_id=round_id,
             artifact_id=verification_id,
@@ -405,8 +416,9 @@ class CompletionInputRegistrar:
             kind=ALIGNMENT_VERIFICATION_KIND,
             payload=thaw_json(dict(payload)),
             parent_refs=(validated["projection_ref"],),
-            issuer=INDEPENDENT_REVIEW_ISSUER,
+            issuer=principal,
             issuer_evidence={
+                "principal": principal,
                 "verifier_identity": validated["verifier_identity"],
                 "session_context": validated["session_context"],
                 "authority_fingerprint": validated["authority_fingerprint"],
@@ -426,13 +438,14 @@ class CompletionInputRegistrar:
 
         The subagent-produced artifact binds its parent lineage to the exact
         evidence custody references (finding packs) the verifier read, so the
-        delivery gate can re-verify custody at completion time.
+        delivery gate can re-verify custody at completion time. Issue #471: the
+        registration's durable issuer principal is bound at write time to the
+        declared identity pair.
         """
 
         from .independent_review import (
             DELIVERY_REVIEW_KIND,
             DELIVERY_REVIEW_ROLE,
-            INDEPENDENT_REVIEW_ISSUER,
             IndependentReviewError,
             validate_delivery_review_payload,
         )
@@ -447,6 +460,12 @@ class CompletionInputRegistrar:
             raise CompletionInputError("delivery review payload id does not match review_id")
         if validated["round_id"] != round_id:
             raise CompletionInputError("delivery review payload round_id does not match round_id")
+        # Issue #471: bind the durable ledger principal to the declared identity
+        # pair at write time through the ledger's secret run salt, mirroring the
+        # alignment verification write path.
+        principal = self.ledger.verification_principal(
+            round_id, validated["verifier_identity"], validated["session_context"]
+        )
         parents = _refs(validated["evidence_custody"])
         return self._write(
             round_id=round_id,
@@ -455,8 +474,9 @@ class CompletionInputRegistrar:
             kind=DELIVERY_REVIEW_KIND,
             payload=thaw_json(dict(payload)),
             parent_refs=parents,
-            issuer=INDEPENDENT_REVIEW_ISSUER,
+            issuer=principal,
             issuer_evidence={
+                "principal": principal,
                 "verifier_identity": validated["verifier_identity"],
                 "session_context": validated["session_context"],
                 "verdict": validated["verdict"],
@@ -626,6 +646,7 @@ def _acceptance_from_mapping(value: Mapping[str, Any]) -> DeliveryAcceptance:
 __all__ = [
     "CompletionInputError",
     "CompletionInputRegistrar",
+    "COORDINATOR_ISSUER",
     "GOAL_SATISFACTION_EVIDENCE_KINDS",
     "GOAL_SATISFACTION_KIND",
     "GOAL_SATISFACTION_ROLE",
