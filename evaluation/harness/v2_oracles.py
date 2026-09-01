@@ -88,12 +88,14 @@ EVIDENCE_STANDARDS: dict[str, dict[str, str]] = {
     },
     "es-noise-measurement": {
         "statement": (
-            "User-visible repeated output and reread behavior are measured against the baseline run "
-            "with an explicit counting basis and the measurement is archived in the v2 run record."
+            "The v2 noise judgment is measured per the three-component protocol in the baseline "
+            "record (token-volume proxy vs the baseline run, admission-declared duplicate-read "
+            "budget, zero-reread clause) with explicit counting bases archived in the v2 run record."
         ),
         "token_basis": (
-            "baseline-comparison measurement record ids (duplicate-output counts, reread audit rows) "
-            "and the budget receipts they cite"
+            "baseline-comparison measurement record ids (per-role input token counts, "
+            "duplicate-output counts, reread audit rows), admission duplicate-read budget "
+            "declarations, and the budget receipts they cite"
         ),
     },
     "es-host-matrix-receipt": {
@@ -205,10 +207,11 @@ SUCCESS_ORACLES: tuple[dict[str, Any], ...] = (
     {
         "id": "oracle-noise-reduction",
         "statement": (
-            "User-visible repeated output across the v2 run is at least 70% below the "
-            "senior-user-ux-20260820 baseline at equal task coverage, and no already-confirmed "
-            "material is reread within a bounded run unless its source digest or decision scope "
-            "changed."
+            "Noise judgment per the three-component protocol in the baseline record: (i) each "
+            "anchored Track A role's input token count at declared task coverage is at least 70% "
+            "below its senior-user-ux-20260820 number quoted in #292 (directional); (ii) the run "
+            "meets the duplicate-read budget declared at admission and rereads no already-confirmed "
+            "material unless its source digest or decision scope changed (hard gate)."
         ),
         "gate_ids": (10,),
         "evidence_standard_ids": ("es-noise-measurement", "es-budget-receipt"),
