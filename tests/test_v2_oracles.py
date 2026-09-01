@@ -37,7 +37,8 @@ from research_tree.strategy_projection import (  # noqa: E402
 )
 
 GATE_RANGE = frozenset(CLOSURE_GATES)
-EXPECTED_METRIC_COUNT = 13
+# 1 role-score rule + 12 tracked metrics + 1 noise criterion from #292.
+EXPECTED_METRIC_COUNT = 14
 
 
 def _fixture_projection(success_oracles, decision_targets) -> StrategyProjection:

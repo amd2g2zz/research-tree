@@ -26,7 +26,7 @@ closure oracle by oracle instead of by narrative summary.
 | 7 Live-host evidence matrix | `oracle-live-host-matrix`, `oracle-recovery-semantics` | `es-host-matrix-receipt`, `es-recovery-reason-record` |
 | 8 Adoption evidence | `oracle-operating-model` | `es-operating-model-payload` |
 | 9 Freshness gate | `oracle-freshness-gate` | `es-freshness-decision-record` |
-| 10 Independent rerun | `oracle-alignment-regression`, `oracle-evidence-honesty`, `oracle-completion-consistency`, `oracle-noise-reduction`, `oracle-recovery-semantics` | `es-role-transcript`, `es-boundary-disclosure`, `es-noise-measurement` |
+| 10 Independent rerun | `oracle-alignment-regression`, `oracle-evidence-honesty`, `oracle-completion-consistency`, `oracle-noise-reduction`, `oracle-recovery-semantics` | `es-role-transcript`, `es-boundary-disclosure`, `es-noise-measurement`, `es-completion-snapshot-digest`, `es-budget-receipt`, `es-recovery-reason-record`, `es-host-matrix-receipt` |
 
 ## Decision targets
 
@@ -52,7 +52,8 @@ pack boundary disclosures, and canonical failure-reason records.
 
 ## Follow-up metric coverage
 
-All thirteen follow-up metrics from #292 map to at least one oracle
+All fourteen follow-up items from #292 (1 role-score rule + 12 tracked
+metrics + 1 noise criterion) map to at least one oracle
 (`METRIC_COVERAGE` in the module). The noise criterion is the strictest:
 user-visible repeated output must fall at least 70% below the 8/20 baseline at
 equal task coverage, and already-confirmed material must not be reread within

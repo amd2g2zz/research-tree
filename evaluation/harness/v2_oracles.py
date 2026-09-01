@@ -51,10 +51,12 @@ EVIDENCE_STANDARDS: dict[str, dict[str, str]] = {
     "es-verifier-identity-distinct": {
         "statement": (
             "Every required review records a distinct verifier execution identity, session lineage, "
-            "evidence custody, and authority; self-issued verification artifacts are rejected."
+            "evidence custody, oracle custody, and authority; self-issued verification artifacts are "
+            "rejected."
         ),
         "token_basis": (
-            "alignment-verification and delivery-review artifact ids plus verify_identity_independent pass records"
+            "alignment-verification and delivery-review artifact ids plus verify_identity_independent "
+            "pass records; custody covers the evidence packs and the oracle definitions the verdicts bind"
         ),
     },
     "es-host-conformance-receipt": {
@@ -308,7 +310,8 @@ DECISION_TARGETS: tuple[dict[str, Any], ...] = (
 )
 
 # The follow-up metric list recorded in #292 ("Metrics for the follow-up
-# evaluation"), each mapped to the oracles that carry it.
+# evaluation"), each mapped to the oracles that carry it.  Counting basis:
+# 1 role-score rule + 12 tracked metrics + 1 noise criterion = 14 rows.
 METRIC_COVERAGE: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("alignment quality", ("oracle-alignment-regression",)),
     ("evidence-boundary honesty", ("oracle-evidence-honesty",)),
@@ -322,6 +325,10 @@ METRIC_COVERAGE: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("fresh/cached/replayed input", ("oracle-context-discipline",)),
     ("tool/process output", ("oracle-context-discipline",)),
     ("live-host receipt coverage", ("oracle-live-host-matrix",)),
+    (
+        "role scores kept separate without undeclared normalization",
+        ("oracle-alignment-regression",),
+    ),
     (
         "at-least-70% repeated-output reduction with no confirmed-material reread",
         ("oracle-noise-reduction",),
