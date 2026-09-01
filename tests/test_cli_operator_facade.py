@@ -592,9 +592,10 @@ def test_cli_initialize_unconfirmed_alignment_is_named_error(capsys, workspace: 
             str(docs["blueprint"]),
         ]
     )
-    out = capsys.readouterr().out
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
     assert rc == 2, out
-    assert "<rt:error" in out
+    assert "<rt:error" in captured.out
     assert '"code": "alignment_not_confirmed"' in out
     assert '"category": "invalid_input"' in out
     assert '"retryability": false' in out
@@ -722,3 +723,113 @@ def test_cli_operating_model_json_envelope_is_consistent(capsys, workspace: Path
     assert isinstance(payload["run"]["authority_revision"], int)
     assert payload["readiness"]["ready"] is False
     assert payload["readiness"]["failure_reasons"] == ["run_not_initialized"]
+
+
+def test_cli_initialize_rejects_frame_from_foreign_run(capsys, workspace: Path) -> None:
+    """A frame document authored for run B fails named and writes nothing (review 2)."""
+
+    _prepare_run(capsys, workspace)
+    _confirm_alignment_graph(workspace)
+    docs = _write_docs(workspace)
+    foreign = json.loads(docs["frame"].read_text(encoding="utf-8"))
+    foreign["run_id"] = "run-other"
+    foreign_frame = workspace / "docs" / "frame-foreign.json"
+    foreign_frame.write_text(json.dumps(foreign), encoding="utf-8")
+    ledger = RunLedger(workspace)
+    revision_before = ledger.get_revision(RUN_ID)
+
+    rc, payload = run_cli(
+        capsys,
+        "initialize",
+        *_common_args(workspace),
+        "--brief",
+        str(docs["brief"]),
+        "--blueprint",
+        str(docs["blueprint"]),
+        "--frame",
+        str(foreign_frame),
+    )
+    assert rc == 2, payload
+    assert payload["code"] == "decision_frame_cross_run"
+    assert payload["category"] == "invalid_input"
+    assert ledger.get_revision(RUN_ID) == revision_before
+    assert not [item for item in ledger.load_run(RUN_ID).artifacts if item.kind == "decision-frame"]
+
+
+def test_cli_initialize_brief_document_missing_keys_is_named(capsys, workspace: Path) -> None:
+    """HIGH-1 residual: a brief document missing intent_id is a named rt:error."""
+
+    _prepare_run(capsys, workspace)
+    _confirm_alignment_graph(workspace)
+    docs = _write_docs(workspace)
+    brief = json.loads(docs["brief"].read_text(encoding="utf-8"))
+    brief.pop("intent_id")
+    broken = workspace / "docs" / "brief-broken.json"
+    broken.write_text(json.dumps(brief), encoding="utf-8")
+    rc = cli_main(["initialize", *_common_args(workspace), "--brief", str(broken)])
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    assert rc == 2, out
+    assert "<rt:error" in captured.out
+    assert '"code": "brief_document_incomplete"' in out
+    assert "Traceback" not in out
+
+
+def test_cli_initialize_blueprint_document_missing_slots_is_named(capsys, workspace: Path) -> None:
+    """HIGH-1 residual: a blueprint document missing slots is a named rt:error."""
+
+    _prepare_run(capsys, workspace)
+    _confirm_alignment_graph(workspace)
+    docs = _write_docs(workspace)
+    blueprint = json.loads(docs["blueprint"].read_text(encoding="utf-8"))
+    blueprint.pop("slots")
+    broken = workspace / "docs" / "blueprint-broken.json"
+    broken.write_text(json.dumps(blueprint), encoding="utf-8")
+    rc = cli_main(["initialize", *_common_args(workspace), "--brief", str(docs["brief"]), "--blueprint", str(broken)])
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    assert rc == 2, out
+    assert '"code": "blueprint_document_incomplete"' in out
+    assert "Traceback" not in out
+
+
+def test_cli_initialize_brief_invalid_origin_is_invalid_input(capsys, workspace: Path) -> None:
+    """HIGH-2 residual: a bad origin_type is invalid_input, not retryable store_unavailable."""
+
+    _prepare_run(capsys, workspace)
+    _confirm_alignment_graph(workspace)
+    docs = _write_docs(workspace)
+    brief = json.loads(docs["brief"].read_text(encoding="utf-8"))
+    brief["inputs"][0]["origin_type"] = "network"
+    broken = workspace / "docs" / "brief-origin.json"
+    broken.write_text(json.dumps(brief), encoding="utf-8")
+    rc, payload = run_cli(capsys, "initialize", *_common_args(workspace), "--brief", str(broken))
+    assert rc == 2, payload
+    assert payload["category"] == "invalid_input"
+    assert payload["retryability"] is False
+    assert payload["code"] == "operator_document_invalid"
+
+
+def test_cli_initialize_frame_malformed_hypothesis_is_named(capsys, workspace: Path) -> None:
+    """MEDIUM: a hypothesis dict missing id is a named invalid_input, not a KeyError."""
+
+    _prepare_run(capsys, workspace)
+    _confirm_alignment_graph(workspace)
+    docs = _write_docs(workspace)
+    frame = json.loads(docs["frame"].read_text(encoding="utf-8"))
+    frame["hypotheses"][0].pop("id")
+    broken = workspace / "docs" / "frame-broken.json"
+    broken.write_text(json.dumps(frame), encoding="utf-8")
+    rc, payload = run_cli(
+        capsys,
+        "initialize",
+        *_common_args(workspace),
+        "--brief",
+        str(docs["brief"]),
+        "--blueprint",
+        str(docs["blueprint"]),
+        "--frame",
+        str(broken),
+    )
+    assert rc == 2, payload
+    assert payload["code"] == "decision_frame_invalid"

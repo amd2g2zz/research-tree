@@ -24,12 +24,17 @@ from .coordinator import (
     ResearchRunCoordinator,
     StaleStateError,
 )
-from .decision_frame import DECISION_FRAME_KIND, DecisionFrame, IntentHypothesis
+from .decision_frame import (
+    DECISION_FRAME_KIND,
+    DecisionFrame,
+    DecisionFrameValidationError,
+    IntentHypothesis,
+)
 from .decision_map import BLUEPRINT_TARGET_KIND, BlueprintTargetError, CanonicalBlueprintTargetCompiler
 from .delivery import compile_operating_model, render_operating_model
 from .domain import ArtifactRef, ArtifactRevision, RuntimeStoreError
-from .intake import CanonicalInputIntakeService
-from .intent import WORKING_BRIEF_KIND, CanonicalIntentModelCompiler, CanonicalWorkingBriefCompiler
+from .intake import CanonicalInputIntakeService, InvalidInputError
+from .intent import WORKING_BRIEF_KIND, CanonicalIntentModelCompiler, CanonicalWorkingBriefCompiler, IntentError
 from .origins import close_tag, open_tag
 from .project_workspace import (
     ProjectWorkspaceError,
@@ -829,8 +834,33 @@ def _latest_kind(artifacts: Sequence[ArtifactRevision], kind: str) -> ArtifactRe
     return max(candidates, key=lambda item: item.revision) if candidates else None
 
 
+_BRIEF_DOCUMENT_KEYS = (
+    "intent_id",
+    "brief_id",
+    "analysis",
+    "selected_input_ids",
+    "input_roles",
+    "working_interpretation",
+    "technical_outcome",
+)
+
+
 def _compile_working_brief(ledger: RunLedger, run_id: str, document: Mapping[str, Any]) -> ArtifactRevision:
     """Compile the intent model and Working Brief from one operator document (#470)."""
+
+    missing = [key for key in _BRIEF_DOCUMENT_KEYS if key not in document]
+    if missing:
+        raise CliInputError("brief_document_incomplete", diagnostic="missing keys: " + ", ".join(missing))
+    try:
+        return _compile_working_brief_checked(ledger, run_id, document)
+    except (InvalidInputError, IntentError, KeyError, TypeError) as error:
+        # Deterministic operator-document errors are invalid_input, never the
+        # retryable store_unavailable their RuntimeStoreError base implies.
+        raise CliInputError("operator_document_invalid", diagnostic=str(error)) from error
+
+
+def _compile_working_brief_checked(ledger: RunLedger, run_id: str, document: Mapping[str, Any]) -> ArtifactRevision:
+    """Drive the canonical intake, intent-model, and Working Brief compilers."""
 
     inputs = tuple(document.get("inputs", ()))
     intake = CanonicalInputIntakeService(ledger)
@@ -883,6 +913,11 @@ def _persist_frame(
     """
 
     document = dict(_read_json_object(frame_path))
+    # The frame document must name the run it is bound to; persisting into a
+    # foreign run would either collide on revision or write into run B's
+    # ledger while reporting success for run A (review round 2).
+    if str(document.get("run_id", "")) != run_id:
+        raise CliInputError("decision_frame_cross_run")
     frame_id = str(document.get("frame_id", ""))
     stored_frames = [
         item for item in ledger.load_run(run_id).artifacts if item.kind == DECISION_FRAME_KIND and item.id == frame_id
@@ -890,12 +925,15 @@ def _persist_frame(
     if stored_frames:
         stored = max(stored_frames, key=lambda item: item.revision)
         return ArtifactRef(run_id, stored.id, stored.revision).to_dict()
-    document["hypotheses"] = [IntentHypothesis.from_dict(item) for item in document.get("hypotheses", ())]
+    try:
+        document["hypotheses"] = [IntentHypothesis.from_dict(item) for item in document.get("hypotheses", ())]
+    except (DecisionFrameValidationError, KeyError, TypeError, ValueError) as error:
+        raise CliInputError("decision_frame_invalid", diagnostic=str(error)) from error
     document["target_ref"] = ArtifactRef(run_id, target.id, target.revision)
     try:
         frame = DecisionFrame.create(**document)
-    except (TypeError, ValueError) as error:
-        raise CliInputError(f"decision_frame_invalid: {error}") from error
+    except (DecisionFrameValidationError, KeyError, TypeError, ValueError) as error:
+        raise CliInputError("decision_frame_invalid", diagnostic=str(error)) from error
     stored = coordinator.persist_decision_frame(frame, expected_revision=ledger.get_revision(run_id))
     return ArtifactRef(run_id, stored.id, stored.revision).to_dict()
 
@@ -906,6 +944,12 @@ def _initialize(arguments: argparse.Namespace) -> dict[str, Any]:
     workspace = arguments.workspace.expanduser().resolve()
     ledger = RunLedger(workspace)
     run_id = arguments.run_id
+    # Fail fast before any write: a frame document authored for another run
+    # must leave this run's ledger byte-identical (review round 2).
+    if arguments.frame is not None:
+        frame_document = dict(_read_json_object(arguments.frame))
+        if str(frame_document.get("run_id", "")) != run_id:
+            raise CliInputError("decision_frame_cross_run")
     snapshot = ledger.load_run(run_id)
     handoff = _latest_kind(snapshot.artifacts, ALIGNMENT_HANDOFF_KIND)
     if handoff is None:
@@ -935,6 +979,9 @@ def _initialize(arguments: argparse.Namespace) -> dict[str, Any]:
         if arguments.blueprint is None:
             raise CoordinatorConflictError("blueprint_target_missing")
         document = _read_json_object(arguments.blueprint)
+        missing = [key for key in ("target_id", "slots", "change") if key not in document]
+        if missing:
+            raise CliInputError("blueprint_document_incomplete", diagnostic="missing keys: " + ", ".join(missing))
         try:
             target = CanonicalBlueprintTargetCompiler(ledger).compile(
                 round_id=run_id,
@@ -945,7 +992,7 @@ def _initialize(arguments: argparse.Namespace) -> dict[str, Any]:
                 expected_revision=ledger.get_revision(run_id),
                 alignment_handoff=handoff,
             )
-        except BlueprintTargetError as error:
+        except (BlueprintTargetError, KeyError, TypeError) as error:
             # An invariant-sentence input failure is invalid_input, never store_unavailable.
             raise CliInputError("blueprint_target_invalid", diagnostic=str(error)) from error
     else:

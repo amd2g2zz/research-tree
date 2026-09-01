@@ -78,7 +78,7 @@ verdict.
 
 ## Step 3 — initialize: the bind bridge (v2 F1 closure)
 
-Re-run guidance: on a late-stage failure, re-run with the same idempotency key to resume.
+Re-run guidance: on a late-stage failure, re-run with the same idempotency key to resume. Re-running with a DIFFERENT key on an already-initialized run is rejected by contract (`run_already_initialized`); the same-key resume is the convergence path.
 
 One verb now performs what v2 found unreachable: handoff resolution,
 blueprint-target compilation **with the compiled handoff bound as a parent**,
