@@ -440,6 +440,34 @@ def validate_strategy_projection_invalidation(payload: Any) -> dict[str, Any]:
     return {"superseded_projection_ref": superseded}
 
 
+def has_confirmation_history(artifacts: Sequence[ArtifactRevision], projection_id: str) -> bool:
+    """Return whether any ``handoff_confirmed`` event ever named this projection id.
+
+    Issue #471 (review A/B HIGH-1): post-confirm supersede semantics must key
+    on the projection's own confirmation history, not on the
+    ``latest_confirmed`` snapshot — the snapshot is permanently ``None`` once a
+    later revision supersedes a confirmation, which let a second post-confirm
+    ``revise_strategy`` fall back to the legacy displayed branch. Once a
+    projection id has been confirmed, EVERY subsequent revision — including
+    revisions after a later re-confirmation — is post-confirm and must be
+    written as a draft behind an invalidation marker; a re-confirmed revision
+    reached that state only by passing the full display gate itself.
+    """
+
+    for artifact in artifacts:
+        if artifact.kind != _LIFECYCLE_EVENT_KIND or artifact.payload.get("event") != _HANDOFF_CONFIRMED_EVENT:
+            continue
+        payload = artifact.payload.get("payload")
+        reference_value = payload.get("projection_ref") if isinstance(payload, Mapping) else None
+        try:
+            reference = ArtifactRef.from_dict(reference_value)
+        except (TypeError, ValueError, DataIntegrityError):
+            continue
+        if reference.artifact_id == projection_id:
+            return True
+    return False
+
+
 AUTHORITY_FIELD_LABELS = (
     "outcome",
     "scope",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import secrets
 import sqlite3
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -170,6 +171,12 @@ class RunLedger:
                 );
                 CREATE INDEX IF NOT EXISTS completion_inputs_by_run_role
                   ON completion_input_registrations(run_id, input_role, registered_run_revision DESC);
+                CREATE TABLE IF NOT EXISTS run_principal_salts (
+                    run_id TEXT PRIMARY KEY,
+                    principal_salt TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (run_id) REFERENCES runs(run_id)
+                );
                 """
             )
             connection.execute(
@@ -549,6 +556,7 @@ class RunLedger:
                     "INSERT INTO runs(run_id, record_json, created_at, parent_run_id, revision) VALUES(?, ?, ?, ?, 0)",
                     (run_id, _json(record.to_dict()), record.created_at, parent_run_id),
                 )
+                self._seed_principal_salt(connection, run_id)
                 self._insert_event(connection, event)
                 self._before_commit()
             except sqlite3.IntegrityError as error:
@@ -952,6 +960,57 @@ class RunLedger:
                 continue
             principals[reference] = str(issuer)
         return principals
+
+    def _seed_principal_salt(self, connection: sqlite3.Connection, run_id: str) -> None:
+        """Generate and store the run's secret principal salt (#471, idempotent)."""
+
+        connection.execute(
+            "INSERT OR IGNORE INTO run_principal_salts(run_id, principal_salt, created_at) VALUES(?, ?, datetime('now'))",
+            (run_id, secrets.token_hex(32)),
+        )
+
+    def _run_principal_salt(self, run_id: str) -> str:
+        """Return the run's secret principal salt, lazily seeding pre-existing runs.
+
+        Private by convention: the salt is handed out only through
+        :meth:`verification_principal`, the registrar/gate channel.
+        """
+
+        self.initialize()
+        run_id = validate_identifier(run_id, "run_id")
+        with self._connect() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                row = connection.execute(
+                    "SELECT principal_salt FROM run_principal_salts WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
+                if row is not None:
+                    return str(row[0])
+                # Pre-#471 runs: seed on first review so old ledgers keep working.
+                if not self._run_exists(connection, run_id):
+                    raise LedgerIntegrityError(f"run does not exist: {run_id}")
+                self._seed_principal_salt(connection, run_id)
+                self._before_commit()
+                row = connection.execute(
+                    "SELECT principal_salt FROM run_principal_salts WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
+                return str(row[0])
+            except sqlite3.IntegrityError as error:
+                raise LedgerIntegrityError("principal salt seeding violated a ledger constraint") from error
+
+    def verification_principal(self, run_id: str, verifier_identity: str, session_context: str) -> str:
+        """Compute a review's bound ledger principal for this run (#471).
+
+        The only sanctioned channel for the run's secret salt: the registrar
+        derives the durable issuer at write time and the gates recompute the
+        expected binding at read time. Callers never see the salt itself.
+        """
+
+        from .independent_review import verification_principal as _bind
+
+        return _bind(self._run_principal_salt(run_id), verifier_identity, session_context)
 
     def list_completion_inputs(self, run_id: str) -> tuple[ArtifactRevision, ...]:
         """Return the newest registered, current completion input for each role."""

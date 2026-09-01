@@ -13,36 +13,57 @@ marker. Write-time binding and explicit supersede semantics close both holes.
 
 - Structural independence (#462 contract hardening, backward compatible for
   honest flows):
-  - New `verification_principal(verifier_identity, session_context)` — a
-    one-way SHA-256 binding of the declared identity pair, namespaced by the
-    #462 review issuer. The registrar (`CompletionInputRegistrar.
-    write_alignment_verification` / `write_delivery_review`) records the bound
-    principal as the registration's durable `issuer` and in
-    `issuer_evidence.principal` at write time.
+  - New `verification_principal(salt, verifier_identity, session_context)` —
+    an HMAC-SHA256 binding of the declared identity pair keyed with a per-run
+    secret salt the ledger generates at run creation
+    (`run_principal_salts` table; lazily seeded for pre-existing runs) and
+    hands out only through the registrar/gate channel
+    (`RunLedger.verification_principal`). The registrar
+    (`CompletionInputRegistrar.write_alignment_verification` /
+    `write_delivery_review`) records the bound principal as the
+    registration's durable `issuer` and in `issuer_evidence.principal` at
+    write time.
   - New ledger read surface
     `RunLedger.completion_input_registration_principals(run_id)` exposes the
     durable issuer per current registration.
-  - `verify_identity_independent` gains an optional `issuer` parameter: a
-    verification whose declared identity names the coordinator principal is
-    self-issuance and never independent, and a gate that supplies the
-    registration's durable principal requires it to equal the write-time
-    binding of the declared pair. Unbound, legacy-constant, and coordinator
-    principals fail closed. Two-argument #462 call sites keep their honest
-    behavior.
+  - Production predicate `verify_independent_review_principal(verifier,
+    session, *, issuer, principal)` requires both principals as mandatory
+    keywords — a gate lookup miss fails closed; a review whose declared
+    identity names the coordinator principal is self-issuance; the durable
+    `issuer` must equal the recomputed run-salted binding. The two-argument
+    `verify_identity_independent` remains as the #462 compatibility predicate
+    and is not used by production call sites (enforced by a source-scan test).
+  - Threat model (restated): tamper-evidence + channel separation +
+    coordinator-principal exclusion, NOT proof of execution. Out-of-process /
+    cross-session adversaries cannot mint from public material; the residual
+    (same-process adversary reads the salt) is the tracked gate-3 boundary;
+    the follow-up path is ledger-side attribution to a real subagent
+    execution record.
   - The coordinator's display and delivery gates pass the durable principal,
     so a review written straight to the ledger under the legacy constant or
     the coordinator principal — the exact v2 rename attacks — now fails
     closed.
 - Post-confirm write invalidation (`revise_strategy` supersede semantics):
-  - When a confirmed projection exists, `revise_strategy` no longer writes
-    `displayed`: it appends a `strategy-projection-invalidation` marker
-    artifact (new schema-1 kind with validator) that names the superseded
-    projection reference, display digest, and authority fingerprint, then
-    writes the revision as an unconfirmed `draft` parented to the marker.
+  - Branch selection keys on the projection id's confirmation history (a
+    `handoff_confirmed` event has ever named it), not the `latest_confirmed`
+    snapshot — the snapshot is permanently None after the first supersede,
+    which let a second post-confirm revision fall back to the legacy displayed
+    branch (review A/B HIGH-1).
+  - When history exists, `revise_strategy` appends the revision as an
+    unconfirmed `draft` FIRST (fail-closed: the prior authority stays the
+    latest valid display and the draft cannot display without the gate), then
+    appends a `strategy-projection-invalidation` marker artifact (new schema-1
+    kind with validator) naming the superseded revision's reference, display
+    digest, and authority fingerprint. The marker is invalidation evidence in
+    the run record; it has no dedicated diagnostics reader in this change.
   - The confirmation is void: `latest_confirmed` returns None after a
     post-confirm revision, so every completion gate fails closed until the
-    new revision is re-displayed through the full #462 display gate
-    (fingerprint-bound independent verification) and re-confirmed.
+    superseding revision is re-displayed through the full #462 display gate
+    (fingerprint-bound independent verification) and re-confirmed. The new
+    lifecycle-matrix edge `("autonomous_research", "alignment_feedback") →
+    ("alignment", "human")` lets the human return a post-supersede run to
+    alignment so a legitimate fix-up can reach re-confirmation instead of
+    permanently blocking `delivery_accepted`.
   - The `handoff_confirmed` transition guard now runs the content checks
     (digest, confirmation, authority fingerprint drift) before the displayed
     status check, so a tampered or replayed confirmation naming a superseded

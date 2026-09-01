@@ -389,7 +389,6 @@ class CompletionInputRegistrar:
             ALIGNMENT_VERIFICATION_ROLE,
             IndependentReviewError,
             validate_alignment_verification_payload,
-            verification_principal,
         )
 
         round_id = validate_identifier(round_id, "round_id")
@@ -403,9 +402,13 @@ class CompletionInputRegistrar:
         if validated["round_id"] != round_id:
             raise CompletionInputError("alignment verification payload round_id does not match round_id")
         # Issue #471: the durable ledger principal is bound at write time to the
-        # declared identity pair, so the gate judges independence against the
-        # registration's issuer rather than re-declared payload strings.
-        principal = verification_principal(validated["verifier_identity"], validated["session_context"])
+        # declared identity pair through the ledger's secret run salt, so the
+        # gate judges independence against the registration's issuer rather
+        # than re-declared payload strings, and an out-of-process adversary
+        # cannot mint the principal from public material.
+        principal = self.ledger.verification_principal(
+            round_id, validated["verifier_identity"], validated["session_context"]
+        )
         return self._write(
             round_id=round_id,
             artifact_id=verification_id,
@@ -445,7 +448,6 @@ class CompletionInputRegistrar:
             DELIVERY_REVIEW_ROLE,
             IndependentReviewError,
             validate_delivery_review_payload,
-            verification_principal,
         )
 
         round_id = validate_identifier(round_id, "round_id")
@@ -459,8 +461,11 @@ class CompletionInputRegistrar:
         if validated["round_id"] != round_id:
             raise CompletionInputError("delivery review payload round_id does not match round_id")
         # Issue #471: bind the durable ledger principal to the declared identity
-        # pair at write time, mirroring the alignment verification write path.
-        principal = verification_principal(validated["verifier_identity"], validated["session_context"])
+        # pair at write time through the ledger's secret run salt, mirroring the
+        # alignment verification write path.
+        principal = self.ledger.verification_principal(
+            round_id, validated["verifier_identity"], validated["session_context"]
+        )
         parents = _refs(validated["evidence_custody"])
         return self._write(
             round_id=round_id,
