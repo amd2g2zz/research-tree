@@ -57,12 +57,20 @@ what keeps the v2 comparison honest:
 Because the pure "70% vs a counted 8/20 output volume" comparison is not
 mechanically groundable, the v2 noise judgment (`oracle-noise-reduction`,
 standards `es-noise-measurement` + `es-budget-receipt`) uses three declared
-components:
+components. The committed oracle set carries this protocol: the
+`oracle-noise-reduction` statement and the `es-noise-measurement` token
+basis were amended in the same change as this record (the pre-amendment
+statement hardcoded a pure output-count comparison that no baseline count
+can ever satisfy).
 
 1. **Token-volume proxy**: each v2 Track A role run archives its input token
    count at declared task coverage; the target is at least 70% below the
-   #292-quoted per-role numbers. Directional: accounting bases differ across
-   hosts and model versions, so the receipt must state its accounting basis.
+   #292-quoted per-role numbers. Anchors exist for two roles only
+   (research-architect, governance-auditor); the platform-integrator role has
+   no #292-quoted number, so its first v2 count becomes its own reference
+   until a baseline number is registered. Directional: accounting bases
+   differ across hosts and model versions, so the receipt must state its
+   accounting basis.
 2. **Absolute duplicate-read budget**: v2 budget receipts report the
    duplicate-read ratio with fresh/cached/replayed split; the run must meet
    the threshold it declares at admission (no baseline needed).
@@ -71,7 +79,12 @@ components:
    and in-run verifiable.
 
 Components 2 and 3 are the hard gate; component 1 is the baseline-anchored
-directional check. The Track A "no regression" judgment
-(`oracle-alignment-regression`, `oracle-evidence-honesty`) compares v2 role
-narratives against the qualitative baseline above plus the archived role
-scores, with scores kept separate per the rule.
+directional check, and the admission-declared duplicate-read budget in
+component 2 is binding because it is part of the strategy projection the
+human requester confirms, not a coordinator self-declaration. The Track A
+"no regression" judgments compare different objects per oracle:
+`oracle-alignment-regression` compares v2 role narratives against the 8/20
+baseline role reports — artifacts archived with the #292 evaluation record,
+not in this repository — while `oracle-evidence-honesty` is an absolute
+in-run constraint on v2 projections with no baseline comparison. Role scores
+stay separate per the rule.

@@ -142,3 +142,5 @@ def test_noise_oracle_binds_the_baseline_comparison_criterion():
     noise = next(oracle for oracle in SUCCESS_ORACLES if oracle["id"] == "oracle-noise-reduction")
     assert "70%" in noise["statement"]
     assert BASELINE_RUN_NAME in noise["statement"]
+    assert "duplicate-read" in noise["statement"], "hard-gate component must stay named"
+    assert "hard gate" in noise["statement"]

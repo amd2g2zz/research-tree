@@ -54,10 +54,13 @@ pack boundary disclosures, and canonical failure-reason records.
 
 All fourteen follow-up items from #292 (1 role-score rule + 12 tracked
 metrics + 1 noise criterion) map to at least one oracle
-(`METRIC_COVERAGE` in the module). The noise criterion is the strictest:
-user-visible repeated output must fall at least 70% below the 8/20 baseline at
-equal task coverage, and already-confirmed material must not be reread within
-a bounded run unless its source digest or decision scope changed.
+(`METRIC_COVERAGE` in the module). The noise criterion is the strictest and
+is judged by the three-component protocol declared in
+`senior-user-ux-v2-baseline.md`: a token-volume proxy against the 8/20
+baseline numbers where anchored (directional), plus the admission-declared
+duplicate-read budget and the zero-reread clause as the hard gate, because
+the 8/20 run never produced a numeric repeated-output count for a pure
+comparison.
 
 ## How the v2 run consumes this module
 
