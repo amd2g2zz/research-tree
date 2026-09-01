@@ -7,11 +7,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "evaluation" / "harness"))
 
+import pytest
 from v2_contradiction_contamination import run_supplements  # noqa: E402
 
 
-def test_supplements_both_stages_pass(tmp_path: Path) -> None:
-    receipt = run_supplements(tmp_path / "supplements")
+@pytest.fixture(scope="module")
+def receipt(tmp_path_factory):
+    return run_supplements(tmp_path_factory.mktemp("supplements"))
+
+
+def test_supplements_both_stages_pass(receipt):
     assert receipt["status"] == "passed"
     assert {stage["stage"] for stage in receipt["stages"]} == {
         "contradiction-detection",
@@ -19,8 +24,7 @@ def test_supplements_both_stages_pass(tmp_path: Path) -> None:
     }
 
 
-def test_contradiction_stage_separates_authority_from_conflict(tmp_path: Path) -> None:
-    receipt = run_supplements(tmp_path / "supplements")
+def test_contradiction_stage_separates_authority_from_conflict(receipt):
     stage = next(s for s in receipt["stages"] if s["stage"] == "contradiction-detection")
     checks = stage["checks"]
     assert checks["contested_pair_detected"]
@@ -30,8 +34,7 @@ def test_contradiction_stage_separates_authority_from_conflict(tmp_path: Path) -
     assert checks["packets_survive_ledger_round_trip"]
 
 
-def test_contamination_stage_enforces_sealing_and_budget(tmp_path: Path) -> None:
-    receipt = run_supplements(tmp_path / "supplements")
+def test_contamination_stage_enforces_sealing_and_budget(receipt):
     stage = next(s for s in receipt["stages"] if s["stage"] == "contamination-gate")
     checks = stage["checks"]
     assert checks["unsealed_active_output_rejected"]["ok"]

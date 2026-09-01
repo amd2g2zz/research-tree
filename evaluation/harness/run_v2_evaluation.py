@@ -15,7 +15,10 @@ Honesty boundaries (also emitted in the receipt):
   is inherited from the matrix receipt provenance);
 - the blueprint target/slots reuse the minimal fixture shape; full
   decision-map decomposition is a run-orchestration obligation, disclosed in
-  the slot_decomposition waiver reason.
+  the slot_decomposition waiver reason;
+- finding packs are hand-built by this harness (token self-carry, raw
+  ``_append``) rather than ``CanonicalFindingPackCompiler`` output — the
+  underlying events they cite are real runtime results.
 """
 
 from __future__ import annotations
@@ -308,7 +311,7 @@ def _finding_packs(ledger: RunLedger, run_id: str, cells, receipt: dict[str, Any
     return packs
 
 
-def _register_goal_satisfactions(ledger: RunLedger, packs: dict[str, Any]) -> dict[str, str]:
+def _register_goal_satisfactions(ledger: RunLedger, packs: dict[str, Any], matrix_status: str) -> dict[str, str]:
     registrar = CompletionInputRegistrar(ledger)
     run_id = RUN_ID
     pack_key = {
@@ -324,12 +327,16 @@ def _register_goal_satisfactions(ledger: RunLedger, packs: dict[str, Any]) -> di
     verdicts: dict[str, str] = {}
     for oracle in build_success_oracles():
         oracle_id = oracle["id"]
-        if oracle_id in RUNTIME_ORACLES:
+        matrix_backed = oracle_id in {"oracle-live-host-matrix", "oracle-recovery-semantics"}
+        if oracle_id in RUNTIME_ORACLES and not (matrix_backed and matrix_status != "passed"):
             verdict = "satisfied"
+            reason = None
+        elif oracle_id in RUNTIME_ORACLES:
+            verdict = "unmet"
             reason = None
         else:
             verdict = "waived"
-            reason = WAIVED_REASONS[oracle_id]
+            reason = WAIVED_REASONS.get(oracle_id, "waiver reason missing — run-orchestration obligation")
         registrar.write_goal_satisfaction(
             round_id=run_id,
             registration_id=f"goal-sat-{oracle_id}",
@@ -479,7 +486,7 @@ def run_governed_evaluation(
     matrix_receipt = build_receipt(list(cells))
     packs = _finding_packs(ledger, RUN_ID, cells, matrix_receipt, projection)
     _register_completion_inputs(ledger, RUN_ID, target)
-    verdicts = _register_goal_satisfactions(ledger, packs)
+    verdicts = _register_goal_satisfactions(ledger, packs, matrix_receipt["status"])
     review = _write_delivery_review(ledger, packs)
     completion = _advance(ledger, coordinator)
     return {
@@ -504,6 +511,10 @@ def run_governed_evaluation(
         "disclosures": {
             "host_process_invoked": False,
             "goal_satisfaction_evidence_kinds": sorted(GOAL_SATISFACTION_EVIDENCE_KINDS),
+            "goal_satisfaction_basis": (
+                "registrar attestation keyed on RUNTIME_ORACLES membership; evidence packs carry standard "
+                "tokens by construction; matrix-backed oracles downgrade to unmet when the matrix receipt fails"
+            ),
             "waived_oracles": dict(WAIVED_REASONS),
             "slot_shape": "fixture-minimal; full decision-map decomposition is a run-orchestration obligation",
             "declared_budget": None,

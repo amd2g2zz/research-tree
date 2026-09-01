@@ -31,19 +31,25 @@ read per dimension, not as a single trend.
   confirmation fails `confirmation_digest_mismatch`; post-confirmation
   authority broadening is impossible through the governed path (auditor
   probes `gov-audit-001/002`).
-- **Fail-closed semantics**: 12/12 should-fail operations failed closed with
-  canonical reasons (`run already exists`, `alignment graph changed after
-  the displayed handoff draft`, strict verification schema,
-  `illegal_transition`, ...).
-- **Completion consistency**: `status`, `verify`, and `why-not-complete`
-  agree exactly (12 = 3 static + 9 canonical obligations); the 8/20
-  33-vs-30 contradiction class did not recur anywhere in v2.
+- **Fail-closed semantics**: the auditor reports 12/12 should-fail
+  operations failing closed with canonical reasons (`run already exists`,
+  `alignment graph changed after the displayed handoff draft`, strict
+  verification schema, `illegal_transition`, ...; enumeration in the
+  auditor role report).
+- **Completion consistency**: the 9 canonical obligations agree exactly
+  across `status`, `verify`, and `why-not-complete`; `status`/`verify`
+  additionally show 3 static readiness items the canonical obligations do
+  not (that visible-vs-canonical gap is recorded as gate 2's residual). The
+  8/20 33-vs-30 contradiction class did not recur anywhere in v2.
 - **Noise**: materially quieter than the 8/20 narrative (SQLite + per-event
   JSON instead of growing JSONL reread; architect ~3 duplicate reads and 0
   confirmed-material rereads; auditor 3 self-recorded duplicates, 0
   product-caused rereads). An exact percentage vs 8/20 is not computable —
   the 8/20 run never produced a numeric repeated-output count (baseline
-  record protocol component 1 stays directional; components 2 and 3 pass).
+  record protocol component 1 stays directional; components 2 and 3 pass —
+  component 2 structurally, since the v2 run declared no admission budget
+  (`declared_budget: null`) so the mechanism enforces whatever is declared;
+  component 3, zero confirmed-material reread, passes outright).
 - **Goal loop under load (Track B)**: the 13 real oracles survived a full
   governed run — 18/18 injection cells passed, per-oracle goal_satisfaction
   registered honestly (5 satisfied / 8 waived with reasons), independent
@@ -65,8 +71,10 @@ read per dimension, not as a single trend.
    unreachable from the operator journey; the alignment flow requires five
    internal Python APIs (Track B exercises them in-process — the mechanism
    works; the operator facade does not exist).
-2. **Packaged `record` crash (architect F2, independently confirmed by the
-   auditor)**: `python -m research_tree.alignment_graph record` fails with
+2. **Packaged `record` crash (architect F2; the auditor independently hit
+   the sibling form)**: the architect's direct-script invocation of
+   `packages/codex/research-tree/scripts/alignment_controller.py` and the
+   auditor's `python -m research_tree.alignment_graph record` both fail with
    `ImportError: attempted relative import with no known parent package`
    (`speech_acts` is not packaged).
 3. **Independence is label-deep (auditor)**: the display gate rejects

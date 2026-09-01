@@ -412,8 +412,8 @@ def run_alignment_chain_supplement(workspace: Path) -> dict[str, Any]:
             _intake_inputs(ledger)
             return (
                 None,
-                "canonical inputs ingested: 3 notes, 1 human answer, and 1 real repository baseline scoped to "
-                f"{HANDOFF_MODULE} + {CLI_MODULE}",
+                "canonical inputs ingested: 1 brief, 2 notes, 1 real repository baseline scoped to "
+                f"{HANDOFF_MODULE} + {CLI_MODULE}; the human answer is ingested later in resolution",
             )
 
         chain.run("intake", do_intake)
@@ -600,7 +600,10 @@ def run_alignment_chain_supplement(workspace: Path) -> dict[str, Any]:
                 payload,
                 (*target_rev1.parent_refs, handoff_ref),
             )
-            return bound, f"target bound to the compiled handoff lineage at revision {bound.revision}"
+            return bound, (
+                "harness-side lineage bind (no public bind API exists): target re-appended with the compiled "
+                f"handoff as parent at revision {bound.revision}"
+            )
 
         target = chain.run("coordinator_initialization_bind", do_bind)
 
@@ -614,7 +617,9 @@ def run_alignment_chain_supplement(workspace: Path) -> dict[str, Any]:
                 expected_revision=ledger.get_revision(RUN_ID),
                 idempotency_key="init-alignment-chain",
             )
-            return state, f"coordinator run-state {state.id}@{state.revision} reached state 'alignment'"
+            return state, (
+                f"coordinator run-state {state.id}@{state.revision} reached state {state.payload.get('state')!r}"
+            )
 
         chain.run("coordinator_initialization", do_initialize)
 
