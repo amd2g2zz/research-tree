@@ -487,10 +487,10 @@ def _scenario_resume(host: str, workspace: Path) -> CellResult:
         host_process_invoked=False,
         expected_reason="lifecycle_request_missing",
         observed_reason=str(blocked_envelope.get("code")) if blocked_ok else json.dumps(blocked_envelope)[:200],
-        false_completion=False,
+        false_completion=_false_completion(ledger, run_id),
         state_mutated=mutated,
         detail=detail,
-        events=(),
+        events=_canonical_events(ledger, run_id),
         identities=(run_id, missing_run),
         evidence={
             "resume_ref": str(resumed.id) if resumed else "",

@@ -71,6 +71,7 @@ _LAUNCHER_EVENT_NAMES: Mapping[str, str] = {
 }
 
 _CASE_ID = "host-matrix-v1"
+_CASE_ID_SUBSET = f"{_CASE_ID}-subset"
 
 
 @dataclass(frozen=True)
@@ -367,9 +368,25 @@ def run_scenario(scenario: str, host: str, workspace: Path) -> CellResult:
 
 
 def build_receipt(cells: list[CellResult]) -> dict[str, Any]:
-    """Project cell results onto the harness receipt contract (host-conformance shape)."""
+    """Project cell results onto the harness receipt contract (host-conformance shape).
+
+    The receipt asserts only what this harness observed: no replay evidence is
+    produced here, so no ``replay`` key is emitted (omitting the optional field
+    is the honest form under ``host-conformance-result-v1``).  ``coverage`` and
+    the conditioned ``case_id`` keep a subset run distinguishable from a full
+    6x3 matrix execution.
+    """
 
     cells = sorted(cells, key=lambda item: (SCENARIOS.index(item.scenario), HOSTS.index(item.host)))
+    executed_scenarios = sorted({cell.scenario for cell in cells}, key=SCENARIOS.index)
+    executed_hosts = sorted({cell.host for cell in cells}, key=HOSTS.index)
+    expected_cells = len(SCENARIOS) * len(HOSTS)
+    is_complete = (
+        bool(cells)
+        and {cell.scenario for cell in cells} == set(SCENARIOS)
+        and {cell.host for cell in cells} == set(HOSTS)
+        and len(cells) == expected_cells
+    )
     receipt_cells = [
         {
             "name": f"{cell.scenario}:{cell.host}",
@@ -394,15 +411,21 @@ def build_receipt(cells: list[CellResult]) -> dict[str, Any]:
     ]
     return {
         "schema_version": 1,
-        "case_id": _CASE_ID,
-        "mode": cells[0].host if len({cell.host for cell in cells}) == 1 else "host-matrix",
+        "case_id": _CASE_ID if is_complete else _CASE_ID_SUBSET,
+        "mode": cells[0].host if len(executed_hosts) == 1 else "host-matrix",
         "status": "passed" if cells and all(cell.status == "passed" for cell in cells) else "failed",
         "cells": receipt_cells,
-        "replay": {"status": "passed", "divergences": []},
+        "coverage": {
+            "scenarios": len(executed_scenarios),
+            "hosts": len(executed_hosts),
+            "cells": len(cells),
+            "expected_cells": expected_cells,
+            "complete": is_complete,
+        },
         "blocker": None if cells else "no cells executed",
         "matrix": {
-            "scenarios": sorted({cell.scenario for cell in cells}, key=SCENARIOS.index),
-            "hosts": sorted({cell.host for cell in cells}, key=HOSTS.index),
+            "scenarios": executed_scenarios,
+            "hosts": executed_hosts,
             "host_process_invoked": False,
             "live_vs_simulated": (
                 "all cells execute live runtime failure paths (real ledgers, files, launcher subprocess, CLI); "

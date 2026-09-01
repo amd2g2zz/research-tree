@@ -21,6 +21,7 @@ from host_matrix import (  # noqa: E402
     ATTEMPT_HOSTS,
     HOSTS,
     SCENARIOS,
+    CellResult,
     build_receipt,
     run_matrix,
     run_scenario,
@@ -110,10 +111,19 @@ def test_receipt_mirrors_harness_result_contract(tmp_path: Path) -> None:
     cells = [run_scenario(scenario, "codex", tmp_path) for scenario in ("interruption", "resume")]
     receipt = build_receipt(cells)
     assert receipt["schema_version"] == 1
-    assert receipt["case_id"] == "host-matrix-v1"
+    # Two of six scenarios x one of three hosts: a filtered (subset) matrix receipt.
+    assert receipt["case_id"] == "host-matrix-v1-subset"
     assert receipt["status"] == "passed"
     assert receipt["blocker"] is None
-    assert receipt["replay"] == {"status": "passed", "divergences": []}
+    # No replay evidence exists in this harness, so the receipt asserts none.
+    assert "replay" not in receipt
+    assert receipt["coverage"] == {
+        "scenarios": 2,
+        "hosts": 1,
+        "cells": 2,
+        "expected_cells": len(SCENARIOS) * len(HOSTS),
+        "complete": False,
+    }
     assert [cell["name"] for cell in receipt["cells"]] == ["interruption:codex", "resume:codex"]
     for cell in receipt["cells"]:
         assert set(("name", "status", "detail", "identities", "events")) <= set(cell)
@@ -122,6 +132,47 @@ def test_receipt_mirrors_harness_result_contract(tmp_path: Path) -> None:
         assert matrix["injection_transport"]
         assert matrix["host_process_invoked"] is False
         assert matrix["false_completion"] is False
+
+
+def test_receipt_case_id_and_coverage_distinguish_subset_from_full_matrix(tmp_path: Path) -> None:
+    cell = run_scenario("interruption", "claude", tmp_path)
+    subset = build_receipt([cell])
+    assert subset["case_id"] == "host-matrix-v1-subset"
+    assert subset["coverage"] == {
+        "scenarios": 1,
+        "hosts": 1,
+        "cells": 1,
+        "expected_cells": len(SCENARIOS) * len(HOSTS),
+        "complete": False,
+    }
+
+    # Projection-contract unit check of the complete branch: all 6x3 cells present.
+    full_cells = [
+        CellResult(
+            scenario=scenario,
+            host=host,
+            status="passed",
+            injection_transport="receipt-projection-unit",
+            cause="runtime-internal",
+            host_process_invoked=False,
+            expected_reason="synthetic",
+            observed_reason="synthetic",
+            false_completion=False,
+            state_mutated=False,
+            detail="synthetic full-coverage projection cell",
+            events=(),
+            identities=(),
+            evidence={},
+        )
+        for host in HOSTS
+        for scenario in SCENARIOS
+    ]
+    full = build_receipt(full_cells)
+    assert full["case_id"] == "host-matrix-v1"
+    assert full["coverage"]["complete"] is True
+    assert full["coverage"]["cells"] == len(SCENARIOS) * len(HOSTS)
+    assert full["coverage"]["scenarios"] == len(SCENARIOS)
+    assert full["coverage"]["hosts"] == len(HOSTS)
 
 
 def test_run_matrix_runs_cells_and_writes_receipt(tmp_path: Path) -> None:
@@ -159,3 +210,8 @@ def test_runner_executes_filtered_matrix_and_emits_receipt(tmp_path: Path) -> No
     receipt = json.loads(result_path.read_text(encoding="utf-8"))
     assert receipt["status"] == "passed"
     assert [cell["name"] for cell in receipt["cells"]] == ["interruption:claude"]
+    # A single filtered cell emits a subset receipt, not a full-matrix case id.
+    assert receipt["case_id"] == "host-matrix-v1-subset"
+    assert receipt["coverage"]["complete"] is False
+    assert receipt["coverage"]["cells"] == 1
+    assert "replay" not in receipt
