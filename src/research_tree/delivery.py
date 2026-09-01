@@ -1360,6 +1360,18 @@ def _human_document(
     }
 
 
+def compile_operating_model(round_id: str, artifacts: Sequence[ArtifactRevision], ledger: RunLedger) -> dict[str, Any]:
+    """Public operator facade over the canonical operating-model compiler (#470)."""
+
+    return _operating_model(round_id, artifacts, ledger)
+
+
+def render_operating_model(model: Mapping[str, Any]) -> str:
+    """Public operator facade over the operating-model markdown renderer (#470)."""
+
+    return "\n".join(_render_operating_model(model))
+
+
 def _operating_model(round_id: str, artifacts: Sequence[ArtifactRevision], ledger: RunLedger) -> dict[str, Any]:
     """Compile the Human Brief's operating model from real run artifacts.
 

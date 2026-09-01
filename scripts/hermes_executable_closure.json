@@ -12,7 +12,8 @@
     "scripts/native_workflow_contract.py",
     "scripts/origins.py",
     "scripts/project_workspace_contract.py",
-    "scripts/skill_activation.py"
+    "scripts/skill_activation.py",
+    "scripts/speech_acts.py"
   ],
   "entrypoints": [
     {
@@ -69,6 +70,10 @@
     },
     {
       "path": "scripts/skill_activation.py",
+      "arguments": []
+    },
+    {
+      "path": "scripts/speech_acts.py",
       "arguments": []
     }
   ]

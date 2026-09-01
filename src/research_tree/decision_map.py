@@ -60,8 +60,15 @@ class CanonicalBlueprintTargetCompiler:
         slots: Sequence[Mapping[str, Any]],
         change: Mapping[str, Any],
         expected_revision: int,
+        alignment_handoff: ArtifactRevision | None = None,
     ) -> ArtifactRevision:
-        """Append one lineage-bound target revision with an explicit precondition."""
+        """Append one lineage-bound target revision with an explicit precondition.
+
+        ``alignment_handoff`` optionally binds the target to the exact stored
+        alignment-handoff revision so ``coordinator.initialize`` can accept the
+        target without any out-of-band lineage write (issue #470). Omitted, the
+        compiled parent_refs are unchanged.
+        """
 
         try:
             snapshot = self._ledger.load_run(round_id)
@@ -97,6 +104,11 @@ class CanonicalBlueprintTargetCompiler:
                 )
             normalized_change = _normalize_change(change)
             _validate_change(previous_target, normalized_slots, normalized_change)
+            handoff_ref = (
+                None
+                if alignment_handoff is None
+                else _resolve_alignment_handoff(snapshot.artifacts, alignment_handoff, round_id)
+            )
         except (InvalidIdentifierError, TypeError, ValueError) as error:
             raise InvalidBlueprintTargetError(str(error)) from error
 
@@ -110,11 +122,14 @@ class CanonicalBlueprintTargetCompiler:
         }
         brief_ref = ArtifactRef(round_id, brief.id, brief.revision)
         model_ref = ArtifactRef(round_id, model.id, model.revision)
-        parent_refs = (
-            (brief_ref, model_ref)
+        lineage = (
+            [brief_ref, model_ref]
             if previous_target is None
-            else (ArtifactRef(round_id, previous_target.id, previous_target.revision), brief_ref, model_ref)
+            else [ArtifactRef(round_id, previous_target.id, previous_target.revision), brief_ref, model_ref]
         )
+        if handoff_ref is not None:
+            lineage.append(handoff_ref)
+        parent_refs = tuple(lineage)
         return self._ledger.append_artifact(
             round_id,
             target_id,
@@ -123,6 +138,31 @@ class CanonicalBlueprintTargetCompiler:
             parent_refs=parent_refs,
             expected_revision=expected_revision,
         )
+
+
+def _resolve_alignment_handoff(
+    artifacts: Sequence[ArtifactRevision], handoff: ArtifactRevision, round_id: str
+) -> ArtifactRef:
+    """Resolve the optional bind parent to the exact stored handoff revision."""
+
+    from .alignment_handoff import ALIGNMENT_HANDOFF_KIND
+
+    if not isinstance(handoff, ArtifactRevision):
+        raise InvalidBlueprintTargetError("alignment_handoff must be an ArtifactRevision")
+    for stored in artifacts:
+        if stored.id == handoff.id and stored.revision == handoff.revision:
+            if stored != handoff:
+                raise InvalidBlueprintTargetError("alignment_handoff does not match its stored revision")
+            if stored.kind != ALIGNMENT_HANDOFF_KIND:
+                raise InvalidBlueprintTargetError(
+                    f"alignment_handoff must be an {ALIGNMENT_HANDOFF_KIND} artifact, not {stored.kind!r}"
+                )
+            if stored.round_id != round_id:
+                raise InvalidBlueprintTargetError("alignment_handoff must belong to target round")
+            return ArtifactRef(round_id, stored.id, stored.revision)
+    raise InvalidBlueprintTargetError(
+        f"alignment_handoff must resolve to a stored {ALIGNMENT_HANDOFF_KIND} revision in the run ledger"
+    )
 
 
 def _resolve_exact_artifact(artifacts: Sequence[ArtifactRevision], artifact: ArtifactRevision) -> ArtifactRevision:
