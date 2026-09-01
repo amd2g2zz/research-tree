@@ -678,11 +678,13 @@ def run_governed_evaluation(
     context_state = _record_context_reads(context_ledger, cells)
     context_receipt = context_state["receipt"]
     context_exhausted = context_receipt["status"] == "budget_exceeded"
+    context_read_failed = bool(context_state.get("read_error"))
+    context_gate_compromised = context_exhausted or context_read_failed
     matrix_receipt = build_receipt(list(cells))
     packs = _finding_packs(ledger, RUN_ID, cells, matrix_receipt, projection, context_receipt, admission_record)
     _register_completion_inputs(ledger, RUN_ID, target)
     verdicts = _register_goal_satisfactions(
-        ledger, packs, matrix_receipt["status"], context_exhausted=context_exhausted
+        ledger, packs, matrix_receipt["status"], context_exhausted=context_gate_compromised
     )
     review = _write_delivery_review(ledger, packs)
     completion = _advance(ledger, coordinator)
@@ -693,7 +695,11 @@ def run_governed_evaluation(
         "mode": "governed-matrix",
         "status": (
             "passed"
-            if completion["decision"] == "completed" and matrix_receipt["status"] == "passed" and not context_exhausted
+            if (
+                completion["decision"] == "completed"
+                and matrix_receipt["status"] == "passed"
+                and not context_gate_compromised
+            )
             else "failed"
         ),
         "admission": {
@@ -746,7 +752,15 @@ def run_governed_evaluation(
                 "context-admission-record; receipts account reads in file bytes (host-unmediated)"
             ),
         },
-        "blocker": ({"reason": "context-budget-exhausted", "resumable": True} if context_exhausted else None),
+        "blocker": (
+            {"reason": "context-budget-exhausted", "resumable": True}
+            if context_exhausted
+            else (
+                {"reason": "context-read-failed", "detail": context_state.get("read_error")}
+                if context_read_failed
+                else None
+            )
+        ),
     }
 
 
