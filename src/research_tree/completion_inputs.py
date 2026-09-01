@@ -364,6 +364,106 @@ class CompletionInputRegistrar:
             expected_revision=expected_revision,
         )
 
+    def write_alignment_verification(
+        self,
+        *,
+        round_id: str,
+        verification_id: str,
+        payload: Mapping[str, Any],
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        """Register one independent alignment verification (issue #462).
+
+        The subagent-produced artifact binds its parent lineage to the exact
+        projection revision the verifier read, so a display gate can bind the
+        verification to the projection content through the authority
+        fingerprint carried in the payload.
+        """
+
+        from .independent_review import (
+            ALIGNMENT_VERIFICATION_KIND,
+            ALIGNMENT_VERIFICATION_ROLE,
+            INDEPENDENT_REVIEW_ISSUER,
+            IndependentReviewError,
+            validate_alignment_verification_payload,
+        )
+
+        round_id = validate_identifier(round_id, "round_id")
+        verification_id = validate_identifier(verification_id, "verification_id")
+        try:
+            validated = validate_alignment_verification_payload(thaw_json(dict(payload)))
+        except IndependentReviewError as error:
+            raise CompletionInputError(str(error)) from error
+        if validated["id"] != verification_id:
+            raise CompletionInputError("alignment verification payload id does not match verification_id")
+        if validated["round_id"] != round_id:
+            raise CompletionInputError("alignment verification payload round_id does not match round_id")
+        return self._write(
+            round_id=round_id,
+            artifact_id=verification_id,
+            role=ALIGNMENT_VERIFICATION_ROLE,
+            kind=ALIGNMENT_VERIFICATION_KIND,
+            payload=thaw_json(dict(payload)),
+            parent_refs=(validated["projection_ref"],),
+            issuer=INDEPENDENT_REVIEW_ISSUER,
+            issuer_evidence={
+                "verifier_identity": validated["verifier_identity"],
+                "session_context": validated["session_context"],
+                "authority_fingerprint": validated["authority_fingerprint"],
+            },
+            expected_revision=expected_revision,
+        )
+
+    def write_delivery_review(
+        self,
+        *,
+        round_id: str,
+        review_id: str,
+        payload: Mapping[str, Any],
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        """Register one independent delivery review (issue #462).
+
+        The subagent-produced artifact binds its parent lineage to the exact
+        evidence custody references (finding packs) the verifier read, so the
+        delivery gate can re-verify custody at completion time.
+        """
+
+        from .independent_review import (
+            DELIVERY_REVIEW_KIND,
+            DELIVERY_REVIEW_ROLE,
+            INDEPENDENT_REVIEW_ISSUER,
+            IndependentReviewError,
+            validate_delivery_review_payload,
+        )
+
+        round_id = validate_identifier(round_id, "round_id")
+        review_id = validate_identifier(review_id, "review_id")
+        try:
+            validated = validate_delivery_review_payload(thaw_json(dict(payload)))
+        except IndependentReviewError as error:
+            raise CompletionInputError(str(error)) from error
+        if validated["id"] != review_id:
+            raise CompletionInputError("delivery review payload id does not match review_id")
+        if validated["round_id"] != round_id:
+            raise CompletionInputError("delivery review payload round_id does not match round_id")
+        parents = _refs(validated["evidence_custody"])
+        return self._write(
+            round_id=round_id,
+            artifact_id=review_id,
+            role=DELIVERY_REVIEW_ROLE,
+            kind=DELIVERY_REVIEW_KIND,
+            payload=thaw_json(dict(payload)),
+            parent_refs=parents,
+            issuer=INDEPENDENT_REVIEW_ISSUER,
+            issuer_evidence={
+                "verifier_identity": validated["verifier_identity"],
+                "session_context": validated["session_context"],
+                "verdict": validated["verdict"],
+            },
+            expected_revision=expected_revision,
+        )
+
     def write_evaluation(
         self,
         *,

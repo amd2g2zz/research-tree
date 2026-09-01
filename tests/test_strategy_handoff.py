@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from strategy_support import write_alignment_verification
 
 from research_tree.coordinator import CoordinatorConflictError, IllegalTransitionError, ResearchRunCoordinator
 from research_tree.decision_frame import DecisionFrame, IntentHypothesis
@@ -106,6 +107,7 @@ def test_direct_stage_skip_and_generic_confirmation_are_fail_closed(tmp_path) ->
         next(item for item in ledger.load_run("run-85").artifacts if item.kind == "blueprint-target"),
     )
     projection = _projection(ledger, coordinator, handoff, target)
+    write_alignment_verification(ledger, projection, "run-85")
     coordinator.display_strategy("run-85", projection, expected_revision=ledger.get_revision("run-85"))
     before = ledger.get_revision("run-85")
     with pytest.raises(CoordinatorConflictError, match="generic"):
@@ -121,6 +123,7 @@ def test_direct_stage_skip_and_generic_confirmation_are_fail_closed(tmp_path) ->
 def test_contextual_confirmation_replays_and_stale_digest_rejects(tmp_path) -> None:
     ledger, coordinator, handoff, target, _ = _context(tmp_path)
     projection = _projection(ledger, coordinator, handoff, target)
+    write_alignment_verification(ledger, projection, "run-85")
     displayed = coordinator.display_strategy("run-85", projection, expected_revision=ledger.get_revision("run-85"))
     confirmed = coordinator.confirm_handoff(
         "run-85",

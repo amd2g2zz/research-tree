@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from strategy_support import write_independent_delivery_review
 from test_research_run_coordinator import _advance_to_awaiting_acceptance, _initialize
 
 from research_tree.acceptance import DeliveryAcceptance, delivery_pair_digest
@@ -167,6 +168,7 @@ def test_registered_manifold_completes_once_and_records_digest(tmp_path: Path) -
     ledger, coordinator, _, target, _ = _initialize(tmp_path)
     _register_minimal_manifold(ledger, target)
     _advance_to_awaiting_acceptance(ledger, coordinator)
+    write_independent_delivery_review(ledger, "run-57")
 
     completed = coordinator.transition(
         "run-57", "delivery_accepted", "human", expected_revision=ledger.get_revision("run-57")
@@ -185,6 +187,7 @@ def test_registered_manifold_completes_once_and_records_digest(tmp_path: Path) -
         "human_delivery_ref",
         "acceptance_ref",
         "goal_satisfaction_refs",
+        "independent_review_refs",
     }
     assert coordinator.why_not_complete("run-57")["unmet_obligations"] == ()
 
@@ -193,6 +196,7 @@ def test_replaced_registered_parent_reopens_field_diagnostic(tmp_path: Path) -> 
     ledger, coordinator, _, target, _ = _initialize(tmp_path)
     _register_minimal_manifold(ledger, target)
     _advance_to_awaiting_acceptance(ledger, coordinator)
+    write_independent_delivery_review(ledger, "run-57")
     coordinator.transition("run-57", "delivery_accepted", "human", expected_revision=ledger.get_revision("run-57"))
     ledger.append_artifact(
         "run-57",
@@ -232,6 +236,7 @@ def test_quarantined_registered_parent_reopens_completion_without_mutating_histo
     ledger, coordinator, _, target, _ = _initialize(tmp_path)
     _register_minimal_manifold(ledger, target)
     _advance_to_awaiting_acceptance(ledger, coordinator)
+    write_independent_delivery_review(ledger, "run-57")
     coordinator.transition("run-57", "delivery_accepted", "human", expected_revision=ledger.get_revision("run-57"))
     technical = next(item for item in ledger.load_run("run-57").artifacts if item.id == "technical-registered")
     before = len(ledger.load_run("run-57").artifacts)

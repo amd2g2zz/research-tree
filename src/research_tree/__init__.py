@@ -138,6 +138,18 @@ from .host_events import (
     normalize_host_payload,
     payload_digest,
 )
+from .independent_review import (
+    ALIGNMENT_VERIFICATION_KIND,
+    ALIGNMENT_VERIFICATION_ROLE,
+    DELIVERY_REVIEW_KIND,
+    DELIVERY_REVIEW_ROLE,
+    DELIVERY_REVIEW_VERDICTS,
+    INDEPENDENT_REVIEW_ISSUER,
+    IndependentReviewError,
+    validate_alignment_verification_payload,
+    validate_delivery_review_payload,
+    verify_identity_independent,
+)
 from .insights import CanonicalInsightWriter, synthesize_insights, validate_insight_digest
 from .intake import (
     CanonicalInputIntakeService,
@@ -392,6 +404,16 @@ __all__ = [
     "CanonicalReadinessVerifier",
     "CompletionInputError",
     "CompletionInputRegistrar",
+    "ALIGNMENT_VERIFICATION_KIND",
+    "ALIGNMENT_VERIFICATION_ROLE",
+    "DELIVERY_REVIEW_KIND",
+    "DELIVERY_REVIEW_ROLE",
+    "DELIVERY_REVIEW_VERDICTS",
+    "INDEPENDENT_REVIEW_ISSUER",
+    "IndependentReviewError",
+    "validate_alignment_verification_payload",
+    "validate_delivery_review_payload",
+    "verify_identity_independent",
     "DataIntegrityError",
     "DeliveryArtifacts",
     "DeliveryError",

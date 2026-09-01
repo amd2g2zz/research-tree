@@ -775,6 +775,10 @@ class RunLedger:
             "human_delivery": "human-research-report",
             "acceptance": "delivery-acceptance",
             "goal_satisfaction": "goal-satisfaction",
+            # Issue #462: independent subagent review artifacts ride the same
+            # typed registration channel so the gates read them by role.
+            "alignment_verification": "alignment-verification",
+            "delivery_review": "delivery-review",
         }
         required_issuers = {
             "technical_delivery": "canonical-delivery-compiler-v1",

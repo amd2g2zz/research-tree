@@ -51,6 +51,14 @@ from .feedback import (
 )
 from .host_attempts import HostAttemptError, outcome_from_mapping, worker_finished_eligible
 from .host_events import HostEvent, HostEventError, HostEventSequenceError
+from .independent_review import (
+    ALIGNMENT_VERIFICATION_ROLE,
+    DELIVERY_REVIEW_ROLE,
+    IndependentReviewError,
+    validate_alignment_verification_payload,
+    validate_delivery_review_payload,
+    verify_identity_independent,
+)
 from .policy import AdaptiveResearchPolicy
 from .run_ledger import LedgerConflictError, RunLedger
 from .search_portfolio import PortfolioExecution, SearchPortfolio
@@ -764,6 +772,11 @@ class ResearchRunCoordinator:
             validate_falsifiability(projection)
         except StrategyProjectionError as error:
             raise CoordinatorConflictError(str(error)) from error
+        # Issue #462 display gate: the projection content may only advance to a
+        # displayed state once an independent subagent verification of the same
+        # authority-bearing content exists. The transition guard re-enforces
+        # this for every caller of alignment_projection_ready.
+        self.require_independent_alignment_verification(run_id, projection)
         return self.transition(
             run_id,
             "alignment_projection_ready",
@@ -775,6 +788,14 @@ class ResearchRunCoordinator:
                 "display_digest": projection.display_digest,
             },
         )
+
+    def require_independent_alignment_verification(self, run_id: str, projection: StrategyProjection) -> None:
+        """Reject with ``independent_verification_required`` when no independent subagent
+        alignment verification covers this projection (#462 display gate)."""
+
+        failure = self._independent_alignment_verification_failure(run_id, projection)
+        if failure is not None:
+            raise CoordinatorConflictError(failure)
 
     def confirm_handoff(
         self,
@@ -2396,6 +2417,9 @@ class ResearchRunCoordinator:
                     validate_falsifiability(projection)
                 except StrategyProjectionError as error:
                     return False, f"projection_unfalsifiable: {error}"
+                verification_failure = self._independent_alignment_verification_failure(run_id, projection)
+                if verification_failure is not None:
+                    return False, verification_failure
                 return True, None
             confirmation = (payload or {}).get("confirmation")
             if not (isinstance(confirmation, str) and projection.display_digest in confirmation):
@@ -3306,6 +3330,10 @@ class ResearchRunCoordinator:
         diagnostics["goal_satisfaction"] = goal_satisfaction
         if goal_satisfaction["status"] == "pass":
             manifold["goal_satisfaction_refs"] = goal_satisfaction["refs"]
+        independent_review = self._independent_delivery_review_diagnostic(run_id, registrations)
+        diagnostics["independent_delivery_review"] = independent_review
+        if independent_review["status"] == "pass":
+            manifold["independent_review_refs"] = [independent_review["ref"]]
         diagnostics.setdefault(
             "technical_delivery_ref",
             {"status": "fail", "reason": "pair_incomplete"},
@@ -3319,6 +3347,115 @@ class ResearchRunCoordinator:
             {"status": "fail", "reason": "pair_incomplete"},
         )
         return manifold, diagnostics
+
+    @staticmethod
+    def _projection_oracle_ids(projection_payload: Mapping[str, Any]) -> list[str]:
+        """Extract the distinct success-oracle ids of a projection payload."""
+
+        oracle_ids: list[str] = []
+        for oracle in projection_payload.get("success_oracles") or ():
+            if isinstance(oracle, Mapping) and isinstance(oracle.get("id"), str) and oracle["id"].strip():
+                oracle_id = str(oracle["id"])
+            elif isinstance(oracle, str) and oracle.strip():
+                oracle_id = oracle
+            else:
+                continue
+            if oracle_id not in oracle_ids:
+                oracle_ids.append(oracle_id)
+        return oracle_ids
+
+    def _independent_alignment_verification_failure(self, run_id: str, projection: StrategyProjection) -> str | None:
+        """Issue #462 display gate: require an independent alignment verification.
+
+        A current ``alignment-verification`` registration must bind the exact
+        projection content through the authority fingerprint (so a draft's
+        promotion to displayed keeps its verification while any authority-field
+        revision invalidates it), name a distinct execution identity for the
+        verifier, and independently restate every success oracle. A verifier
+        whose identity equals the session context is self-review; an artifact
+        without identity is not independent. Both fail closed.
+        """
+
+        oracle_ids = self._projection_oracle_ids(projection.display_payload)
+        for item in self.ledger.list_completion_input_registrations(run_id).get(ALIGNMENT_VERIFICATION_ROLE, ()):
+            try:
+                parsed = validate_alignment_verification_payload(thaw_json(item.payload))
+            except IndependentReviewError:
+                continue
+            if parsed["authority_fingerprint"] != authority_fingerprint(projection):
+                continue
+            projection_ref = parsed["projection_ref"]
+            if projection_ref.round_id != run_id or projection_ref.artifact_id != projection.projection_id:
+                continue
+            if not verify_identity_independent(parsed["verifier_identity"], parsed["session_context"]):
+                continue
+            restated = {str(entry["id"]) for entry in parsed["understood"]["success_oracles"]}
+            if any(oracle_id not in restated for oracle_id in oracle_ids):
+                continue
+            return None
+        return "independent_verification_required"
+
+    def _independent_delivery_review_diagnostic(
+        self, run_id: str, registrations: Mapping[str, tuple[ArtifactRevision, ...]]
+    ) -> dict[str, Any]:
+        """Issue #462 delivery gate: require an independent delivery review.
+
+        Conjunction, not replacement: this diagnostic runs beside the #443
+        goal_satisfaction diagnostic and both block ``delivery_accepted``. The
+        review must be a single current ``delivery-review`` registration whose
+        verifier identity is distinct from the session context (fail-closed on
+        missing identities), whose evidence custody parents are exactly the
+        custody references it names and still resolve to current,
+        non-quarantined run artifacts, whose per-oracle verdicts cover every
+        confirmed projection oracle, and whose overall verdict is not ``unmet``.
+        """
+
+        snapshot = self.ledger.load_run(run_id)
+        projection = latest_confirmed(snapshot.artifacts)
+        if projection is None:
+            return {"status": "fail", "reason": "independent_review_unknown"}
+        oracle_ids = self._projection_oracle_ids(projection.payload)
+        reviews = registrations.get(DELIVERY_REVIEW_ROLE, ())
+        if not reviews:
+            return {"status": "fail", "reason": "independent_review_required"}
+        if len(reviews) > 1:
+            return {
+                "status": "fail",
+                "reason": "ambiguous_registration",
+                "refs": [self._artifact_ref(item).to_dict() for item in reviews],
+            }
+        review = reviews[0]
+        review_ref = self._artifact_ref(review).to_dict()
+        try:
+            parsed = validate_delivery_review_payload(thaw_json(review.payload))
+        except IndependentReviewError:
+            return {"status": "fail", "reason": "independent_review_invalid", "ref": review_ref}
+        if not verify_identity_independent(parsed["verifier_identity"], parsed["session_context"]):
+            return {"status": "fail", "reason": "verifier_not_independent", "ref": review_ref}
+        if set(review.parent_refs) != set(parsed["evidence_custody"]):
+            return {"status": "fail", "reason": "evidence_custody_lineage", "ref": review_ref}
+        latest_revision: dict[str, int] = {}
+        indexed: dict[tuple[str, int], ArtifactRevision] = {}
+        for item in snapshot.artifacts:
+            indexed[(item.id, item.revision)] = item
+            if item.revision > latest_revision.get(item.id, 0):
+                latest_revision[item.id] = item.revision
+        quarantined = self._quarantined_refs(run_id)
+        custody_current = all(
+            reference.round_id == run_id
+            and reference not in quarantined
+            and latest_revision.get(reference.artifact_id) == reference.revision
+            and indexed.get((reference.artifact_id, reference.revision)) is not None
+            for reference in parsed["evidence_custody"]
+        )
+        if not custody_current:
+            return {"status": "fail", "reason": "evidence_custody_stale", "ref": review_ref}
+        uncovered = [oracle_id for oracle_id in oracle_ids if oracle_id not in parsed["per_oracle"]]
+        if uncovered:
+            return {"status": "fail", "reason": "oracle_uncovered", "oracles": uncovered, "ref": review_ref}
+        if parsed["verdict"] == "unmet":
+            return {"status": "fail", "reason": "independent_review_unmet", "ref": review_ref}
+        return {"status": "pass", "ref": review_ref}
 
     def _goal_satisfaction_diagnostic(
         self, run_id: str, registrations: Mapping[str, tuple[ArtifactRevision, ...]]
@@ -3348,16 +3485,7 @@ class ResearchRunCoordinator:
         projection = latest_confirmed(snapshot.artifacts)
         if projection is None:
             return {"status": "fail", "reason": "goal_satisfaction_unknown"}
-        oracle_ids: list[str] = []
-        for oracle in projection.payload.get("success_oracles") or ():
-            if isinstance(oracle, Mapping) and isinstance(oracle.get("id"), str) and oracle["id"].strip():
-                oracle_id = str(oracle["id"])
-            elif isinstance(oracle, str) and oracle.strip():
-                oracle_id = oracle
-            else:
-                continue
-            if oracle_id not in oracle_ids:
-                oracle_ids.append(oracle_id)
+        oracle_ids = self._projection_oracle_ids(projection.payload)
         by_oracle: dict[str, list[tuple[ArtifactRevision, dict[str, Any]]]] = {}
         for item in registrations.get(GOAL_SATISFACTION_ROLE, ()):
             try:
@@ -3430,6 +3558,12 @@ class ResearchRunCoordinator:
         if isinstance(goal_detail, Mapping) and goal_detail.get("reason") == "oracle_uncovered":
             next_actions.extend(
                 "resolve:goal_satisfaction:" + str(oracle_id) for oracle_id in goal_detail.get("oracles", ())
+            )
+        review_detail = diagnostics.get("independent_delivery_review")
+        if isinstance(review_detail, Mapping) and review_detail.get("reason") == "oracle_uncovered":
+            next_actions.extend(
+                "resolve:independent_delivery_review:" + str(oracle_id)
+                for oracle_id in review_detail.get("oracles", ())
             )
         return {
             "run_id": run_id,

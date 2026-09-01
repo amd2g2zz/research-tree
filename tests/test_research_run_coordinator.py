@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
+from strategy_support import write_alignment_verification, write_independent_delivery_review
 from test_search_portfolio_lineage import _coordinator as _portfolio_coordinator
 from test_search_portfolio_lineage import _parents as _portfolio_parents
 from test_search_portfolio_lineage import _pivot_correction, durable_evidence
@@ -106,6 +107,7 @@ def _prepare_strategy(ledger: RunLedger, coordinator: ResearchRunCoordinator) ->
 
 def _confirm_strategy(ledger: RunLedger, coordinator: ResearchRunCoordinator) -> StrategyProjection:
     projection = _prepare_strategy(ledger, coordinator)
+    write_alignment_verification(ledger, projection, "run-57")
     coordinator.display_strategy("run-57", projection, expected_revision=ledger.get_revision("run-57"))
     coordinator.confirm_handoff(
         "run-57",
@@ -153,7 +155,7 @@ def _advance_to_awaiting_acceptance(ledger: RunLedger, coordinator: ResearchRunC
     )
 
 
-def _register_canonical_completion_inputs(ledger: RunLedger, run_id: str, target) -> tuple:
+def _register_canonical_completion_inputs(ledger: RunLedger, run_id: str, target, *, review: bool = True) -> tuple:
     target_ref = ArtifactRef(run_id, target.id, target.revision)
     ledger.append_completion_input(
         run_id,
@@ -222,6 +224,8 @@ def _register_canonical_completion_inputs(ledger: RunLedger, run_id: str, target
         acceptance=acceptance,
         expected_revision=ledger.get_revision(run_id),
     )
+    if review:
+        write_independent_delivery_review(ledger, run_id)
     return technical, human
 
 
@@ -280,6 +284,7 @@ def test_illegal_transition_is_rejected_without_state_mutation(tmp_path) -> None
 def test_legal_transition_enforces_matrix_actor_and_replay(tmp_path) -> None:
     ledger, coordinator, _, _, _ = _initialize(tmp_path)
     projection = _prepare_strategy(ledger, coordinator)
+    write_alignment_verification(ledger, projection, "run-57")
     first = coordinator.display_strategy(
         "run-57", projection, expected_revision=ledger.get_revision("run-57"), idempotency_key="projection-1"
     )
@@ -317,7 +322,7 @@ def test_completion_exposes_all_missing_obligations_and_ignores_worker_finish(tm
 
 def test_completion_requires_all_canonical_obligations_and_is_terminally_idempotent(tmp_path) -> None:
     ledger, coordinator, _, target, _ = _initialize(tmp_path)
-    _register_canonical_completion_inputs(ledger, "run-57", target)
+    _register_canonical_completion_inputs(ledger, "run-57", target, review=False)
     CompletionInputRegistrar(ledger).write_goal_satisfaction(
         round_id="run-57",
         registration_id="goal-oracle-1",
@@ -327,6 +332,9 @@ def test_completion_requires_all_canonical_obligations_and_is_terminally_idempot
         expected_revision=ledger.get_revision("run-57"),
     )
     _advance_to_awaiting_acceptance(ledger, coordinator)
+    # Issue #462: the review needs the confirmed projection's oracles, so it is
+    # registered once the run reaches awaiting_acceptance.
+    write_independent_delivery_review(ledger, "run-57")
 
     completed = coordinator.transition(
         "run-57", "delivery_accepted", "human", expected_revision=ledger.get_revision("run-57")
