@@ -33,6 +33,13 @@ Follow `references/skill-activation.md`: only exact `$research-tree activation-p
   and completion checks when Python is available; this executable state is
   authoritative over the visible plan, and a failed integrity check never
   becomes completion.
+- Host hooks run the fail-open launcher `scripts/lifecycle_hook_launcher.py`
+  with system Python; it imports the packaged `scripts/lifecycle_hook.py`,
+  `scripts/origins.py`, and `scripts/skill_activation.py` when the workspace
+  is not a checkout. Commands never use `uv run`, end with `|| exit 0`, and
+  include `UserPromptSubmit` (claude and codex; Hermes has no user-prompt
+  event, N/A). Prompt signals persist sanitized classification metadata only:
+  never the prompt text.
 - In source-checkout development, record each source range with
   `context-record`, inspect its `context-receipt` before sending more
   context, keep unchanged rereads visible as `cached` or `replayed`, and

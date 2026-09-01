@@ -11,8 +11,17 @@ from pathlib import Path
 from typing import Any, Sequence
 
 HOST_HOOK_EVENTS = {
-    "codex": ("SessionStart", "SessionEnd", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop", "Stop"),
-    "claude": ("SessionStart", "SessionEnd", "PreCompact", "SubagentStop", "PostToolUse", "Stop"),
+    "codex": (
+        "SessionStart",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "PreCompact",
+        "PostCompact",
+        "SubagentStart",
+        "SubagentStop",
+        "Stop",
+    ),
+    "claude": ("SessionStart", "SessionEnd", "UserPromptSubmit", "PreCompact", "SubagentStop", "PostToolUse", "Stop"),
     "hermes": (
         "on_session_start",
         "on_session_end",
@@ -71,25 +80,28 @@ def _read_json_config(path: Path) -> dict[str, Any]:
     return payload
 
 
-def _hook_command(repository: Path, host: str, event: str) -> str:
-    return shlex.join(
-        (
-            "uv",
-            "run",
-            "--project",
-            str(repository),
-            "--frozen",
-            "research-tree-hook",
-            "--host",
-            host,
-            "--event",
-            event,
+SETUP_HOOK_LAUNCHER = Path("scripts") / "lifecycle_hook_launcher.py"
+
+
+def _hook_command(target: Path, host: str, event: str) -> str:
+    """Render the fail-open launcher command anchored to the installed skill."""
+    return (
+        shlex.join(
+            (
+                sys.executable,
+                str(target / SETUP_HOOK_LAUNCHER),
+                "--host",
+                host,
+                "--event",
+                event,
+            )
         )
+        + " || exit 0"
     )
 
 
-def _json_hook_entry(repository: Path, host: str, event: str) -> dict[str, Any]:
-    command = _hook_command(repository, host, event)
+def _json_hook_entry(target: Path, host: str, event: str) -> dict[str, Any]:
+    command = _hook_command(target, host, event)
     hook: dict[str, Any] = {"type": "command", "command": command, "timeout": 10}
     if host == "codex":
         hook["commandWindows"] = command
@@ -115,22 +127,24 @@ def _entry_commands(entry: object) -> tuple[str, ...]:
 
 
 def _owned_json_entry(entry: object, host: str) -> bool:
-    return any("research-tree-hook" in command and f"--host {host}" in command for command in _entry_commands(entry))
+    return any(
+        "lifecycle_hook_launcher.py" in command and f"--host {host}" in command for command in _entry_commands(entry)
+    )
 
 
-def _merge_json_hooks(existing: dict[str, Any], *, repository: Path, host: str) -> dict[str, Any]:
+def _merge_json_hooks(existing: dict[str, Any], *, target: Path, host: str) -> dict[str, Any]:
     hooks = existing.get("hooks", {})
     merged = dict(existing)
     merged_hooks = {
         event: [entry for entry in entries if not _owned_json_entry(entry, host)] for event, entries in hooks.items()
     }
     for event in HOST_HOOK_EVENTS[host]:
-        merged_hooks.setdefault(event, []).append(_json_hook_entry(repository, host, event))
+        merged_hooks.setdefault(event, []).append(_json_hook_entry(target, host, event))
     merged["hooks"] = merged_hooks
     return merged
 
 
-def _json_hook_status(existing: dict[str, Any], *, repository: Path, host: str) -> str:
+def _json_hook_status(existing: dict[str, Any], *, target: Path, host: str) -> str:
     hooks = existing.get("hooks", {})
     owned = {event: [entry for entry in entries if _owned_json_entry(entry, host)] for event, entries in hooks.items()}
     owned_count = sum(len(entries) for entries in owned.values())
@@ -140,7 +154,7 @@ def _json_hook_status(existing: dict[str, Any], *, repository: Path, host: str) 
     if owned_count != len(expected_events):
         return "conflict"
     for event in expected_events:
-        if owned.get(event) != [_json_hook_entry(repository, host, event)]:
+        if owned.get(event) != [_json_hook_entry(target, host, event)]:
             return "conflict"
     if any(entries for event, entries in owned.items() if event not in expected_events):
         return "conflict"
@@ -265,7 +279,6 @@ def _read_hermes_config(path: Path) -> str:
 def plan_setup_hooks(
     hosts: Sequence[str],
     *,
-    repository: Path,
     home: Path,
     codex_home: Path | None,
     targets: dict[str, Path],
@@ -276,9 +289,9 @@ def plan_setup_hooks(
         original = path.read_bytes() if path.exists() else None
         if host in {"codex", "claude"}:
             existing = _read_json_config(path)
-            prior_status = _json_hook_status(existing, repository=repository, host=host)
+            prior_status = _json_hook_status(existing, target=targets[host], host=host)
             rendered = (
-                json.dumps(_merge_json_hooks(existing, repository=repository, host=host), sort_keys=True) + "\n"
+                json.dumps(_merge_json_hooks(existing, target=targets[host], host=host), sort_keys=True) + "\n"
             ).encode()
         else:
             existing_text = _read_hermes_config(path)
@@ -338,7 +351,6 @@ def install_setup_hooks(plans: Sequence[HookPlan], *, dry_run: bool) -> list[dic
 def setup_hook_status(
     host: str,
     *,
-    repository: Path,
     home: Path,
     codex_home: Path | None,
     target: Path,
@@ -346,7 +358,7 @@ def setup_hook_status(
     path = hook_config_path(host, home=home, codex_home=codex_home)
     try:
         if host in {"codex", "claude"}:
-            status = _json_hook_status(_read_json_config(path), repository=repository, host=host)
+            status = _json_hook_status(_read_json_config(path), target=target, host=host)
         else:
             launcher = target / "scripts" / "hermes_runtime_hook.py"
             status = _hermes_hook_status(_read_hermes_config(path), launcher=launcher)

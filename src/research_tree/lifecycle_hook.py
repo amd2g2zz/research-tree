@@ -13,8 +13,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, BinaryIO, Iterable, Sequence
 
-from .origins import close_tag, open_tag
-from .skill_activation import build_loader_receipt
+try:
+    from .origins import close_tag, open_tag
+    from .skill_activation import build_loader_receipt
+except ImportError:  # Standalone skill-packaged execution — issue #453.
+    import origins as _origins
+
+    close_tag = _origins.close_tag
+    open_tag = _origins.open_tag
+
+    import skill_activation as _skill_activation
+
+    build_loader_receipt = _skill_activation.build_loader_receipt
 
 MAX_INPUT_BYTES = 64 * 1024
 MAX_IDENTIFIER_LENGTH = 256
@@ -24,6 +34,7 @@ HOST_EVENTS = {
         {
             "SessionStart",
             "SessionEnd",
+            "UserPromptSubmit",
             "PreCompact",
             "PostCompact",
             "SubagentStart",
@@ -31,7 +42,9 @@ HOST_EVENTS = {
             "Stop",
         }
     ),
-    "claude": frozenset({"SessionStart", "SessionEnd", "PreCompact", "SubagentStop", "PostToolUse", "Stop"}),
+    "claude": frozenset(
+        {"SessionStart", "SessionEnd", "UserPromptSubmit", "PreCompact", "SubagentStop", "PostToolUse", "Stop"}
+    ),
     "hermes": frozenset({"on_session_start", "on_session_end"}),
 }
 TRACE_DIRECTORY = Path(".research-tree-debug") / "events"
@@ -54,6 +67,58 @@ TRACE_PHASES = frozenset(
 TRACE_STATUSES = frozenset({"started", "completed", "blocked", "skipped", "failed"})
 TRACE_IDENTIFIER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 TRACE_CODE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,95}\Z")
+
+# Issue #453 defect 2: lightweight user-input classification signals.
+# Heuristic rule table — first match wins, ordered so explicit halts outrank
+# corrections, corrections outrank answers, and answers outrank insights.
+PROMPT_SIGNAL_CATEGORIES = ("correction", "interruption", "insight", "answer", "neutral")
+PROMPT_SIGNAL_CONFIDENCES = ("high", "low")
+SIGNAL_DIRECTORY = Path(".research-tree-debug") / "signals"
+PROMPT_SIGNAL_RULES: tuple[tuple[str, str, re.Pattern[str], str], ...] = tuple(
+    (category, rule, re.compile(pattern, re.IGNORECASE), confidence)
+    for category, rule, pattern, confidence in (
+        ("interruption", "explicit_stop", r"^\s*(?:stop|cancel|abort|halt|pause|wait)\s*[!.]?\s*$", "high"),
+        (
+            "interruption",
+            "stop_command",
+            r"^\s*(?:stop|cancel|abort|halt|pause|wait)\b[,.!]|^\s*(?:stop|cancel|abort)\s+(?:that|this|it|now|doing|what|the\s+\w+)",
+            "high",
+        ),
+        ("correction", "explicit_no", r"^\s*no\s*[,.!]", "high"),
+        (
+            "correction",
+            "explicit_wrong",
+            r"\b(?:wrong|incorrect|misunderstood|not\s+what\s+i\s+(?:asked|wanted|meant))\b",
+            "high",
+        ),
+        ("correction", "actually_prefix", r"^\s*actually\b", "high"),
+        ("correction", "instead_of", r"\binstead\s+of\b", "low"),
+        ("correction", "should_be", r"\b(?:should|must)\s+(?:have\s+been|be)\b", "low"),
+        (
+            "answer",
+            "direct_affirmative",
+            r"^\s*(?:yes|yeah|yep|correct|confirmed|approved|go\s+ahead|proceed)\b",
+            "low",
+        ),
+        ("answer", "option_choice", r"^\s*(?:option|approach|plan|choice)\s+[abc123]\b", "low"),
+        (
+            "insight",
+            "volunteered_observation",
+            r"\bi\s+(?:noticed|found|realized|observed|learned|discovered)\b",
+            "low",
+        ),
+        ("insight", "prior_knowledge", r"\b(?:fyi|for\s+what\s+it'?s\s+worth|in\s+my\s+experience)\b", "low"),
+    )
+)
+
+
+def classify_prompt_signal(prompt: str) -> dict[str, str]:
+    """Classify a user prompt into a lightweight feedback signal category."""
+    text = prompt.strip() if isinstance(prompt, str) else ""
+    for category, rule, pattern, confidence in PROMPT_SIGNAL_RULES:
+        if pattern.search(text):
+            return {"category": category, "confidence": confidence, "rule": rule}
+    return {"category": "neutral", "confidence": "low", "rule": "default"}
 
 
 class LifecycleHookError(ValueError):
@@ -173,6 +238,11 @@ def observe(
         raise LifecycleHookError("hook input must be a JSON object")
     _validate_event(payload, host, event)
 
+    if event == "UserPromptSubmit":
+        # Prompt signals are opportunistic: they need a checkout to record in,
+        # but never an active run, and they never block the host session.
+        return _observe_prompt_signal(payload, host=host, project_root=project_root, process_cwd=process_cwd)
+
     if event == "Stop" and payload.get("stop_hook_active") is True:
         return {"status": "skipped_reentrant_stop", "host": host, "event": event}
 
@@ -266,6 +336,83 @@ def observe(
         "path": path.relative_to(root).as_posix(),
         **({"skill_load": record["skill_load"]} if "skill_load" in record else {}),
     }
+
+
+def _observe_prompt_signal(
+    payload: dict[str, Any],
+    *,
+    host: str,
+    project_root: Path | None,
+    process_cwd: Path | None,
+) -> dict[str, Any]:
+    """Record one opportunistic UserPromptSubmit signal (append-only, sanitized)."""
+    prompt = payload.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        return {"status": "skipped_empty_prompt", "host": host, "event": "UserPromptSubmit"}
+    root, workspace = validate_workspace(payload, project_root=project_root, process_cwd=process_cwd)
+    signal = classify_prompt_signal(prompt)
+    record: dict[str, Any] = {
+        "schema": 1,
+        "source": "research-tree-lifecycle-hook",
+        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "host": host,
+        "event": "UserPromptSubmit",
+        "category": signal["category"],
+        "confidence": signal["confidence"],
+        "rule": signal["rule"],
+        "prompt_length": len(prompt),
+        "workspace": workspace.relative_to(root).as_posix() or ".",
+    }
+    for key in ("session_id", "turn_id", "agent_id", "task_id", "attempt_id", "causation_id"):
+        value = _optional_identifier(payload, key)
+        if value is not None:
+            record[key] = value
+    path = _write_record(root, record, root / SIGNAL_DIRECTORY)
+    result: dict[str, Any] = {
+        "status": "recorded",
+        "host": host,
+        "event": "UserPromptSubmit",
+        "signal": signal,
+        "path": path.relative_to(root).as_posix(),
+    }
+    if signal["category"] == "correction" and signal["confidence"] == "high":
+        feed_path = _feed_correction_signal(root, payload, record)
+        if feed_path is not None:
+            result["run_signal_path"] = feed_path
+    return result
+
+
+def _feed_correction_signal(root: Path, payload: dict[str, Any], record: dict[str, Any]) -> str | None:
+    """Feed a high-confidence correction into the run-scoped correction path.
+
+    The hook cannot call ``apply_correction`` directly: a valid CorrectionEvent
+    requires run/task/domain identifiers, artifact digests and the ledger
+    revision that only the workflow has. Instead the signal is appended to the
+    run's events directory (the same append-only surface the alignment step
+    consumes), so the next alignment turn can route it through apply_correction
+    with full ledger context. Fail-open: returns None on any problem.
+    """
+    try:
+        project_id = payload.get("project_id")
+        run_id = payload.get("run_id")
+        if project_id is None and run_id is None:
+            project_id = os.environ.get("RESEARCH_TREE_PROJECT_ID")
+            run_id = os.environ.get("RESEARCH_TREE_RUN_ID")
+        if not isinstance(project_id, str) or not isinstance(run_id, str):
+            return None
+        if not PROJECT_IDENTIFIER_RE.fullmatch(project_id) or not PROJECT_IDENTIFIER_RE.fullmatch(run_id):
+            return None
+        run_root = root / ".research-tree" / "projects" / project_id / "runs" / run_id
+        if not (run_root / "manifest.json").is_file():
+            return None
+        feed = dict(record)
+        feed["project_id"] = project_id
+        feed["run_id"] = run_id
+        feed["route"] = "apply_correction"
+        path = _write_record(root, feed, run_root / "events")
+        return path.relative_to(root).as_posix()
+    except (LifecycleHookError, OSError):
+        return None
 
 
 def host_response(host: str) -> dict[str, Any]:

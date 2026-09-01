@@ -373,7 +373,6 @@ def install_skill(
     try:
         hook_plans = plan_setup_hooks(
             ordered_hosts,
-            repository=repository,
             home=home,
             codex_home=codex_home,
             targets=targets,
@@ -452,7 +451,6 @@ def skill_status(
         status, reason, source_digest, target_digest = _installation_status_detail(target, skill_source)
         hook = setup_hook_status(
             host,
-            repository=repository,
             home=home,
             codex_home=codex_home,
             target=target,
