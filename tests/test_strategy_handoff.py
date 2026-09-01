@@ -6,7 +6,7 @@ from research_tree.coordinator import CoordinatorConflictError, IllegalTransitio
 from research_tree.decision_frame import DecisionFrame, IntentHypothesis
 from research_tree.domain import ArtifactRef
 from research_tree.run_ledger import RunLedger
-from research_tree.strategy_projection import StrategyProjection
+from research_tree.strategy_projection import StrategyProjection, authority_fingerprint
 
 
 def _append(ledger: RunLedger, run_id: str, artifact_id: str, kind: str, payload: dict, parents=()):
@@ -125,7 +125,7 @@ def test_contextual_confirmation_replays_and_stale_digest_rejects(tmp_path) -> N
     confirmed = coordinator.confirm_handoff(
         "run-85",
         projection_ref=ArtifactRef("run-85", projection.id, projection.revision),
-        confirmation=f"I accept the displayed strategy {projection.display_digest} and authorize research within it.",
+        confirmation=f"I accept the displayed strategy {projection.display_digest} authority-fingerprint {authority_fingerprint(projection)} and authorize research within it.",
         expected_revision=ledger.get_revision("run-85"),
         idempotency_key="confirm-1",
     )
@@ -134,7 +134,7 @@ def test_contextual_confirmation_replays_and_stale_digest_rejects(tmp_path) -> N
         coordinator.confirm_handoff(
             "run-85",
             projection_ref=ArtifactRef("run-85", projection.id, projection.revision),
-            confirmation=f"I accept the displayed strategy {projection.display_digest} and authorize research within it.",
+            confirmation=f"I accept the displayed strategy {projection.display_digest} authority-fingerprint {authority_fingerprint(projection)} and authorize research within it.",
             expected_revision=0,
             idempotency_key="confirm-1",
         )

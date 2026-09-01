@@ -397,6 +397,42 @@ def _latest_revision_by_id(projections: Mapping[tuple[str, int], ArtifactRevisio
     return latest
 
 
+AUTHORITY_FIELD_LABELS = (
+    "outcome",
+    "scope",
+    "authority",
+    "success_oracles",
+    "delivery_contract",
+)
+
+
+def authority_fingerprint(projection: StrategyProjection) -> str:
+    """Fingerprint the authority-bearing fields of a projection.
+
+    Issue #292 gate 1: handoff confirmation was digest-bound but compilation
+    never re-materialized each authority-bearing field, so a stale
+    reconnaissance-only scope/authority could survive a user's broader
+    authorization. The fingerprint covers the primary decision outcome, the
+    autonomy scope, the authority boundary, the success oracles, and the
+    delivery contract, each labeled and hashed independently so any single
+    field drift changes the value.
+    """
+
+    scope = projection.autonomy_envelope.get("allowed") if isinstance(projection.autonomy_envelope, Mapping) else None
+    authority = (
+        projection.autonomy_envelope.get("authority") if isinstance(projection.autonomy_envelope, Mapping) else None
+    )
+    material = {
+        "outcome": sha256(canonical_json_bytes(projection.current_understanding)).hexdigest(),
+        "scope": sha256(canonical_json_bytes(scope)).hexdigest(),
+        "authority": sha256(canonical_json_bytes(authority)).hexdigest(),
+        "success_oracles": sha256(canonical_json_bytes(projection.success_oracles)).hexdigest(),
+        "delivery_contract": sha256(canonical_json_bytes(projection.delivery_contract)).hexdigest(),
+        "decision_targets": sha256(canonical_json_bytes(tuple(projection.decision_targets))).hexdigest(),
+    }
+    return sha256(canonical_json_bytes(material)).hexdigest()
+
+
 def validate_falsifiability(projection: StrategyProjection) -> None:
     """Reject projections whose success oracles are not evidence-bound.
 

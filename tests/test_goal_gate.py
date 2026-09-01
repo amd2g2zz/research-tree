@@ -22,6 +22,7 @@ from research_tree.coordinator import (
     CompletionBlockedError,
 )
 from research_tree.domain import ArtifactRef, thaw_json
+from research_tree.strategy_projection import authority_fingerprint
 
 RUN = "run-57"
 ORACLE_1 = {"id": "oracle-1", "evidence_standard_ids": ("standard-1",)}
@@ -53,7 +54,7 @@ def _confirm_projection(ledger, coordinator, success_oracles=(ORACLE_1,)):
     coordinator.confirm_handoff(
         RUN,
         projection_ref=ArtifactRef(RUN, goal_projection.id, goal_projection.revision),
-        confirmation=f"I accept {goal_projection.display_digest} and authorize research.",
+        confirmation=f"I accept {goal_projection.display_digest} authority-fingerprint {authority_fingerprint(goal_projection)} and authorize research.",
         expected_revision=ledger.get_revision(RUN),
     )
 

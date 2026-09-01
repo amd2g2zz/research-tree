@@ -4,7 +4,7 @@ from research_tree.coordinator import ResearchRunCoordinator
 from research_tree.decision_frame import DecisionFrame, IntentHypothesis
 from research_tree.domain import ArtifactRef
 from research_tree.run_ledger import RunLedger
-from research_tree.strategy_projection import StrategyProjection
+from research_tree.strategy_projection import StrategyProjection, authority_fingerprint
 
 
 def prepare_strategy(ledger: RunLedger, coordinator: ResearchRunCoordinator, run_id: str) -> StrategyProjection:
@@ -68,7 +68,7 @@ def confirm_strategy(ledger: RunLedger, coordinator: ResearchRunCoordinator, run
     coordinator.confirm_handoff(
         run_id,
         projection_ref=ArtifactRef(run_id, projection.id, projection.revision),
-        confirmation=f"I accept {projection.display_digest} and authorize research.",
+        confirmation=f"I accept {projection.display_digest} authority-fingerprint {authority_fingerprint(projection)} and authorize research.",
         expected_revision=ledger.get_revision(run_id),
     )
     return projection

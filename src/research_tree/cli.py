@@ -34,6 +34,7 @@ from .strategy_projection import (
     STRATEGY_PROJECTION_KIND,
     StrategyProjection,
     StrategyProjectionError,
+    authority_fingerprint,
     validate_falsifiability,
 )
 from .tree_state import RESEARCH_TREE_STATE_KIND
@@ -899,10 +900,19 @@ def _strategy_confirm(
     except AlignmentGraphError as error:
         raise CoordinatorConflictError("alignment_not_confirmed") from error
     latest = _latest_strategy_projection(ledger, run_id)
+    # Issue #292 gate 1: the operator confirms the displayed digest; the CLI
+    # embeds the recomputed authority fingerprint so the confirmation carries
+    # a field-level binding that the coordinator guard can re-verify. The
+    # generic-acknowledgement guard must still see the operator's words, so
+    # it is checked before the fingerprint is appended.
+    if arguments.confirmation.strip().lower() in {"ok", "okay", "yes", "continue", "go ahead", "proceed"}:
+        raise CliInputError("generic_confirmation")
+    projection = StrategyProjection.from_dict(latest.payload)
+    confirmation = f"{arguments.confirmation} authority-fingerprint {authority_fingerprint(projection)}"
     confirmed_state = coordinator.confirm_handoff(
         run_id,
         projection_ref=ArtifactRef(run_id, latest.id, latest.revision),
-        confirmation=arguments.confirmation,
+        confirmation=confirmation,
         expected_revision=ledger.get_revision(run_id),
         actor="human",
     )
