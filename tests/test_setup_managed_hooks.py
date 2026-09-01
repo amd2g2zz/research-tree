@@ -5,6 +5,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -60,10 +61,22 @@ def test_setup_install_deploys_global_hooks_and_preserves_host_configuration(
     assert json.loads(claude_config.read_text(encoding="utf-8"))["custom"] == {"theme": "dark"}
     assert 'model: "example/model"' in hermes_config.read_text(encoding="utf-8")
     for host, config in (("codex", codex_config), ("claude", claude_config)):
-        commands = [command for command in _commands(config) if "research-tree-hook" in command]
+        commands = [command for command in _commands(config) if "lifecycle_hook_launcher.py" in command]
         assert commands
-        assert all(f"--host {host}" in command for command in commands)
-        assert all(str(ROOT) in command for command in commands)
+        installed_launcher = str(
+            home / f".{host}" / "skills" / "research-tree" / "scripts" / "lifecycle_hook_launcher.py"
+        )
+        assert all(installed_launcher in command for command in commands)
+        assert all(sys.executable in command for command in commands)
+        assert all("uv" not in command for command in commands)
+        assert all("research-tree-hook" not in command for command in commands)
+    codex_payload = json.loads(codex_config.read_text(encoding="utf-8"))
+    installed_codex_prompt_events = [
+        hook["command"].split("--event ")[1].split(" ")[0]
+        for entry in codex_payload["hooks"]["UserPromptSubmit"]
+        for hook in entry.get("hooks", [])
+    ]
+    assert installed_codex_prompt_events == ["UserPromptSubmit"]
     hermes_text = hermes_config.read_text(encoding="utf-8")
     assert hermes_text.count("# research-tree-setup managed") == 7
     assert str(home / ".hermes" / "skills" / "research-tree" / "scripts" / "hermes_runtime_hook.py") in hermes_text
@@ -169,8 +182,8 @@ def test_setup_hook_install_is_idempotent_and_project_scope_still_uses_global_co
     )
 
     config = home / ".codex" / "hooks.json"
-    commands = [command for command in _commands(config) if "research-tree-hook" in command]
-    assert len(commands) == 7
+    commands = [command for command in _commands(config) if "lifecycle_hook_launcher.py" in command]
+    assert len(commands) == 8
     assert first["hooks"][0]["action"] == "installed"
     assert second["hooks"][0]["action"] == "unchanged"
     assert not (project / ".codex" / "hooks.json").exists()
@@ -275,7 +288,9 @@ def test_installed_global_hook_command_is_fail_open_in_an_unbound_workspace(
         home=home,
         project_root=workspace,
     )
-    command = next(command for command in _commands(home / ".codex" / "hooks.json") if "research-tree-hook" in command)
+    command = next(
+        command for command in _commands(home / ".codex" / "hooks.json") if "lifecycle_hook_launcher.py" in command
+    )
 
     completed = subprocess.run(
         shlex.split(command),
