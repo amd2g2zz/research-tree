@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-
 CASE_KEYS = {
     "schema_version",
     "id",

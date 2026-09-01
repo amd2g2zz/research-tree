@@ -7,6 +7,12 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .contradictions import (
+    blocking_contradictions,
+    claim_from_mapping,
+    invalidating_contradictions,
+    unresolved_claim_ids,
+)
 from .decision_map import BLUEPRINT_TARGET_KIND
 from .delivery import TECHNICAL_RESEARCH_PACKAGE_KIND, validate_technical_package_payload
 from .domain import (
@@ -17,15 +23,9 @@ from .domain import (
     thaw_json,
     validate_identifier,
 )
+from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
 from .intent import INTENT_MODEL_KIND, WORKING_BRIEF_KIND
 from .ledger import DECISION_LEDGER_KIND, FINDING_PACK_KIND
-from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
-from .contradictions import (
-    blocking_contradictions,
-    claim_from_mapping,
-    invalidating_contradictions,
-    unresolved_claim_ids,
-)
 from .run_ledger import RunLedger
 from .verification import (
     FAILURE_CATEGORY_GATES,
@@ -35,7 +35,6 @@ from .verification import (
     assess_risk_verification,
     validate_risk_verification_payload,
 )
-
 
 READINESS_RECORD_KIND = "readiness-record"
 MAX_SYMBOL_CHECK_BYTES = 1_000_000
@@ -56,6 +55,8 @@ GATE_STATES = {
     "implementation_readiness": {"pass", "fail", "deferred"},
     "operational_quality": {"pass", "fail", "deferred"},
 }
+
+
 class ReadinessError(RuntimeStoreError):
     """Base error for readiness verification inputs and records."""
 
@@ -75,9 +76,7 @@ class CanonicalReadinessVerifier:
         if not isinstance(ledger, RunLedger):
             raise InvalidReadinessError("canonical readiness requires a RunLedger")
         if not isinstance(evidence_resolver, EvidenceResolver) or evidence_resolver.ledger is not ledger:
-            raise InvalidReadinessError(
-                "canonical readiness requires a matching ledger-backed EvidenceResolver"
-            )
+            raise InvalidReadinessError("canonical readiness requires a matching ledger-backed EvidenceResolver")
         self._ledger = ledger
         self._evidence_resolver = evidence_resolver
 
@@ -115,9 +114,7 @@ class CanonicalReadinessVerifier:
             try:
                 validate_technical_package_payload(package.payload)
             except RuntimeStoreError as error:
-                raise InvalidReadinessError(
-                    f"technical_package payload is invalid: {error}"
-                ) from error
+                raise InvalidReadinessError(f"technical_package payload is invalid: {error}") from error
             document = _mapping(package.payload["document"], "technical_package document")
             sources = _resolve_package_sources(snapshot.artifacts, package, document)
             root_map = _normalize_repository_roots(repository_roots, sources["repositories"])
@@ -197,31 +194,28 @@ def readiness_for_delivery(record: ArtifactRevision) -> Mapping[str, Any]:
 def validate_readiness_record_payload(payload: Mapping[str, Any]) -> None:
     """Validate the public, persisted readiness record schema recursively."""
 
-    legacy_keys = {
+    current_keys = {
         "technical_package_ref",
         "delivery_readiness",
         "diagnostics",
         "repository_anchor_checks",
         "source_refs",
+        "risk_verification",
     }
-    current_keys = legacy_keys | {"risk_verification"}
     actual_keys = set(payload)
-    if frozenset(actual_keys) not in {frozenset(legacy_keys), frozenset(current_keys)}:
+    if actual_keys != current_keys:
         raise InvalidReadinessError(
             "readiness record payload has unexpected keys; "
-            f"missing={sorted(legacy_keys - actual_keys)}, extra={sorted(actual_keys - current_keys)}"
-    )
-    _validate_ref(payload["technical_package_ref"], "technical_package_ref")
-    if "risk_verification" in payload:
-        validate_risk_verification_payload(payload["risk_verification"])
-        risk_evidence = _mapping(payload["risk_verification"], "risk_verification")
-        risk_package = _mapping(
-            risk_evidence["technical_package"], "risk_verification.technical_package"
+            f"missing={sorted(current_keys - actual_keys)}, extra={sorted(actual_keys - current_keys)}"
         )
-        if risk_package["ref"] != payload["technical_package_ref"]:
-            raise InvalidReadinessError(
-                "risk_verification technical package ref must match readiness technical_package_ref"
-            )
+    _validate_ref(payload["technical_package_ref"], "technical_package_ref")
+    validate_risk_verification_payload(payload["risk_verification"])
+    risk_evidence = _mapping(payload["risk_verification"], "risk_verification")
+    risk_package = _mapping(risk_evidence["technical_package"], "risk_verification.technical_package")
+    if risk_package["ref"] != payload["technical_package_ref"]:
+        raise InvalidReadinessError(
+            "risk_verification technical package ref must match readiness technical_package_ref"
+        )
     projection = _mapping(payload["delivery_readiness"], "delivery_readiness")
     _require_exact_keys(
         projection,
@@ -243,7 +237,7 @@ def validate_readiness_record_payload(payload: Mapping[str, Any]) -> None:
     expected_diagnostics = _mappings(payload["diagnostics"], "diagnostics")
     for index, diagnostic in enumerate(expected_diagnostics):
         label = f"diagnostics[{index}]"
-        legacy_diagnostic_keys = {
+        current_diagnostic_keys = {
             "gate",
             "status",
             "summary",
@@ -251,15 +245,12 @@ def validate_readiness_record_payload(payload: Mapping[str, Any]) -> None:
             "decision_id",
             "work_item_id",
             "recommended_work",
+            "failure_category",
         }
-        current_diagnostic_keys = legacy_diagnostic_keys | {"failure_category"}
         diagnostic_keys = set(diagnostic)
-        if frozenset(diagnostic_keys) not in {
-            frozenset(legacy_diagnostic_keys),
-            frozenset(current_diagnostic_keys),
-        }:
+        if diagnostic_keys != current_diagnostic_keys:
             raise InvalidReadinessError(
-                f"{label} has unexpected keys; missing={sorted(legacy_diagnostic_keys - diagnostic_keys)}, "
+                f"{label} has unexpected keys; missing={sorted(current_diagnostic_keys - diagnostic_keys)}, "
                 f"extra={sorted(diagnostic_keys - current_diagnostic_keys)}"
             )
         gate = _enum(diagnostic["gate"], f"{label}.gate", set(READINESS_GATES))
@@ -277,9 +268,7 @@ def validate_readiness_record_payload(payload: Mapping[str, Any]) -> None:
             )
         _validate_recommended_work(diagnostic["recommended_work"], f"{label}.recommended_work")
         if diagnostic["status"] != "fail" and diagnostic["recommended_work"] is not None:
-            raise InvalidReadinessError(
-                f"{label}.recommended_work is only allowed for failing gates"
-            )
+            raise InvalidReadinessError(f"{label}.recommended_work is only allowed for failing gates")
 
     for index, check in enumerate(_mappings(payload["repository_anchor_checks"], "repository_anchor_checks")):
         label = f"repository_anchor_checks[{index}]"
@@ -295,20 +284,15 @@ def validate_readiness_record_payload(payload: Mapping[str, Any]) -> None:
         _artifact_ref(ref, f"source_refs[{index}]")
         for index, ref in enumerate(_mappings(payload["source_refs"], "source_refs"))
     }
-    if "risk_verification" in payload:
-        risk_evidence = _mapping(payload["risk_verification"], "risk_verification")
-        baseline_refs = [
-            _artifact_ref(baseline["input_ref"], f"risk_verification.baselines[{index}].input_ref")
-            for index, baseline in enumerate(
-                _mappings(risk_evidence["baselines"], "risk_verification.baselines")
-            )
-        ]
-        if len(set(baseline_refs)) != len(baseline_refs):
-            raise InvalidReadinessError("risk_verification baselines must not repeat an input ref")
-        if not set(baseline_refs) <= source_refs:
-            raise InvalidReadinessError(
-                "risk_verification baseline refs must belong to the readiness source refs"
-            )
+    risk_evidence = _mapping(payload["risk_verification"], "risk_verification")
+    baseline_refs = [
+        _artifact_ref(baseline["input_ref"], f"risk_verification.baselines[{index}].input_ref")
+        for index, baseline in enumerate(_mappings(risk_evidence["baselines"], "risk_verification.baselines"))
+    ]
+    if len(set(baseline_refs)) != len(baseline_refs):
+        raise InvalidReadinessError("risk_verification baselines must not repeat an input ref")
+    if not set(baseline_refs) <= source_refs:
+        raise InvalidReadinessError("risk_verification baseline refs must belong to the readiness source refs")
 
 
 def _resolve_package_sources(
@@ -354,9 +338,7 @@ def _resolve_package_sources(
         "inputs": tuple(inputs),
         "decisions": tuple(decisions),
         "findings": tuple(findings),
-        "repositories": tuple(
-            item for item in inputs if item.payload.get("kind") == "repository"
-        ),
+        "repositories": tuple(item for item in inputs if item.payload.get("kind") == "repository"),
         "artifacts": (brief, model, target, *inputs, *decisions, *findings),
     }
 
@@ -475,18 +457,14 @@ def _strict_findings_are_authoritative(
                 _diagnostic(
                     "decision_closure",
                     "fail",
-                    f"Finding Pack {finding.id} uses non-authoritative legacy evidence.",
+                    f"Finding Pack {finding.id} uses non-authoritative evidence.",
                     slot_id=slot_id if isinstance(slot_id, str) else None,
                 )
             )
             authoritative = False
             continue
         observations = finding.payload.get("observations")
-        if (
-            isinstance(observations, (str, bytes))
-            or not isinstance(observations, Sequence)
-            or not observations
-        ):
+        if isinstance(observations, (str, bytes)) or not isinstance(observations, Sequence) or not observations:
             diagnostics.append(
                 _diagnostic(
                     "decision_closure",
@@ -522,9 +500,7 @@ def _strict_findings_are_authoritative(
         evidence_by_finding[finding_ref] = tuple(references)
         findings_by_ref[finding_ref] = finding
     for decision in decisions:
-        linked_findings = [
-            reference for reference in decision.parent_refs if reference in evidence_by_finding
-        ]
+        linked_findings = [reference for reference in decision.parent_refs if reference in evidence_by_finding]
         status = decision.payload.get("status")
         slot_id = decision.payload.get("decision_slot_id")
         target_id = decision.payload.get("blueprint_target_id")
@@ -624,9 +600,7 @@ def _strict_findings_are_authoritative(
                 for item in resolver.ledger.load_run(decision.round_id).artifacts
                 if item.kind in {"contradiction-packet", "contradiction-resolution", "contradiction-retraction"}
             ]
-            packet_payloads = [
-                item.payload for item in contradiction_artifacts if item.kind == "contradiction-packet"
-            ]
+            packet_payloads = [item.payload for item in contradiction_artifacts if item.kind == "contradiction-packet"]
             resolution_payloads = [
                 item.payload for item in contradiction_artifacts if item.kind == "contradiction-resolution"
             ]
@@ -762,9 +736,7 @@ def _apply_risk_verification(
         )
         resolved = resolved_by_signature.get(signature)
         if resolved is None:
-            raise InvalidReadinessError(
-                "risk verification executed check failure is absent from its failure list"
-            )
+            raise InvalidReadinessError("risk verification executed check failure is absent from its failure list")
         check["failure"] = dict(resolved)
 
     evidence["failures"] = resolved_failures
@@ -796,22 +768,14 @@ def _resolve_verification_failure_target(
     if work_item_id is not None:
         work = latest_work.get(work_item_id)
         if work is None:
-            raise InvalidReadinessError(
-                f"{label}.work_item_id must identify a current-round Work Item"
-            )
+            raise InvalidReadinessError(f"{label}.work_item_id must identify a current-round Work Item")
         work_slot = _identifier(work.payload.get("decision_slot_id"), f"Work Item {work.id} decision_slot_id")
         if slot_id is not None and slot_id != work_slot:
-            raise InvalidReadinessError(
-                f"{label} names a Work Item owned by a different Decision Slot"
-            )
+            raise InvalidReadinessError(f"{label} names a Work Item owned by a different Decision Slot")
         slot_id = work_slot
     if slot_id is None:
         slot_id = next(
-            (
-                candidate
-                for candidate in _stable_slot_order(slots)
-                if slots[candidate].get("priority") == "P0"
-            ),
+            (candidate for candidate in _stable_slot_order(slots) if slots[candidate].get("priority") == "P0"),
             None,
         )
     if slot_id is None:
@@ -828,9 +792,7 @@ def _index_ledgers(
     for ledger in decisions:
         slot_id = _identifier(ledger.payload.get("decision_slot_id"), "ledger decision_slot_id")
         if slot_id in indexed:
-            raise InvalidReadinessError(
-                f"technical package traces multiple Decision Ledger entries for slot {slot_id}"
-            )
+            raise InvalidReadinessError(f"technical package traces multiple Decision Ledger entries for slot {slot_id}")
         indexed[slot_id] = ledger
     return indexed
 
@@ -846,9 +808,7 @@ def _index_implementation_plan(
             _identifier(item.get("change_task_id"), "implementation task change_task_id"),
         )
         if key in indexed:
-            raise InvalidReadinessError(
-                "technical package implementation_plan repeats a decision change task"
-            )
+            raise InvalidReadinessError("technical package implementation_plan repeats a decision change task")
         indexed[key] = item
     return indexed
 
@@ -890,9 +850,7 @@ def _ensure_package_decision_lineage(
             )
 
 
-def _expected_decision_record(
-    slot: Mapping[str, Any], ledger: ArtifactRevision
-) -> dict[str, Any]:
+def _expected_decision_record(slot: Mapping[str, Any], ledger: ArtifactRevision) -> dict[str, Any]:
     data = _mapping(ledger.payload, f"Decision Ledger {ledger.id}")
     return {
         "decision_id": ledger.id,
@@ -945,14 +903,10 @@ def _expected_blueprint_closure(
     }
 
 
-def _evaluate_intent(
-    document: Mapping[str, Any], sources: Mapping[str, Any], diagnostics: list[dict[str, Any]]
-) -> str:
+def _evaluate_intent(document: Mapping[str, Any], sources: Mapping[str, Any], diagnostics: list[dict[str, Any]]) -> str:
     intent_basis = _mapping(document["intent_basis"], "intent_basis")
     hypotheses = _mappings(intent_basis.get("hypotheses"), "intent hypotheses")
-    leading_ids = _strings(
-        sources["brief"].payload.get("intent_hypothesis_ids"), "brief hypotheses"
-    )
+    leading_ids = _strings(sources["brief"].payload.get("intent_hypothesis_ids"), "brief hypotheses")
     viable_ids = _strings(
         sources["brief"].payload.get("viable_intent_hypothesis_ids"),
         "brief viable hypotheses",
@@ -963,9 +917,7 @@ def _evaluate_intent(
         for item in _mappings(sources["model"].payload.get("hypotheses"), "intent model hypotheses")
         if item.get("id") in brief_ids
     }
-    visible_hypotheses = {
-        _identifier(item.get("id"), "intent hypothesis id"): item for item in hypotheses
-    }
+    visible_hypotheses = {_identifier(item.get("id"), "intent hypothesis id"): item for item in hypotheses}
     exact_model_projection = {
         hypothesis_id: {
             field: model_hypothesis[field]
@@ -1106,12 +1058,11 @@ def _evaluate_p0_chain(
             for anchor in anchors
             if anchor.get("kind") == "finding" and _is_nonempty(anchor.get("ref"))
         }
-        linked_finding_ids = {
-            ref.artifact_id for ref in ledger.parent_refs if ref.artifact_id in findings_by_id
-        }
+        linked_finding_ids = {ref.artifact_id for ref in ledger.parent_refs if ref.artifact_id in findings_by_id}
         selected = record.get("selected_option")
         selected_effect = any(
-            selected in {
+            selected
+            in {
                 effect.get("option")
                 for effect in _mappings(finding.payload.get("option_effects"), "finding option_effects")
             }
@@ -1133,16 +1084,10 @@ def _evaluate_p0_chain(
         greenfield = bool(_strings(slot.get("greenfield_assumptions"), "greenfield_assumptions"))
         tasks = _mappings(record.get("change_tasks"), "change_tasks")
         task_valid = bool(tasks) and all(
-            _is_nonempty(task.get("description")) and _is_nonempty(task.get("acceptance_oracle"))
-            for task in tasks
+            _is_nonempty(task.get("description")) and _is_nonempty(task.get("acceptance_oracle")) for task in tasks
         )
-        expected_plan_keys = {
-            (slot_id, ledger.id, _identifier(task.get("id"), "change task id"))
-            for task in tasks
-        }
-        actual_plan_keys = {
-            key for key in implementation_plan if key[:2] == (slot_id, ledger.id)
-        }
+        expected_plan_keys = {(slot_id, ledger.id, _identifier(task.get("id"), "change task id")) for task in tasks}
+        actual_plan_keys = {key for key in implementation_plan if key[:2] == (slot_id, ledger.id)}
         plan_valid = expected_plan_keys == actual_plan_keys and all(
             _plan_item_matches_task(
                 implementation_plan[key],
@@ -1155,7 +1100,8 @@ def _evaluate_p0_chain(
         )
         if status in {"selected", "conditional"} and (
             not _is_nonempty(record.get("design_consequence"))
-            or not has_touchpoint and not greenfield
+            or not has_touchpoint
+            and not greenfield
             or not task_valid
             or not _has_validation(record)
             or not plan_valid
@@ -1255,9 +1201,10 @@ def _evaluate_repository_fit(
                         )
                     )
     p0_slots = [slot for slot in slots.values() if slot.get("priority") == "P0"]
-    if not checks and p0_slots and all(
-        _strings(slot.get("greenfield_assumptions"), "greenfield_assumptions")
-        for slot in p0_slots
+    if (
+        not checks
+        and p0_slots
+        and all(_strings(slot.get("greenfield_assumptions"), "greenfield_assumptions") for slot in p0_slots)
     ):
         return "not_applicable", checks
     return ("fail" if failed else "pass"), checks
@@ -1296,21 +1243,10 @@ def _evaluate_operational(
     rollback = _mappings(handoff.get("rollback"), "operational_handoff.rollback")
     implementation_plan = _mappings(document.get("implementation_plan"), "implementation_plan")
     rollout_items = _mappings(rollout.get("items"), "operational_handoff.rollout.items")
-    expected_tasks = {
-        (item.get("decision_slot_id"), item.get("change_task_id")): item
-        for item in implementation_plan
-    }
-    actual_rollouts = {
-        (item.get("decision_slot_id"), item.get("change_task_id")): item
-        for item in rollout_items
-    }
-    actual_rollbacks = {
-        (item.get("decision_slot_id"), item.get("change_task_id")): item
-        for item in rollback
-    }
-    expected_rollout_status = (
-        "derived_from_ordered_change_tasks" if expected_tasks else "unknown"
-    )
+    expected_tasks = {(item.get("decision_slot_id"), item.get("change_task_id")): item for item in implementation_plan}
+    actual_rollouts = {(item.get("decision_slot_id"), item.get("change_task_id")): item for item in rollout_items}
+    actual_rollbacks = {(item.get("decision_slot_id"), item.get("change_task_id")): item for item in rollback}
+    expected_rollout_status = "derived_from_ordered_change_tasks" if expected_tasks else "unknown"
     rollout_complete = (
         rollout.get("status") == expected_rollout_status
         and len(actual_rollouts) == len(rollout_items)
@@ -1319,8 +1255,7 @@ def _evaluate_operational(
             actual_rollouts[key].get("order") == expected_tasks[key].get("order")
             and actual_rollouts[key].get("description") == expected_tasks[key].get("description")
             and actual_rollouts[key].get("validation") == expected_tasks[key].get("validation")
-            and actual_rollouts[key].get("repository_touchpoints")
-            == expected_tasks[key].get("repository_touchpoints")
+            and actual_rollouts[key].get("repository_touchpoints") == expected_tasks[key].get("repository_touchpoints")
             for key in expected_tasks
         )
     )
@@ -1370,10 +1305,7 @@ def _evaluate_operational(
 def _delivery_projection(
     tier: str, gates: Mapping[str, str], diagnostics: Sequence[Mapping[str, Any]]
 ) -> dict[str, Any]:
-    findings = [
-        {"gate": item["gate"], "summary": item["summary"]}
-        for item in diagnostics
-    ]
+    findings = [{"gate": item["gate"], "summary": item["summary"]} for item in diagnostics]
     ids: list[str] = []
     for item in diagnostics:
         recommended = item["recommended_work"]
@@ -1458,9 +1390,7 @@ def _resolve_touchpoint(root: Path, path: str, symbol: str | None) -> tuple[bool
     except (SyntaxError, ValueError):
         return False, "Python source cannot be parsed"
     definitions = {
-        node.name
-        for node in module.body
-        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        node.name for node in module.body if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
     }
     if symbol not in definitions:
         return False, f"top-level Python symbol {symbol!r} is absent"
@@ -1475,9 +1405,7 @@ def _has_validation(record: Mapping[str, Any]) -> bool:
 def _ensure_id_compatibility(artifacts: Sequence[ArtifactRevision], artifact_id: str) -> None:
     kinds = {item.kind for item in artifacts if item.id == artifact_id and item.kind != READINESS_RECORD_KIND}
     if kinds:
-        raise InvalidReadinessError(
-            f"readiness_id {artifact_id!r} is already used by kinds: {sorted(kinds)}"
-        )
+        raise InvalidReadinessError(f"readiness_id {artifact_id!r} is already used by kinds: {sorted(kinds)}")
 
 
 def _resolve_exact(

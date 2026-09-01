@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
+from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from .domain import ArtifactRef, RuntimeStoreError, canonical_json_bytes, validate_identifier
-
 
 DECISION_FRAME_KIND = "decision-frame"
 DECISION_FRAME_SCHEMA_VERSION = 1

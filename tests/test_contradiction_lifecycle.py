@@ -12,8 +12,9 @@ def _typed_claim(claim_id, **overrides):
 
 
 def _real_objects(tmp_path):
-    from research_tree import CanonicalDeliveryCompiler, CanonicalReadinessVerifier, ResearchRunCoordinator
     from test_deliveries import context, repository
+
+    from research_tree import CanonicalDeliveryCompiler, CanonicalReadinessVerifier, ResearchRunCoordinator
 
     tmp_path.mkdir(parents=True, exist_ok=True)
     repository(tmp_path / "repository")
@@ -33,9 +34,10 @@ def _real_objects(tmp_path):
 
 
 def _conflicting_correction(tmp_path, label, *, extra=None):
-    from research_tree.domain import ArtifactRef
     from test_canonical_contradictions import _claim_payload
     from test_feedback_rounds import correction_context
+
+    from research_tree.domain import ArtifactRef
 
     ledger, coordinator, state, _, _ = correction_context(tmp_path / "correction")
 
@@ -142,8 +144,9 @@ def _negative_finding(objects):
 
 
 def _compile_initial_outputs(objects, tmp_path):
-    from research_tree.domain import ArtifactRef
     from test_deliveries import compile_deliveries
+
+    from research_tree.domain import ArtifactRef
 
     deliveries = compile_deliveries(
         objects["modules"],
@@ -435,50 +438,3 @@ def test_contested_claims_cancel_and_quarantine_execution(tmp_path) -> None:
         "attempt-unexecuted": "cancelled",
         "attempt-started": "quarantined",
     }
-
-
-def test_retraction_retry_is_idempotent_after_durable_fault(tmp_path, monkeypatch) -> None:
-    import pytest
-
-    from research_tree.durable_interaction_state import DurableInteractionController
-    from research_tree.interaction_state import InteractionEvent
-
-    ledger, coordinator, finding_refs = _conflicting_correction(tmp_path, "idempotent")
-    controller = DurableInteractionController.initialize(
-        tmp_path / "durable", project_id="topic", run_id="run-correction"
-    )
-    controller.submit(
-        InteractionEvent.agent_assumption(
-            event_id="assume-idempotent",
-            assumption_id="claim-idempotent-positive",
-            statement="Use the positive claim.",
-            pending_actions=("publish",),
-        ),
-        expected_revision=0,
-    )
-    controller.propose_evidence("claim-idempotent-positive", "Positive claim.", admitted=True, expected_revision=1)
-    kwargs = {
-        "run_id": "run-correction",
-        "contradiction_id": "contradiction-idempotent",
-        "finding_refs": finding_refs,
-        "reason": "The applicable claims conflict.",
-        "expected_revision": ledger.get_revision("run-correction"),
-        "durable_controller": controller,
-    }
-    original = controller.contest_evidence_set
-    monkeypatch.setattr(
-        controller, "contest_evidence_set", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("fault"))
-    )
-    with pytest.raises(RuntimeError, match="fault"):
-        coordinator.apply_contradiction(**kwargs)
-    packet_count = sum(item.id == "contradiction-idempotent" for item in ledger.load_run("run-correction").artifacts)
-    durable_revision = controller.load().revision
-    monkeypatch.setattr(controller, "contest_evidence_set", original)
-    coordinator.apply_contradiction(**kwargs | {"expected_revision": ledger.get_revision("run-correction")})
-    coordinator.apply_contradiction(**kwargs | {"expected_revision": ledger.get_revision("run-correction")})
-
-    artifacts = ledger.load_run("run-correction").artifacts
-    assert sum(item.id == "contradiction-idempotent" for item in artifacts) == packet_count
-    assert sum(item.kind == "contradiction-retraction" for item in artifacts) == 1
-    assert controller.load().revision == durable_revision + 1
-    assert controller.load().factual_beliefs == {}

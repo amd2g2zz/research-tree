@@ -6,13 +6,14 @@ authorize a lifecycle transition or issue a closure token.
 
 from __future__ import annotations
 
-from collections import defaultdict
 import hashlib
 import json
+from collections import defaultdict
 from typing import Any, Mapping, Sequence
 
 from .domain import ArtifactRef, ArtifactRevision
 from .evidence_delta import EvidenceBaseline, measure_realized_delta
+from .origins import ORIGIN_TYPES
 from .run_ledger import RunLedger
 
 INSIGHT_SCHEMA_VERSION = 1
@@ -99,6 +100,10 @@ def synthesize_insights(
                 "claim": claim,
                 "source_refs": [anchor_ref],
                 "evidence_class": evidence_class,
+                # Issue #440: Finding Packs are worker/host artifacts, so the
+                # digest statement names its producer from the closed
+                # origin vocabulary.
+                "produced_by": "worker",
             }
             classified_statements.append(statement)
             (confirmed_facts if classification == "fact" else hypotheses).append(statement)
@@ -288,6 +293,14 @@ def validate_insight_digest(value: Mapping[str, Any]) -> None:
             raise ValueError("duplicate Finding Pack in insight digest")
         if slot_id not in slots:
             raise ValueError("classified statement references wrong active Decision Slot")
+        # Issue #440: every statement names its producer with a
+        # closed-vocabulary origin so consuming agents can discount
+        # retellings relative to verified facts.
+        produced_by = statement.get("produced_by")
+        if not isinstance(produced_by, str) or produced_by not in ORIGIN_TYPES:
+            raise ValueError(
+                f"insight digest statement produced_by must be one of {sorted(ORIGIN_TYPES)}; got {produced_by!r}"
+            )
         seen.add(statement_key)
     if not isinstance(value.get("realized_delta"), Mapping):
         raise ValueError("insight digest realized_delta must be a mapping")

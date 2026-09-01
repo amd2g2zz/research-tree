@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+from strategy_support import confirm_strategy
+
 from research_tree import ContentAddressedStore, DurableSourceCaptureService
 from research_tree.coordinator import ResearchRunCoordinator
 from research_tree.domain import ArtifactRef
@@ -19,7 +21,6 @@ from research_tree.search_portfolio import (
     SearchPortfolio,
     Subquestion,
 )
-from strategy_support import confirm_strategy
 
 
 def _coordinator(tmp_path):
@@ -272,7 +273,7 @@ def worker_finished_event(
             "attempt_id": "attempt-1",
             "expected_revision": ledger.get_revision("run-portfolio"),
             "sequence": 1,
-            "actor": "worker-1",
+            "actor": "worker",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "payload": payload,
             "payload_digest": payload_digest(payload),

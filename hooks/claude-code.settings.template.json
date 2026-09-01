@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --locked research-tree-hook --host claude --event SessionStart",
+            "command": "python \"D:/absolute/path/to/packages/claude-code/research-tree/skills/research-tree/scripts/lifecycle_hook_launcher.py\" --host claude --event SessionStart || exit 0",
             "timeout": 10
           }
         ]
@@ -17,7 +17,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --locked research-tree-hook --host claude --event SessionEnd",
+            "command": "python \"D:/absolute/path/to/packages/claude-code/research-tree/skills/research-tree/scripts/lifecycle_hook_launcher.py\" --host claude --event SessionEnd || exit 0",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"D:/absolute/path/to/packages/claude-code/research-tree/skills/research-tree/scripts/lifecycle_hook_launcher.py\" --host claude --event UserPromptSubmit || exit 0",
             "timeout": 10
           }
         ]
@@ -28,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --locked research-tree-hook --host claude --event PreCompact",
+            "command": "python \"D:/absolute/path/to/packages/claude-code/research-tree/skills/research-tree/scripts/lifecycle_hook_launcher.py\" --host claude --event PreCompact || exit 0",
             "timeout": 10
           }
         ]
@@ -39,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --locked research-tree-hook --host claude --event SubagentStop",
+            "command": "python \"D:/absolute/path/to/packages/claude-code/research-tree/skills/research-tree/scripts/lifecycle_hook_launcher.py\" --host claude --event SubagentStop || exit 0",
             "timeout": 10
           }
         ]
@@ -50,7 +61,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --locked research-tree-hook --host claude --event PostToolUse",
+            "command": "python \"D:/absolute/path/to/packages/claude-code/research-tree/skills/research-tree/scripts/lifecycle_hook_launcher.py\" --host claude --event PostToolUse || exit 0",
             "timeout": 10
           }
         ]
@@ -61,7 +72,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --locked research-tree-hook --host claude --event Stop",
+            "command": "python \"D:/absolute/path/to/packages/claude-code/research-tree/skills/research-tree/scripts/lifecycle_hook_launcher.py\" --host claude --event Stop || exit 0",
             "timeout": 10
           }
         ]

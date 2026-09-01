@@ -1,104 +1,111 @@
 ## Claude Code runtime adapter
 
-This is the Claude Code package of `research-tree`. Invoke with `/research-tree`
-and use only capabilities exposed by the current session; never call tools from
-another host merely because they appear in examples.
+The SKILL body carries the activation state machine, protocols 1-6, and the
+goal model; this adapter adds only Claude Code host differences and never
+duplicates a SKILL protocol.
 
 ### Activation probe
 `research-tree-activation-contract:v1:claude`
 Follow `references/skill-activation.md`: only exact `/research-tree activation-probe v1 <correlation-id>` or its plugin-qualified form may return only `research-tree-activation:v1:claude:<correlation-id>` without tools; paths and links are `activation_unverified`.
 
+### Host conventions
+
 - Resolve bundled resources from the active skill directory, including
-  `${CLAUDE_SKILL_DIR}` when the host provides it. Do not resolve
-  `references/` or `assets/` from the user's working directory.
-- Read `references/claude-code-compatibility.md` before the first alignment or
-  research action, as well as before Claude-specific installation or hooks.
-  Before handoff, delegation, compaction, or recovery, also read
-  `references/claude-native-orchestration.md`.
-- When the current session exposes `AskUserQuestion`, use it only for a rare
-  discrete decision after open-ended intent guidance and before the Research
-  Strategy handoff. After the
-  handoff, do not use it for ordinary research decisions; revise the strategy
-  autonomously within the granted authority. Otherwise use ordinary dialogue
-  during pre-handoff alignment; never assume `AskUserQuestion`,
-  `ask_user_question`, or another host tool exists.
-- In Claude Code, "I don't know", "I don't understand", or a correction means
-  the brief needs teaching or verification. Explain the missing context in
-  plain language, update the Living Brief, and continue the bounded research
-  cycle; never treat it as a stop signal.
-- When the requester gives a concrete failure mode, inspect the relevant source,
-  consult available documentation or web search, and try safe alternatives
-  before asking another generic preference question. Do not finish after only
-  listing causes, options, or proposed fixes; return an evidence-bearing interim
-  result in the same turn. Ask only for a consequential choice that cannot be
-  recovered autonomously.
-- Treat the installed package as read-only; keep research reports, briefs,
-  evidence ledgers, and other task artifacts in the writable workspace.
-- After strategy handoff, map ready waves onto Claude Code's native task list
-  and Agent tool when exposed. Launch independent agents together, use
-  background execution only when the host supports it, and continue coordinator
-  work instead of polling. Use an agent team only when workers must debate or
-  exchange discoveries; independent research remains cheaper and clearer as
-  isolated leaf agents.
-- Treat subagent messages as self-reports. Read the requested Finding Pack,
-  inspect decisive evidence, and reconcile contradictions before updating the
-  shared ledger. Keep auto-memory and conversation resume as secondary context;
-  the workspace checkpoint is authoritative after compaction or restart.
-- Dispatch an Agent only after `start`, then bind the exact returned child
-  identity with `bind-agent`. Claude Finding Pack submission fails without the
-  active attempt binding, and one child identity cannot bind two attempts. The
-  `PostToolUse:Agent` and `SubagentStop` hooks retain only sanitized opaque
-  identity fields; unmatched identity remains `unknown_outcome`.
+  `${CLAUDE_SKILL_DIR}` when provided; never from the user's working
+  directory. The installed package is read-only; artifacts live in the
+  writable workspace.
+- Read `references/claude-code-compatibility.md` before the first alignment
+  or research action and before installation or hooks. Read
+  `references/claude-native-orchestration.md` before handoff, delegation,
+  compaction, or recovery.
+- When the session exposes `AskUserQuestion`, use it only for a rare discrete
+  decision after open-ended intent guidance and before strategy handoff;
+  never assume the tool exists, and never call another host's tool merely
+  because an example names it. In Claude Code, "I don't know" or a correction
+  means teach and verify, never stop.
+- After handoff, map ready waves onto Claude Code's native task list and
+  Agent tool when exposed: launch independent agents together, continue
+  coordinator work instead of polling, and use an agent team only when
+  workers must debate. Dispatch an Agent only after `start`, bind the
+  returned child identity with `bind-agent` (one identity never binds two
+  attempts), and treat subagent messages as self-reports to verify against
+  artifacts. The `PostToolUse:Agent` and `SubagentStop` hooks keep only
+  sanitized opaque identity; unmatched identity stays `unknown_outcome`.
+  Auto-memory and resume are secondary; the workspace checkpoint is
+  authoritative after compaction or restart.
 - After handoff, use `scripts/native_execution_adapter.py` with host argument
   `claude` for atomic task attempts, crash recovery, Finding Pack validation,
-  and completion checks when Python is available. The native task list mirrors
-  this state; it does not replace it.
-- In source-checkout development, use `context-record` and `context-receipt` to
-  bound source reads. Unchanged rereads are explicitly `cached` or `replayed`;
-  active run outputs require digest-bound `context-seal` before use. A
-  `budget_exceeded` checkpoint only permits `context-resume` and remains
+  and completion checks when Python is available; the native task list
+  mirrors state, it never replaces it.
+- Host hooks run the fail-open launcher `scripts/lifecycle_hook_launcher.py`
+  with system Python; it imports the packaged `scripts/lifecycle_hook.py`,
+  `scripts/origins.py`, and `scripts/skill_activation.py` when the workspace
+  is not a checkout. Commands never use `uv run`, end with `|| exit 0`, and
+  include `UserPromptSubmit` (claude and codex; Hermes has no user-prompt
+  event, N/A). Prompt signals persist sanitized classification metadata only:
+  never the prompt text.
+- In source-checkout development, use `context-record` and `context-receipt`
+  to bound source reads; unchanged rereads stay `cached` or `replayed`, and
+  active run outputs stay excluded until `context-seal` binds their digest. A
+  `budget_exceeded` checkpoint permits only `context-resume` and remains
   `unknown`, not complete.
-- When the checkout runtime is available, use the stable lifecycle sequence
-  `research-tree install`, `research-tree doctor`, `research-tree run`,
-  `research-tree resume`, `research-tree status`, and `research-tree verify`.
-  Supply ordinary workspace and plain-language authority inputs, never
-  HostEvent or SQLite inputs. `prepared` and
-  `verification_pending` remain non-authoritative receipts with no completion
+- Use the stable lifecycle sequence `research-tree install`,
+  `research-tree doctor`, `research-tree run`, `research-tree resume`,
+  `research-tree status`, and `research-tree verify`
+  when the checkout runtime is available; otherwise persist the equivalent
+  intent in workspace artifacts. Supply ordinary workspace and plain-language
+  authority inputs, never HostEvent or SQLite inputs; `prepared` and
+  `verification_pending` are non-authoritative receipts with no completion
   authority.
 - Before selecting dynamic phases, run `probe-host` with explicit session
-  capability observations. Build bounded phase/child projections with
-  `project-workflow`, explicitly selecting Agent, Workflow, or hybrid mode. A
-  failed or denied native surface selects `coordinator-dispatch-v1`; never infer
-  availability from a task-list UI or reuse a stale capability digest. Live
-  Workflow and hybrid claims additionally require native run/task/script
-  identity, a script digest, phase IDs, and hybrid child IDs.
-- The installed package contains `SKILL.md`, bundled references/assets, and the
-  dependency-free native execution adapter. It does not contain the repository
-  Python runtime, lifecycle hooks, builder, or evaluation corpus.
+  capability observations and build bounded projections with
+  `project-workflow`. A failed or denied native surface selects
+  `coordinator-dispatch-v1`; never infer availability from a task-list UI or
+  reuse a stale capability digest.
+- The installed package holds `SKILL.md`, bundled references and assets, and
+  the dependency-free native execution adapter — not the repository Python
+  runtime, hooks, builder, or evaluation corpus.
+
+### Slot-only dispatch (Claude)
+
+Dispatch only after explicit handoff. Give each worker only the Decision Slot, its source boundary, stop condition, and Finding Pack schema.
+A worker MUST NOT receive the strategy projection digest, primary goal text, or other slots.
+Map slots to Claude task-list waves and verify returned Finding Packs
+against the slot's closure oracle before ingestion; the coordinator owns
+synthesis, and workers never see each other's slots.
+
+### Governance entry points
+
+When interrupted use the correction protocol (`CorrectionEvent` kind
+`correction` or `reopen` committed via `apply_correction`) and, for a
+contradicted delivery, `apply_contradiction`
+when the checkout runtime is available; otherwise persist the equivalent
+intent in workspace artifacts. Before `strategy display` and before delivery
+acceptance, dispatch a fresh Claude Code Agent — never your own session — to
+independently restate the projection or judge each oracle against the Finding
+Packs; self-issued reviews are rejected by the runtime gates. After delivery
+collect one of the
+`ACCEPTANCE_DECISIONS` via `DeliveryAcceptance`; echo status from
+`research-tree status` before any user-visible status message
+when the checkout runtime is available; otherwise persist the equivalent
+intent in workspace artifacts. The protocol semantics live in the SKILL
+body; the host adds nothing.
 
 ### Source checkout development boundary
 
-When Claude Code is operating inside the `research-tree` source checkout and
-the requester explicitly asks for development, packaging, hooks, or evaluation
-work, these repository paths are available:
-
-| Path | Role | Development contract |
-| --- | --- | --- |
-| `hooks/research_hook.py` | Lifecycle hook launcher | Run through `uv run` from the checkout; it imports `research_tree` and is not part of the installed skill package. |
-| `src/research_tree/` | Python artifact runtime | Edit only when the task changes runtime behavior; use the public API and run the full test suite. |
-| `scripts/` | Host package builder and Hermes staging/validation tools | Run `uv run --frozen python scripts/build_skill_packages.py --check` after package-affecting changes. |
-| `evaluation/` | Evaluation cases and forward-test material | Treat as development/evaluation input, not as a user research source or runtime dependency. |
-
-Before using these paths, verify the checkout with `pyproject.toml`, `src/`,
-`skill-src/`, and `packages/`. Run `uv sync` first. Do not claim that an
-installed `/research-tree` package can execute these files; when the checkout
-is unavailable, report the missing development capability and continue with
-the host-native skill workflow.
+When Claude Code operates inside the `research-tree` checkout at the
+requester's explicit request, the repository paths are: hooks/research_hook.py
+(lifecycle hook launcher, run through `uv run`), src/research_tree/ (runtime,
+edit via public API plus full suite), scripts/ (builder and staging tools —
+after package-affecting changes run the package build check), and evaluation/
+(development input only). Verify the checkout by its pyproject.toml, src/,
+skill-src/, and packages/ markers, run `uv sync` first, and when the checkout
+is unavailable report the missing development capability and continue with
+the host-native workflow. Do not claim an installed package can execute these
+files.
 
 ### Claude Code hooks
 
-`research-tree-setup install` deploys lifecycle hooks into Claude Code's global
-settings while preserving unrelated configuration. The hook is fail-open and
-returns immediately without writing state when no Research Tree project/run is
-active. Repository-local run-bound hooks remain an operator workflow described
-in the compatibility reference.
+`research-tree-setup install` deploys fail-open lifecycle hooks into global
+settings, preserving unrelated configuration; the hook returns immediately
+without writing state when no project/run is active.

@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
 import pytest
 
 from research_tree.lifecycle_hook import observe
@@ -15,7 +16,6 @@ from research_tree.skill_activation import (
     loader_integrity_status,
     validate_loader_receipt,
 )
-
 
 ROOT = Path(__file__).resolve().parents[1]
 ADAPTER = ROOT / "scripts" / "hermes_skill_adapter.py"
@@ -161,7 +161,9 @@ def test_installed_hook_records_one_sanitized_skill_load_event(tmp_path: Path) -
 
 def test_official_hermes_loader_preserves_start_middle_and_tail_of_skill(tmp_path: Path) -> None:
     if shutil.which("docker") is None:
-        return
+        pytest.skip("docker CLI absent; hermes loader conformance cannot run")
+    if subprocess.run(["docker", "info"], capture_output=True, check=False, timeout=30).returncode != 0:
+        pytest.skip("docker CLI present but daemon unreachable; start Docker Desktop to run this test")
     home = tmp_path / "hermes-home"
     package = home / "skills" / "research-tree"
     shutil.copytree(ROOT / "packages" / "hermes" / "research-tree", package)

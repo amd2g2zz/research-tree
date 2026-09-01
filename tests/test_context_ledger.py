@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
 
-from research_tree.context_cost import evaluate_context_cost
-from research_tree.context_ledger import ContextBudget, ContextLedgerError, ContextReadLedger
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from context_ledger_contract import ContextBudget, ContextLedgerError, ContextReadLedger  # noqa: E402
 
 
 def ledger(workspace: Path, budget: ContextBudget | None = None) -> ContextReadLedger:
@@ -111,29 +114,3 @@ def test_budget_exhaustion_is_resumable_unknown_checkpoint(tmp_path: Path) -> No
     assert resumed["execution_state"] == "unknown"
     assert resumed["wave"] == 2
     assert resumed["checkpoint"] is None
-
-
-def test_context_cost_diagnostic_requires_duplicate_reduction_without_coverage_loss(tmp_path: Path) -> None:
-    baseline_workspace = tmp_path / "baseline"
-    baseline_workspace.mkdir()
-    baseline_source = baseline_workspace / "source.md"
-    baseline_source.write_text("evidence", encoding="utf-8")
-    baseline_ledger = ledger(baseline_workspace)
-    baseline_ledger.record_read(baseline_source, consumer="a", phase="landscape")
-    baseline = baseline_ledger.record_read(baseline_source, consumer="a", phase="validation")
-
-    candidate_workspace = tmp_path / "candidate"
-    candidate_workspace.mkdir()
-    candidate_source = candidate_workspace / "source.md"
-    candidate_source.write_text("evidence", encoding="utf-8")
-    candidate_ledger = ledger(candidate_workspace)
-    candidate = candidate_ledger.record_read(candidate_source, consumer="a", phase="landscape")
-
-    diagnostic = evaluate_context_cost(baseline, candidate)
-
-    assert diagnostic["status"] == "observed"
-    assert diagnostic["diagnostic_only"] is True
-    assert diagnostic["semantic_quality"] == "not_assessed"
-    assert diagnostic["completion_authority"] == "none"
-    assert diagnostic["coverage_retained"] is True
-    assert diagnostic["duplicate_reduction"] == 1.0

@@ -7,7 +7,6 @@ from pathlib import Path
 from research_tree.decision_frame import DecisionFrame
 from research_tree.domain import canonical_json_bytes
 
-
 ROOT = Path(__file__).parents[1]
 CASE = ROOT / "openspec/changes/clarify-intent-before-strategy/evidence/intent-decision-frame-black-box-v1.json"
 

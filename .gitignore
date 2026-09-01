@@ -71,15 +71,22 @@ pytestdebug.log
 # Repository-local installed skills and runtime state. These paths are never
 # cleaned by repository tooling; see the governed path registry.
 .agents/
+# runtime config (settings, logs, skills cache)
 .claude/
+!.claude/skills/            # team-shareable agent skills (project subagents load these)
+!.claude/agents/            # team-shareable custom subagent definitions
 .codex/
 .research-tree/
+
+# Alpha3 sprint worktrees and transient scaffolding
+/tmp/rt-alpha3-wt/
 
 # Rebuildable or operator-owned local output.
 build/
 dist/
 raw/
 research-runs/
+.smoke-workspace/
 evaluation/experiences/
 .pytest_cache/
 .ruff_cache/

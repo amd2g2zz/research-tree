@@ -53,8 +53,8 @@ def test_active_authority_does_not_advertise_the_retired_scheduler() -> None:
     registry_root = umbrella / "registries"
     active_sources = (
         root / "PRODUCT.md",
-        root / "docs" / "方案设计.md",
-        root / "docs" / "需求理解.md",
+        root / "docs" / "history" / "方案设计.md",
+        root / "docs" / "history" / "需求理解.md",
         root / "references" / "blueprint-generation-research.md",
         umbrella / "proposal.md",
         umbrella / "tasks.md",

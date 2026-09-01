@@ -11,12 +11,81 @@ import hashlib
 from typing import Any, Mapping, Sequence
 
 from .acceptance import DeliveryAcceptance, delivery_pair_digest
-from .domain import ArtifactRef, ArtifactRevision, canonical_json_bytes, thaw_json, validate_identifier
+from .domain import (
+    ArtifactRef,
+    ArtifactRevision,
+    DataIntegrityError,
+    canonical_json_bytes,
+    thaw_json,
+    validate_identifier,
+)
 from .run_ledger import LedgerIntegrityError, RunLedger
 
 
 class CompletionInputError(LedgerIntegrityError):
     """Raised when a proposed canonical completion input is not admissible."""
+
+
+GOAL_SATISFACTION_ROLE = "goal_satisfaction"
+GOAL_SATISFACTION_KIND = "goal-satisfaction"
+GOAL_SATISFACTION_VERDICTS = ("satisfied", "partial", "unmet", "waived")
+# Issue #471: the canonical ledger principal the coordinator itself writes
+# under. A review claiming this principal (directly or via a declared identity)
+# is coordinator self-issuance and can never satisfy an independent gate.
+COORDINATOR_ISSUER = "coordinator"
+# Ledger artifact kinds a goal_satisfaction verdict may cite as evidence. The
+# PRD also lists "experiment result"; no such artifact kind exists in the
+# runtime, so the set covers the three existing evidence classes.
+GOAL_SATISFACTION_EVIDENCE_KINDS = frozenset(
+    {"finding-pack", "slot-closure-assessment", "goal-contribution-assessment"}
+)
+
+
+def validate_goal_satisfaction_payload(payload: Any) -> dict[str, Any]:
+    """Validate one per-oracle goal_satisfaction payload and return its normalized fields.
+
+    Every field violation raises ``CompletionInputError`` naming the field, so a
+    rejected registration always says which key was inadmissible.
+    """
+
+    required = {"schema", "oracle_id", "verdict", "evidence_refs", "waiver_reason"}
+    if not isinstance(payload, Mapping):
+        raise CompletionInputError("goal_satisfaction payload must be an object")
+    if set(payload) != required:
+        raise CompletionInputError("goal_satisfaction payload fields do not match schema")
+    if payload["schema"] != 1:
+        raise CompletionInputError("goal_satisfaction payload schema must be 1")
+    oracle_id = payload["oracle_id"]
+    if not isinstance(oracle_id, str) or not oracle_id.strip():
+        raise CompletionInputError("goal_satisfaction oracle_id must be a non-empty string")
+    verdict = payload["verdict"]
+    if verdict not in GOAL_SATISFACTION_VERDICTS:
+        raise CompletionInputError("goal_satisfaction verdict must be one of: satisfied, partial, unmet, waived")
+    refs_value = payload["evidence_refs"]
+    if not isinstance(refs_value, (list, tuple)) or isinstance(refs_value, (str, bytes)):
+        raise CompletionInputError("goal_satisfaction evidence_refs must be a sequence of artifact references")
+    evidence_refs: list[ArtifactRef] = []
+    for value in refs_value:
+        try:
+            evidence_refs.append(ArtifactRef.from_dict(value))
+        except (DataIntegrityError, TypeError, ValueError) as error:
+            raise CompletionInputError("goal_satisfaction evidence_refs entries must be artifact references") from error
+    waiver_reason = payload["waiver_reason"]
+    if waiver_reason is not None and (not isinstance(waiver_reason, str) or not waiver_reason.strip()):
+        raise CompletionInputError("goal_satisfaction waiver_reason must be a non-empty string or null")
+    if verdict == "waived":
+        if waiver_reason is None:
+            raise CompletionInputError("waived verdict requires a non-empty waiver_reason")
+    elif waiver_reason is not None:
+        raise CompletionInputError(f"{verdict} verdict requires waiver_reason: null")
+    if verdict in {"satisfied", "partial"} and not evidence_refs:
+        raise CompletionInputError(f"{verdict} verdict requires non-empty evidence_refs")
+    return {
+        "oracle_id": oracle_id,
+        "verdict": verdict,
+        "evidence_refs": tuple(evidence_refs),
+        "waiver_reason": waiver_reason,
+    }
 
 
 class CompletionInputRegistrar:
@@ -258,6 +327,163 @@ class CompletionInputRegistrar:
             expected_revision=expected_revision,
         )
 
+    def write_goal_satisfaction(
+        self,
+        *,
+        round_id: str,
+        registration_id: str,
+        oracle_id: str,
+        verdict: str,
+        evidence_refs: Sequence[ArtifactRef] = (),
+        waiver_reason: str | None = None,
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        """Register one per-oracle goal_satisfaction completion input (issuer: coordinator).
+
+        The payload's ``evidence_refs`` are bound to the registration's exact
+        parent lineage, so a satisfied/partial verdict can never cite evidence
+        the ledger does not hold.
+        """
+
+        round_id = validate_identifier(round_id, "round_id")
+        registration_id = validate_identifier(registration_id, "registration_id")
+        payload = {
+            "schema": 1,
+            "oracle_id": oracle_id,
+            "verdict": verdict,
+            "evidence_refs": [ref.to_dict() for ref in evidence_refs],
+            "waiver_reason": waiver_reason,
+        }
+        validated = validate_goal_satisfaction_payload(payload)
+        parents = _refs(validated["evidence_refs"])
+        return self._write(
+            round_id=round_id,
+            artifact_id=registration_id,
+            role=GOAL_SATISFACTION_ROLE,
+            kind=GOAL_SATISFACTION_KIND,
+            payload=payload,
+            parent_refs=parents,
+            issuer=COORDINATOR_ISSUER,
+            issuer_evidence={"oracle_id": validated["oracle_id"], "verdict": validated["verdict"]},
+            expected_revision=expected_revision,
+        )
+
+    def write_alignment_verification(
+        self,
+        *,
+        round_id: str,
+        verification_id: str,
+        payload: Mapping[str, Any],
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        """Register one independent alignment verification (issue #462).
+
+        The subagent-produced artifact binds its parent lineage to the exact
+        projection revision the verifier read, so a display gate can bind the
+        verification to the projection content through the authority
+        fingerprint carried in the payload.
+        """
+
+        from .independent_review import (
+            ALIGNMENT_VERIFICATION_KIND,
+            ALIGNMENT_VERIFICATION_ROLE,
+            IndependentReviewError,
+            validate_alignment_verification_payload,
+        )
+
+        round_id = validate_identifier(round_id, "round_id")
+        verification_id = validate_identifier(verification_id, "verification_id")
+        try:
+            validated = validate_alignment_verification_payload(thaw_json(dict(payload)))
+        except IndependentReviewError as error:
+            raise CompletionInputError(str(error)) from error
+        if validated["id"] != verification_id:
+            raise CompletionInputError("alignment verification payload id does not match verification_id")
+        if validated["round_id"] != round_id:
+            raise CompletionInputError("alignment verification payload round_id does not match round_id")
+        # Issue #471: the durable ledger principal is bound at write time to the
+        # declared identity pair through the ledger's secret run salt, so the
+        # gate judges independence against the registration's issuer rather
+        # than re-declared payload strings, and an out-of-process adversary
+        # cannot mint the principal from public material.
+        principal = self.ledger.verification_principal(
+            round_id, validated["verifier_identity"], validated["session_context"]
+        )
+        return self._write(
+            round_id=round_id,
+            artifact_id=verification_id,
+            role=ALIGNMENT_VERIFICATION_ROLE,
+            kind=ALIGNMENT_VERIFICATION_KIND,
+            payload=thaw_json(dict(payload)),
+            parent_refs=(validated["projection_ref"],),
+            issuer=principal,
+            issuer_evidence={
+                "principal": principal,
+                "verifier_identity": validated["verifier_identity"],
+                "session_context": validated["session_context"],
+                "authority_fingerprint": validated["authority_fingerprint"],
+            },
+            expected_revision=expected_revision,
+        )
+
+    def write_delivery_review(
+        self,
+        *,
+        round_id: str,
+        review_id: str,
+        payload: Mapping[str, Any],
+        expected_revision: int,
+    ) -> ArtifactRevision:
+        """Register one independent delivery review (issue #462).
+
+        The subagent-produced artifact binds its parent lineage to the exact
+        evidence custody references (finding packs) the verifier read, so the
+        delivery gate can re-verify custody at completion time. Issue #471: the
+        registration's durable issuer principal is bound at write time to the
+        declared identity pair.
+        """
+
+        from .independent_review import (
+            DELIVERY_REVIEW_KIND,
+            DELIVERY_REVIEW_ROLE,
+            IndependentReviewError,
+            validate_delivery_review_payload,
+        )
+
+        round_id = validate_identifier(round_id, "round_id")
+        review_id = validate_identifier(review_id, "review_id")
+        try:
+            validated = validate_delivery_review_payload(thaw_json(dict(payload)))
+        except IndependentReviewError as error:
+            raise CompletionInputError(str(error)) from error
+        if validated["id"] != review_id:
+            raise CompletionInputError("delivery review payload id does not match review_id")
+        if validated["round_id"] != round_id:
+            raise CompletionInputError("delivery review payload round_id does not match round_id")
+        # Issue #471: bind the durable ledger principal to the declared identity
+        # pair at write time through the ledger's secret run salt, mirroring the
+        # alignment verification write path.
+        principal = self.ledger.verification_principal(
+            round_id, validated["verifier_identity"], validated["session_context"]
+        )
+        parents = _refs(validated["evidence_custody"])
+        return self._write(
+            round_id=round_id,
+            artifact_id=review_id,
+            role=DELIVERY_REVIEW_ROLE,
+            kind=DELIVERY_REVIEW_KIND,
+            payload=thaw_json(dict(payload)),
+            parent_refs=parents,
+            issuer=principal,
+            issuer_evidence={
+                "principal": principal,
+                "verifier_identity": validated["verifier_identity"],
+                "session_context": validated["session_context"],
+                "verdict": validated["verdict"],
+            },
+            expected_revision=expected_revision,
+        )
+
     def write_evaluation(
         self,
         *,
@@ -417,4 +643,14 @@ def _acceptance_from_mapping(value: Mapping[str, Any]) -> DeliveryAcceptance:
     )
 
 
-__all__ = ["CompletionInputError", "CompletionInputRegistrar", "delivery_manifest_digest"]
+__all__ = [
+    "CompletionInputError",
+    "CompletionInputRegistrar",
+    "COORDINATOR_ISSUER",
+    "GOAL_SATISFACTION_EVIDENCE_KINDS",
+    "GOAL_SATISFACTION_KIND",
+    "GOAL_SATISFACTION_ROLE",
+    "GOAL_SATISFACTION_VERDICTS",
+    "delivery_manifest_digest",
+    "validate_goal_satisfaction_payload",
+]

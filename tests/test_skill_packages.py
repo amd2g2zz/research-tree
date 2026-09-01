@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from runpy import run_path
 import shutil
 import subprocess
 import sys
+from pathlib import Path
+from runpy import run_path
 
 from research_tree.skill_activation import HOST_MARKERS, package_digests
-
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILDER = ROOT / "scripts" / "build_skill_packages.py"
@@ -311,7 +310,7 @@ def test_all_host_packages_expose_opt_in_debug_tracing() -> None:
     for package in packages:
         skill_root = _skill_dir(package)
         skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
-        assert "research-tree-debug" in skill
+        assert "research-tree-debug" not in skill
         assert (skill_root / "references" / "debug-tracing.md").is_file()
 
 

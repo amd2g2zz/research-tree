@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
 
 import pytest
+from test_host_event_protocol import _coordinator, _event
 
 from research_tree import cli
 from research_tree.coordinator import CompletionBlockedError, IllegalTransitionError
-
-from test_host_event_protocol import _coordinator, _event
-
 
 ROOT = Path(__file__).resolve().parents[1]
 RETIRED_COMMANDS = (
@@ -69,7 +68,14 @@ def test_migration_console_surface_and_public_exports_are_removed() -> None:
 def _json_output(capsys: pytest.CaptureFixture[str]) -> dict:
     captured = capsys.readouterr()
     assert captured.err == ""
-    return json.loads(captured.out)
+    # Issue #440: stdout is wrapped in balanced rt:tool-output / rt:error
+    # tags; strip the wrapper and parse the JSON payload inside.
+    out = captured.out.strip()
+    open_match = re.search(r"<rt:(?:tool-output|error)[^>]*>", out)
+    if open_match:
+        close = "</rt:tool-output>" if "<rt:tool-output" in out else "</rt:error>"
+        out = out[open_match.end() : out.rindex(close)]
+    return json.loads(out)
 
 
 def _assert_envelope(payload: dict, run_id: str) -> None:
@@ -315,8 +321,15 @@ def test_stable_lifecycle_creates_a_durable_request_without_completion_authority
         == 4
     )
     verification = _json_output(capsys)
-    assert verification["status"] == "verification_pending"
-    assert verification["result"]["verification"] == "independent_completion_receipt_absent"
+    # Issue #382: with the run never reaching canonical initialization,
+    # ``coordinator.why_not_complete`` raises ``CoordinatorConflictError``
+    # which the narrowed except clause maps to ``verification_failed``
+    # (not the legacy ``verification_pending`` shortcut).
+    assert verification["status"] == "verification_failed"
+    verification_value = verification["result"]["verification"]
+    assert verification_value != "independent_completion_receipt_absent"
+    assert isinstance(verification_value, dict) and "verdict" in verification_value
+    assert verification_value["verdict"] == "canonical_conflict"
 
 
 def test_stable_install_and_doctor_report_digest_verified_readiness(

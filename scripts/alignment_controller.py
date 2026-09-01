@@ -4,6 +4,5 @@
 from research_tree.alignment_graph import *  # noqa: F403
 from research_tree.alignment_graph import main
 
-
 if __name__ == "__main__":
     raise SystemExit(main())

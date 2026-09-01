@@ -2,13 +2,35 @@
 
 from __future__ import annotations
 
+import hashlib
+import importlib.resources
+import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import hashlib
-import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .contradictions import (
+    DISPUTE_PACKET_KIND,
+    PROVIDER_VALIDATION_KIND,
+    ClaimBoundary,
+    ContradictionDetector,
+    ContradictionStatus,
+    DisputeAuditTrail,
+    DisputeDisposition,
+    DisputeDispositionError,
+    DisputePacket,
+    PressureLedger,
+    PressureSignal,
+    append_signal,
+    claim_from_mapping,
+    dispute_packet_from_payload,
+    evaluate_dispute,
+    render_contradiction_packet,
+)
+from .decision_frame import DECISION_FRAME_KIND, DecisionFrame
+from .decision_map import BLUEPRINT_TARGET_KIND
 from .domain import (
     ArtifactRef,
     ArtifactRevision,
@@ -17,14 +39,6 @@ from .domain import (
     canonical_json_bytes,
     thaw_json,
     validate_identifier,
-)
-from .host_events import HostEvent, HostEventError, HostEventSequenceError
-from .decision_frame import DECISION_FRAME_KIND, DecisionFrame
-from .strategy_projection import (
-    STRATEGY_PROJECTION_KIND,
-    StrategyProjection,
-    StrategyProjectionError,
-    macro_stage,
 )
 from .feedback import (
     CORRECTION_ACTION_ROLES,
@@ -35,16 +49,34 @@ from .feedback import (
     CorrectionBinding,
     CorrectionEvent,
 )
-from .contradictions import (
-    ClaimBoundary,
-    ContradictionDetector,
-    ContradictionStatus,
-    claim_from_mapping,
-    render_contradiction_packet,
+from .host_attempts import HostAttemptError, outcome_from_mapping, worker_finished_eligible
+from .host_events import HostEvent, HostEventError, HostEventSequenceError
+from .independent_review import (
+    ALIGNMENT_VERIFICATION_ROLE,
+    DELIVERY_REVIEW_ROLE,
+    IndependentReviewError,
+    validate_alignment_verification_payload,
+    validate_delivery_review_payload,
+    verify_independent_review_principal,
 )
+from .policy import AdaptiveResearchPolicy
 from .run_ledger import LedgerConflictError, RunLedger
-from .source_capture import ACQUISITION_RECEIPT_KIND, ANALYSIS_CHECKPOINT_KIND, SOURCE_CAPTURE_KIND
 from .search_portfolio import PortfolioExecution, SearchPortfolio
+from .source_capture import ACQUISITION_RECEIPT_KIND, ANALYSIS_CHECKPOINT_KIND, SOURCE_CAPTURE_KIND
+from .strategy_projection import (
+    STRATEGY_PROJECTION_INVALIDATION_KIND,
+    STRATEGY_PROJECTION_INVALIDATION_SCHEMA_VERSION,
+    STRATEGY_PROJECTION_KIND,
+    StrategyProjection,
+    StrategyProjectionError,
+    authority_fingerprint,
+    has_confirmation_history,
+    latest_confirmed,
+    macro_stage,
+    validate_falsifiability,
+    validate_strategy_projection_invalidation,
+)
+from .work_items import WORK_ITEM_KIND, CanonicalWorkItemCompiler
 
 FINDING_PACK_KIND = "finding-pack"
 CONTRADICTION_PACKET_KIND = "contradiction-packet"
@@ -56,6 +88,8 @@ SEARCH_PORTFOLIO_LINEAGE_KIND = "search-portfolio-lineage"
 HUMAN_DECISION_REOPEN_KIND = "human-decision-reopen"
 TECHNICAL_PACKAGE_KIND_ALIAS = "technical-research-package"
 HUMAN_RESEARCH_REPORT_KIND = "human-research-report"
+
+logger = logging.getLogger(__name__)
 
 
 LIFECYCLE_STATES = (
@@ -90,8 +124,22 @@ CORRECTION_SENSITIVE_EVENTS = frozenset(
 )
 
 
+GOAL_CONTRIBUTION_ASSESSMENT_KIND = "goal-contribution-assessment"
+CONTRIBUTION_VERDICTS = ("advances", "partial", "no_contribution", "contradicts")
+_CONTRIBUTION_BLOCKING_VERDICTS = frozenset({"no_contribution", "contradicts"})
+
+
 class CoordinatorError(RuntimeStoreError):
     """Base coordinator boundary error."""
+
+
+class CoordinatorConfigError(CoordinatorError):
+    """Raised when the canonical governance matrix is missing or malformed.
+
+    ADR-002 mandates that the lifecycle transition matrix is the single
+    authority. Silent fallback to a hardcoded table violates that
+    contract by hiding governance drift.
+    """
 
 
 class CoordinatorConflictError(CoordinatorError):
@@ -100,6 +148,253 @@ class CoordinatorConflictError(CoordinatorError):
 
 class CoordinatorEventConflictError(CoordinatorConflictError):
     """Raised when one event id is reused with a changed payload."""
+
+
+def _projection_entry_ids(entries: Any) -> set[str]:
+    ids: set[str] = set()
+    for entry in entries or ():
+        if isinstance(entry, Mapping) and isinstance(entry.get("id"), str) and entry["id"].strip():
+            ids.add(entry["id"])
+        elif isinstance(entry, str) and entry.strip():
+            ids.add(entry)
+    return ids
+
+
+def _string_tokens(value: Any) -> set[str]:
+    """Non-empty trimmed string members of a sequence value."""
+
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        return set()
+    return {entry.strip() for entry in value if isinstance(entry, str) and entry.strip()}
+
+
+def _mapping_entries(value: Any) -> tuple[Mapping[str, Any], ...]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        return ()
+    return tuple(entry for entry in value if isinstance(entry, Mapping))
+
+
+def _served_evidence_standards(serves: Mapping[str, Any], projection: Mapping[str, Any]) -> dict[str, frozenset[str]]:
+    """Evidence standards declared per served success oracle (serves order kept)."""
+
+    served: dict[str, frozenset[str]] = {}
+    for oracle_id in serves.get("oracle_ids") or ():
+        if not isinstance(oracle_id, str) or not oracle_id.strip():
+            continue
+        standards: set[str] = set()
+        for oracle in _mapping_entries(projection.get("success_oracles")):
+            if oracle.get("id") == oracle_id:
+                standards |= _string_tokens(oracle.get("evidence_standard_ids"))
+        served[oracle_id] = frozenset(standards)
+    return served
+
+
+def _claim_evidence_tokens(pack: Mapping[str, Any], claim_id: str) -> frozenset[str]:
+    """Evidence tokens a claim actually carries: grounding identities, provenance
+    clusters, and the evidence artifacts its groundings and grounding refs name."""
+
+    tokens: set[str] = set()
+    for grounding in _mapping_entries(pack.get("claim_groundings")):
+        if grounding.get("claim_id") != claim_id:
+            continue
+        token = grounding.get("grounding_id")
+        if isinstance(token, str) and token.strip():
+            tokens.add(token.strip())
+        anchor = grounding.get("anchor")
+        if isinstance(anchor, Mapping):
+            token = anchor.get("ref")
+            if isinstance(token, str) and token.strip():
+                tokens.add(token.strip())
+            reference = anchor.get("artifact_ref")
+            if isinstance(reference, Mapping):
+                token = reference.get("artifact_id")
+                if isinstance(token, str) and token.strip():
+                    tokens.add(token.strip())
+    for assessment in _mapping_entries(pack.get("claim_assessments")):
+        if assessment.get("claim_id") != claim_id:
+            continue
+        tokens |= _string_tokens(assessment.get("grounding_ids"))
+        tokens |= _string_tokens(assessment.get("provenance_clusters"))
+        for reference in _mapping_entries(assessment.get("grounding_refs")):
+            token = reference.get("artifact_id")
+            if isinstance(token, str) and token.strip():
+                tokens.add(token.strip())
+    return frozenset(tokens)
+
+
+def _claim_oracle_mapping(
+    pack: Mapping[str, Any],
+    claim_id: str,
+    standards_by_oracle: Mapping[str, frozenset[str]],
+) -> tuple[str, str] | None:
+    """First served oracle whose evidence standards intersect the claim's evidence
+    tokens, as ``(oracle_id, standard_id)``; None when the claim maps to none."""
+
+    tokens = _claim_evidence_tokens(pack, claim_id)
+    if not tokens:
+        return None
+    for oracle_id, standards in standards_by_oracle.items():
+        overlap = sorted(tokens & standards)
+        if overlap:
+            return oracle_id, overlap[0]
+    return None
+
+
+def assess_goal_contribution(pack: Mapping[str, Any], slot: Mapping[str, Any], projection: Mapping[str, Any]):
+    """Classify one Finding Pack's contribution to the goal its Decision Slot serves.
+
+    Pure truth table over the pack payload, the slot payload, and the confirmed
+    StrategyProjection payload; it never reads the ledger and never reads any
+    worker-supplied ``confidence`` field (the verdict is evidence-only by design).
+
+    Verdicts, in short-circuit order:
+      1. any pack effect contradicting a slot alternative      -> CONTRADICTS
+      2. a supports effect on a slot alternative               -> ADVANCES
+      3. a corroborated claim grounding a served oracle's evidence
+         standard (the claim's grounding identities, provenance
+         clusters, or grounding evidence artifact ids intersect the
+         served oracle's ``evidence_standard_ids``)            -> ADVANCES
+      4. effects on slot alternatives, claims whose evidence maps
+         to a served oracle, or validation against the slot    -> PARTIAL
+      5. otherwise, or unverifiable serves wiring (fail-closed) -> NO_CONTRIBUTION
+    """
+
+    serves = slot.get("serves") if isinstance(slot, Mapping) else None
+    slot_id = slot.get("id") if isinstance(slot, Mapping) else None
+    if not isinstance(serves, Mapping):
+        return (
+            "no_contribution",
+            f"Decision Slot {slot_id} carries no serves link to a confirmed strategy-projection target",
+        )
+    target_id = serves.get("target_id")
+    oracle_ids = serves.get("oracle_ids") if isinstance(serves.get("oracle_ids"), Sequence) else ()
+    if not isinstance(target_id, str) or not target_id.strip():
+        return ("no_contribution", f"Decision Slot {slot_id} serves.target_id is missing")
+    projection_targets = _projection_entry_ids(projection.get("decision_targets"))
+    projection_oracles = _projection_entry_ids(projection.get("success_oracles"))
+    if target_id not in projection_targets:
+        return (
+            "no_contribution",
+            f"serves.target_id {target_id} is not a confirmed strategy-projection decision target",
+        )
+    unknown_oracles = [oracle_id for oracle_id in oracle_ids if oracle_id not in projection_oracles]
+    if unknown_oracles:
+        return (
+            "no_contribution",
+            f"serves.oracle_id {unknown_oracles[0]} is not a confirmed strategy-projection success oracle",
+        )
+    alternatives = {
+        option
+        for option in (slot.get("alternatives") if isinstance(slot.get("alternatives"), Sequence) else ())
+        if isinstance(option, str) and option.strip()
+    }
+    effects = pack.get("option_effects") if isinstance(pack.get("option_effects"), Sequence) else ()
+    touched = [
+        effect
+        for effect in effects
+        if isinstance(effect, Mapping) and isinstance(effect.get("option"), str) and effect["option"] in alternatives
+    ]
+    contradicted = next((effect for effect in touched if effect.get("effect") == "contradicts"), None)
+    if contradicted is not None:
+        return (
+            "contradicts",
+            f"option_effect contradicts Decision Slot alternative {contradicted['option']} served by target {target_id}",
+        )
+    supported = next((effect for effect in touched if effect.get("effect") in {"supports"}), None)
+    if supported is not None:
+        return (
+            "advances",
+            f"option_effect supports Decision Slot alternative {supported['option']} served by target {target_id}",
+        )
+    assessments = pack.get("claim_assessments") if isinstance(pack.get("claim_assessments"), Sequence) else ()
+    standards_by_oracle = _served_evidence_standards(serves, projection)
+    mapping = next(
+        (
+            (str(assessment["claim_id"]), mapped)
+            for assessment in _mapping_entries(assessments)
+            if assessment.get("state") == "corroborated"
+            and isinstance(assessment.get("claim_id"), str)
+            and assessment["claim_id"].strip()
+            for mapped in (_claim_oracle_mapping(pack, assessment["claim_id"], standards_by_oracle),)
+            if mapped is not None
+        ),
+        None,
+    )
+    if mapping is not None:
+        claim_id, (oracle_id, standard_id) = mapping
+        return (
+            "advances",
+            f"corroborated claim {claim_id} grounds served oracle {oracle_id} via evidence standard {standard_id}",
+        )
+    touches_oracle = any(
+        _claim_oracle_mapping(pack, str(assessment.get("claim_id")), standards_by_oracle) is not None
+        for assessment in _mapping_entries(assessments)
+        if isinstance(assessment.get("claim_id"), str) and assessment["claim_id"].strip()
+    )
+    if touched or touches_oracle or pack.get("validation_result") is not None:
+        return (
+            "partial",
+            f"Finding Pack touches Decision Slot {slot_id} without advancing its alternatives or evidence standards",
+        )
+    return (
+        "no_contribution",
+        f"Finding Pack {pack.get('id')} touches neither the Decision Slot alternatives nor the served evidence standards",
+    )
+
+
+def partition_goal_contributions(
+    ledger: RunLedger,
+    round_id: str,
+    finding_packs: Sequence[ArtifactRevision],
+) -> tuple[tuple[ArtifactRevision, ...], tuple[ArtifactRevision, ...]]:
+    """Split candidate packs into (contributing, deferred) for tree consumption.
+
+    Packs whose latest recorded goal-contribution assessment carries a blocking
+    verdict (``no_contribution`` or ``contradicts``) are deferred: they never
+    enter the tree transition consumed set. In a run with a confirmed projection
+    a pending pack with NO recorded assessment is deferred as well (fail closed):
+    the compile hook assesses every compile-passed pack, so a missing assessment
+    means the hook was interrupted and the pack stays pending instead of being
+    silently waved into the consumed set. On-demand re-assessment is not done
+    here because the surrounding tree transition already pins ``expected_revision``;
+    appending mid-partition would strand it. Runs without a confirmed projection
+    have no goal wiring, so every pack contributes (prior behavior unchanged).
+    """
+
+    if not finding_packs:
+        return (), ()
+    snapshot = ledger.load_run(round_id)
+    if latest_confirmed(snapshot.artifacts) is None:
+        return tuple(finding_packs), ()
+    contributing: list[ArtifactRevision] = []
+    deferred: list[ArtifactRevision] = []
+    for pack in finding_packs:
+        if _pack_is_goal_blocking(snapshot.artifacts, pack):
+            logger.warning(
+                "goal_contribution_pack_deferred: %s@%s (blocking or unassessed verdict)", pack.id, pack.revision
+            )
+            deferred.append(pack)
+        else:
+            contributing.append(pack)
+    return tuple(contributing), tuple(deferred)
+
+
+def _pack_is_goal_blocking(artifacts: Sequence[ArtifactRevision], pack: ArtifactRevision) -> bool:
+    assessments = sorted(
+        (
+            item
+            for item in artifacts
+            if item.kind == GOAL_CONTRIBUTION_ASSESSMENT_KIND
+            and item.payload.get("finding_pack_id") == pack.id
+            and item.payload.get("finding_pack_revision") == pack.revision
+        ),
+        key=lambda item: (item.created_at, item.revision),
+    )
+    if not assessments:
+        # Fail closed: an unassessed pack in a goal-wired run stays pending with a
+        # visible reason instead of being consumed on a default allow.
+        return True
+    return assessments[-1].payload.get("verdict") in _CONTRIBUTION_BLOCKING_VERDICTS
 
 
 class StaleStateError(CoordinatorConflictError):
@@ -174,27 +469,65 @@ _TRANSITIONS: dict[tuple[str, str], tuple[str, str]] = {
 
 
 def _load_lifecycle_transitions() -> dict[tuple[str, str], tuple[str, str]]:
-    """Load the repository's matrix so code and governance share one edge set."""
+    """Load the canonical lifecycle matrix. Raises on missing/malformed.
 
-    matrix = (
-        Path(__file__).resolve().parents[2]
-        / "openspec"
-        / "changes"
-        / "unify-research-runtime-alpha2"
-        / "registries"
-        / "lifecycle-matrix-v1.json"
-    )
-    try:
-        payload = json.loads(matrix.read_text(encoding="utf-8"))
-        transitions = payload["transitions"]
+    The hardcoded ``_TRANSITIONS`` dict is no longer a silent fallback —
+    any governance drift now surfaces as ``CoordinatorConfigError``.
+
+    Lookup order:
+    1. ``importlib.resources`` from the installed wheel (canonical for production)
+    2. Repo-relative path (canonical for editable / dev installs)
+    """
+
+    # All candidates use Traversable/Path objects that implement read_text().
+    candidates: list[tuple[Any, str]] = [
+        # (path, source-label) — try wheel resource first
+        (importlib.resources.files("research_tree").joinpath("data/lifecycle-matrix-v1.json"), "wheel_resource"),
+        # then repo-relative (editable install / dev)
+        (
+            Path(__file__).resolve().parents[2]
+            / "openspec"
+            / "changes"
+            / "unify-research-runtime-alpha2"
+            / "registries"
+            / "lifecycle-matrix-v1.json",
+            "repo_relative",
+        ),
+    ]
+
+    last_error: Exception | None = None
+    for path, source in candidates:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, AttributeError) as error:
+            logger.error("canonical_lifecycle_matrix_candidate_missing: %s (source=%s, error=%s)", path, source, error)
+            last_error = error
+            continue
+        try:
+            payload = json.loads(text)
+        except (json.JSONDecodeError, ValueError) as error:
+            logger.error("canonical_lifecycle_matrix_malformed_json: %s (source=%s)", path, source)
+            raise CoordinatorConfigError(
+                f"canonical_lifecycle_matrix_malformed_json: {path} (source={source})"
+            ) from error
+        transitions = payload.get("transitions") if isinstance(payload, Mapping) else None
+        if not transitions:
+            logger.error("canonical_lifecycle_matrix_malformed_no_transitions: %s (source=%s)", path, source)
+            raise CoordinatorConfigError(
+                f"canonical_lifecycle_matrix_malformed_no_transitions: {path} (source={source})"
+            )
         loaded = {
             (str(item["from"]), str(item["event"])): (str(item["to"]), str(item["actor"])) for item in transitions
         }
-        if loaded:
-            return loaded
-    except (OSError, TypeError, ValueError, KeyError, json.JSONDecodeError):
-        pass
-    return _TRANSITIONS
+        if not loaded:
+            logger.error("canonical_lifecycle_matrix_empty_transitions: %s (source=%s)", path, source)
+            raise CoordinatorConfigError(f"canonical_lifecycle_matrix_empty_transitions: {path} (source={source})")
+        return loaded
+
+    # No source succeeded — surface the most specific error.
+    raise CoordinatorConfigError(
+        f"canonical_lifecycle_matrix_missing_or_unreadable: tried {[s for _, s in candidates]}; last_error={last_error!r}"
+    )
 
 
 _TRANSITIONS = _load_lifecycle_transitions()
@@ -238,11 +571,20 @@ class ResearchRunCoordinator:
     event_conflict_error = CoordinatorEventConflictError
     stale_state_error = StaleStateError
 
-    def __init__(self, ledger: RunLedger, *, actor_id: str = "coordinator") -> None:
+    STATE_REGIONS = ("cognitive", "workflow", "authority", "epistemic", "delivery")
+
+    def __init__(
+        self,
+        ledger: RunLedger,
+        *,
+        actor_id: str = "coordinator",
+        policy: AdaptiveResearchPolicy | None = None,
+    ) -> None:
         if not isinstance(ledger, RunLedger):
             raise CoordinatorConflictError("ResearchRunCoordinator requires a RunLedger")
         self.ledger = ledger
         self.actor_id = validate_identifier(actor_id, "actor_id")
+        self.policy = policy
 
     def _load(self, reference: ArtifactRef, kind: str) -> ArtifactRevision:
         try:
@@ -339,7 +681,14 @@ class ResearchRunCoordinator:
     def persist_strategy_projection(
         self, projection: StrategyProjection, *, expected_revision: int
     ) -> ArtifactRevision:
-        """Append an immutable projection, replaying an identical write."""
+        """Append an immutable projection, replaying an identical write.
+
+        Persist accepts any valid projection status (draft through confirmed): the
+        status alone confers no authority. Advancing the run past alignment requires
+        the ``alignment_projection_ready`` transition, whose guard enforces the
+        falsifiability review on the exact revision for every caller, and confirmation
+        additionally requires the displayed status plus the digest-bearing confirmation.
+        """
 
         if not isinstance(projection, StrategyProjection):
             raise CoordinatorConflictError("strategy_projection_invalid")
@@ -417,6 +766,21 @@ class ResearchRunCoordinator:
             )
         if artifact.payload.get("display_digest") != projection.display_digest:
             raise CoordinatorConflictError("strategy_projection_stale")
+        # Field-specific falsifiability pre-check: a rejected display names the violated
+        # oracle rule and appends no artifact. Enforcement itself lives in the
+        # transition guard (_guard_passes), which re-validates the same projection
+        # content for EVERY caller of alignment_projection_ready — display_strategy
+        # included — so no run may advance past alignment on an unfalsifiable
+        # projection, whatever caller drove the transition.
+        try:
+            validate_falsifiability(projection)
+        except StrategyProjectionError as error:
+            raise CoordinatorConflictError(str(error)) from error
+        # Issue #462 display gate: the projection content may only advance to a
+        # displayed state once an independent subagent verification of the same
+        # authority-bearing content exists. The transition guard re-enforces
+        # this for every caller of alignment_projection_ready.
+        self.require_independent_alignment_verification(run_id, projection)
         return self.transition(
             run_id,
             "alignment_projection_ready",
@@ -428,6 +792,14 @@ class ResearchRunCoordinator:
                 "display_digest": projection.display_digest,
             },
         )
+
+    def require_independent_alignment_verification(self, run_id: str, projection: StrategyProjection) -> None:
+        """Reject with ``independent_verification_required`` when no independent subagent
+        alignment verification covers this projection (#462 display gate)."""
+
+        failure = self._independent_alignment_verification_failure(run_id, projection)
+        if failure is not None:
+            raise CoordinatorConflictError(failure)
 
     def confirm_handoff(
         self,
@@ -446,17 +818,35 @@ class ResearchRunCoordinator:
         artifact, projection = self.require_strategy_projection(projection_ref, run_id=run_id, require_displayed=True)
         if projection.display_digest not in confirmation:
             raise CoordinatorConflictError("confirmation_digest_mismatch")
+        # Issue #292 gate 1: the display digest alone cannot vouch for the
+        # authority-bearing fields — the user's confirmation must embed the
+        # authority fingerprint so a stale scope/authority cannot survive a
+        # broader authorization.
+        expected_fingerprint = authority_fingerprint(projection)
+        if "authority-fingerprint" not in confirmation:
+            raise CoordinatorConflictError("authority_fingerprint_required")
+        if expected_fingerprint not in confirmation:
+            raise CoordinatorConflictError("authority_fingerprint_mismatch")
+        # Defense in depth: the guard cannot vouch for artifacts written before the gate
+        # existed or outside the coordinator, so confirmation re-validates the projection
+        # content itself — a single gate failure must not fail the whole chain open.
+        try:
+            validate_falsifiability(projection)
+        except StrategyProjectionError as error:
+            raise CoordinatorConflictError(str(error)) from error
+        payload = {
+            "projection_ref": ArtifactRef(run_id, artifact.id, artifact.revision).to_dict(),
+            "display_digest": projection.display_digest,
+            "authority_fingerprint": expected_fingerprint,
+            "confirmation": confirmation,
+        }
         return self.transition(
             run_id,
             "handoff_confirmed",
             actor,
             expected_revision=expected_revision,
             idempotency_key=idempotency_key,
-            payload={
-                "projection_ref": ArtifactRef(run_id, artifact.id, artifact.revision).to_dict(),
-                "display_digest": projection.display_digest,
-                "confirmation": confirmation,
-            },
+            payload=payload,
         )
 
     def revise_strategy(
@@ -467,6 +857,24 @@ class ResearchRunCoordinator:
         changes: Mapping[str, Any],
         expected_revision: int,
     ) -> ArtifactRevision:
+        """Revise a strategy projection under #471 supersede semantics.
+
+        Before any confirmation the revision is written exactly as before. Once
+        this projection id carries confirmation history (a ``handoff_confirmed``
+        event has ever named it), the human's authorization of the exact
+        displayed content can never be silently replaced: the revision being
+        superseded is invalidated by a ``strategy-projection-invalidation``
+        marker artifact, the revision itself is written as an unconfirmed
+        ``draft`` — never ``displayed`` — and re-display requires the full
+        independent alignment gate on the new revision (fresh verification bound
+        to the authority fingerprint). Confirmation history, not the
+        ``latest_confirmed`` snapshot, drives the branch: the snapshot is
+        permanently None after the first supersede, which let a second
+        post-confirm revise fall back to the displayed branch (review A/B
+        HIGH-1). Re-display of the superseding draft goes through the normal
+        display gate, so a legitimate fix-up can reach re-confirmation.
+        """
+
         artifact, projection = self.require_strategy_projection(projection_ref, run_id=run_id)
         values = projection.to_dict()
         values.update(dict(changes))
@@ -475,7 +883,6 @@ class ResearchRunCoordinator:
                 "projection_id": projection.projection_id,
                 "run_id": run_id,
                 "revision": projection.revision + 1,
-                "status": "displayed",
             }
         )
         values["decision_frame_ref"] = projection.decision_frame_ref
@@ -486,22 +893,70 @@ class ResearchRunCoordinator:
         values.pop("display_payload", None)
         values.pop("display_digest", None)
         values.pop("content_hash", None)
+        post_confirm = has_confirmation_history(self.ledger.load_run(run_id).artifacts, projection.projection_id)
+        # Validate the revised content before any ledger write: a rejected
+        # revision must not leave an invalidation marker behind.
+        values["status"] = "draft" if post_confirm else "displayed"
         revised = StrategyProjection.create(**values)
+        parent_refs = [
+            ArtifactRef(run_id, artifact.id, artifact.revision),
+            revised.decision_frame_ref,
+            revised.alignment_handoff_ref,
+            revised.target_ref,
+        ]
         try:
-            return self.ledger.append_strategy_projection(
+            appended = self.ledger.append_strategy_projection(
                 run_id,
                 revised.projection_id,
                 revised.to_dict(),
-                parent_refs=(
-                    ArtifactRef(run_id, artifact.id, artifact.revision),
-                    revised.decision_frame_ref,
-                    revised.alignment_handoff_ref,
-                    revised.target_ref,
-                ),
+                parent_refs=tuple(parent_refs),
                 expected_revision=expected_revision,
             )
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
+        if post_confirm:
+            # Draft-first ordering (review B): a draft without its marker is
+            # fail-closed — the prior authority stays the latest valid display
+            # and the draft cannot display without the full gate — whereas a
+            # marker without its draft would strand the invalidation evidence.
+            self._append_projection_invalidation(run_id, projection, expected_revision=expected_revision + 1)
+        return appended
+
+    def _append_projection_invalidation(
+        self,
+        run_id: str,
+        superseded: StrategyProjection,
+        *,
+        expected_revision: int,
+    ) -> ArtifactRef:
+        """Append the #471 marker that voids a superseded projection revision.
+
+        ``superseded`` is the projection revision being replaced — the confirmed
+        revision on the first post-confirm revise, the prior draft on later
+        ones — so each revision step carries its own invalidation evidence and
+        no displayed revision of a once-confirmed lineage survives unmarked.
+        """
+
+        marker_id = f"{superseded.projection_id}-invalidation-{superseded.revision}"
+        payload = {
+            "schema": STRATEGY_PROJECTION_INVALIDATION_SCHEMA_VERSION,
+            "id": marker_id,
+            "run_id": run_id,
+            "superseded_projection_ref": ArtifactRef(run_id, superseded.projection_id, superseded.revision).to_dict(),
+            "superseded_display_digest": superseded.display_digest,
+            "superseded_authority_fingerprint": authority_fingerprint(superseded),
+            "reason": "post-confirm strategy revision invalidates the confirmed authorization pending the full display gate",
+        }
+        validate_strategy_projection_invalidation(payload)
+        marker = self.ledger.append_artifact(
+            run_id,
+            marker_id,
+            STRATEGY_PROJECTION_INVALIDATION_KIND,
+            payload,
+            parent_refs=(ArtifactRef(run_id, superseded.projection_id, superseded.revision),),
+            expected_revision=expected_revision,
+        )
+        return ArtifactRef(run_id, marker.id, marker.revision)
 
     def initialize(
         self,
@@ -739,6 +1194,8 @@ class ResearchRunCoordinator:
         expected_revision: int,
         replan_id: str | None = None,
         affected_refs: Sequence[ArtifactRef] = (),
+        affected_slot_ids: Sequence[str] = (),
+        guidance_defect: str | None = None,
     ) -> ArtifactRevision:
         """Record a method/depth/evidence correction without changing run identity."""
 
@@ -748,12 +1205,19 @@ class ResearchRunCoordinator:
         refs = tuple(affected_refs)
         if any(not isinstance(ref, ArtifactRef) or ref.round_id != run_id for ref in refs):
             raise CoordinatorConflictError("replan references must belong to the run")
+        slot_ids = [str(value) for value in affected_slot_ids]
+        if any(not value.strip() for value in slot_ids):
+            raise CoordinatorConflictError("replan affected_slot_ids entries must be non-empty strings")
+        if guidance_defect is not None and (not isinstance(guidance_defect, str) or not guidance_defect.strip()):
+            raise CoordinatorConflictError("replan guidance_defect must be a non-empty string")
         artifact_id = replan_id or "same-round-replan-" + hashlib.sha256(reason.encode("utf-8")).hexdigest()[:20]
         payload = {
             "classification": "same_round_replan",
             "reason": reason.strip(),
             "affected_refs": [ref.to_dict() for ref in refs],
             "source_state_ref": ArtifactRef(run_id, current.id, current.revision).to_dict(),
+            "affected_slot_ids": slot_ids,
+            "guidance_defect": guidance_defect,
         }
         try:
             return self.ledger.append_artifact(
@@ -766,6 +1230,240 @@ class ResearchRunCoordinator:
             )
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
+
+    def assess_finding_pack_contribution(
+        self,
+        run_id: str,
+        finding: ArtifactRevision,
+        *,
+        expected_revision: int,
+    ) -> ArtifactRevision | None:
+        """Assess one Finding Pack's contribution to the goal its slot serves.
+
+        Returns the goal-contribution-assessment artifact, or None when the
+        run has no confirmed StrategyProjection (prior ingestion behavior). A
+        blocking verdict additionally wires the guidance-adjust retry: a
+        same-round replan with slot granularity and the guidance defect, a
+        successor Work Item with adjusted guidance and, once per slot, a
+        method_switch policy consultation with a redecomposition_flagged
+        successor marker on the second consecutive no_contribution (third and
+        further verdicts in the streak are deduplicated by logical pack
+        identity and still replan but never repeat the consult). Worker
+        confidence is never an input.
+        """
+
+        validate_identifier(run_id, "run_id")
+        if not isinstance(finding, ArtifactRevision) or finding.kind != FINDING_PACK_KIND or finding.round_id != run_id:
+            raise CoordinatorConflictError("contribution assessment requires a run Finding Pack")
+        snapshot = self.ledger.load_run(run_id)
+        projection = latest_confirmed(snapshot.artifacts)
+        if projection is None:
+            return None
+        slot = self._contribution_slot(snapshot.artifacts, finding)
+        projection_payload = thaw_json(projection.payload)
+        verdict, reason = assess_goal_contribution(thaw_json(finding.payload), slot, projection_payload)
+        assessment_id = (
+            "goal-contribution-"
+            + hashlib.sha256(
+                canonical_json_bytes(
+                    {
+                        "finding_pack_id": finding.id,
+                        "finding_pack_revision": finding.revision,
+                        "slot_id": slot.get("id"),
+                        "projection_id": projection_payload.get("projection_id"),
+                        "projection_revision": projection_payload.get("revision"),
+                    }
+                )
+            ).hexdigest()[:20]
+        )
+        try:
+            assessment = self.ledger.append_artifact(
+                run_id,
+                assessment_id,
+                GOAL_CONTRIBUTION_ASSESSMENT_KIND,
+                {
+                    "schema": 1,
+                    "id": assessment_id,
+                    "round_id": run_id,
+                    "finding_pack_id": finding.id,
+                    "finding_pack_revision": finding.revision,
+                    "slot_id": slot.get("id"),
+                    "projection_id": projection_payload.get("projection_id"),
+                    "projection_revision": projection_payload.get("revision"),
+                    "projection_digest": projection.payload.get("display_digest"),
+                    "verdict": verdict,
+                    "reason": reason,
+                },
+                parent_refs=(
+                    ArtifactRef(run_id, finding.id, finding.revision),
+                    ArtifactRef(run_id, projection.id, projection.revision),
+                ),
+                expected_revision=expected_revision,
+            )
+        except LedgerConflictError as error:
+            raise CoordinatorConflictError("stale_revision") from error
+        if verdict not in _CONTRIBUTION_BLOCKING_VERDICTS:
+            return assessment
+        consecutive = self._consecutive_no_contribution(run_id, str(slot.get("id")))
+        self._record_contribution_retry(run_id, finding, slot, verdict, reason, consecutive)
+        return assessment
+
+    def _contribution_slot(self, artifacts, finding):
+        target_id = finding.payload.get("blueprint_target_id")
+        slot_id = finding.payload.get("decision_slot_id")
+        candidates = [item for item in artifacts if item.kind == BLUEPRINT_TARGET_KIND and item.id == target_id]
+        target = max(candidates, key=lambda item: item.revision, default=None)
+        if target is None:
+            raise CoordinatorConflictError(f"unknown blueprint target for assessment: {target_id}")
+        for slot in target.payload.get("slots", ()):
+            if isinstance(slot, Mapping) and slot.get("id") == slot_id:
+                return thaw_json(slot)
+        raise CoordinatorConflictError(f"Decision Slot absent from Blueprint Target: {slot_id}")
+
+    def _consecutive_no_contribution(self, run_id: str, slot_id: str) -> int:
+        """Count the trailing no_contribution run along the slot assessment chain.
+
+        Assessments are deduplicated by logical pack identity first: only the
+        latest assessment per finding pack id participates, so recompiling the
+        same finding at revision+1 never double-counts the streak.
+        """
+
+        snapshot = self.ledger.load_run(run_id)
+        chain = sorted(
+            (
+                item
+                for item in snapshot.artifacts
+                if item.kind == GOAL_CONTRIBUTION_ASSESSMENT_KIND and item.payload.get("slot_id") == slot_id
+            ),
+            key=lambda item: (item.created_at, item.revision, str(item.payload.get("finding_pack_id"))),
+        )
+        latest_by_pack: dict[str, ArtifactRevision] = {}
+        for item in chain:
+            pack_id = str(item.payload.get("finding_pack_id"))
+            current = latest_by_pack.get(pack_id)
+            if current is None or (item.created_at, item.revision) >= (current.created_at, current.revision):
+                latest_by_pack[pack_id] = item
+        ordered = sorted(latest_by_pack.values(), key=lambda item: (item.created_at, item.revision))
+        count = 0
+        for item in reversed(ordered):
+            if item.payload.get("verdict") == "no_contribution":
+                count += 1
+            else:
+                break
+        return count
+
+    def _slot_method_switch_consulted(self, run_id: str, slot_id: str) -> bool:
+        """Whether this slot already produced a method_switch policy consultation.
+
+        The escalation is one-shot per slot: the second consecutive
+        no_contribution consults the policy once; third and further verdicts in
+        the streak still record the slot-granularity replan and a retry
+        successor, but never repeat the consult or the redecomposition flag.
+        """
+
+        return any(
+            item.kind == WORK_ITEM_KIND
+            and item.payload.get("decision_slot_id") == slot_id
+            and item.payload.get("policy_proposal_kind") == "method_switch"
+            for item in self.ledger.load_run(run_id).artifacts
+        )
+
+    def _record_contribution_retry(
+        self,
+        run_id: str,
+        finding: ArtifactRevision,
+        slot: Mapping[str, Any],
+        verdict: str,
+        reason: str,
+        consecutive: int,
+    ) -> ArtifactRevision:
+        slot_id = str(slot.get("id"))
+        self.record_same_round_replan(
+            run_id,
+            reason=reason,
+            expected_revision=self.ledger.get_revision(run_id),
+            affected_slot_ids=(slot_id,),
+            guidance_defect=reason,
+        )
+        snapshot = self.ledger.load_run(run_id)
+        ordinal = 1 + sum(
+            1
+            for item in snapshot.artifacts
+            if item.kind == WORK_ITEM_KIND
+            and item.payload.get("decision_slot_id") == slot_id
+            and item.payload.get("guidance_defect")
+        )
+        escalate = consecutive >= 2 and not self._slot_method_switch_consulted(run_id, slot_id)
+        proposal = self._method_switch_proposal(slot) if escalate else None
+        target = max(
+            (
+                item
+                for item in snapshot.artifacts
+                if item.kind == BLUEPRINT_TARGET_KIND and item.id == finding.payload.get("blueprint_target_id")
+            ),
+            key=lambda item: item.revision,
+            default=None,
+        )
+        if target is None:
+            raise CoordinatorConflictError(
+                f"unknown blueprint target for contribution retry: {finding.payload.get('blueprint_target_id')}"
+            )
+        touchpoints = slot.get("repository_touchpoints")
+        return CanonicalWorkItemCompiler(self.ledger).compile(
+            round_id=run_id,
+            work_item_id=f"work-{slot_id}-retry-{ordinal}",
+            blueprint_target=target,
+            decision_slot_id=slot_id,
+            kind="repository_analysis" if touchpoints else "external_research",
+            scope=slot.get("question", f"Close Decision Slot {slot_id}")
+            + f" Adjusted after goal-contribution retry ({verdict}): {reason}",
+            exclusions="Do not close the Decision Slot, select an alternative, or add unrelated scope."
+            + f" Previous guidance was defective: {reason}",
+            decision_change_reason="The result can change the selected alternative among: "
+            + ", ".join(str(option) for option in slot.get("alternatives", ()))
+            + ".",
+            depends_on=(),
+            methods=("repository_inspection",) if touchpoints else ("primary_docs",),
+            budget={"tool_calls": 8, "time": "bounded"},
+            completion_rule="Return a Finding Pack or state why evidence is unavailable.",
+            guidance_defect=reason,
+            redecomposition_flagged=escalate,
+            policy_proposal_id=proposal.action_id if proposal is not None else None,
+            policy_proposal_kind=proposal.kind if proposal is not None else None,
+            expected_revision=self.ledger.get_revision(run_id),
+        )
+
+    def _method_switch_proposal(self, slot: Mapping[str, Any]):
+        """Consult the scheduling policy with a method_switch deficit (ADR-006).
+
+        The consult must stay reachable on every wired path, including the ledger
+        compile hook that constructs a bare ``ResearchRunCoordinator(ledger)``:
+        when no policy was injected, a default policy is constructed for the
+        consultation (used locally; the coordinator instance is never mutated).
+        """
+
+        policy = self.policy if self.policy is not None else AdaptiveResearchPolicy()
+        slot_id = str(slot.get("id"))
+        validation = slot.get("validation") if isinstance(slot.get("validation"), Mapping) else {}
+        closure_oracle = str(validation.get("oracle") or slot.get("evidence_standard") or "").strip()
+        if not closure_oracle:
+            closure_oracle = f"Decision Slot {slot_id} closes with evidence"
+        priority = str(slot.get("priority")) if str(slot.get("priority")) in {"P0", "P1", "P2", "P3"} else "P1"
+        evaluation = policy.evaluate(
+            slots=[
+                {
+                    "slot_id": slot_id,
+                    "question": str(slot.get("question") or f"Close Decision Slot {slot_id}"),
+                    "priority": priority,
+                    "closure_oracle": closure_oracle,
+                    "missing_dimensions": ("method_switch",),
+                }
+            ]
+        )
+        proposal = evaluation.proposals[0] if evaluation.proposals else None
+        if proposal is not None and proposal.kind != "method_switch":
+            return None
+        return proposal
 
     def persist_search_portfolio_lineage(
         self,
@@ -1112,7 +1810,6 @@ class ResearchRunCoordinator:
         finding_refs: Sequence[ArtifactRef | Mapping[str, Any]],
         reason: str,
         expected_revision: int,
-        durable_controller: Any | None = None,
         claim_ids: Sequence[str] | None = None,
         boundary: ClaimBoundary | str = ClaimBoundary.ADMISSION,
     ) -> ArtifactRevision:
@@ -1202,7 +1899,6 @@ class ResearchRunCoordinator:
             )
             if successor is None:
                 raise CoordinatorConflictError("contradiction successor state is missing")
-            self._retract_durable_claims(durable_controller, conflict.claim_ids)
             return successor
 
         current = self._latest_state(run_id)
@@ -1449,7 +2145,6 @@ class ResearchRunCoordinator:
             )[-1]
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
-        self._retract_durable_claims(durable_controller, conflict.claim_ids)
         return successor
 
     def resolve_contradiction(
@@ -1588,22 +2283,6 @@ class ResearchRunCoordinator:
             )
             revision = self.ledger.get_revision(run_id)
         return tuple(applied)
-
-    @staticmethod
-    def _retract_durable_claims(controller: Any | None, claim_ids: Sequence[str]) -> None:
-        if controller is None:
-            return
-        if not all(callable(getattr(controller, name, None)) for name in ("load", "contest_evidence_set")):
-            raise CoordinatorConflictError("durable contradiction controller is invalid")
-        current = controller.load()
-        dependencies = current.state.agent.pending_action_dependencies.values()
-        if not (
-            set(claim_ids).intersection(current.factual_beliefs)
-            or set(claim_ids).intersection(current.state.agent.assumptions)
-            or any(set(claim_ids).intersection(values) for values in dependencies)
-        ):
-            return
-        controller.contest_evidence_set(tuple(claim_ids), expected_revision=current.revision)
 
     def _validate_correction_for_apply(
         self, correction: CorrectionEvent
@@ -1778,39 +2457,69 @@ class ResearchRunCoordinator:
         run_id: str,
         event: str,
         payload: Mapping[str, Any] | None = None,
-    ) -> bool:
+    ) -> tuple[bool, str | None]:
+        """Evaluate the transition guard for ``event``.
+
+        Returns ``(passed, failure_reason)``. ``failure_reason`` is ``None`` on pass
+        and on undifferentiated failures (which keep their event-default reason); it is
+        set when the guard can name the violated rule, e.g. the falsifiability review
+        on ``alignment_projection_ready``.
+        """
+
         inputs = self._completion_inputs(run_id)
         if event in {"alignment_projection_ready", "handoff_confirmed"}:
             projection_ref = (payload or {}).get("projection_ref")
             display_digest = (payload or {}).get("display_digest")
             try:
                 reference = _ref(projection_ref, "projection_ref")
-                artifact, projection = self.require_strategy_projection(
-                    reference, run_id=run_id, require_displayed=event == "handoff_confirmed"
-                )
+                artifact, projection = self.require_strategy_projection(reference, run_id=run_id)
             except CoordinatorConflictError:
-                return False
+                return False, None
             if display_digest != projection.display_digest or artifact.payload.get("display_digest") != display_digest:
-                return False
+                return False, None
             if event == "alignment_projection_ready":
-                return projection.status in {"displayed", "confirmed"}
+                if projection.status not in {"displayed", "confirmed"}:
+                    return False, None
+                try:
+                    validate_falsifiability(projection)
+                except StrategyProjectionError as error:
+                    return False, f"projection_unfalsifiable: {error}"
+                verification_failure = self._independent_alignment_verification_failure(run_id, projection)
+                if verification_failure is not None:
+                    return False, verification_failure
+                return True, None
             confirmation = (payload or {}).get("confirmation")
-            return isinstance(confirmation, str) and projection.display_digest in confirmation
+            if not (isinstance(confirmation, str) and projection.display_digest in confirmation):
+                return False, None
+            # Issue #292 gate 1: the fingerprint recorded at confirmation must
+            # still match the projection's authority fields — a post-confirm
+            # revise of scope/authority fails the guard here, blocking
+            # compilation before any execution. The content checks run before
+            # the status check so a tampered or replayed confirmation names the
+            # violated rule even when it targets a superseded (#471) draft.
+            recorded = (payload or {}).get("authority_fingerprint")
+            if recorded != authority_fingerprint(projection):
+                return False, "authority_fingerprint_drift"
+            # Only the exact displayed/confirmed revision the human authorized
+            # may pass; a #471 post-confirm revision is an unauthorized draft.
+            if projection.status not in {"displayed", "confirmed"}:
+                return False, "strategy_projection_not_displayed"
+            return True, None
         if event == "handoff_confirmed":
             current = self._latest_state(run_id)
             if current.payload.get("correction_event_id") is not None:
                 authority = (payload or {}).get("authority_binding")
                 if not isinstance(authority, Mapping):
-                    return False
+                    return False, None
                 bindings = authority.get("bindings")
                 if not isinstance(bindings, Mapping):
-                    return False
+                    return False, None
                 try:
                     binding = CorrectionBinding.from_value("handoff", bindings["handoff"])
                     handoff = self.ledger.get_artifact(binding.artifact_ref)
                 except (RuntimeStoreError, KeyError, TypeError, ValueError):
-                    return False
-                return bool(handoff.payload.get("confirmed") is True)
+                    return False, None
+                return bool(handoff.payload.get("confirmed") is True), None
             initial = min(self._states(run_id), key=lambda item: item.revision)
             handoff = next(
                 (
@@ -1820,19 +2529,24 @@ class ResearchRunCoordinator:
                 ),
                 None,
             )
-            return bool(handoff and handoff.payload.get("confirmed") is True)
+            return bool(handoff and handoff.payload.get("confirmed") is True), None
         if event == "all_slots_closed":
-            return "p0_closure_tokens" not in self._completion_obligations(run_id)
+            return "p0_closure_tokens" not in self._completion_obligations(run_id), None
         if event == "readiness_passed":
-            return bool(
-                inputs.get("readiness_ref")
-                and inputs["readiness_ref"].payload.get("status") in {"ready", "passed"}
-                and inputs.get("evaluation_ref")
-                and inputs["evaluation_ref"].payload.get("status") in {"passed", "pass"}
+            return (
+                bool(
+                    inputs.get("readiness_ref")
+                    and inputs["readiness_ref"].payload.get("status") in {"ready", "passed"}
+                    and inputs.get("evaluation_ref")
+                    and inputs["evaluation_ref"].payload.get("status") in {"passed", "pass"}
+                ),
+                None,
             )
         if event == "deliveries_compiled":
-            return inputs.get("technical_delivery_ref") is not None and inputs.get("human_delivery_ref") is not None
-        return True
+            return (
+                inputs.get("technical_delivery_ref") is not None and inputs.get("human_delivery_ref") is not None
+            ), None
+        return True, None
 
     def transition(
         self,
@@ -1844,6 +2558,14 @@ class ResearchRunCoordinator:
         idempotency_key: str | None = None,
         payload: Mapping[str, Any] | None = None,
     ) -> ArtifactRevision:
+        """Canonical lifecycle transition with cross-region validation (#324)."""
+
+        # Issue #324: reject forbidden cross-region payloads before any other check
+        if event == "research/running":
+            raise CoordinatorConflictError("cross_region_research_running_not_permitted")
+        # Issue #324: forbid plan-style events from advancing canonical state
+        if event in {"plan_completed", "plan_displayed", "plan_visible"}:
+            raise CoordinatorConflictError("visible_plan_cannot_advance_canonical")
         current = self._latest_state(run_id)
         if current.payload.get("state") in {"alignment", "handoff_pending"} and event not in {
             "alignment_projection_ready",
@@ -1896,22 +2618,22 @@ class ResearchRunCoordinator:
                 expected_revision=expected_revision,
             )
             raise IllegalTransitionError("actor_not_allowed")
-        if not self._guard_passes(run_id, event, transition_payload):
+        guard_passed, guard_failure = self._guard_passes(run_id, event, transition_payload)
+        if not guard_passed:
+            reason = guard_failure or (
+                "projection_required"
+                if event in {"alignment_projection_ready", "handoff_confirmed"}
+                else "guard_failed"
+            )
             self._record_rejection(
                 run_id=run_id,
                 current=current,
                 event=event,
                 actor=actor,
-                reason="projection_required"
-                if event in {"alignment_projection_ready", "handoff_confirmed"}
-                else "guard_failed",
+                reason=reason,
                 expected_revision=expected_revision,
             )
-            raise IllegalTransitionError(
-                "projection_required"
-                if event in {"alignment_projection_ready", "handoff_confirmed"}
-                else "guard_failed"
-            )
+            raise IllegalTransitionError(reason)
         if event == "delivery_accepted":
             return self.complete(
                 run_id,
@@ -1929,24 +2651,6 @@ class ResearchRunCoordinator:
             idempotency_key=idempotency_key,
             payload=transition_payload,
         )
-
-    def ingest_event(
-        self,
-        *,
-        event: HostEvent | Mapping[str, Any] | None = None,
-        run_id: str | None = None,
-        event_id: str | None = None,
-        attempt_id: str | None = None,
-        payload: Mapping[str, Any] | None = None,
-        expected_revision: int | None = None,
-    ) -> ArtifactRevision:
-        """Compatibility wrapper for the one canonical HostEvent ingress."""
-
-        if event is None:
-            raise CoordinatorConflictError("host_event_envelope_required")
-        if any(value is not None for value in (run_id, event_id, attempt_id, payload, expected_revision)):
-            raise CoordinatorConflictError("canonical_host_event_only")
-        return self.ingest_host_event(event)
 
     def ingest_host_event(self, event: HostEvent | Mapping[str, Any]) -> ArtifactRevision:
         """Validate and atomically persist one non-authoritative host event."""
@@ -2125,6 +2829,14 @@ class ResearchRunCoordinator:
             return
         if event.kind != "worker_finished":
             return
+        attempt_outcome_value = payload.get("attempt_outcome")
+        if attempt_outcome_value is not None:
+            try:
+                attempt_outcome = outcome_from_mapping(attempt_outcome_value)
+            except HostAttemptError as error:
+                raise CoordinatorConflictError("attempt_outcome_invalid") from error
+            if not worker_finished_eligible(attempt_outcome):
+                raise CoordinatorConflictError("attempt_outcome_semantic_failure")
         capture_values = payload.get("capture_refs", payload.get("source_capture_refs"))
         receipt_values = payload.get("receipt_refs")
         checkpoint_value = payload.get("checkpoint_ref", payload.get("analysis_checkpoint_ref"))
@@ -2361,6 +3073,7 @@ class ResearchRunCoordinator:
                 if self._artifact_ref(item) in self._quarantined_refs(run_id):
                     raise StaleStateError("dispatch")
                 return item
+        policy_proposal_id = self._policy_proposal_id(run_id, work_item)
         payload = {
             "attempt_id": selected_attempt,
             "work_item": dict(work_item),
@@ -2369,6 +3082,7 @@ class ResearchRunCoordinator:
             "retry_ordinal": 0,
             "idempotency_key": selected_attempt,
             "lease_revision": 1,
+            "policy_proposal_id": policy_proposal_id,
         }
         parent_refs = [
             ArtifactRef(run_id, current.id, current.revision),
@@ -2387,6 +3101,73 @@ class ResearchRunCoordinator:
             )
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
+
+    def _policy_proposal_id(self, run_id: str, work_item: Mapping[str, Any]) -> str | None:
+        """Consult the scheduling policy at the dispatch decision point.
+
+        Returns the top proposal's action id for attempt lineage when a policy
+        is wired and produces a proposal for the run's decision slots; returns
+        None (current behavior) when no policy is wired or nothing is proposed.
+        """
+
+        if self.policy is None:
+            return None
+        slots = work_item.get("decision_slots")
+        if slots is None:
+            target = self._target(run_id)
+            slots = thaw_json(target.payload).get("decision_slots") if target is not None else None
+        deficits = [
+            {
+                "slot_id": slot["id"],
+                "question": slot.get("question", slot.get("objective", "Close the decision slot")),
+                "priority": slot.get("priority", "P1"),
+                "closure_oracle": slot.get("closure_oracle") or slot.get("success_oracle") or "",
+            }
+            for slot in slots
+            if isinstance(slot, Mapping)
+            and slot.get("id")
+            and (slot.get("closure_oracle") or slot.get("success_oracle"))
+        ]
+        if not deficits:
+            return None
+        evaluation = self.policy.evaluate(slots=deficits)
+        return evaluation.proposals[0].action_id if evaluation.proposals else None
+
+    def self_state(self, run_id: str) -> dict:
+        """Issue #324: canonical state projected across 5 orthogonal regions.
+
+        Each region carries its own (value, revision) tuple.  Transitions advance
+        exactly the affected region(s); cross-region combinations are validated
+        against the region table.
+        """
+
+        if not isinstance(run_id, str) or not run_id:
+            raise CoordinatorConflictError("run_id_required")
+        current = self._latest_state(run_id)
+        payload = thaw_json(current.payload)
+        if "state" not in payload:
+            raise CoordinatorConflictError("state_field_required")
+        region_values = _state_regions(str(payload["state"]))
+        out = {}
+        for region in self.STATE_REGIONS:
+            entry = region_values.get(region, {})
+            out[region] = {
+                "value": entry.get("value"),
+                "revision": int(entry.get("revision", current.revision)),
+                "updated_at": entry.get("updated_at", ""),
+            }
+        out["lineage"] = {
+            "run_id": run_id,
+            "revision": current.revision,
+            "affected_forest_or_branch": payload.get("affected_forest_or_branch", ()),
+            "authority": payload.get("authority", ""),
+            "blockers": payload.get("blockers", ()),
+            "authority_waits": payload.get("authority_waits", ()),
+            "next_action": payload.get("next_action", ""),
+            "expected_transition_oracle": payload.get("expected_transition_oracle", ""),
+            "experiments": payload.get("experiments", ()),
+        }
+        return out
 
     @staticmethod
     def _artifact_ref(item: ArtifactRevision) -> ArtifactRef:
@@ -2618,6 +3399,14 @@ class ResearchRunCoordinator:
                     else:
                         manifold["acceptance_ref"] = acceptance_ref.to_dict()
                         diagnostics["acceptance_ref"] = {"status": "pass", "ref": acceptance_ref.to_dict()}
+        goal_satisfaction = self._goal_satisfaction_diagnostic(run_id, registrations)
+        diagnostics["goal_satisfaction"] = goal_satisfaction
+        if goal_satisfaction["status"] == "pass":
+            manifold["goal_satisfaction_refs"] = goal_satisfaction["refs"]
+        independent_review = self._independent_delivery_review_diagnostic(run_id, registrations)
+        diagnostics["independent_delivery_review"] = independent_review
+        if independent_review["status"] == "pass":
+            manifold["independent_review_refs"] = [independent_review["ref"]]
         diagnostics.setdefault(
             "technical_delivery_ref",
             {"status": "fail", "reason": "pair_incomplete"},
@@ -2632,13 +3421,210 @@ class ResearchRunCoordinator:
         )
         return manifold, diagnostics
 
+    @staticmethod
+    def _projection_oracle_ids(projection_payload: Mapping[str, Any]) -> list[str]:
+        """Extract the distinct success-oracle ids of a projection payload."""
+
+        oracle_ids: list[str] = []
+        for oracle in projection_payload.get("success_oracles") or ():
+            if isinstance(oracle, Mapping) and isinstance(oracle.get("id"), str) and oracle["id"].strip():
+                oracle_id = str(oracle["id"])
+            elif isinstance(oracle, str) and oracle.strip():
+                oracle_id = oracle
+            else:
+                continue
+            if oracle_id not in oracle_ids:
+                oracle_ids.append(oracle_id)
+        return oracle_ids
+
+    def _independent_alignment_verification_failure(self, run_id: str, projection: StrategyProjection) -> str | None:
+        """Issue #462 display gate: require an independent alignment verification.
+
+        A current ``alignment-verification`` registration must bind the exact
+        projection content through the authority fingerprint (so a draft's
+        promotion to displayed keeps its verification while any authority-field
+        revision invalidates it), name a distinct execution identity for the
+        verifier, and independently restate every success oracle. Issue #471:
+        independence is judged against the registration's durable write-time
+        principal, which must be the binding of the declared identity pair; an
+        unbound or coordinator principal fails closed.
+        """
+
+        oracle_ids = self._projection_oracle_ids(projection.display_payload)
+        principals = self.ledger.completion_input_registration_principals(run_id)
+        for item in self.ledger.list_completion_input_registrations(run_id).get(ALIGNMENT_VERIFICATION_ROLE, ()):
+            try:
+                parsed = validate_alignment_verification_payload(thaw_json(item.payload))
+            except IndependentReviewError:
+                continue
+            if parsed["authority_fingerprint"] != authority_fingerprint(projection):
+                continue
+            projection_ref = parsed["projection_ref"]
+            if projection_ref.round_id != run_id or projection_ref.artifact_id != projection.projection_id:
+                continue
+            if not verify_independent_review_principal(
+                parsed["verifier_identity"],
+                parsed["session_context"],
+                issuer=principals.get(ArtifactRef(item.round_id, item.id, item.revision)),
+                principal=self.ledger.verification_principal(
+                    run_id, parsed["verifier_identity"], parsed["session_context"]
+                ),
+            ):
+                continue
+            restated = {str(entry["id"]) for entry in parsed["understood"]["success_oracles"]}
+            if any(oracle_id not in restated for oracle_id in oracle_ids):
+                continue
+            return None
+        return "independent_verification_required"
+
+    def _independent_delivery_review_diagnostic(
+        self, run_id: str, registrations: Mapping[str, tuple[ArtifactRevision, ...]]
+    ) -> dict[str, Any]:
+        """Issue #462 delivery gate: require an independent delivery review.
+
+        Conjunction, not replacement: this diagnostic runs beside the #443
+        goal_satisfaction diagnostic and both block ``delivery_accepted``. The
+        review must be a single current ``delivery-review`` registration whose
+        verifier identity is structurally independent — distinct from the
+        session context and bound to the registration's durable write-time
+        principal (#471); an unbound or coordinator principal fails closed —
+        whose evidence custody parents are exactly the
+        custody references it names and still resolve to current,
+        non-quarantined run artifacts, whose per-oracle verdicts cover every
+        confirmed projection oracle, and whose overall verdict is not ``unmet``.
+        """
+
+        snapshot = self.ledger.load_run(run_id)
+        projection = latest_confirmed(snapshot.artifacts)
+        if projection is None:
+            return {"status": "fail", "reason": "independent_review_unknown"}
+        oracle_ids = self._projection_oracle_ids(projection.payload)
+        reviews = registrations.get(DELIVERY_REVIEW_ROLE, ())
+        if not reviews:
+            return {"status": "fail", "reason": "independent_review_required"}
+        if len(reviews) > 1:
+            return {
+                "status": "fail",
+                "reason": "ambiguous_registration",
+                "refs": [self._artifact_ref(item).to_dict() for item in reviews],
+            }
+        review = reviews[0]
+        review_ref = self._artifact_ref(review).to_dict()
+        try:
+            parsed = validate_delivery_review_payload(thaw_json(review.payload))
+        except IndependentReviewError:
+            return {"status": "fail", "reason": "independent_review_invalid", "ref": review_ref}
+        principals = self.ledger.completion_input_registration_principals(run_id)
+        if not verify_independent_review_principal(
+            parsed["verifier_identity"],
+            parsed["session_context"],
+            issuer=principals.get(self._artifact_ref(review)),
+            principal=self.ledger.verification_principal(
+                run_id, parsed["verifier_identity"], parsed["session_context"]
+            ),
+        ):
+            return {"status": "fail", "reason": "verifier_not_independent", "ref": review_ref}
+        if set(review.parent_refs) != set(parsed["evidence_custody"]):
+            return {"status": "fail", "reason": "evidence_custody_lineage", "ref": review_ref}
+        latest_revision: dict[str, int] = {}
+        indexed: dict[tuple[str, int], ArtifactRevision] = {}
+        for item in snapshot.artifacts:
+            indexed[(item.id, item.revision)] = item
+            if item.revision > latest_revision.get(item.id, 0):
+                latest_revision[item.id] = item.revision
+        quarantined = self._quarantined_refs(run_id)
+        custody_current = all(
+            reference.round_id == run_id
+            and reference not in quarantined
+            and latest_revision.get(reference.artifact_id) == reference.revision
+            and indexed.get((reference.artifact_id, reference.revision)) is not None
+            for reference in parsed["evidence_custody"]
+        )
+        if not custody_current:
+            return {"status": "fail", "reason": "evidence_custody_stale", "ref": review_ref}
+        uncovered = [oracle_id for oracle_id in oracle_ids if oracle_id not in parsed["per_oracle"]]
+        if uncovered:
+            return {"status": "fail", "reason": "oracle_uncovered", "oracles": uncovered, "ref": review_ref}
+        if parsed["verdict"] == "unmet":
+            return {"status": "fail", "reason": "independent_review_unmet", "ref": review_ref}
+        return {"status": "pass", "ref": review_ref}
+
+    def _goal_satisfaction_diagnostic(
+        self, run_id: str, registrations: Mapping[str, tuple[ArtifactRevision, ...]]
+    ) -> dict[str, Any]:
+        """Issue #429: gate completion on the confirmed projection's success oracles.
+
+        Fail-closed semantics: a run whose confirmation record does not resolve
+        to a confirmed projection can never pass (``goal_satisfaction_unknown``),
+        every projection oracle needs exactly one current goal_satisfaction
+        registration (duplicates fail ``oracle_duplicate``), and a missing or
+        ``unmet`` verdict leaves the oracle uncovered (``oracle_uncovered``).
+        A ``satisfied``/``partial`` verdict only counts when at least one of its
+        evidence references resolves to a current, non-quarantined artifact of an
+        admissible evidence kind in this run; a waived verdict always counts
+        because the registrar already required its non-empty ``waiver_reason``.
+        """
+
+        from .completion_inputs import (
+            GOAL_SATISFACTION_EVIDENCE_KINDS,
+            GOAL_SATISFACTION_ROLE,
+            CompletionInputError,
+            validate_goal_satisfaction_payload,
+        )
+        from .strategy_projection import latest_confirmed
+
+        snapshot = self.ledger.load_run(run_id)
+        projection = latest_confirmed(snapshot.artifacts)
+        if projection is None:
+            return {"status": "fail", "reason": "goal_satisfaction_unknown"}
+        oracle_ids = self._projection_oracle_ids(projection.payload)
+        by_oracle: dict[str, list[tuple[ArtifactRevision, dict[str, Any]]]] = {}
+        for item in registrations.get(GOAL_SATISFACTION_ROLE, ()):
+            try:
+                parsed = validate_goal_satisfaction_payload(thaw_json(item.payload))
+            except CompletionInputError:
+                continue
+            by_oracle.setdefault(parsed["oracle_id"], []).append((item, parsed))
+        duplicates = [oracle for oracle in oracle_ids if len(by_oracle.get(oracle, ())) > 1]
+        if duplicates:
+            return {"status": "fail", "reason": "oracle_duplicate", "oracles": duplicates}
+        latest_revision: dict[str, int] = {}
+        indexed: dict[tuple[str, int], ArtifactRevision] = {}
+        for item in snapshot.artifacts:
+            indexed[(item.id, item.revision)] = item
+            if item.revision > latest_revision.get(item.id, 0):
+                latest_revision[item.id] = item.revision
+        quarantined = self._quarantined_refs(run_id)
+        uncovered: list[str] = []
+        for oracle in oracle_ids:
+            registered = by_oracle.get(oracle, ())
+            if len(registered) != 1:
+                uncovered.append(oracle)
+                continue
+            item, parsed = registered[0]
+            verdict = parsed["verdict"]
+            if verdict == "unmet":
+                uncovered.append(oracle)
+            elif verdict == "waived":
+                continue
+            elif not any(
+                reference.round_id == run_id
+                and reference not in quarantined
+                and latest_revision.get(reference.artifact_id) == reference.revision
+                and indexed.get((reference.artifact_id, reference.revision)) is not None
+                and indexed[(reference.artifact_id, reference.revision)].kind in GOAL_SATISFACTION_EVIDENCE_KINDS
+                for reference in parsed["evidence_refs"]
+            ):
+                uncovered.append(oracle)
+        if uncovered:
+            return {"status": "fail", "reason": "oracle_uncovered", "oracles": uncovered}
+        refs = [self._artifact_ref(by_oracle[oracle][0][0]).to_dict() for oracle in oracle_ids]
+        return {"status": "pass", "refs": refs}
+
     def _completion_obligations(self, run_id: str) -> tuple[str, ...]:
         """Evaluate completion from ledger evidence, never host supplied claims."""
         _, diagnostics = self._completion_manifold(run_id)
-        legacy_names = {"insight_ref": "insights_non_blocking"}
-        return tuple(
-            legacy_names.get(field, field) for field, detail in diagnostics.items() if detail.get("status") != "pass"
-        )
+        return tuple(field for field, detail in diagnostics.items() if detail.get("status") != "pass")
 
     def _acceptance_matches(
         self, acceptance: ArtifactRevision | None, technical: ArtifactRevision | None, human: ArtifactRevision | None
@@ -2658,12 +3644,25 @@ class ResearchRunCoordinator:
         missing = self._completion_obligations(run_id)
         if not missing and current.payload.get("state") == "completed":
             missing = ()
+        diagnostics = self._completion_manifold(run_id)[1]
+        next_actions = ["resolve:" + item for item in missing]
+        goal_detail = diagnostics.get("goal_satisfaction")
+        if isinstance(goal_detail, Mapping) and goal_detail.get("reason") == "oracle_uncovered":
+            next_actions.extend(
+                "resolve:goal_satisfaction:" + str(oracle_id) for oracle_id in goal_detail.get("oracles", ())
+            )
+        review_detail = diagnostics.get("independent_delivery_review")
+        if isinstance(review_detail, Mapping) and review_detail.get("reason") == "oracle_uncovered":
+            next_actions.extend(
+                "resolve:independent_delivery_review:" + str(oracle_id)
+                for oracle_id in review_detail.get("oracles", ())
+            )
         return {
             "run_id": run_id,
             "state": current.payload["state"],
             "unmet_obligations": missing,
-            "field_diagnostics": self._completion_manifold(run_id)[1],
-            "next_actions": ["resolve:" + item for item in missing],
+            "field_diagnostics": diagnostics,
+            "next_actions": next_actions,
             "quarantined_paths": self._quarantine_paths(run_id),
             "state_digest": current.payload["state_digest"],
         }
@@ -2690,11 +3689,7 @@ class ResearchRunCoordinator:
         if missing:
             raise CompletionBlockedError(missing)
         manifold, diagnostics = self._completion_manifold(run_id)
-        missing = tuple(
-            {"insight_ref": "insights_non_blocking"}.get(field, field)
-            for field, detail in diagnostics.items()
-            if detail.get("status") != "pass"
-        )
+        missing = tuple(field for field, detail in diagnostics.items() if detail.get("status") != "pass")
         if missing:
             raise CompletionBlockedError(missing)
         manifold_digest = _digest(manifold)
@@ -2767,6 +3762,234 @@ class ResearchRunCoordinator:
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
         return created[-1]
+
+    def ingest_pressure_signal(
+        self,
+        *,
+        run_id: str,
+        disputed_claim_id: str,
+        signal: PressureSignal,
+        source: str,
+        timestamp: str,
+        quality: str = "low",
+        contradiction_id: str | None = None,
+        validation_state: str | None = None,
+        expected_revision: int | None = None,
+    ) -> ArtifactRevision:
+        """Record one pressure signal against a disputed claim without flipping anything silently.
+
+        Pressure events never mutate the underlying contradiction packet's status.
+        They append a new ``DISPUTE_PACKET_KIND`` ledger artifact carrying the
+        updated pressure ledger, the latest independent-validation state, and
+        the full audit trail.  ``provider_validation`` events additionally
+        write a ``PROVIDER_VALIDATION_KIND`` audit artifact.
+        """
+
+        validate_identifier(run_id, "run_id")
+        validate_identifier(disputed_claim_id, "disputed_claim_id")
+        if not isinstance(signal, PressureSignal):
+            raise CoordinatorConflictError(f"signal must be a PressureSignal; got {signal!r}")
+        if not isinstance(source, str) or not source.strip():
+            raise CoordinatorConflictError("pressure source is required")
+        if not isinstance(timestamp, str) or not timestamp.strip():
+            raise CoordinatorConflictError("pressure timestamp is required")
+        if signal is PressureSignal.INDEPENDENT_VALIDATION and not isinstance(validation_state, str):
+            raise DisputeDispositionError("provider_validation events require a validation_state")
+        if validation_state is not None and validation_state not in {
+            "none",
+            "requested",
+            "passed",
+            "failed",
+            "inconclusive",
+        }:
+            raise DisputeDispositionError(f"unknown validation_state: {validation_state!r}")
+
+        artifacts = self.ledger.load_run(run_id).artifacts
+        existing_packet = None
+        if contradiction_id is not None:
+            try:
+                existing_packet = self.ledger.get_artifact(ArtifactRef(run_id, contradiction_id, 1))
+            except RuntimeStoreError:
+                existing_packet = None
+        if existing_packet is None and contradiction_id is not None:
+            existing_packet = next(
+                (item for item in artifacts if item.kind == CONTRADICTION_PACKET_KIND and item.id == contradiction_id),
+                None,
+            )
+        if contradiction_id is not None and existing_packet is None:
+            raise CoordinatorConflictError(f"unknown contradiction_id: {contradiction_id}")
+
+        dispute_artifacts = sorted(
+            (item for item in artifacts if item.kind == DISPUTE_PACKET_KIND),
+            key=lambda item: (item.round_id, item.id, item.revision),
+        )
+        latest_dispute = None
+        for item in reversed(dispute_artifacts):
+            if item.payload.get("disputed_claim_id") != disputed_claim_id:
+                continue
+            latest_dispute = item
+            break
+
+        previous_ledger: PressureLedger = ()
+        previous_validation = "none"
+        previous_signals: tuple[PressureSignal, ...] = ()
+        previous_position = "requester disputes claim"
+        agent_position = f"agent holds claim {disputed_claim_id} by evidence"
+        audit_trail = DisputeAuditTrail()
+        if latest_dispute is not None:
+            decoded = dispute_packet_from_payload(latest_dispute.payload)
+            previous_signals = decoded.pressure_signals
+            previous_validation = decoded.independent_validation_state
+            previous_position = decoded.requester_position
+            previous_audit = decoded.audit_trail
+            for raw in previous_audit.entries:
+                audit_trail = DisputeAuditTrail(entries=(*audit_trail.entries, raw))
+            for raw in latest_dispute.payload.get("pressure_ledger", ()):
+                if not isinstance(raw, Mapping):
+                    continue
+                previous_ledger = append_signal(
+                    previous_ledger,
+                    signal=PressureSignal(str(raw.get("signal"))),
+                    timestamp=str(raw.get("timestamp", "")),
+                    source=str(raw.get("source", "")),
+                    quality=str(raw.get("quality", "low")),
+                )
+
+        # The base for evidence-quality comparison comes from the contradiction packet.
+        evidence_basis: dict[str, Any] = {}
+        if existing_packet is not None:
+            claim_a = existing_packet.payload.get("claim_a") if isinstance(existing_packet.payload, Mapping) else None
+            if isinstance(claim_a, Mapping):
+                evidence_basis["basis_refs"] = list(claim_a.get("basis_refs", ())) or [
+                    f"contradiction:{contradiction_id}"
+                ]
+                evidence_basis["quality"] = claim_a.get("evidence_quality", "medium")
+            else:
+                evidence_basis["basis_refs"] = [f"contradiction:{contradiction_id}"]
+                evidence_basis["quality"] = "medium"
+        else:
+            evidence_basis["basis_refs"] = [f"claim:{disputed_claim_id}"]
+            evidence_basis["quality"] = "medium"
+
+        new_ledger = append_signal(
+            previous_ledger,
+            signal=signal,
+            timestamp=timestamp,
+            source=source,
+            quality=quality,
+        )
+        combined_signals: tuple[PressureSignal, ...] = tuple(dict.fromkeys(previous_signals + (signal,)))
+        effective_validation = (
+            validation_state
+            if signal is PressureSignal.INDEPENDENT_VALIDATION and validation_state is not None
+            else previous_validation
+        )
+
+        claim_state = {
+            "disputed_claim_id": disputed_claim_id,
+            "supported_by": evidence_basis,
+            "disputed": True,
+            "requester_position": previous_position,
+            "agent_position": agent_position,
+        }
+        evaluated: DisputePacket = evaluate_dispute(
+            claim_state=claim_state,
+            pressure_signals=combined_signals,
+            evidence_updates=(),
+            audit_trail=audit_trail,
+            independent_validation=effective_validation,
+            timestamp=timestamp,
+        )
+        # Reconciliation: keep the prior audit trail without re-deriving.
+        evaluated = DisputePacket(
+            dispute_id=evaluated.dispute_id,
+            disputed_claim_id=evaluated.disputed_claim_id,
+            requester_position=evaluated.requester_position or previous_position,
+            agent_position=evaluated.agent_position or agent_position,
+            evidence_basis=evaluated.evidence_basis,
+            pressure_signals=evaluated.pressure_signals,
+            independent_validation_state=evaluated.independent_validation_state,
+            recommended_verification_path=evaluated.recommended_verification_path,
+            audit_trail=audit_trail,
+            contradiction_id=contradiction_id,
+        )
+
+        dispute_id = f"dispute-{disputed_claim_id}"
+        latest_dispute_id = latest_dispute.id if latest_dispute is not None else dispute_id
+        ledger_id = f"{latest_dispute_id}-ledger"
+        current = self._latest_state(run_id)
+        current_ref = self._artifact_ref(current)
+        expected = expected_revision if expected_revision is not None else self.ledger.get_revision(run_id)
+        dispute_payload = {
+            **evaluated.to_dict(),
+            "pressure_ledger": [entry.to_dict() for entry in new_ledger],
+            "disposition": evaluated.audit_trail.entries[-1].disposition.value
+            if evaluated.audit_trail.entries
+            else evaluated.independent_validation_state
+            if evaluated.independent_validation_state in {"passed", "failed", "inconclusive"}
+            else DisputeDisposition.AGENT_HOLDS.value,
+        }
+        entries: list[tuple[str, str, dict[str, Any], tuple[ArtifactRef, ...]]] = [
+            (
+                ledger_id,
+                DISPUTE_PACKET_KIND,
+                dispute_payload,
+                (current_ref,),
+            )
+        ]
+        parents: tuple[ArtifactRef, ...] = (current_ref,)
+        if existing_packet is not None:
+            parents = (*parents, self._artifact_ref(existing_packet))
+        if signal is PressureSignal.INDEPENDENT_VALIDATION:
+            sanitized_ts = "".join(
+                character for character in timestamp.lower() if character.isalnum() or character == "-"
+            )[:16]
+            provider_id = "provider-validation-" + disputed_claim_id + "-" + sanitized_ts
+            entries.append(
+                (
+                    provider_id,
+                    PROVIDER_VALIDATION_KIND,
+                    {
+                        "disputed_claim_id": disputed_claim_id,
+                        "validation_state": effective_validation,
+                        "timestamp": timestamp,
+                        "source": source,
+                        "quality": quality,
+                    },
+                    parents,
+                )
+            )
+        try:
+            appended = self.ledger.append_artifact_batch(run_id, tuple(entries), expected_revision=expected)
+        except LedgerConflictError as error:
+            raise CoordinatorConflictError("stale_revision") from error
+        # If the evaluator's audit_trail differs from the persisted trail, append a flip entry now.
+        flip_entries = [entry for entry in evaluated.audit_trail.entries if entry not in audit_trail.entries]
+        if flip_entries:
+            flip_payload = {
+                "disputed_claim_id": disputed_claim_id,
+                "pressure_signals": [signal.value for signal in combined_signals],
+                "entries": [entry.to_dict() for entry in flip_entries],
+                "timestamp": timestamp,
+                "contradiction_id": contradiction_id,
+            }
+            flip_id = f"dispute-audit-{disputed_claim_id}-{timestamp}"
+            try:
+                appended = self.ledger.append_artifact_batch(
+                    run_id,
+                    (
+                        (
+                            flip_id,
+                            DISPUTE_PACKET_KIND,
+                            flip_payload,
+                            (current_ref, *appended),
+                        ),
+                    ),
+                    expected_revision=self.ledger.get_revision(run_id),
+                )
+            except LedgerConflictError as error:
+                raise CoordinatorConflictError("stale_revision") from error
+        return appended[-1]
 
     def recover(self, run_id: str) -> dict[str, Any]:
         reconciled: list[str] = []
@@ -2843,3 +4066,119 @@ __all__ = [
     "RESEARCH_RUN_STATE_KIND",
     "ResearchRunCoordinator",
 ]
+
+
+def _state_regions(state: str) -> dict:
+    """Project one canonical lifecycle state into the five orthogonal regions (#324).
+
+    States without a canonical region projection fail closed.
+    """
+
+    base = {"revision": 0, "updated_at": ""}
+    mapping = {
+        "alignment": {
+            "cognitive": {"value": "active", **base},
+            "workflow": {"value": "alignment", **base},
+            "authority": {"value": "awaiting_requester", **base},
+            "epistemic": {"value": "exploratory", **base},
+            "delivery": {"value": "not_started", **base},
+        },
+        "handoff_pending": {
+            "cognitive": {"value": "active", **base},
+            "workflow": {"value": "alignment", **base},
+            "authority": {"value": "awaiting_requester", **base},
+            "epistemic": {"value": "exploratory", **base},
+            "delivery": {"value": "not_started", **base},
+        },
+        "autonomous_research": {
+            "cognitive": {"value": "active", **base},
+            "workflow": {"value": "autonomous_research", **base},
+            "authority": {"value": "research_owner", **base},
+            "epistemic": {"value": "depth", **base},
+            "delivery": {"value": "not_started", **base},
+        },
+        "synthesis": {
+            "cognitive": {"value": "active", **base},
+            "workflow": {"value": "synthesis", **base},
+            "authority": {"value": "research_owner", **base},
+            "epistemic": {"value": "synthesis", **base},
+            "delivery": {"value": "not_started", **base},
+        },
+        "readiness": {
+            "cognitive": {"value": "active", **base},
+            "workflow": {"value": "readiness", **base},
+            "authority": {"value": "research_owner", **base},
+            "epistemic": {"value": "verified", **base},
+            "delivery": {"value": "not_started", **base},
+        },
+        "delivery_pending": {
+            "cognitive": {"value": "active", **base},
+            "workflow": {"value": "delivery_pending", **base},
+            "authority": {"value": "research_owner", **base},
+            "epistemic": {"value": "verified", **base},
+            "delivery": {"value": "deliveries_compiled", **base},
+        },
+        "awaiting_acceptance": {
+            "cognitive": {"value": "active", **base},
+            "workflow": {"value": "awaiting_acceptance", **base},
+            "authority": {"value": "awaiting_requester", **base},
+            "epistemic": {"value": "verified", **base},
+            "delivery": {"value": "delivered", **base},
+        },
+        "completed": {
+            "cognitive": {"value": "settled", **base},
+            "workflow": {"value": "completed", **base},
+            "authority": {"value": "completed", **base},
+            "epistemic": {"value": "settled", **base},
+            "delivery": {"value": "completed", **base},
+        },
+        # Resumable holds project their predecessor stage: the lifecycle matrix
+        # enters and exits both inside the autonomous-research stage, so the
+        # stage regions carry over. paused keeps research_owner authority
+        # (resume needs no requester decision); blocked holds behind a
+        # not-yet-recorded method-or-authority decision, so the decision ball
+        # sits outside the run -> awaiting_requester.
+        "paused": {
+            "cognitive": {"value": "active", **base},
+            "workflow": {"value": "autonomous_research", **base},
+            "authority": {"value": "research_owner", **base},
+            "epistemic": {"value": "depth", **base},
+            "delivery": {"value": "not_started", **base},
+        },
+        "blocked": {
+            "cognitive": {"value": "active", **base},
+            "workflow": {"value": "autonomous_research", **base},
+            "authority": {"value": "awaiting_requester", **base},
+            "epistemic": {"value": "depth", **base},
+            "delivery": {"value": "not_started", **base},
+        },
+        # Terminal states (lifecycle-matrix-v1.json state_vocabulary.terminal)
+        # accept only idempotent reads and audit export: every region is
+        # concluded. The why (supersede / cancel / authority / fatal failure)
+        # lives in the state payload and lineage, not in the region values.
+        "superseded": {
+            "cognitive": {"value": "settled", **base},
+            "workflow": {"value": "completed", **base},
+            "authority": {"value": "completed", **base},
+            "epistemic": {"value": "settled", **base},
+            "delivery": {"value": "completed", **base},
+        },
+        "authority_blocked": {
+            "cognitive": {"value": "settled", **base},
+            "workflow": {"value": "completed", **base},
+            "authority": {"value": "completed", **base},
+            "epistemic": {"value": "settled", **base},
+            "delivery": {"value": "completed", **base},
+        },
+        "failed": {
+            "cognitive": {"value": "settled", **base},
+            "workflow": {"value": "completed", **base},
+            "authority": {"value": "completed", **base},
+            "epistemic": {"value": "settled", **base},
+            "delivery": {"value": "completed", **base},
+        },
+    }
+    try:
+        return mapping[state]
+    except KeyError as error:
+        raise IllegalTransitionError("illegal_transition") from error

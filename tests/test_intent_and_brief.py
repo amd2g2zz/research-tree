@@ -186,7 +186,9 @@ def test_invalid_signal_anchor_is_rejected_without_artifact(tmp_path: Path) -> N
     with pytest.raises(modules["InvalidIntentModelError"]):
         compile_canonical_model(modules, ledger, round_record, invalid)
 
-    assert [artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "intent-model"] == []
+    assert [
+        artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "intent-model"
+    ] == []
 
 
 def test_invalid_hypothesis_anchor_is_rejected_without_artifact(tmp_path: Path) -> None:
@@ -197,7 +199,9 @@ def test_invalid_hypothesis_anchor_is_rejected_without_artifact(tmp_path: Path) 
     with pytest.raises(modules["InvalidIntentModelError"]):
         compile_canonical_model(modules, ledger, round_record, invalid)
 
-    assert [artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "intent-model"] == []
+    assert [
+        artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "intent-model"
+    ] == []
 
 
 def test_partial_ambiguity_generates_nonblocking_question_and_brief(tmp_path: Path) -> None:
@@ -372,7 +376,9 @@ def test_working_brief_rejects_newer_or_unmodeled_input_revisions(tmp_path: Path
     with pytest.raises(modules["InvalidWorkingBriefError"]):
         compiler.compile(**common, expected_revision=ledger.get_revision(round_record.id))
 
-    assert [artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "working-brief"] == []
+    assert [
+        artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.kind == "working-brief"
+    ] == []
 
 
 def test_working_brief_rejects_a_newer_context_bundle_revision(tmp_path: Path) -> None:
@@ -500,8 +506,6 @@ def test_recompilation_appends_intent_and_brief_revisions_without_mutating_histo
     )
     assert second_model.revision == first_model.revision + 1
     assert second_brief.revision == first_brief.revision + 1
-    assert first_stored_model.payload["desired_outcomes"] == (
-        "implementation-ready technical blueprint",
-    )
+    assert first_stored_model.payload["desired_outcomes"] == ("implementation-ready technical blueprint",)
     assert first_stored_brief.parent_refs[0].revision == first_model.revision
     assert second_brief.parent_refs[0].revision == second_model.revision

@@ -137,9 +137,7 @@ def load_delivery_policy(path: Path) -> DeliveryPolicy:
     if hard.files <= split.files:
         raise ValueError("hard file limit must exceed split file limit")
     if hard.non_generated_lines <= split.non_generated_lines:
-        raise ValueError(
-            "hard non-generated line limit must exceed split non-generated line limit"
-        )
+        raise ValueError("hard non-generated line limit must exceed split non-generated line limit")
 
     strings = {
         name: payload.get(name)
@@ -172,13 +170,9 @@ def load_delivery_policy(path: Path) -> DeliveryPolicy:
     canonical_inputs = payload.get("canonical_generation_inputs")
     ephemeral_verification_paths = payload.get("ephemeral_verification_paths")
     protected = payload.get("protected_branches")
-    if not isinstance(generated_paths, list) or not all(
-        isinstance(item, str) and item for item in generated_paths
-    ):
+    if not isinstance(generated_paths, list) or not all(isinstance(item, str) and item for item in generated_paths):
         raise ValueError("generated_paths must be a non-empty string list")
-    if not isinstance(canonical_inputs, list) or not all(
-        isinstance(item, str) and item for item in canonical_inputs
-    ):
+    if not isinstance(canonical_inputs, list) or not all(isinstance(item, str) and item for item in canonical_inputs):
         raise ValueError("canonical_generation_inputs must be a string list")
     if not isinstance(ephemeral_verification_paths, list) or not all(
         isinstance(item, str) and item for item in ephemeral_verification_paths
@@ -323,9 +317,7 @@ def _git(repository: Path, *arguments: str, check: bool = True) -> str:
     return completed.stdout.strip()
 
 
-def _run(
-    command: Sequence[str], *, cwd: Path, check: bool = True
-) -> subprocess.CompletedProcess[str]:
+def _run(command: Sequence[str], *, cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
     completed = subprocess.run(
         list(command),
         cwd=cwd,
@@ -379,17 +371,11 @@ def run_preflight(
     if registered_worktree_paths is None:
         registered_worktree_paths = [
             str(record.get("worktree"))
-            for record in _parse_worktree_porcelain(
-                _git(repository, "worktree", "list", "--porcelain")
-            )
+            for record in _parse_worktree_porcelain(_git(repository, "worktree", "list", "--porcelain"))
             if record.get("worktree") is not None
         ]
     current_path = _canonical_worktree_path(str(repository))
-    matching_paths = [
-        path
-        for path in registered_worktree_paths
-        if _canonical_worktree_path(path) == current_path
-    ]
+    matching_paths = [path for path in registered_worktree_paths if _canonical_worktree_path(path) == current_path]
     if len(matching_paths) != 1:
         errors.append("duplicate_worktree_path")
     if remote_issue_owners is None:
@@ -445,10 +431,7 @@ def evaluate_pull_request(
     errors: list[str] = []
     warnings: list[str] = []
     is_release = re.fullmatch(policy.release_branch_pattern, head_branch) is not None
-    is_integration_promotion = (
-        head_branch == policy.integration_branch
-        and base_branch == policy.release_branch
-    )
+    is_integration_promotion = head_branch == policy.integration_branch and base_branch == policy.release_branch
     if is_release:
         if base_branch != policy.release_branch:
             errors.append("invalid_release_base")
@@ -460,10 +443,7 @@ def evaluate_pull_request(
         errors.append("invalid_base_branch")
 
     branch_issue = _branch_issue(policy, head_branch)
-    issue_ids = {
-        int(match.group("issue"))
-        for match in re.finditer(policy.delivery_issue_pattern, body)
-    }
+    issue_ids = {int(match.group("issue")) for match in re.finditer(policy.delivery_issue_pattern, body)}
     if not is_release and not is_integration_promotion:
         if len(issue_ids) > 1:
             errors.append("multiple_delivery_issues")
@@ -472,9 +452,7 @@ def evaluate_pull_request(
         elif branch_issue not in issue_ids:
             errors.append("branch_issue_mismatch")
 
-    generated = {
-        path for path in changed_files if _matches_any(path, policy.generated_paths)
-    }
+    generated = {path for path in changed_files if _matches_any(path, policy.generated_paths)}
     new_generated_verification_records = sorted(
         {path for path in added_files if _matches_any(path, policy.ephemeral_verification_paths)}
     )
@@ -482,28 +460,29 @@ def evaluate_pull_request(
         errors.append("generated_verification_record_tracked")
     non_generated = set(changed_files) - generated
     file_count = len(non_generated)
-    if not is_integration_promotion and (
-        file_count > policy.hard_limit.files
-        or non_generated_lines > policy.hard_limit.non_generated_lines
-    ) and not approved_exception:
+    if (
+        not is_integration_promotion
+        and (file_count > policy.hard_limit.files or non_generated_lines > policy.hard_limit.non_generated_lines)
+        and not approved_exception
+    ):
         errors.append("hard_review_limit_exceeded")
     elif not is_integration_promotion and (
-        file_count > policy.split_review.files
-        or non_generated_lines > policy.split_review.non_generated_lines
+        file_count > policy.split_review.files or non_generated_lines > policy.split_review.non_generated_lines
     ):
         warnings.append("split_review_required")
 
-    canonical_changed = any(
-        _matches_any(path, policy.canonical_generation_inputs)
-        for path in non_generated
-    )
-    if generated and not canonical_changed and not is_integration_promotion:
+    canonical_changed = any(_matches_any(path, policy.canonical_generation_inputs) for path in non_generated)
+    if generated and not canonical_changed and not is_integration_promotion and not is_release:
         errors.append("generated_output_without_source_change")
-    if not is_integration_promotion:
+    # Issue #478 follow-up: per-commit source/generated hygiene is already
+    # enforced on every integration PR by the dev-side gate. A release
+    # branch is a whole-branch promotion whose own invariants are
+    # derived-from-dev and zero unintegrated commits, so replaying the
+    # per-commit check over the squashed integration history would reject
+    # every release that contains any regenerated package.
+    if not is_integration_promotion and not is_release:
         for commit_paths in commit_file_sets:
-            commit_generated = {
-                path for path in commit_paths if _matches_any(path, policy.generated_paths)
-            }
+            commit_generated = {path for path in commit_paths if _matches_any(path, policy.generated_paths)}
             if commit_generated and commit_generated != commit_paths:
                 errors.append("generated_output_mixed_with_source_commit")
                 break
@@ -549,9 +528,7 @@ def classify_cleanup(record: WorktreeRecord) -> CleanupDisposition:
     )
 
 
-def discover_issue_owners(
-    repository: Path, policy: DeliveryPolicy
-) -> Mapping[int, tuple[str, ...]]:
+def discover_issue_owners(repository: Path, policy: DeliveryPolicy) -> Mapping[int, tuple[str, ...]]:
     owners: dict[int, set[str]] = {}
     current_branch: str | None = None
     for line in _git(repository, "worktree", "list", "--porcelain").splitlines():
@@ -598,9 +575,7 @@ def discover_issue_owners(
     return {issue: tuple(sorted(branches)) for issue, branches in owners.items()}
 
 
-def _diff_summary(
-    repository: Path, base_ref: str, policy: DeliveryPolicy
-) -> tuple[list[str], int]:
+def _diff_summary(repository: Path, base_ref: str, policy: DeliveryPolicy) -> tuple[list[str], int]:
     output = _git(repository, "diff", "--numstat", f"{base_ref}...HEAD")
     files: list[str] = []
     non_generated_lines = 0
@@ -711,9 +686,7 @@ def _pr_metadata(repository: Path, branch: str) -> tuple[str | None, str | None]
     )
 
 
-def inventory_worktrees(
-    repository: Path, *, dev_ref: str = "origin/dev"
-) -> tuple[WorktreeRecord, ...]:
+def inventory_worktrees(repository: Path, *, dev_ref: str = "origin/dev") -> tuple[WorktreeRecord, ...]:
     records: list[WorktreeRecord] = []
     raw = _git(repository, "worktree", "list", "--porcelain")
     for item in _parse_worktree_porcelain(raw):
@@ -754,12 +727,7 @@ def inventory_worktrees(
 
 
 def _default_change_root() -> Path:
-    return (
-        Path(__file__).resolve().parents[2]
-        / "openspec"
-        / "changes"
-        / "establish-dev-integration-governance"
-    )
+    return Path(__file__).resolve().parents[2] / "openspec" / "changes" / "establish-dev-integration-governance"
 
 
 def _json_dump(
@@ -771,12 +739,15 @@ def _json_dump(
         rendered = json.dumps(payload, indent=2, sort_keys=True) + "\n"
         print(rendered, end="")
         return
-    rendered = json.dumps(
-        payload,
-        ensure_ascii=True,
-        separators=(",", ":"),
-        sort_keys=True,
-    ) + "\n"
+    rendered = (
+        json.dumps(
+            payload,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n"
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(rendered, encoding="utf-8")
 
@@ -797,11 +768,7 @@ def _approved_exception_from_event(pull_request: Mapping[str, object]) -> bool:
     labels = pull_request.get("labels")
     if not isinstance(labels, list):
         return False
-    return any(
-        isinstance(label, Mapping)
-        and label.get("name") == "delivery:oversized-approved"
-        for label in labels
-    )
+    return any(isinstance(label, Mapping) and label.get("name") == "delivery:oversized-approved" for label in labels)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -868,8 +835,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 owners = {
                     int(issue): tuple(branches)
                     for issue, branches in raw_owners.items()
-                    if isinstance(branches, list)
-                    and all(isinstance(branch, str) for branch in branches)
+                    if isinstance(branches, list) and all(isinstance(branch, str) for branch in branches)
                 }
             else:
                 owners = discover_issue_owners(args.repo, policy)
@@ -904,16 +870,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 head = pull_request.get("head", {}).get("ref")
                 title = pull_request.get("title", "")
                 body = pull_request.get("body") or ""
-                approved_exception = (
-                    approved_exception
-                    or _approved_exception_from_event(pull_request)
-                )
+                approved_exception = approved_exception or _approved_exception_from_event(pull_request)
             if not isinstance(base, str) or not isinstance(head, str):
                 raise ValueError("pull request base and head are required")
             base_ref = f"origin/{base}"
-            changed_files, non_generated_lines = _diff_summary(
-                args.repo, base_ref, policy
-            )
+            changed_files, non_generated_lines = _diff_summary(args.repo, base_ref, policy)
             result = evaluate_pull_request(
                 policy=policy,
                 base_branch=base,

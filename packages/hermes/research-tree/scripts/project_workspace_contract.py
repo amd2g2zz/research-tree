@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
-import shutil
+import re
 import shlex
 import subprocess
 import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
-import re
-
 
 PROJECTS_ROOT = Path(".research-tree") / "projects"
 RUN_DIRECTORIES = (
@@ -25,14 +23,7 @@ RUN_DIRECTORIES = (
     "checkpoints",
     "logs",
     "deliveries",
-    "legacy",
 )
-RUN_BOUND_LEGACY_ROOTS = (
-    (Path(".research-tree-native"), "native"),
-    (Path(".research-tree-alignment"), "alignment"),
-    (Path(".research-tree-hermes"), "hermes"),
-)
-UNATTRIBUTED_LEGACY_ROOTS = (Path(".research-tree-hooks"),)
 IDENTIFIER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 HOST_HOOK_EVENTS = {
     "codex": ("SessionStart", "SessionEnd", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop", "Stop"),
@@ -109,36 +100,6 @@ def _load_manifest(workspace: ProjectRunWorkspace) -> dict[str, Any]:
     return payload
 
 
-def _assert_no_unattributed_legacy_root(repository: Path) -> None:
-    present = [str(path) for path in UNATTRIBUTED_LEGACY_ROOTS if (repository / path).exists()]
-    if present:
-        joined = ", ".join(present)
-        raise ProjectWorkspaceError(f"explicit migration is required for unattributed legacy root(s): {joined}")
-
-
-def _migrate_legacy_roots(repository: Path, workspace: ProjectRunWorkspace) -> list[str]:
-    _assert_no_unattributed_legacy_root(repository)
-    staged: list[tuple[Path, Path]] = []
-    try:
-        for legacy_root, destination_name in RUN_BOUND_LEGACY_ROOTS:
-            source = repository / legacy_root / workspace.run_id
-            if not source.exists():
-                continue
-            destination = workspace.run_root / "legacy" / destination_name
-            if destination.exists():
-                raise ProjectWorkspaceError(f"legacy destination already exists: {destination_name}")
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(source), str(destination))
-            staged.append((source, destination))
-    except (OSError, ProjectWorkspaceError):
-        for source, destination in reversed(staged):
-            if destination.exists() and not source.exists():
-                source.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(destination), str(source))
-        raise
-    return [source.relative_to(repository).as_posix() for source, _destination in staged]
-
-
 def initialize_project_run(repository: Path, *, project_id: str, run_id: str, host: str) -> ProjectRunWorkspace:
     project_id = _identifier(project_id, "project_id")
     run_id = _identifier(run_id, "run_id")
@@ -155,7 +116,6 @@ def initialize_project_run(repository: Path, *, project_id: str, run_id: str, ho
     workspace.run_root.mkdir(parents=True, exist_ok=True)
     for directory in RUN_DIRECTORIES:
         (workspace.run_root / directory).mkdir(exist_ok=True)
-    migrated = _migrate_legacy_roots(repository.expanduser().resolve(), workspace)
     _atomic_json(
         workspace.manifest_path,
         {
@@ -165,7 +125,6 @@ def initialize_project_run(repository: Path, *, project_id: str, run_id: str, ho
             "hosts": [host],
             "created_at": _now(),
             "updated_at": _now(),
-            "migrated_legacy_roots": migrated,
             "capabilities": {"lifecycle_hooks": "unknown"},
         },
     )

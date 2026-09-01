@@ -4,8 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from test_alignment_protocol import candidate
-
 
 def correction_context(tmp_path: Path):
     from research_tree import CorrectionBinding, CorrectionEvent, ResearchRunCoordinator, RunLedger
@@ -376,32 +374,6 @@ def test_stale_authority_is_quarantined_and_fresh_successor_can_dispatch(tmp_pat
             },
             worker_id="worker-1",
             expected_revision=ledger.get_revision("run-correction"),
-        )
-
-
-def test_material_correction_invalidates_displayed_alignment_confirmation(tmp_path: Path) -> None:
-    from research_tree import AlignmentMessageError, AlignmentProtocol
-
-    ledger, coordinator, _, _, event = correction_context(tmp_path)
-    protocol = AlignmentProtocol(ledger, event.run_id)
-    planned = protocol.plan(
-        [candidate("confirm-old-subject", kind="confirmation", human_exclusive=True, researchable=False)]
-    )
-    message = protocol.message(
-        mirror="The diagnostic repository is the research subject.",
-        evidence_refs=[],
-        consequence="Confirmation would authorize the obsolete strategy.",
-        prompt="Do you confirm this subject?",
-        action_id=planned["action"]["action_id"],
-    )
-    coordinator.apply_correction(
-        event,
-        expected_revision=ledger.get_revision(event.run_id),
-    )
-    with pytest.raises(AlignmentMessageError, match="stale"):
-        protocol.confirm(
-            "I confirm the displayed research subject.",
-            expected_digest=message["belief_digest"],
         )
 
 

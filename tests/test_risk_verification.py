@@ -4,16 +4,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-
 from test_readiness import complete_conditional_package, package_context
+
 from research_tree.domain import thaw_json
 
 
 def api():
     from research_tree import (
-        IsolatedVerificationResult,
-        InvalidReadinessError,
         CanonicalReadinessVerifier,
+        InvalidReadinessError,
+        IsolatedVerificationResult,
         VerificationFailure,
         readiness_for_delivery,
     )
@@ -116,7 +116,7 @@ def test_default_policy_records_each_execution_check_as_skipped(tmp_path: Path) 
     assert api_modules["readiness_for_delivery"](record)["risk_tier"] == "default"
 
 
-def test_rt008_readiness_records_remain_readable_without_rt011_fields(tmp_path: Path) -> None:
+def test_rt008_readiness_records_without_current_schema_fields_are_rejected(tmp_path: Path) -> None:
     api_modules = api()
     (
         fixture_modules,
@@ -138,20 +138,19 @@ def test_rt008_readiness_records_remain_readable_without_rt011_fields(tmp_path: 
         root=tmp_path / "repository",
         tier="default",
     )
-    legacy_payload = thaw_json(record.payload)
-    legacy_payload.pop("risk_verification")
-    for diagnostic in legacy_payload["diagnostics"]:
-        diagnostic.pop("failure_category")
-    legacy = store.append_artifact(
+    stale_payload = thaw_json(record.payload)
+    stale_payload.pop("risk_verification")
+    stale = store.append_artifact(
         round_record.id,
         record.id,
         record.kind,
-        legacy_payload,
+        stale_payload,
         parent_refs=record.parent_refs,
         expected_revision=store.get_revision(round_record.id),
     )
 
-    assert api_modules["readiness_for_delivery"](legacy) == legacy.payload["delivery_readiness"]
+    with pytest.raises(api_modules["InvalidReadinessError"], match="unexpected keys"):
+        api_modules["readiness_for_delivery"](stale)
 
 
 def test_medium_spike_gets_a_sanitized_request_and_persists_evidence(tmp_path: Path) -> None:

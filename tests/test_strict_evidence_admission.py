@@ -3,11 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import research_tree
 import pytest
-
 from canonical_finding_fixture import canonical_context
 
+import research_tree
 from research_tree import CanonicalFindingPackCompiler, ContentAddressedStore, InvalidFindingPackError
 from research_tree.evidence import (
     EvidenceAnchor,
@@ -15,6 +14,7 @@ from research_tree.evidence import (
     EvidenceResolver,
     EvidenceValidationError,
 )
+
 ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE_SCHEMA = (
     ROOT / "openspec" / "changes" / "unify-research-runtime-alpha2" / "schemas" / "evidence-artifact-v1.json"
@@ -90,6 +90,14 @@ def test_artifact_rejects_legacy_status_and_implicit_evidence_class() -> None:
     fields.pop("evidence_class")
     with pytest.raises(TypeError, match="evidence_class"):
         EvidenceArtifact(**fields)
+
+
+@pytest.mark.parametrize("evidence_class", ["legacy_unspecified", "totally-unknown-class"])
+def test_artifact_rejects_unknown_evidence_class_values(evidence_class) -> None:
+    """evidence_class is a closed vocabulary; unknown values fail closed (ADR-007)."""
+
+    with pytest.raises(EvidenceValidationError, match="evidence_class"):
+        EvidenceArtifact(**_artifact_fields(evidence_class=evidence_class))
 
 
 def test_resolver_has_no_artifact_map_constructor(tmp_path) -> None:

@@ -1,16 +1,16 @@
 from pathlib import Path
 
+from test_search_portfolio import execution_outcome, portfolio, registration
+
 from research_tree import (
     ContentAddressedStore,
     DurableSourceCaptureService,
     MethodRegistration,
     MethodRegistry,
     PortfolioBatch,
-    SearchPortfolioExecutor,
     RunLedger,
+    SearchPortfolioExecutor,
 )
-
-from test_search_portfolio import execution_outcome, portfolio, registration
 
 
 def test_acquisition_receipt_is_bound_after_cas_capture(tmp_path: Path) -> None:

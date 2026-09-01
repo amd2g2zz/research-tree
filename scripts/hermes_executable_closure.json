@@ -8,20 +8,73 @@
     "scripts/hermes_runtime_hook.py",
     "scripts/hermes_skill_adapter.py",
     "scripts/host_event_protocol.py",
+    "scripts/lifecycle_hook.py",
     "scripts/native_workflow_contract.py",
+    "scripts/origins.py",
     "scripts/project_workspace_contract.py",
-    "scripts/skill_activation.py"
+    "scripts/skill_activation.py",
+    "scripts/speech_acts.py"
   ],
   "entrypoints": [
-    {"path": "scripts/alignment_controller.py", "arguments": ["--help"]},
-    {"path": "scripts/context_ledger_contract.py", "arguments": []},
-    {"path": "scripts/hermes_event_adapter.py", "arguments": []},
-    {"path": "scripts/hermes_execution_adapter.py", "arguments": ["--help"]},
-    {"path": "scripts/hermes_runtime_hook.py", "arguments": []},
-    {"path": "scripts/hermes_skill_adapter.py", "arguments": ["--help"]},
-    {"path": "scripts/host_event_protocol.py", "arguments": []},
-    {"path": "scripts/native_workflow_contract.py", "arguments": []},
-    {"path": "scripts/project_workspace_contract.py", "arguments": []},
-    {"path": "scripts/skill_activation.py", "arguments": []}
+    {
+      "path": "scripts/alignment_controller.py",
+      "arguments": [
+        "--help"
+      ]
+    },
+    {
+      "path": "scripts/context_ledger_contract.py",
+      "arguments": []
+    },
+    {
+      "path": "scripts/hermes_event_adapter.py",
+      "arguments": []
+    },
+    {
+      "path": "scripts/hermes_execution_adapter.py",
+      "arguments": [
+        "--help"
+      ]
+    },
+    {
+      "path": "scripts/hermes_runtime_hook.py",
+      "arguments": []
+    },
+    {
+      "path": "scripts/hermes_skill_adapter.py",
+      "arguments": [
+        "--help"
+      ]
+    },
+    {
+      "path": "scripts/host_event_protocol.py",
+      "arguments": []
+    },
+    {
+      "path": "scripts/lifecycle_hook.py",
+      "arguments": [
+        "--help"
+      ]
+    },
+    {
+      "path": "scripts/native_workflow_contract.py",
+      "arguments": []
+    },
+    {
+      "path": "scripts/origins.py",
+      "arguments": []
+    },
+    {
+      "path": "scripts/project_workspace_contract.py",
+      "arguments": []
+    },
+    {
+      "path": "scripts/skill_activation.py",
+      "arguments": []
+    },
+    {
+      "path": "scripts/speech_acts.py",
+      "arguments": []
+    }
   ]
 }

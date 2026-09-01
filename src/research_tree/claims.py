@@ -7,10 +7,10 @@ decision deterministic and separate from worker-reported confidence.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
-import re
-from typing import Any, Iterable, Mapping, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Optional
 
 from .domain import ArtifactRef
 
@@ -63,9 +63,12 @@ class Claim:
     conditions: tuple[str, ...] = ()
     platform: str = "unspecified"
     modality: str = "unspecified"
+    speech_act: Any | None = None
+    claim_kind: Optional[str] = None
+    authority: Optional[str] = None
 
     def __post_init__(self) -> None:
-        for field in (
+        for field_name in (
             "claim_id",
             "subject",
             "predicate",
@@ -76,10 +79,24 @@ class Claim:
             "platform",
             "modality",
         ):
-            object.__setattr__(self, field, _text(getattr(self, field), field))
+            object.__setattr__(self, field_name, _text(getattr(self, field_name), field_name))
         if self.polarity not in {"positive", "negative"}:
             raise ClaimValidationError("polarity must be positive or negative")
         object.__setattr__(self, "conditions", _texts(self.conditions, "conditions"))
+        if self.speech_act is not None:
+            try:
+                from .speech_acts import SpeechAct as _SpeechAct
+
+                if not isinstance(self.speech_act, _SpeechAct):
+                    object.__setattr__(self, "speech_act", _SpeechAct.from_value(self.speech_act))
+            except ImportError:
+                pass
+        for optional in ("claim_kind", "authority"):
+            value = getattr(self, optional)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ClaimValidationError(f"{optional} must be a non-empty string when provided")
+            if isinstance(value, str):
+                object.__setattr__(self, optional, value.strip())
 
     @property
     def normalized_statement(self) -> str:
@@ -124,6 +141,37 @@ class ProvenanceDescriptor:
             )
             if value is not None
         )
+
+
+def cluster_provenance_components(
+    provenances: Iterable[ProvenanceDescriptor],
+) -> tuple[tuple[str, frozenset[str]], ...]:
+    """Cluster resolved provenance descriptors sharing any upstream identity.
+
+    A mirror can carry a different URL or canonical label but still share a
+    content fingerprint, dataset, or citation-origin identity. Ownership
+    remains auditable but does not collapse a release record and an
+    independent installed-behavior observation into one source. Returns one
+    ``(cluster label, merged identities)`` pair per connected component, in
+    first-seen order; the first resolved descriptor names the component for
+    stable audit output and does not choose a preferred source.
+    """
+
+    components: list[tuple[set[str], str]] = []
+    for provenance in provenances:
+        identities = set(provenance.identities)
+        matches = [index for index, (known, _label) in enumerate(components) if known & identities]
+        if not matches:
+            components.append((identities, provenance.cluster_id))
+            continue
+        first = matches[0]
+        merged_identities, label = components[first]
+        merged_identities.update(identities)
+        for index in reversed(matches[1:]):
+            extra_identities, _extra_label = components.pop(index)
+            merged_identities.update(extra_identities)
+        components[first] = (merged_identities, label)
+    return tuple((label, frozenset(identities)) for identities, label in components)
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,21 +311,10 @@ class ClaimAdmissionEvaluator:
         output; it does not choose a preferred source.
         """
 
-        components: list[tuple[set[str], str]] = []
-        for grounding in groundings:
-            identities = set(grounding.provenance.identities)
-            matches = [index for index, (known, _label) in enumerate(components) if known & identities]
-            if not matches:
-                components.append((identities, grounding.provenance.cluster_id))
-                continue
-            first = matches[0]
-            merged_identities, label = components[first]
-            merged_identities.update(identities)
-            for index in reversed(matches[1:]):
-                extra_identities, _extra_label = components.pop(index)
-                merged_identities.update(extra_identities)
-            components[first] = (merged_identities, label)
-        return tuple(label for _identities, label in components)
+        return tuple(
+            label
+            for label, _identities in cluster_provenance_components(grounding.provenance for grounding in groundings)
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -15,7 +15,7 @@ current product behavior; ADRs govern accepted architecture; an active OpenSpec
 change governs its pending implementation contract. `docs/specs/` and
 `docs/reviews/` are historical records and cannot override an active contract.
 
-The consolidated `需求理解.md` and `方案设计.md` files are also historical.
+The consolidated `需求理解.md` and `方案设计.md` files are historical and live in `docs/history/`.
 They preserve early delivery context but are not current product, architecture,
 or implementation authority.
 

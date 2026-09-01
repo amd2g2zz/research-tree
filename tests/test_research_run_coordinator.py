@@ -3,26 +3,28 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
+from strategy_support import write_alignment_verification, write_independent_delivery_review
+from test_search_portfolio_lineage import _coordinator as _portfolio_coordinator
+from test_search_portfolio_lineage import _parents as _portfolio_parents
+from test_search_portfolio_lineage import _pivot_correction, durable_evidence
+from test_search_portfolio_lineage import _values as _portfolio_values
 
 from research_tree.acceptance import DeliveryAcceptance, delivery_pair_digest
 from research_tree.completion_inputs import CompletionInputRegistrar, delivery_manifest_digest
 from research_tree.coordinator import (
     COMPLETION_RECORD_KIND,
-    IllegalTransitionError,
-    CoordinatorConflictError,
     LEASE_KIND,
     LIFECYCLE_STATES,
     RESEARCH_RUN_STATE_KIND,
+    CoordinatorConflictError,
+    IllegalTransitionError,
     ResearchRunCoordinator,
 )
+from research_tree.decision_frame import DecisionFrame, IntentHypothesis
 from research_tree.domain import ArtifactRef
 from research_tree.feedback import CorrectionBinding
-from research_tree.decision_frame import DecisionFrame, IntentHypothesis
 from research_tree.run_ledger import RunLedger
-from research_tree.strategy_projection import StrategyProjection
-from test_search_portfolio_lineage import _coordinator as _portfolio_coordinator
-from test_search_portfolio_lineage import _parents as _portfolio_parents
-from test_search_portfolio_lineage import _pivot_correction, _values as _portfolio_values, durable_evidence
+from research_tree.strategy_projection import StrategyProjection, authority_fingerprint
 
 
 def _append(ledger: RunLedger, run_id: str, artifact_id: str, kind: str, payload: dict, parents=()):
@@ -92,7 +94,7 @@ def _prepare_strategy(ledger: RunLedger, coordinator: ResearchRunCoordinator) ->
         evidence_expectations=("independent source",),
         autonomy_envelope={"allowed": ["research"]},
         replanning_policy={"same_round": ["depth"]},
-        success_oracles=("oracle-1",),
+        success_oracles=({"id": "oracle-1", "evidence_standard_ids": ("standard-1",)},),
         delivery_contract={"technical": "package", "human": "report"},
         stop_rule="oracles pass",
         preference_influences=(),
@@ -105,11 +107,12 @@ def _prepare_strategy(ledger: RunLedger, coordinator: ResearchRunCoordinator) ->
 
 def _confirm_strategy(ledger: RunLedger, coordinator: ResearchRunCoordinator) -> StrategyProjection:
     projection = _prepare_strategy(ledger, coordinator)
+    write_alignment_verification(ledger, projection, "run-57")
     coordinator.display_strategy("run-57", projection, expected_revision=ledger.get_revision("run-57"))
     coordinator.confirm_handoff(
         "run-57",
         projection_ref=ArtifactRef("run-57", projection.id, projection.revision),
-        confirmation=f"I accept {projection.display_digest} and authorize research.",
+        confirmation=f"I accept {projection.display_digest} authority-fingerprint {authority_fingerprint(projection)} and authorize research.",
         expected_revision=ledger.get_revision("run-57"),
     )
     return projection
@@ -124,7 +127,7 @@ def _setup(tmp_path):
         "run-57",
         "target-1",
         "blueprint-target",
-        {"decision_slots": [{"id": "slot-1", "priority": "P0"}]},
+        {"decision_slots": [{"id": "slot-1", "priority": "P0", "closure_oracle": "oracle-1"}]},
         (ArtifactRef("run-57", handoff.id, handoff.revision),),
     )
     return ledger, ResearchRunCoordinator(ledger), handoff, target
@@ -152,7 +155,7 @@ def _advance_to_awaiting_acceptance(ledger: RunLedger, coordinator: ResearchRunC
     )
 
 
-def _register_canonical_completion_inputs(ledger: RunLedger, run_id: str, target) -> tuple:
+def _register_canonical_completion_inputs(ledger: RunLedger, run_id: str, target, *, review: bool = True) -> tuple:
     target_ref = ArtifactRef(run_id, target.id, target.revision)
     ledger.append_completion_input(
         run_id,
@@ -221,6 +224,8 @@ def _register_canonical_completion_inputs(ledger: RunLedger, run_id: str, target
         acceptance=acceptance,
         expected_revision=ledger.get_revision(run_id),
     )
+    if review:
+        write_independent_delivery_review(ledger, run_id)
     return technical, human
 
 
@@ -279,6 +284,7 @@ def test_illegal_transition_is_rejected_without_state_mutation(tmp_path) -> None
 def test_legal_transition_enforces_matrix_actor_and_replay(tmp_path) -> None:
     ledger, coordinator, _, _, _ = _initialize(tmp_path)
     projection = _prepare_strategy(ledger, coordinator)
+    write_alignment_verification(ledger, projection, "run-57")
     first = coordinator.display_strategy(
         "run-57", projection, expected_revision=ledger.get_revision("run-57"), idempotency_key="projection-1"
     )
@@ -299,14 +305,8 @@ def test_legal_transition_enforces_matrix_actor_and_replay(tmp_path) -> None:
 def test_completion_exposes_all_missing_obligations_and_ignores_worker_finish(tmp_path) -> None:
     ledger, coordinator, _, _, _ = _initialize(tmp_path)
     _confirm_strategy(ledger, coordinator)
-    with pytest.raises(CoordinatorConflictError, match="host_event_envelope_required"):
-        coordinator.ingest_event(
-            run_id="run-57",
-            event_id="host-finished-1",
-            attempt_id="attempt-1",
-            payload={"worker_status": "finished", "all_tasks": True},
-            expected_revision=ledger.get_revision("run-57"),
-        )
+    with pytest.raises(CoordinatorConflictError, match="host event must be a mapping"):
+        coordinator.ingest_host_event(None)
 
     missing = coordinator.why_not_complete("run-57")
     assert "p0_closure_tokens" in missing["unmet_obligations"]
@@ -322,8 +322,19 @@ def test_completion_exposes_all_missing_obligations_and_ignores_worker_finish(tm
 
 def test_completion_requires_all_canonical_obligations_and_is_terminally_idempotent(tmp_path) -> None:
     ledger, coordinator, _, target, _ = _initialize(tmp_path)
-    _register_canonical_completion_inputs(ledger, "run-57", target)
+    _register_canonical_completion_inputs(ledger, "run-57", target, review=False)
+    CompletionInputRegistrar(ledger).write_goal_satisfaction(
+        round_id="run-57",
+        registration_id="goal-oracle-1",
+        oracle_id="oracle-1",
+        verdict="waived",
+        waiver_reason="Canonical completion fixture; goal coverage is contracted in test_goal_gate.py.",
+        expected_revision=ledger.get_revision("run-57"),
+    )
     _advance_to_awaiting_acceptance(ledger, coordinator)
+    # Issue #462: the review needs the confirmed projection's oracles, so it is
+    # registered once the run reaches awaiting_acceptance.
+    write_independent_delivery_review(ledger, "run-57")
 
     completed = coordinator.transition(
         "run-57", "delivery_accepted", "human", expected_revision=ledger.get_revision("run-57")
@@ -341,14 +352,8 @@ def test_completion_requires_all_canonical_obligations_and_is_terminally_idempot
 
 def test_host_event_duplicate_is_idempotent_and_conflict_is_rejected(tmp_path) -> None:
     ledger, coordinator, _, _, _ = _initialize(tmp_path)
-    with pytest.raises(CoordinatorConflictError, match="host_event_envelope_required"):
-        coordinator.ingest_event(
-            run_id="run-57",
-            event_id="event-1",
-            attempt_id="attempt-1",
-            payload={"kind": "finding", "value": 1},
-            expected_revision=ledger.get_revision("run-57"),
-        )
+    with pytest.raises(CoordinatorConflictError, match="host event must be a mapping"):
+        coordinator.ingest_host_event(None)
 
 
 def test_dispatch_requires_executable_oracle_and_recovery_quarantines_lease(tmp_path) -> None:

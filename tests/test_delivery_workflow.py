@@ -19,7 +19,6 @@ from research_tree.delivery_workflow import (
     run_preflight,
 )
 
-
 ROOT = Path(__file__).resolve().parents[1]
 CHANGE_ROOT = ROOT / "openspec" / "changes" / "establish-dev-integration-governance"
 POLICY_PATH = CHANGE_ROOT / "registries" / "delivery-policy-v1.json"
@@ -154,9 +153,7 @@ def test_preflight_rejects_invalid_branch_stale_base_and_duplicate_owner(tmp_pat
         issue=88,
         base_ref="dev",
         policy=load_delivery_policy(POLICY_PATH),
-        remote_issue_owners={
-            88: ["feature/no-issue", "chore/issue-88-other-worktree"]
-        },
+        remote_issue_owners={88: ["feature/no-issue", "chore/issue-88-other-worktree"]},
     )
 
     assert result.passed is False
@@ -291,6 +288,56 @@ def test_release_promotion_targets_master_and_is_derived_from_dev() -> None:
     assert "release_contains_unintegrated_commits" in extra_commits.errors
 
 
+def test_release_promotion_skips_per_commit_mixed_output_recheck() -> None:
+    """A release branch replays squashed integration history, so per-commit
+    source/generated separation (already enforced on every dev PR) must not
+    be re-checked; only the branch-level release invariants apply (#478)."""
+    policy = load_delivery_policy(POLICY_PATH)
+
+    promotion = evaluate_pull_request(
+        policy=policy,
+        base_branch="master",
+        head_branch="release/0.1.0-alpha3",
+        title="release: 0.1.0-alpha3",
+        body="Promote the current dev integration revision.",
+        changed_files=[
+            "src/research_tree/cli.py",
+            "packages/hermes/research-tree/scripts/hermes_event_adapter.py",
+        ],
+        non_generated_lines=40,
+        commit_file_sets=[
+            {
+                "src/research_tree/cli.py",
+                "packages/hermes/research-tree/scripts/hermes_event_adapter.py",
+            }
+        ],
+        release_derived_from_dev=True,
+        release_has_unintegrated_commits=False,
+    )
+    assert promotion.passed is True
+    assert "generated_output_mixed_with_source_commit" not in promotion.errors
+
+    integration = evaluate_pull_request(
+        policy=policy,
+        base_branch="dev",
+        head_branch="fix/issue-88-sample",
+        title="fix: sample",
+        body="Closes #88",
+        changed_files=[
+            "src/research_tree/cli.py",
+            "packages/hermes/research-tree/scripts/hermes_event_adapter.py",
+        ],
+        non_generated_lines=40,
+        commit_file_sets=[
+            {
+                "src/research_tree/cli.py",
+                "packages/hermes/research-tree/scripts/hermes_event_adapter.py",
+            }
+        ],
+    )
+    assert "generated_output_mixed_with_source_commit" in integration.errors
+
+
 def test_integration_promotion_allows_dev_to_master_without_rechecking_history() -> None:
     policy = load_delivery_policy(POLICY_PATH)
     promotion = evaluate_pull_request(
@@ -310,9 +357,7 @@ def test_integration_promotion_allows_dev_to_master_without_rechecking_history()
                 "packages/codex/research-tree/SKILL.md",
             }
         ],
-        added_files=[
-            "openspec/changes/example/evidence/future-evidence-gaps.json"
-        ],
+        added_files=["openspec/changes/example/evidence/future-evidence-gaps.json"],
     )
 
     assert promotion.passed is True
@@ -368,12 +413,7 @@ def test_review_threshold_warns_and_approved_exception_allows_hard_limit() -> No
 def test_only_exact_oversized_approval_label_enables_event_exception() -> None:
     assert _approved_exception_from_event({}) is False
     assert _approved_exception_from_event({"labels": "delivery:oversized-approved"}) is False
-    assert (
-        _approved_exception_from_event(
-            {"labels": [{"name": "delivery:oversized-requested"}]}
-        )
-        is False
-    )
+    assert _approved_exception_from_event({"labels": [{"name": "delivery:oversized-requested"}]}) is False
     assert (
         _approved_exception_from_event(
             {
@@ -387,9 +427,7 @@ def test_only_exact_oversized_approval_label_enables_event_exception() -> None:
     )
 
 
-def test_check_pr_cli_reads_oversized_approval_from_event(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_check_pr_cli_reads_oversized_approval_from_event(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     repository = make_repository(tmp_path)
     oversized = repository / "oversized.txt"
     oversized.write_text("line\n" * 1501, encoding="utf-8")
@@ -630,9 +668,7 @@ def test_check_pr_cli_rejects_generated_verification_record_added_after_base(
         ),
     ],
 )
-def test_cleanup_classification_is_non_destructive(
-    record: WorktreeRecord, expected: str
-) -> None:
+def test_cleanup_classification_is_non_destructive(record: WorktreeRecord, expected: str) -> None:
     disposition = classify_cleanup(record)
     assert disposition.action == expected
     assert disposition.destructive is False

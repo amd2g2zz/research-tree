@@ -13,10 +13,25 @@ from .content_store import ContentAddressedStore, ContentObject, ContentStoreErr
 from .domain import ArtifactRef
 from .run_ledger import LedgerError, RunLedger
 
-
 SELECTOR_TYPES = {"line", "symbol", "fragment", "page_section", "image_region", "input_revision", "experiment_field"}
 CONFIDENCES = {"low", "medium", "high"}
 STATUSES = {"active", "superseded", "rejected", "quarantined"}
+# Closed evidence-class vocabulary (issue #422: unknown class values fail
+# closed; no sentinel is special-cased). The six portfolio classes come from
+# the typed search-portfolio contract; `source` and `primary` are the classes
+# already carried by ledger evidence fixtures.
+EVIDENCE_CLASSES = frozenset(
+    {
+        "primary-source",
+        "independent-source",
+        "repository-observation",
+        "edge-case-fixture",
+        "validation-result",
+        "decision-consequence",
+        "source",
+        "primary",
+    }
+)
 EVIDENCE_ARTIFACT_KIND = "evidence-artifact"
 EVIDENCE_SCHEMA_VERSION = 1
 
@@ -93,6 +108,8 @@ class EvidenceArtifact:
         if self.license_note is not None:
             _text(self.license_note, "license_note")
         _text(self.evidence_class, "evidence_class")
+        if self.evidence_class not in EVIDENCE_CLASSES:
+            raise EvidenceValidationError(f"invalid evidence_class: {self.evidence_class}")
         if not isinstance(self.metadata, Mapping):
             raise EvidenceValidationError("metadata must be a mapping")
 
@@ -379,8 +396,6 @@ class EvidenceResolver:
         artifact = self._resolve_ledger_artifact(anchor)
         if artifact.status != "active":
             raise EvidenceValidationError("anchor references inactive evidence")
-        if artifact.evidence_class == "legacy_unspecified":
-            raise EvidenceValidationError("evidence class is not authoritative")
         if artifact.extractor_version != anchor.extractor_version:
             raise EvidenceValidationError("extractor version mismatch")
         self._validate_locator(artifact)
@@ -517,8 +532,6 @@ class EvidenceRepository:
             raise EvidenceValidationError("artifact must be an EvidenceArtifact")
         if not isinstance(content, ContentObject):
             raise EvidenceValidationError("content must be a ContentObject")
-        if artifact.evidence_class == "legacy_unspecified":
-            raise EvidenceValidationError("evidence_class must be explicit")
         if (
             artifact.content_digest != content.digest
             or artifact.size_bytes != content.byte_size

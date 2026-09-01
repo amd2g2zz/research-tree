@@ -3,14 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from strategy_support import write_independent_delivery_review
+from test_research_run_coordinator import _advance_to_awaiting_acceptance, _initialize
 
 from research_tree.acceptance import DeliveryAcceptance, delivery_pair_digest
 from research_tree.completion_inputs import CompletionInputRegistrar, delivery_manifest_digest
 from research_tree.coordinator import COMPLETION_RECORD_KIND, CompletionBlockedError
 from research_tree.domain import ArtifactRef
 from research_tree.run_ledger import RunLedger
-
-from test_research_run_coordinator import _advance_to_awaiting_acceptance, _initialize
 
 
 def _generic_chain(ledger: RunLedger, target) -> tuple:
@@ -154,12 +154,21 @@ def _register_minimal_manifold(ledger: RunLedger, target):
         acceptance=acceptance,
         expected_revision=ledger.get_revision(run_id),
     )
+    registrar.write_goal_satisfaction(
+        round_id=run_id,
+        registration_id="goal-oracle-1",
+        oracle_id="oracle-1",
+        verdict="waived",
+        waiver_reason="Delivery-mechanics fixture; goal coverage itself is contracted in test_goal_gate.py.",
+        expected_revision=ledger.get_revision(run_id),
+    )
 
 
 def test_registered_manifold_completes_once_and_records_digest(tmp_path: Path) -> None:
     ledger, coordinator, _, target, _ = _initialize(tmp_path)
     _register_minimal_manifold(ledger, target)
     _advance_to_awaiting_acceptance(ledger, coordinator)
+    write_independent_delivery_review(ledger, "run-57")
 
     completed = coordinator.transition(
         "run-57", "delivery_accepted", "human", expected_revision=ledger.get_revision("run-57")
@@ -177,6 +186,8 @@ def test_registered_manifold_completes_once_and_records_digest(tmp_path: Path) -
         "technical_delivery_ref",
         "human_delivery_ref",
         "acceptance_ref",
+        "goal_satisfaction_refs",
+        "independent_review_refs",
     }
     assert coordinator.why_not_complete("run-57")["unmet_obligations"] == ()
 
@@ -185,6 +196,7 @@ def test_replaced_registered_parent_reopens_field_diagnostic(tmp_path: Path) -> 
     ledger, coordinator, _, target, _ = _initialize(tmp_path)
     _register_minimal_manifold(ledger, target)
     _advance_to_awaiting_acceptance(ledger, coordinator)
+    write_independent_delivery_review(ledger, "run-57")
     coordinator.transition("run-57", "delivery_accepted", "human", expected_revision=ledger.get_revision("run-57"))
     ledger.append_artifact(
         "run-57",
@@ -217,13 +229,14 @@ def test_ambiguous_singleton_registration_is_not_selected(tmp_path: Path) -> Non
     why = coordinator.why_not_complete("run-57")
 
     assert why["field_diagnostics"]["insight_ref"]["reason"] == "ambiguous_registration"
-    assert "insights_non_blocking" in why["unmet_obligations"]
+    assert "insight_ref" in why["unmet_obligations"]
 
 
 def test_quarantined_registered_parent_reopens_completion_without_mutating_history(tmp_path: Path) -> None:
     ledger, coordinator, _, target, _ = _initialize(tmp_path)
     _register_minimal_manifold(ledger, target)
     _advance_to_awaiting_acceptance(ledger, coordinator)
+    write_independent_delivery_review(ledger, "run-57")
     coordinator.transition("run-57", "delivery_accepted", "human", expected_revision=ledger.get_revision("run-57"))
     technical = next(item for item in ledger.load_run("run-57").artifacts if item.id == "technical-registered")
     before = len(ledger.load_run("run-57").artifacts)

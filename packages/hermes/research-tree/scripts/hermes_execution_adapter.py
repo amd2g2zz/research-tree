@@ -6,11 +6,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 from typing import Any
 
+from context_ledger_contract import ContextBudget, ContextLedgerError, ContextReadLedger
 from hermes_event_adapter import (
     HermesEventError,
     build_hermes_event,
@@ -37,11 +38,6 @@ except ImportError:
         install_project_hooks,
         probe_lifecycle_hook,
     )
-
-try:
-    from research_tree.context_ledger import ContextBudget, ContextLedgerError, ContextReadLedger
-except ImportError:
-    from context_ledger_contract import ContextBudget, ContextLedgerError, ContextReadLedger
 
 try:
     from research_tree.host_capabilities import (
@@ -580,7 +576,14 @@ def main() -> int:
             result = project_hermes_action(_read_json(workspace, args.action, "canonical action"))
         else:
             raise HermesExecutionError("status requires the canonical coordinator ledger")
-    except (ContextLedgerError, HermesEventError, HermesExecutionError, WorkflowContractError, TypeError, ValueError) as error:
+    except (
+        ContextLedgerError,
+        HermesEventError,
+        HermesExecutionError,
+        WorkflowContractError,
+        TypeError,
+        ValueError,
+    ) as error:
         print(str(error))
         return 1
     print(json.dumps(result, ensure_ascii=True, indent=2, sort_keys=True))

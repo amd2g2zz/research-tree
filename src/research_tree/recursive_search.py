@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import copy
 import hashlib
 import math
-from pathlib import Path
 import re
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .claims import ProvenanceDescriptor, cluster_provenance_components
 from .domain import ArtifactRevision, thaw_json
 from .evidence_delta import (
     EvidenceBaseline,
@@ -19,9 +20,13 @@ from .evidence_delta import (
 from .run_ledger import RunLedger
 from .tree_state import CanonicalResearchTreeStateService
 
-
 _WORKER_VALIDATION_STATUSES = frozenset({"passed", "failed", "inconclusive"})
 _WORKER_VALIDATION_NODE_MARKER = "worker_validation_continuation"
+_HEURISTIC_CONTRADICTION_WEIGHT = 0.6
+_HEURISTIC_FRONTIER_WEIGHT = 0.4
+_MINIMUM_EVIDENCE = 2
+_SOURCE_QUALITY_CONFIDENCE = {"high": 1.0, "medium": 0.8, "low": 0.5}
+_ROOT_SOURCE_QUALITY = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,10 +40,44 @@ class RecursiveSearchConfig:
     validation_failure_boost: float = 0.4
     max_residual_boost: float = 1.0
     max_stagnant_transitions: int = 3
+    transition_budget: int = 64
+    novelty_stop_threshold: float = 0.0
+    initial_marginal_novelty: float = 1.0
+    confidence_damping_min: float = 0.05
+    confidence_damping_max: float = 0.35
+    quality_weight_expandability: float = 0.3
+    quality_weight_completeness: float = 0.3
+    quality_weight_heuristic: float = 0.25
+    quality_weight_association: float = 0.15
+    low_confidence_threshold: float = 0.35
 
     def __post_init__(self) -> None:
         if self.max_depth < 1 or self.max_frontier < 1:
             raise ValueError("max_depth and max_frontier must be positive")
+        if (
+            isinstance(self.transition_budget, bool)
+            or not isinstance(self.transition_budget, int)
+            or self.transition_budget < 1
+        ):
+            raise ValueError("transition_budget must be a positive integer")
+        for name in ("novelty_stop_threshold", "initial_marginal_novelty", "low_confidence_threshold"):
+            value = getattr(self, name)
+            if not 0 <= value <= 1:
+                raise ValueError(f"{name} must be between 0 and 1")
+        if not 0 <= self.confidence_damping_min <= 1 or not 0 <= self.confidence_damping_max <= 1:
+            raise ValueError("confidence damping bounds must be between 0 and 1")
+        if self.confidence_damping_min > self.confidence_damping_max:
+            raise ValueError("confidence_damping_min must not exceed confidence_damping_max")
+        weights = (
+            self.quality_weight_expandability,
+            self.quality_weight_completeness,
+            self.quality_weight_heuristic,
+            self.quality_weight_association,
+        )
+        if any(not 0 <= weight <= 1 for weight in weights):
+            raise ValueError("quality weights must be between 0 and 1")
+        if abs(sum(weights) - 1.0) > 1e-9:
+            raise ValueError("quality weights must sum to 1.0")
         for name in (
             "min_expected_value",
             "depth_penalty",
@@ -73,7 +112,7 @@ def initialize_research_state(
         if str(slot.get("status", "open")) in {"open", "researching"}
     }
     state: dict[str, Any] = {
-        "schema": 1,
+        "schema": 2,
         "id": tree_id,
         "round_id": round_id,
         "transition_index": 0,
@@ -91,6 +130,7 @@ def initialize_research_state(
         "consumed_finding_ids": list(baseline.finding_ids),
         "delta_history": [],
         "penalty_history": [],
+        "cross_validation": {},
         "stop_reason": None,
     }
     by_slot: dict[str, list[Any]] = {slot_id: [] for slot_id in slots}
@@ -105,9 +145,12 @@ def initialize_research_state(
         findings = by_slot[slot_id]
         if not findings:
             continue
+        root["confidence"] = min(_source_quality_value(_payload(finding).get("source_quality")) for finding in findings)
         for finding in findings:
+            snapshot = _slot_evidence_snapshot(slot)
             _update_slot_evidence(slot, finding)
-            _grow_from_finding(state, root, finding, baseline_event=True)
+            ingest = _grow_from_finding(state, root, finding, baseline_event=True, evidence_snapshot=snapshot)
+            _apply_ingest_trust(state, slot, finding, ingest)
         _ensure_slot_frontier(state, root, slot, trigger_ref="baseline:closure-gap")
     return evaluate_research_stop(prune_research_state(score_research_frontier(state)))
 
@@ -133,9 +176,7 @@ def apply_research_results(
     result["transition_index"] = transition_index
     result["delta_history"].append(delta)
     result["evidence_baseline"] = next_baseline.to_dict()
-    result["consumed_finding_ids"] = sorted(
-        consumed | {_finding_id(finding) for finding in fresh}
-    )
+    result["consumed_finding_ids"] = sorted(consumed | {_finding_id(finding) for finding in fresh})
 
     for finding in fresh:
         payload = _payload(finding)
@@ -149,8 +190,10 @@ def apply_research_results(
         parent["status"] = "completed"
         parent["realized_delta"] = delta["realized_delta"]
         parent["terminal_reason"] = "Finding Pack ingested"
+        snapshot = _slot_evidence_snapshot(slot)
         _update_slot_evidence(slot, finding)
-        _grow_from_finding(result, parent, finding, baseline_event=False)
+        ingest = _grow_from_finding(result, parent, finding, baseline_event=False, evidence_snapshot=snapshot)
+        _apply_ingest_trust(result, slot, finding, ingest)
         if delta["duplicate_only"]:
             parent["stagnation_count"] = int(parent.get("stagnation_count", 0)) + 1
             slot["stagnation_count"] = int(slot.get("stagnation_count", 0)) + 1
@@ -185,13 +228,9 @@ def score_research_frontier(state: Mapping[str, Any]) -> dict[str, Any]:
         mandatory = 1.0 if _is_mandatory(node, slot) else 0.0
         novelty = 1.0 if not _has_completed_equivalent(result, node) else 0.0
         complexity = _branch_complexity(result, node)
-        penalty_count = int(node.get("stagnation_count", 0)) + int(
-            slot.get("stagnation_count", 0)
-        )
+        penalty_count = int(node.get("stagnation_count", 0)) + int(slot.get("stagnation_count", 0))
         penalty = penalty_count * cfg.stagnation_penalty
-        priority_band = {"P0": 3.0, "P1": 2.0, "P2": 1.0}.get(
-            str(slot["priority"]), 1.5
-        )
+        priority_band = {"P0": 3.0, "P1": 2.0, "P2": 1.0}.get(str(slot["priority"]), 1.5)
         value = priority_band + mandatory + float(slot["residual_risk"]) * novelty / complexity
         value -= int(node["depth"]) * cfg.depth_penalty + penalty
         node["branch_complexity"] = round(complexity, 6)
@@ -225,22 +264,23 @@ def prune_research_state(state: Mapping[str, Any]) -> dict[str, Any]:
         loser["terminal_reason"] = f"dominated by equivalent node {winner['id']}"
         seen[key] = winner
     frontier = [node for node in result["nodes"].values() if node["status"] == "frontier"]
+    budget_exhausted = int(result["transition_index"]) >= cfg.transition_budget
     for node in frontier:
-        if node["depth"] > cfg.max_depth and not _is_mandatory(
-            node, result["decision_slots"][node["decision_slot_id"]]
-        ):
+        slot = result["decision_slots"][node["decision_slot_id"]]
+        mandatory = _is_mandatory(node, slot)
+        if node["depth"] > cfg.max_depth and not mandatory:
             node["status"] = "deferred"
             node["terminal_reason"] = "maximum depth guardrail reached"
-        elif node["selection_value"] < cfg.min_expected_value and not _is_mandatory(
-            node, result["decision_slots"][node["decision_slot_id"]]
-        ):
+        elif budget_exhausted and not mandatory:
+            node["status"] = "deferred"
+            node["terminal_reason"] = "budget-exhausted"
+        elif _slot_evidence_saturated(result, slot, cfg) and not mandatory:
+            node["status"] = "deferred"
+            node["terminal_reason"] = "evidence-saturated"
+        elif node["selection_value"] < cfg.min_expected_value and not mandatory:
             node["status"] = "deferred"
             node["terminal_reason"] = "selection value below threshold"
-        elif (
-            int(result["decision_slots"][node["decision_slot_id"]].get("stagnation_count", 0))
-            >= cfg.max_stagnant_transitions
-            and not _is_mandatory(node, result["decision_slots"][node["decision_slot_id"]])
-        ):
+        elif int(slot.get("stagnation_count", 0)) >= cfg.max_stagnant_transitions and not mandatory:
             node["status"] = "deferred"
             node["terminal_reason"] = "subtree produced no state change repeatedly"
     frontier = sorted(
@@ -248,9 +288,7 @@ def prune_research_state(state: Mapping[str, Any]) -> dict[str, Any]:
         key=lambda item: (-item["selection_value"], item["id"]),
     )
     mandatory_frontier = [
-        node
-        for node in frontier
-        if _is_mandatory(node, result["decision_slots"][node["decision_slot_id"]])
+        node for node in frontier if _is_mandatory(node, result["decision_slots"][node["decision_slot_id"]])
     ]
     optional_frontier = [node for node in frontier if node not in mandatory_frontier]
     optional_capacity = max(0, cfg.max_frontier - len(mandatory_frontier))
@@ -265,17 +303,15 @@ def prune_research_state(state: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
-def select_research_actions(
-    state: Mapping[str, Any], *, max_parallelism: int
-) -> tuple[Mapping[str, Any], ...]:
+def select_research_actions(state: Mapping[str, Any], *, max_parallelism: int) -> tuple[Mapping[str, Any], ...]:
     if max_parallelism < 1:
         raise ValueError("max_parallelism must be positive")
     return tuple(
         {
             **state["nodes"][node_id],
-            "decision_oracle": state["decision_slots"][
-                state["nodes"][node_id]["decision_slot_id"]
-            ]["validation_oracle"],
+            "decision_oracle": state["decision_slots"][state["nodes"][node_id]["decision_slot_id"]][
+                "validation_oracle"
+            ],
             "execution_context": thaw_json(state["execution_context"]),
         }
         for node_id in state["frontier_node_ids"][:max_parallelism]
@@ -336,14 +372,17 @@ class CanonicalRecursiveResearchCoordinator:
         expected_revision: int,
     ) -> ArtifactRevision:
         previous = self._states.latest(round_id=round_id, tree_id=tree_id)
-        state = apply_research_results(previous.payload, finding_packs)
+        contributing, _deferred = self._goal_contributing(round_id, finding_packs)
+        if not contributing:
+            return previous
+        state = apply_research_results(previous.payload, contributing)
         if state["transition_index"] == previous.payload["transition_index"]:
             return previous
         return self._states.transition(
             round_id=round_id,
             previous=previous,
             state=state,
-            consumed_findings=finding_packs,
+            consumed_findings=contributing,
             expected_revision=expected_revision,
         )
 
@@ -360,14 +399,26 @@ class CanonicalRecursiveResearchCoordinator:
         )
         if not pending:
             return previous
-        state = apply_research_results(previous.payload, pending)
+        contributing, _deferred = self._goal_contributing(round_id, pending)
+        if not contributing:
+            return previous
+        state = apply_research_results(previous.payload, contributing)
         return self._states.transition(
             round_id=round_id,
             previous=previous,
             state=state,
-            consumed_findings=pending,
+            consumed_findings=contributing,
             expected_revision=expected_revision,
         )
+
+    def _goal_contributing(self, round_id: str, finding_packs):
+        """Drop packs whose goal-contribution verdict blocks tree consumption."""
+
+        if not finding_packs:
+            return (), ()
+        from .coordinator import partition_goal_contributions
+
+        return partition_goal_contributions(self._states._ledger, round_id, finding_packs)
 
     def finalize_delivery(
         self,
@@ -434,8 +485,10 @@ def evaluate_research_stop(state: Mapping[str, Any]) -> dict[str, Any]:
             if node["decision_slot_id"] == slot_id and node["status"] == "frontier"
         ]
         slot["status"] = "researching"
-        if _slot_has_minimum_evidence(slot) and not open_nodes and (
-            not slot["validation_required"] or slot["validation_passed"]
+        if (
+            _slot_has_minimum_evidence(slot)
+            and not open_nodes
+            and (not slot["validation_required"] or slot["validation_passed"])
         ):
             blockers.append(f"{slot_id}: closure candidate requires coordinator assessment")
         if not _slot_has_minimum_evidence(slot):
@@ -444,9 +497,7 @@ def evaluate_research_stop(state: Mapping[str, Any]) -> dict[str, Any]:
             blockers.append(f"{slot_id}: validation oracle has not passed")
         if open_nodes:
             blockers.append(f"{slot_id}: {len(open_nodes)} frontier action(s) remain")
-    if result["decision_slots"] and all(
-        slot["status"] == "closed" for slot in result["decision_slots"].values()
-    ):
+    if result["decision_slots"] and all(slot["status"] == "closed" for slot in result["decision_slots"].values()):
         result["status"] = "delivery_pending"
         result["stop_reason"] = "coordinator must assess slot closure and delivery obligations"
     elif result["frontier_node_ids"]:
@@ -455,6 +506,7 @@ def evaluate_research_stop(state: Mapping[str, Any]) -> dict[str, Any]:
     else:
         result["status"] = "blocked"
         result["stop_reason"] = "; ".join(blockers) or "no executable frontier remains"
+    result["recursion_receipt"] = _recursion_receipt(result)
     return result
 
 
@@ -480,6 +532,10 @@ def _slot_state(slot_id: str, slot: Mapping[str, Any]) -> dict[str, Any]:
         "validation_failures": 0,
         "worker_validation_continuation_epoch": 0,
         "stagnation_count": 0,
+        "contradiction_refs": [],
+        "quarantined_finding_ids": [],
+        "trusted_anchor_fingerprints": [],
+        "search_comparison": {"provider_fanout": 0, "duplicates": 0, "captures": 0},
         "residual_risk": _priority_value(priority),
     }
 
@@ -502,8 +558,7 @@ def _report_manifest(
     headings = len(re.findall(r"(?m)^#{1,6}\s+\S", text))
     if len(raw) < minimum_bytes or headings < minimum_headings:
         raise ValueError(
-            f"{kind} is too shallow: requires at least {minimum_bytes} bytes and "
-            f"{minimum_headings} headings"
+            f"{kind} is too shallow: requires at least {minimum_bytes} bytes and {minimum_headings} headings"
         )
     return {
         "status": "verified",
@@ -546,15 +601,19 @@ def _grow_from_finding(
     finding: Any,
     *,
     baseline_event: bool,
-) -> None:
+    evidence_snapshot: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     payload = _payload(finding)
+    cfg = RecursiveSearchConfig(**state["config"])
     slot = state["decision_slots"][parent["decision_slot_id"]]
+    snapshot = evidence_snapshot or _slot_evidence_snapshot(slot)
+    _absorb_cross_comparison(slot, payload)
     continuations = list(payload.get("research_continuations", ()))
     continuations.extend(
         {
             "kind": "deep_dive",
             "question": str(item),
-            "trigger": "legacy remaining_uncertainty",
+            "trigger": "remaining_uncertainty",
             "evidence_needed": "Evidence that resolves this uncertainty.",
             "oracle": "The uncertainty is resolved, bounded, or converted to a fallback.",
             "estimated_cost": 1.0,
@@ -562,41 +621,51 @@ def _grow_from_finding(
         for item in payload.get("remaining_uncertainties", ())
         if str(item).strip()
     )
+    known_ids = set(state["nodes"])
+    created: list[dict[str, Any]] = []
     for continuation in continuations:
         if not isinstance(continuation, Mapping):
             continue
         question = str(continuation.get("question", "")).strip()
         if not question:
             continue
-        _add_node(
+        node = _add_node(
             state,
             parent=parent,
             slot=slot,
             question=question,
             action_kind=str(continuation.get("kind", "deep_dive")),
-            trigger_ref=(
-                f"baseline:{_finding_id(finding)}"
-                if baseline_event
-                else f"finding:{_finding_id(finding)}"
-            ),
-            evidence_needed=str(
-                continuation.get("evidence_needed", "Decision-relevant evidence with provenance.")
-            ),
+            trigger_ref=(f"baseline:{_finding_id(finding)}" if baseline_event else f"finding:{_finding_id(finding)}"),
+            evidence_needed=str(continuation.get("evidence_needed", "Decision-relevant evidence with provenance.")),
             oracle=str(continuation.get("oracle", "The question is answered with anchored evidence.")),
             estimated_cost=_positive_float(continuation.get("estimated_cost", 1.0)),
         )
+        if node["id"] not in known_ids:
+            created.append(node)
+    quality, _marginal = _ingest_quality(state, slot, payload, snapshot, new_children=len(created), cfg=cfg)
+    damping = cfg.confidence_damping_min + (cfg.confidence_damping_max - cfg.confidence_damping_min) * (1.0 - quality)
+    child_confidence = round(float(parent.get("confidence", 1.0)) * (1.0 - damping), 6)
+    for node in created:
+        node["confidence"] = child_confidence
+        node["damping"] = round(damping, 6)
+        node["quality"] = quality
+    ingest = {
+        "confidence": child_confidence,
+        "damping": round(damping, 6),
+        "quality": quality,
+        "baseline": bool(baseline_event),
+        "anchor_fingerprints": _finding_anchor_fingerprints(payload),
+    }
     validation = payload.get("validation_result")
     if not isinstance(validation, Mapping):
-        return
+        return ingest
     raw_status = validation.get("status")
     if not isinstance(raw_status, str):
-        return
+        return ingest
     status = raw_status.strip()
     if status not in _WORKER_VALIDATION_STATUSES:
-        return
-    slot["validation_status"] = (
-        "reported_passed_untrusted" if status == "passed" else status
-    )
+        return ingest
+    slot["validation_status"] = "reported_passed_untrusted" if status == "passed" else status
     slot["validation_attempts"] = int(slot.get("validation_attempts", 0)) + 1
     if status == "failed":
         slot["validation_failures"] = int(slot.get("validation_failures", 0)) + 1
@@ -611,6 +680,7 @@ def _grow_from_finding(
                 else f"finding:{_finding_id(finding)}:worker-reported-pass"
             ),
         )
+    return ingest
 
 
 def _ensure_worker_validation_continuation(
@@ -641,18 +711,12 @@ def _ensure_worker_validation_continuation(
         parent=parent,
         slot=slot,
         question=(
-            "Produce verifier-needed proof for the worker-reported validation pass "
-            f"(continuation epoch {epoch})."
+            f"Produce verifier-needed proof for the worker-reported validation pass (continuation epoch {epoch})."
         ),
         action_kind="validation",
         trigger_ref=trigger_ref,
-        evidence_needed=(
-            "An evaluator-owned or independently verified receipt bound to the "
-            "reported claim."
-        ),
-        oracle=slot["validation_oracle"] or (
-            "An independent validation oracle produces a source-bound result."
-        ),
+        evidence_needed=("An evaluator-owned or independently verified receipt bound to the reported claim."),
+        oracle=slot["validation_oracle"] or ("An independent validation oracle produces a source-bound result."),
         estimated_cost=1.0,
         mandatory=True,
         identity_namespace="worker-validation",
@@ -660,6 +724,8 @@ def _ensure_worker_validation_continuation(
             _WORKER_VALIDATION_NODE_MARKER: True,
             "worker_validation_continuation_epoch": epoch,
         },
+        confidence=_closure_growth_confidence(state, parent),
+        damping=RecursiveSearchConfig(**state["config"]).confidence_damping_max,
     )
 
 
@@ -677,17 +743,18 @@ def _add_node(
     mandatory: bool = False,
     identity_namespace: str = "question",
     metadata: Mapping[str, Any] | None = None,
+    confidence: float | None = None,
+    damping: float | None = None,
+    quality: float | None = None,
 ) -> dict[str, Any] | None:
-    normalized_kind = action_kind if action_kind in {
-        "deep_dive", "adversarial", "validation", "method_switch"
-    } else "deep_dive"
+    normalized_kind = (
+        action_kind if action_kind in {"deep_dive", "adversarial", "validation", "method_switch"} else "deep_dive"
+    )
     namespace = str(identity_namespace).strip() or "question"
     identity = _normalize(question)
     if namespace != "question":
         identity = f"{namespace}:{identity}"
-    digest = hashlib.sha256(
-        f"{slot['id']}:{normalized_kind}:{identity}".encode("utf-8")
-    ).hexdigest()[:16]
+    digest = hashlib.sha256(f"{slot['id']}:{normalized_kind}:{identity}".encode("utf-8")).hexdigest()[:16]
     node_id = f"node:{slot['id']}:{digest}"
     if node_id in state["nodes"]:
         return state["nodes"][node_id]
@@ -707,6 +774,12 @@ def _add_node(
     )
     if metadata:
         node.update(copy.deepcopy(dict(metadata)))
+    if confidence is not None:
+        node["confidence"] = float(confidence)
+    if damping is not None:
+        node["damping"] = float(damping)
+    if quality is not None:
+        node["quality"] = float(quality)
     node["decision_oracle"] = slot["validation_oracle"]
     state["nodes"][node_id] = node
     return node
@@ -719,50 +792,76 @@ def _ensure_slot_frontier(
     *,
     trigger_ref: str,
 ) -> None:
-    """Grow mandatory closure work when a worker did not propose it."""
+    """Grow mandatory closure work when a worker did not propose it.
+
+    A failed validation oracle demands the independent-method retry before
+    anything else; otherwise unmet evidence minimums grow triangulation, and
+    a never-attempted required validation grows the validation node.
+    """
 
     if _has_open_node(state, slot["id"]):
         return
-    if not _slot_has_minimum_evidence(slot):
-        _add_node(
-            state,
-            parent=parent,
-            slot=slot,
-            question="Triangulate the current claims with an independent source or method.",
-            action_kind="deep_dive",
-            trigger_ref=trigger_ref,
-            evidence_needed="An independent anchor that can confirm or overturn the current claim set.",
-            oracle="At least two independent Finding Packs and evidence anchors exist for the slot.",
-            estimated_cost=1.0,
-            mandatory=True,
-        )
-    elif slot["validation_required"] and not slot["validation_passed"]:
+    cfg = RecursiveSearchConfig(**state["config"])
+    validation_pending = bool(slot["validation_required"]) and not bool(slot["validation_passed"])
+    failed_validation = validation_pending and int(slot.get("validation_failures", 0)) > 0
+    retry_question = ""
+    if failed_validation:
         attempts = int(slot.get("validation_attempts", 0))
-        if slot.get("validation_status") == "failed":
-            question = (
-                "Re-run the Decision Slot validation oracle with an independent "
-                f"method after failed attempt {attempts}."
+        retry_question = (
+            f"Re-run the Decision Slot validation oracle with an independent method after failed attempt {attempts}."
+        )
+    if failed_validation:
+        _reopen_completed_obligation(
+            _add_node(
+                state,
+                parent=parent,
+                slot=slot,
+                question=retry_question,
+                action_kind="validation",
+                trigger_ref=trigger_ref,
+                evidence_needed="Executed or independently reviewed validation evidence.",
+                oracle=slot["validation_oracle"]
+                or ("The Decision Slot validation result is explicitly passed, failed, or inconclusive."),
+                estimated_cost=1.0,
+                mandatory=True,
+                confidence=_closure_growth_confidence(state, parent),
+                damping=cfg.confidence_damping_max,
             )
-        elif slot.get("validation_status") == "inconclusive":
-            question = (
-                "Resolve the inconclusive Decision Slot validation with a different "
-                f"method after attempt {attempts}."
+        )
+    elif not _slot_has_minimum_evidence(slot):
+        _reopen_completed_obligation(
+            _add_node(
+                state,
+                parent=parent,
+                slot=slot,
+                question="Triangulate the current claims with an independent source or method.",
+                action_kind="deep_dive",
+                trigger_ref=trigger_ref,
+                evidence_needed="An independent anchor that can confirm or overturn the current claim set.",
+                oracle="At least two independent Finding Packs and evidence anchors exist for the slot.",
+                estimated_cost=1.0,
+                mandatory=True,
+                confidence=_closure_growth_confidence(state, parent),
+                damping=cfg.confidence_damping_max,
             )
-        else:
-            question = "Execute the Decision Slot validation oracle against the leading conclusion."
-        _add_node(
-            state,
-            parent=parent,
-            slot=slot,
-            question=question,
-            action_kind="validation",
-            trigger_ref=trigger_ref,
-            evidence_needed="Executed or independently reviewed validation evidence.",
-            oracle=slot["validation_oracle"] or (
-                "The Decision Slot validation result is explicitly passed, failed, or inconclusive."
-            ),
-            estimated_cost=1.0,
-            mandatory=True,
+        )
+    elif validation_pending:
+        _reopen_completed_obligation(
+            _add_node(
+                state,
+                parent=parent,
+                slot=slot,
+                question="Execute the Decision Slot validation oracle against the leading conclusion.",
+                action_kind="validation",
+                trigger_ref=trigger_ref,
+                evidence_needed="Executed or independently reviewed validation evidence.",
+                oracle=slot["validation_oracle"]
+                or ("The Decision Slot validation result is explicitly passed, failed, or inconclusive."),
+                estimated_cost=1.0,
+                mandatory=True,
+                confidence=_closure_growth_confidence(state, parent),
+                damping=cfg.confidence_damping_max,
+            )
         )
 
 
@@ -785,6 +884,9 @@ def _node(**values: Any) -> dict[str, Any]:
         "selection_value": 0.0,
         "realized_delta": 0.0,
         "stagnation_count": 0,
+        "confidence": float(values.get("confidence", 0.5)),
+        "damping": float(values.get("damping", 0.0)),
+        "quality": values.get("quality"),
         "status": "frontier",
         "terminal_reason": None,
     }
@@ -795,20 +897,19 @@ def _update_slot_evidence(slot: dict[str, Any], finding: Any) -> None:
     finding_id = _finding_id(finding)
     if finding_id and finding_id not in slot["finding_ids"]:
         slot["finding_ids"].append(finding_id)
-    anchors = set(slot["anchor_fingerprints"])
-    for observation in payload.get("observations", ()):
-        if not isinstance(observation, Mapping) or not isinstance(observation.get("anchor"), Mapping):
-            continue
-        anchor = observation["anchor"]
-        anchors.add(
-            hashlib.sha256(f"{anchor.get('kind')}:{anchor.get('ref')}".encode("utf-8")).hexdigest()
-        )
-    slot["anchor_fingerprints"] = sorted(anchors)
+    slot["anchor_fingerprints"] = sorted(set(slot["anchor_fingerprints"]) | _finding_anchor_fingerprints(payload))
+    slot["claim_fingerprints"] = sorted(set(slot.get("claim_fingerprints", ())) | _finding_claim_fingerprints(payload))
+    slot["effect_fingerprints"] = sorted(
+        set(slot.get("effect_fingerprints", ()))
+        | {
+            hashlib.sha256(f"{item.get('option')}:{item.get('effect')}".encode("utf-8")).hexdigest()
+            for item in payload.get("option_effects", ())
+            if isinstance(item, Mapping)
+        }
+    )
 
 
-def _resolve_parent(
-    state: Mapping[str, Any], payload: Mapping[str, Any], slot_id: str
-) -> dict[str, Any] | None:
+def _resolve_parent(state: Mapping[str, Any], payload: Mapping[str, Any], slot_id: str) -> dict[str, Any] | None:
     explicit = payload.get("research_node_id")
     if isinstance(explicit, str) and explicit in state["nodes"]:
         return state["nodes"][explicit]
@@ -825,9 +926,7 @@ def _resolve_parent(
 def _has_completed_equivalent(state: Mapping[str, Any], node: Mapping[str, Any]) -> bool:
     key = _node_equivalence_key(node)
     return any(
-        other["id"] != node["id"]
-        and other["status"] == "completed"
-        and _node_equivalence_key(other) == key
+        other["id"] != node["id"] and other["status"] == "completed" and _node_equivalence_key(other) == key
         for other in state["nodes"].values()
     )
 
@@ -847,27 +946,18 @@ def _is_mandatory(node: Mapping[str, Any], slot: Mapping[str, Any]) -> bool:
     )
 
 
-def _refresh_slot_residual_risk(
-    slot: dict[str, Any], cfg: RecursiveSearchConfig
-) -> None:
+def _refresh_slot_residual_risk(slot: dict[str, Any], cfg: RecursiveSearchConfig) -> None:
     """Update the boosting residual only from observable closure state."""
 
-    finding_deficit = max(0.0, (2 - len(slot["finding_ids"])) / 2)
-    anchor_deficit = max(0.0, (2 - len(slot["anchor_fingerprints"])) / 2)
-    evidence_deficit = max(finding_deficit, anchor_deficit)
-    validation_deficit = (
-        1.0 if slot["validation_required"] and not slot["validation_passed"] else 0.0
-    )
+    evidence_deficit = _slot_closure_deficit(slot)
+    validation_deficit = 1.0 if slot["validation_required"] and not slot["validation_passed"] else 0.0
     closure_deficit = max(evidence_deficit, validation_deficit)
     failure_boost = min(
         cfg.max_residual_boost,
         int(slot.get("validation_failures", 0)) * cfg.validation_failure_boost,
     )
     slot["residual_risk"] = round(
-        _priority_value(slot["priority"])
-        * float(slot["uncertainty"])
-        * closure_deficit
-        * (1.0 + failure_boost),
+        _priority_value(slot["priority"]) * float(slot["uncertainty"]) * closure_deficit * (1.0 + failure_boost),
         6,
     )
 
@@ -881,20 +971,25 @@ def _branch_complexity(state: Mapping[str, Any], node: Mapping[str, Any]) -> flo
     sibling_count = sum(
         1
         for candidate in state["nodes"].values()
-        if candidate.get("parent_id") == parent_id
-        and candidate.get("status") not in {"duplicate", "invalid"}
+        if candidate.get("parent_id") == parent_id and candidate.get("status") not in {"duplicate", "invalid"}
     )
     return 1.0 + math.log2(max(1, sibling_count))
 
 
 def _slot_has_minimum_evidence(slot: Mapping[str, Any]) -> bool:
-    return len(slot["finding_ids"]) >= 2 and len(slot["anchor_fingerprints"]) >= 2
+    """Satisfied evidence excludes quarantined low-confidence findings."""
+    quarantined = set(slot.get("quarantined_finding_ids", ()))
+    trusted_findings = len(set(slot["finding_ids"]) - quarantined)
+    if quarantined:
+        anchors = slot.get("trusted_anchor_fingerprints") or ()
+    else:
+        anchors = slot["anchor_fingerprints"]
+    return trusted_findings >= _MINIMUM_EVIDENCE and len(anchors) >= _MINIMUM_EVIDENCE
 
 
 def _has_open_node(state: Mapping[str, Any], slot_id: str) -> bool:
     return any(
-        node["decision_slot_id"] == slot_id
-        and node["status"] in {"frontier", "running"}
+        node["decision_slot_id"] == slot_id and node["status"] in {"frontier", "running"}
         for node in state["nodes"].values()
     )
 
@@ -934,3 +1029,348 @@ def _mutable_state(state: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(thawed, dict):
         raise ValueError("research state must be a mapping")
     return copy.deepcopy(thawed)
+
+
+def _slot_evidence_snapshot(slot: Mapping[str, Any]) -> dict[str, Any]:
+    """Pre-ingest evidence state used to measure marginal quality."""
+    return {
+        "finding_ids": frozenset(slot["finding_ids"]),
+        "findings": len(slot["finding_ids"]),
+        "anchors": frozenset(slot["anchor_fingerprints"]),
+        "contradictions": frozenset(slot.get("contradiction_refs", ())),
+        "claims": frozenset(slot.get("claim_fingerprints", ())),
+        "effects": frozenset(slot.get("effect_fingerprints", ())),
+        "quarantined": frozenset(slot.get("quarantined_finding_ids", ())),
+        "trusted_anchors": frozenset(slot.get("trusted_anchor_fingerprints", ())),
+    }
+
+
+def _closure_deficit_from_counts(findings: int, anchors: int) -> float:
+    finding_deficit = max(0.0, (_MINIMUM_EVIDENCE - findings) / 2)
+    anchor_deficit = max(0.0, (_MINIMUM_EVIDENCE - anchors) / 2)
+    return max(finding_deficit, anchor_deficit)
+
+
+def _slot_closure_deficit(slot: Mapping[str, Any]) -> float:
+    """Closure deficit counts trusted findings and trusted anchors only."""
+    quarantined = set(slot.get("quarantined_finding_ids", ()))
+    findings = len(set(slot["finding_ids"]) - quarantined)
+    anchors = slot.get("trusted_anchor_fingerprints", ()) if quarantined else slot["anchor_fingerprints"]
+    return _closure_deficit_from_counts(findings, len(anchors))
+
+
+def _finding_anchor_fingerprints(payload: Mapping[str, Any]) -> frozenset[str]:
+    anchors: set[str] = set()
+    for observation in payload.get("observations", ()):
+        if not isinstance(observation, Mapping) or not isinstance(observation.get("anchor"), Mapping):
+            continue
+        anchor = observation["anchor"]
+        anchors.add(hashlib.sha256(f"{anchor.get('kind')}:{anchor.get('ref')}".encode("utf-8")).hexdigest())
+    return frozenset(anchors)
+
+
+def _source_quality_value(value: Any) -> float:
+    """Missing or unknown capture quality defaults to the conservative 0.5."""
+    return _SOURCE_QUALITY_CONFIDENCE.get(str(value), 0.5)
+
+
+def _closure_growth_confidence(state: Mapping[str, Any], parent: Mapping[str, Any]) -> float:
+    """Mandatory closure work descends at the declared worst-case damping."""
+    cfg = RecursiveSearchConfig(**state["config"])
+    return round(float(parent.get("confidence", 1.0)) * (1.0 - cfg.confidence_damping_max), 6)
+
+
+def _absorb_cross_comparison(slot: dict[str, Any], payload: Mapping[str, Any]) -> None:
+    """Merge cross-comparison contradictions and measured totals into the slot."""
+    resolved = {str(item) for item in payload.get("resolved_contradictions", ()) if str(item).strip()}
+    if resolved:
+        slot["contradiction_refs"] = [ref for ref in slot.get("contradiction_refs", []) if ref not in resolved]
+    for item in payload.get("contradictions", ()):
+        ref = str(item).strip()
+        if ref and ref not in slot["contradiction_refs"]:
+            slot["contradiction_refs"].append(ref)
+    comparison = payload.get("search_comparison")
+    if isinstance(comparison, Mapping):
+        for item in comparison.get("contradictions", ()):
+            ref = str(item).strip()
+            if ref and ref not in slot["contradiction_refs"]:
+                slot["contradiction_refs"].append(ref)
+        totals = slot.setdefault("search_comparison", {"provider_fanout": 0, "coverage_met": 0, "batches": {}})
+        totals["provider_fanout"] = max(
+            int(totals.get("provider_fanout", 0)), int(comparison.get("provider_fanout", 0))
+        )
+        totals["coverage_met"] = max(int(totals.get("coverage_met", 0)), int(comparison.get("coverage_met", 0) or 0))
+        batch_key = str(comparison.get("comparison_id") or "").strip() or _comparison_key(comparison)
+        batches = totals.setdefault("batches", {})
+        batches[batch_key] = {
+            "duplicates": int(comparison.get("duplicates", 0) or 0),
+            "captures": int(comparison.get("captures", 0) or 0),
+            "coverage_met": int(comparison.get("coverage_met", 0) or 0),
+        }
+
+
+def _ingest_quality(
+    state: Mapping[str, Any],
+    slot: dict[str, Any],
+    payload: Mapping[str, Any],
+    snapshot: Mapping[str, Any],
+    *,
+    new_children: int,
+    cfg: RecursiveSearchConfig,
+) -> tuple[float, bool]:
+    """Measure the four recursion-quality dimensions for one evidence ingest.
+
+    Completeness is measured against a snapshot excluding the finding under
+    judgment (H3b/M4): a finding cannot credit itself with the gap it
+    appears to close. The slot's marginal novelty is recorded per-slot (M6),
+    never derived from the global last-transition delta.
+    """
+
+    finding_id = str(payload.get("id", "")).strip()
+    finding_anchors = _finding_anchor_fingerprints(payload)
+    new_anchors = len(finding_anchors - set(snapshot["anchors"]))
+    expandability = new_anchors / max(1, len(finding_anchors))
+
+    quarantined_before = set(snapshot["quarantined"])
+    trusted_before = len(set(snapshot["finding_ids"]) - quarantined_before)
+    anchors_before = snapshot["trusted_anchors"] if quarantined_before else snapshot["anchors"]
+    deficit_before = _closure_deficit_from_counts(trusted_before, len(anchors_before))
+    others_now = set(slot["finding_ids"]) - set(slot.get("quarantined_finding_ids", ())) - {finding_id}
+    deficit_after = _closure_deficit_from_counts(len(others_now), len(anchors_before))
+    completeness = max(0.0, min(1.0, 1.0 - deficit_after / deficit_before)) if deficit_before > 0 else 0.0
+
+    new_claims = len(_finding_claim_fingerprints(payload) - set(snapshot["claims"]))
+    new_effects = len(
+        {
+            hashlib.sha256(f"{item.get('option')}:{item.get('effect')}".encode("utf-8")).hexdigest()
+            for item in payload.get("option_effects", ())
+            if isinstance(item, Mapping)
+        }
+        - set(snapshot["effects"])
+    )
+    new_contradictions = len(
+        {str(item) for item in payload.get("contradictions", ())} - set(snapshot["contradictions"])
+    )
+    heuristic = _HEURISTIC_CONTRADICTION_WEIGHT * min(
+        1.0, float(new_contradictions)
+    ) + _HEURISTIC_FRONTIER_WEIGHT * min(1.0, float(new_children))
+    cross_links = sum(
+        1
+        for other_id, other in state["decision_slots"].items()
+        if other_id != slot["id"] and set(other["anchor_fingerprints"]) & finding_anchors
+    )
+    association = min(1.0, cross_links / 2)
+    marginal = bool(new_anchors or new_claims or new_effects or new_contradictions or new_children)
+    slot["marginal_novelty"] = 1.0 if marginal else 0.0
+    return (
+        round(
+            cfg.quality_weight_expandability * expandability
+            + cfg.quality_weight_completeness * completeness
+            + cfg.quality_weight_heuristic * heuristic
+            + cfg.quality_weight_association * association,
+            6,
+        ),
+        marginal,
+    )
+
+
+def _apply_ingest_trust(
+    state: dict[str, Any],
+    slot: dict[str, Any],
+    finding: Any,
+    ingest: Mapping[str, Any],
+) -> None:
+    """Quarantine low-confidence evidence and record cross-validation objectively.
+
+    A finding whose ingest confidence falls below the declared threshold is
+    quarantined: it cannot count toward satisfied evidence until a trusted
+    finding restates one of its claims from a disjoint provenance cluster
+    (corroboration = claim overlap plus cluster independence; sharing an
+    anchor means the same source and never lifts quarantine) or an explicit
+    verification pass clears it. Verification failures stay recorded with
+    attempts and reason; nothing is dropped silently.
+    """
+
+    payload = _payload(finding)
+    finding_id = _finding_id(finding)
+    cfg = RecursiveSearchConfig(**state["config"])
+    ledger = state.setdefault("cross_validation", {})
+    ingest_claims = _finding_claim_fingerprints(payload)
+    ingest_clusters = _finding_cluster_labels(payload)
+    verification = payload.get("verification")
+    if isinstance(verification, Mapping) and str(verification.get("status", "")).strip() in {
+        "passed",
+        "failed",
+        "inconclusive",
+    }:
+        target = str(verification.get("target_finding_id") or finding_id).strip()
+        status = str(verification.get("status")).strip()
+        record = dict(
+            ledger.get(target)
+            or {
+                "status": "required",
+                "attempts": 0,
+                "reason": "",
+                "anchor_fingerprints": sorted(ingest["anchor_fingerprints"]),
+                "claim_fingerprints": sorted(ingest_claims),
+                "cluster_labels": sorted(ingest_clusters),
+            }
+        )
+        record["attempts"] = int(record.get("attempts", 0)) + 1
+        record["reason"] = str(verification.get("reason", "") or f"verification-{status}")
+        record["status"] = "verified" if status == "passed" else "failed"
+        ledger[target] = record
+        if record["status"] == "verified":
+            _lift_quarantine(slot, target, record)
+    trusted = bool(ingest["baseline"]) or float(ingest["confidence"]) >= cfg.low_confidence_threshold
+    if trusted and finding_id:
+        for other_id in list(slot.get("quarantined_finding_ids", ())):
+            other = dict(ledger.get(other_id) or {})
+            claim_overlap = set(other.get("claim_fingerprints", ())) & set(ingest_claims)
+            cluster_overlap = set(other.get("cluster_labels", ())) & set(ingest_clusters)
+            if claim_overlap and not cluster_overlap:
+                other["status"] = "corroborated"
+                ledger[other_id] = other
+                _lift_quarantine(slot, other_id, other)
+    if trusted:
+        if finding_id:
+            slot["trusted_anchor_fingerprints"] = sorted(
+                set(slot.get("trusted_anchor_fingerprints", ())) | set(ingest["anchor_fingerprints"])
+            )
+    elif finding_id and finding_id not in slot.get("quarantined_finding_ids", ()):
+        slot["quarantined_finding_ids"].append(finding_id)
+        ledger[finding_id] = {
+            "status": "required",
+            "attempts": int(ledger.get(finding_id, {}).get("attempts", 0)),
+            "reason": "confidence-below-threshold",
+            "confidence": ingest["confidence"],
+            "anchor_fingerprints": sorted(ingest["anchor_fingerprints"]),
+            "claim_fingerprints": sorted(ingest_claims),
+            "cluster_labels": sorted(ingest_clusters),
+        }
+
+
+def _lift_quarantine(slot: dict[str, Any], finding_id: str, record: Mapping[str, Any]) -> None:
+    if finding_id in slot.get("quarantined_finding_ids", ()):
+        slot["quarantined_finding_ids"] = [item for item in slot["quarantined_finding_ids"] if item != finding_id]
+    slot["trusted_anchor_fingerprints"] = sorted(
+        set(slot.get("trusted_anchor_fingerprints", ())) | set(record.get("anchor_fingerprints", ()))
+    )
+
+
+def _slot_evidence_saturated(state: Mapping[str, Any], slot: Mapping[str, Any], cfg: RecursiveSearchConfig) -> bool:
+    """True when no continue-signal holds: no contradictions, coverage met, novelty spent.
+
+    Novelty is attributed per slot from that slot's own latest ingest (M6),
+    and once a batch comparison has been recorded for the slot, saturation is
+    additionally gated on the measured intent coverage from that comparison:
+    captured-but-never-complete coverage stays a coverage gap (M6/H1).
+    """
+
+    if slot.get("contradiction_refs"):
+        return False
+    if not _slot_has_minimum_evidence(slot):
+        return False
+    comparison = slot.get("search_comparison") or {}
+    captures = sum(int(batch.get("captures", 0)) for batch in (comparison.get("batches") or {}).values())
+    if captures > 0 and int(comparison.get("coverage_met", 0)) < 1:
+        return False
+    marginal = float(slot.get("marginal_novelty", cfg.initial_marginal_novelty))
+    return marginal <= cfg.novelty_stop_threshold
+
+
+def _recursion_receipt(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Run-level falsifiability signals: stop reasons, fan-out, dedup, confidence."""
+    cfg = RecursiveSearchConfig(**result["config"])
+    distribution: dict[str, int] = {}
+    for node in result["nodes"].values():
+        if node["status"] == "deferred" and node.get("terminal_reason"):
+            distribution[node["terminal_reason"]] = distribution.get(node["terminal_reason"], 0) + 1
+    confidences = [float(node["confidence"]) for node in result["nodes"].values()]
+    fanout = 0
+    duplicates = 0
+    captures = 0
+    for slot in result["decision_slots"].values():
+        comparison = slot.get("search_comparison") or {}
+        fanout = max(fanout, int(comparison.get("provider_fanout", 0)))
+        for batch in (comparison.get("batches") or {}).values():
+            duplicates += int(batch.get("duplicates", 0))
+            captures += int(batch.get("captures", 0))
+    cross_validation = result.get("cross_validation") or {}
+    quarantine_live = sum(len(slot.get("quarantined_finding_ids", ())) for slot in result["decision_slots"].values())
+    return {
+        "terminal_reason_distribution": dict(sorted(distribution.items())),
+        "provider_fanout": fanout,
+        "dedup_ratio": round(duplicates / captures, 6) if captures else 0.0,
+        "quarantine_count": quarantine_live,
+        "cross_validation_records": len(cross_validation),
+        "cross_validation_failures": sum(1 for record in cross_validation.values() if record.get("status") == "failed"),
+        "confidence": {
+            "min": min(confidences) if confidences else 1.0,
+            "max": max(confidences) if confidences else 1.0,
+            "count": len(confidences),
+            "damping_min": cfg.confidence_damping_min,
+            "damping_max": cfg.confidence_damping_max,
+            "low_confidence_threshold": cfg.low_confidence_threshold,
+            "novelty_stop_threshold": cfg.novelty_stop_threshold,
+            "initial_marginal_novelty": cfg.initial_marginal_novelty,
+            "transition_budget": cfg.transition_budget,
+            "quality_weights": {
+                "expandability": cfg.quality_weight_expandability,
+                "completeness": cfg.quality_weight_completeness,
+                "heuristic": cfg.quality_weight_heuristic,
+                "association": cfg.quality_weight_association,
+            },
+        },
+    }
+
+
+def _finding_claim_fingerprints(payload: Mapping[str, Any]) -> frozenset[str]:
+    """Normalized claim-text fingerprints used for corroboration matching."""
+    claims: set[str] = set()
+    for observation in payload.get("observations", ()):
+        if not isinstance(observation, Mapping):
+            continue
+        claim = str(observation.get("claim", "")).strip()
+        if claim:
+            claims.add(hashlib.sha256(" ".join(claim.lower().split()).encode("utf-8")).hexdigest())
+    return frozenset(claims)
+
+
+def _finding_cluster_labels(payload: Mapping[str, Any]) -> frozenset[str]:
+    """Provenance cluster labels of a finding's anchors, via claims clustering."""
+    descriptors = []
+    for observation in payload.get("observations", ()):
+        anchor = observation.get("anchor") if isinstance(observation, Mapping) else None
+        if not isinstance(anchor, Mapping):
+            continue
+        ref = anchor.get("ref")
+        if isinstance(ref, str) and ref.strip():
+            descriptors.append(ProvenanceDescriptor(upstream_id=ref.strip()))
+    if not descriptors:
+        return frozenset()
+    return frozenset(label for label, _identities in cluster_provenance_components(descriptors))
+
+
+def _comparison_key(comparison: Mapping[str, Any]) -> str:
+    """Stable identity for a batch comparison when no comparison_id is declared."""
+    import json
+
+    return (
+        "digest:"
+        + hashlib.sha256(json.dumps(dict(comparison), sort_keys=True, default=str).encode("utf-8")).hexdigest()[:16]
+    )
+
+
+def _reopen_completed_obligation(node: Mapping[str, Any] | None) -> None:
+    """Re-open an obligation node that completed while its grounding held.
+
+    When the evidence that grounded a mandatory closure obligation is later
+    quarantined, the obligation must return to the frontier instead of
+    silently vanishing behind an already-completed node identity.
+    """
+
+    if node is None or node["status"] != "completed":
+        return
+    node["status"] = "frontier"
+    node["terminal_reason"] = None

@@ -15,7 +15,6 @@ from .domain import (
     validate_identifier,
 )
 
-
 EXECUTION_CHECKS = (
     "targeted_spike",
     "independent_implementation_run",
@@ -135,9 +134,7 @@ def assess_risk_verification(
         raise InvalidVerificationError("technical_package must belong to verification round")
     baselines = _sanitized_baselines(repositories, round_id)
     package_ref = _artifact_ref_dict(technical_package)
-    package_document = _mapping(
-        technical_package.payload.get("document"), "technical_package document"
-    )
+    package_document = _mapping(technical_package.payload.get("document"), "technical_package document")
     package_snapshot = freeze_payload(
         {
             "ref": package_ref,
@@ -167,9 +164,7 @@ def assess_risk_verification(
 
     if check is None:
         if adapter is not None:
-            raise InvalidVerificationError(
-                "default risk policy does not accept an execution verification adapter"
-            )
+            raise InvalidVerificationError("default risk policy does not accept an execution verification adapter")
         for skipped_check in EXECUTION_CHECKS:
             evidence["skipped_checks"].append(
                 {
@@ -297,14 +292,10 @@ def validate_risk_verification_payload(payload: Mapping[str, Any]) -> None:
         else:
             _validate_failure(failure, f"{label}.failure")
         if kind == "independent_implementation_run" and status == "pass":
-            if not HIGH_RUN_STEPS <= set(command_names):
-                raise InvalidVerificationError(
-                    f"{label} must record build, hidden_acceptance, and regression commands"
-                )
-            if not HIGH_RUN_STEPS <= set(result_names):
-                raise InvalidVerificationError(
-                    f"{label} must record build, hidden_acceptance, and regression results"
-                )
+            if not set(command_names) >= HIGH_RUN_STEPS:
+                raise InvalidVerificationError(f"{label} must record build, hidden_acceptance, and regression commands")
+            if not set(result_names) >= HIGH_RUN_STEPS:
+                raise InvalidVerificationError(f"{label} must record build, hidden_acceptance, and regression results")
     for index, check in enumerate(skipped):
         label = f"risk_verification.skipped_checks[{index}]"
         _require_exact_keys(check, {"check", "reason"}, label)
@@ -327,12 +318,8 @@ def validate_risk_verification_payload(payload: Mapping[str, Any]) -> None:
             raise InvalidVerificationError(
                 f"risk_verification.failures[{index}] must be assigned to a current Decision Slot"
             )
-    if tier == "high" and not executed and not any(
-        item["category"] == "implementation_task" for item in failures
-    ):
-        raise InvalidVerificationError(
-            "a skipped high-risk implementation run must fail implementation readiness"
-        )
+    if tier == "high" and not executed and not any(item["category"] == "implementation_task" for item in failures):
+        raise InvalidVerificationError("a skipped high-risk implementation run must fail implementation readiness")
     follow_ups = _mappings(data["same_round_follow_ups"], "risk_verification.same_round_follow_ups")
     if len(follow_ups) != len(failures):
         raise InvalidVerificationError("each execution failure must create exactly one same-round follow-up")
@@ -352,16 +339,12 @@ def validate_risk_verification_payload(payload: Mapping[str, Any]) -> None:
         _nonempty(follow_up["summary"], f"{label}.summary")
         failure = failures[index]
         if any(
-            follow_up[field] != failure[field]
-            for field in ("category", "decision_slot_id", "work_item_id", "summary")
+            follow_up[field] != failure[field] for field in ("category", "decision_slot_id", "work_item_id", "summary")
         ):
-            raise InvalidVerificationError(
-                f"{label} must mirror its normalized execution failure"
-            )
+            raise InvalidVerificationError(f"{label} must mirror its normalized execution failure")
 
     recorded_failures = {
-        (item["category"], item["summary"], item["decision_slot_id"], item["work_item_id"])
-        for item in failures
+        (item["category"], item["summary"], item["decision_slot_id"], item["work_item_id"]) for item in failures
     }
     for index, check in enumerate(executed):
         failure = check["failure"]
@@ -416,14 +399,10 @@ def _normalize_result(
     request: IsolatedVerificationRequest,
 ) -> tuple[dict[str, Any], tuple[VerificationFailure, ...]]:
     if not isinstance(value, IsolatedVerificationResult):
-        raise InvalidVerificationError(
-            "verification_adapter.run must return an IsolatedVerificationResult"
-        )
+        raise InvalidVerificationError("verification_adapter.run must return an IsolatedVerificationResult")
     check = _enum(value.check_kind, "verification result check_kind", set(EXECUTION_CHECKS))
     if check != request.check_kind:
-        raise InvalidVerificationError(
-            "verification result check_kind must match the requested risk-policy check"
-        )
+        raise InvalidVerificationError("verification result check_kind must match the requested risk-policy check")
     status = _enum(value.status, "verification result status", {"pass", "fail"})
     commands = _normalize_commands(value.commands, "verification result commands")
     results = _normalize_results(value.results, "verification result results")
@@ -439,7 +418,7 @@ def _normalize_result(
         raise InvalidVerificationError("a passing verification result must have only passing named results")
     if check == "independent_implementation_run" and status == "pass":
         names = {item["name"] for item in commands}
-        if not HIGH_RUN_STEPS <= names:
+        if not names >= HIGH_RUN_STEPS:
             raise InvalidVerificationError(
                 "a passing high-risk implementation run must include build, hidden_acceptance, and regression"
             )
@@ -465,9 +444,7 @@ def _normalize_result(
     )
 
 
-def _sanitized_baselines(
-    repositories: Sequence[ArtifactRevision], round_id: str
-) -> tuple[dict[str, Any], ...]:
+def _sanitized_baselines(repositories: Sequence[ArtifactRevision], round_id: str) -> tuple[dict[str, Any], ...]:
     result: list[dict[str, Any]] = []
     for repository in sorted(repositories, key=lambda item: (item.id, item.revision)):
         if not isinstance(repository, ArtifactRevision) or repository.round_id != round_id:
@@ -483,9 +460,7 @@ def _sanitized_baselines(
             anchors.append(
                 {
                     "path": _nonempty(anchor["path"], f"{label}.path"),
-                    "symbol": None
-                    if anchor["symbol"] is None
-                    else _nonempty(anchor["symbol"], f"{label}.symbol"),
+                    "symbol": None if anchor["symbol"] is None else _nonempty(anchor["symbol"], f"{label}.symbol"),
                 }
             )
         result.append(
@@ -582,7 +557,9 @@ def _normalize_failure(value: Any, label: str) -> VerificationFailure | None:
         raise InvalidVerificationError(f"{label} must be a VerificationFailure or None")
     category = _enum(value.category, f"{label}.category", set(FAILURE_CATEGORIES))
     summary = _nonempty(value.summary, f"{label}.summary")
-    slot_id = None if value.decision_slot_id is None else _identifier(value.decision_slot_id, f"{label}.decision_slot_id")
+    slot_id = (
+        None if value.decision_slot_id is None else _identifier(value.decision_slot_id, f"{label}.decision_slot_id")
+    )
     work_id = None if value.work_item_id is None else _identifier(value.work_item_id, f"{label}.work_item_id")
     if slot_id is None and work_id is None:
         raise InvalidVerificationError(f"{label} must identify a Decision Slot or Work Item")

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import hashlib
 import importlib.util
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from strategy_support import confirm_strategy
 
 from research_tree.coordinator import (
     HOST_EVENT_KIND,
@@ -14,6 +15,7 @@ from research_tree.coordinator import (
     CoordinatorEventConflictError,
     ResearchRunCoordinator,
 )
+from research_tree.domain import ArtifactRef, canonical_json_bytes
 from research_tree.host_events import (
     HostEvent,
     HostEventDigestError,
@@ -22,9 +24,6 @@ from research_tree.host_events import (
     payload_digest,
 )
 from research_tree.run_ledger import RunLedger
-from research_tree.domain import ArtifactRef
-from research_tree.domain import canonical_json_bytes
-from strategy_support import confirm_strategy
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -75,7 +74,7 @@ def _event(ledger: RunLedger, *, event_id: str = "event-host", sequence: int = 1
             "attempt_id": "attempt-host",
             "expected_revision": ledger.get_revision("run-host") if expected_revision is None else expected_revision,
             "sequence": sequence,
-            "actor": "codex",
+            "actor": "worker",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "payload": payload,
         }
@@ -91,9 +90,9 @@ def test_envelope_digest_version_and_path_normalization() -> None:
             "attempt_id": "attempt-one",
             "expected_revision": 0,
             "sequence": 1,
-            "actor": "claude",
+            "actor": "worker",
             "created_at": "2026-08-11T00:00:00+00:00",
-            "payload": {"artifact_path": r"reports\result.json"},
+            "payload": {"artifact_path": r"reports\result.json", "origin": "worker"},
         }
     )
     assert event.payload["artifact_path"] == "reports/result.json"
@@ -121,7 +120,7 @@ def test_native_authoring_helper_matches_runtime_envelope() -> None:
         attempt_id="attempt-parity",
         expected_revision=3,
         sequence=1,
-        actor="codex",
+        actor="worker",
         payload=payload,
         created_at="2026-08-11T00:00:00+00:00",
     )
@@ -155,7 +154,7 @@ def test_ingestion_is_atomic_replayable_and_non_authoritative(tmp_path) -> None:
         )
     with pytest.raises(CoordinatorEventConflictError, match="event_id_conflict"):
         coordinator.ingest_host_event(
-            HostEvent.from_value({**event.to_dict(), "actor": "hermes", "expected_revision": 0})
+            HostEvent.from_value({**event.to_dict(), "actor": "agent", "expected_revision": 0})
         )
 
 
@@ -189,7 +188,7 @@ def test_recovery_event_pair_is_atomic_and_replayable(tmp_path, monkeypatch) -> 
                 "attempt_id": "attempt-host",
                 "expected_revision": revision,
                 "sequence": sequence,
-                "actor": "hermes",
+                "actor": "worker",
                 "causation_id": "unknown-1" if sequence > 1 else None,
                 "created_at": "2026-08-11T00:00:00+00:00",
                 "payload": payload,
@@ -244,14 +243,8 @@ def _append_attempt_artifact(ledger: RunLedger, artifact_id: str, kind: str, pay
 def test_generic_ingestion_cannot_append_or_bypass_projection(tmp_path) -> None:
     ledger, coordinator, _ = _coordinator(tmp_path)
     before = (ledger.get_revision("run-host"), len(ledger.load_run("run-host").artifacts))
-    with pytest.raises(CoordinatorConflictError, match="host_event_envelope_required"):
-        coordinator.ingest_event(
-            run_id="run-host",
-            event_id="forged-event",
-            attempt_id="attempt-host",
-            payload={"outcome": "success"},
-            expected_revision=before[0],
-        )
+    with pytest.raises(CoordinatorConflictError, match="host event must be a mapping"):
+        coordinator.ingest_host_event(None)
     assert (ledger.get_revision("run-host"), len(ledger.load_run("run-host").artifacts)) == before
 
 

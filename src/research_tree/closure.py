@@ -30,7 +30,6 @@ from .oracles import (
 from .run_ledger import RunLedger
 from .source_capture import ACQUISITION_RECEIPT_KIND, SOURCE_CAPTURE_KIND, AcquisitionReceipt, SourceCapture
 
-
 ASSESSMENT_KIND = "slot-closure-assessment"
 FINDING_PACK_KIND = "finding-pack"
 ASSESSMENT_REVISION = 2
@@ -762,8 +761,6 @@ class SlotClosureAssessor:
                 evidence = EvidenceArtifact.from_revision(anchor.artifact_ref, evidence_revision)
                 if evidence.run_id != round_id:
                     raise ClosureAssessmentError("evidence artifact belongs to another run")
-                if evidence.evidence_class == "legacy_unspecified":
-                    raise ClosureAssessmentError("finding anchor does not identify authoritative evidence")
                 if (
                     anchor.artifact_digest != evidence.content_digest
                     or anchor.artifact_revision != evidence.revision

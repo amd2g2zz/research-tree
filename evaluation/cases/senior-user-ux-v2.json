@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "corpus_version": "senior-user-ux-v2",
+  "cases": [
+    {
+      "id": "senior-user-ux-v2",
+      "description": "senior-user-ux-v2 dual-track evaluation corpus anchor (#451/#468); execution lives in evaluation/harness (run_v2_evaluation.py, run_host_matrix.py) and results in evaluation/results/."
+    }
+  ]
+}

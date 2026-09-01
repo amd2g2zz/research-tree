@@ -9,7 +9,6 @@ from pathlib import Path
 
 import research_tree
 
-
 ROOT = Path(__file__).resolve().parents[1]
 RETIRED_SYMBOLS = (
     "InvalidOpenSpecExportError",
@@ -60,8 +59,8 @@ def test_active_authority_registers_only_the_removal_slice() -> None:
     active_sources = (
         ROOT / "PRODUCT.md",
         ROOT / "README.md",
-        ROOT / "docs" / "方案设计.md",
-        ROOT / "docs" / "需求理解.md",
+        ROOT / "docs" / "history" / "方案设计.md",
+        ROOT / "docs" / "history" / "需求理解.md",
         ROOT / "references" / "blueprint-generation-research.md",
         umbrella / "proposal.md",
         umbrella / "design.md",

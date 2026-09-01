@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import pytest
-from pathlib import Path
 import sys
+from pathlib import Path
+
+import pytest
 
 from research_tree.host_events import HostEvent
 
@@ -17,7 +18,6 @@ from hermes_event_adapter import (  # noqa: E402
     sanitize_provider_failure,
 )
 from host_event_protocol import build_host_event  # noqa: E402
-
 
 BASE = {
     "event_id": "provider-failure-1",
@@ -56,7 +56,7 @@ def test_provider_failure_is_sanitized_and_event_is_deterministic() -> None:
     first = build_hermes_event(kind="provider_failure", payload=provider_failure(), **BASE)
     second = build_hermes_event(kind="provider_failure", payload=provider_failure(), **BASE)
     assert first == second
-    assert first["actor"] == "hermes"
+    assert first["actor"] == "worker"
     assert first["payload"] == sanitized
     assert len(first["payload_digest"]) == 64
 
@@ -159,7 +159,14 @@ def test_equivalent_native_and_hermes_observations_share_payload_digest() -> Non
         "payload": {"result": "accepted", "artifact_path": r"findings\one.json"},
     }
     hermes = build_hermes_event(**envelope)
-    native = build_host_event(actor="codex", **envelope)
+    # Issue #440: both sides are worker-originated observations, so the
+    # native twin carries the same closed-vocabulary origin as the Hermes
+    # adapter injects.
+    native_envelope = {
+        **envelope,
+        "payload": {**envelope["payload"], "origin": "worker"},
+    }
+    native = build_host_event(actor="worker", **native_envelope)
     assert hermes["payload_digest"] == native["payload_digest"]
     assert hermes["payload"] == native["payload"]
     assert HostEvent.from_value(hermes).semantic_digest == HostEvent.from_value(native).semantic_digest

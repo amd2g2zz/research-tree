@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -54,7 +54,9 @@ def create_repository_fixture(root: Path) -> Path:
         "src/app.py",
         """class Application:\n    pass\n\n\ndef main() -> None:\n    return None\n""",
     )
-    write_file(repository, "tests/test_app.py", "from src.app import main\n\ndef test_main():\n    assert main() is None\n")
+    write_file(
+        repository, "tests/test_app.py", "from src.app import main\n\ndef test_main():\n    assert main() is None\n"
+    )
     write_file(repository, "pyproject.toml", "[project]\nname = 'fixture'\nversion = '0.0.0'\n")
     write_file(repository, "Dockerfile", "FROM python:3.11-slim\n")
     write_file(repository, ".github/workflows/verify.yml", "name: verify\non: push\n")
@@ -134,9 +136,7 @@ def test_text_inputs_are_independent_and_reingestion_preserves_prior_revision(
     assert second_note.revision == 2
 
     note_revisions = [
-        artifact
-        for artifact in ledger.load_run(round_record.id).artifacts
-        if artifact.id == "input-note"
+        artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.id == "input-note"
     ]
     assert [artifact.revision for artifact in note_revisions] == [1, 2]
     assert note_revisions[0].payload["material"]["content"] == "Prefer an isolated local-first demo."
@@ -262,10 +262,7 @@ def test_context_bundle_rejects_unknown_duplicate_and_nested_members_without_wri
                 expected_revision=ledger.get_revision(round_record.id),
             )
 
-    artifact_revisions = [
-        (artifact.id, artifact.revision)
-        for artifact in ledger.load_run(round_record.id).artifacts
-    ]
+    artifact_revisions = [(artifact.id, artifact.revision) for artifact in ledger.load_run(round_record.id).artifacts]
     assert artifact_revisions == [
         ("input-existing-bundle", 1),
         ("input-existing-bundle", 2),
@@ -411,15 +408,16 @@ def test_repository_reingestion_preserves_prior_baseline_revision(tmp_path: Path
     )
 
     revisions = [
-        artifact
-        for artifact in ledger.load_run(round_record.id).artifacts
-        if artifact.id == "input-repository"
+        artifact for artifact in ledger.load_run(round_record.id).artifacts if artifact.id == "input-repository"
     ]
     assert [artifact.revision for artifact in revisions] == [1, 2]
     assert revisions[0] == first
     assert revisions[1] == second
     assert first.payload["revision"]["commit"] != second.payload["revision"]["commit"]
-    assert first.payload["repository_baseline"]["revision"]["sha256"] != second.payload["repository_baseline"]["revision"]["sha256"]
+    assert (
+        first.payload["repository_baseline"]["revision"]["sha256"]
+        != second.payload["repository_baseline"]["revision"]["sha256"]
+    )
 
 
 def test_repository_boundary_controls_record_unsafe_material_without_aborting_safe_scan(
@@ -443,10 +441,7 @@ def test_repository_boundary_controls_record_unsafe_material_without_aborting_sa
     except OSError:
         # This uses the same pure classification method as the scanner, so the
         # safety rule remains covered when Windows does not grant link rights.
-        assert (
-            api["RepositoryInspector"].symlink_reason(repository, outside / "outside.py")
-            == "external_symlink"
-        )
+        assert api["RepositoryInspector"].symlink_reason(repository, outside / "outside.py") == "external_symlink"
 
     ledger = api["RunLedger"](tmp_path / "ledger")
     ledger.initialize()

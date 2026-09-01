@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
+from .claims import Claim, ClaimAdmissionEvaluator, ClaimGrounding, ClaimState, ClaimValidationError
+from .contradictions import unresolved_claim_ids
 from .decision_map import BLUEPRINT_TARGET_KIND
 from .domain import (
     ArtifactRef,
@@ -12,12 +14,9 @@ from .domain import (
     RuntimeStoreError,
     validate_identifier,
 )
+from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
 from .run_ledger import RunLedger
 from .work_items import WORK_ITEM_KIND
-from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
-from .claims import Claim, ClaimAdmissionEvaluator, ClaimGrounding, ClaimState, ClaimValidationError
-from .contradictions import unresolved_claim_ids
-
 
 FINDING_PACK_KIND = "finding-pack"
 DECISION_LEDGER_KIND = "decision-ledger-entry"
@@ -77,6 +76,8 @@ class CanonicalFindingPackCompiler:
         research_node_id: str | None = None,
         research_continuations: Sequence[Mapping[str, Any]] = (),
         validation_result: Mapping[str, Any] | None = None,
+        search_comparison: Mapping[str, Any] | None = None,
+        comparison_status: str | None = None,
     ) -> ArtifactRevision:
         try:
             snapshot = self._ledger.load_run(round_id)
@@ -151,6 +152,14 @@ class CanonicalFindingPackCompiler:
                 "validation_result": _normalize_validation_result(validation_result),
                 "evidence_mode": "strict",
             }
+            normalized_comparison = _normalize_search_comparison(search_comparison)
+            if normalized_comparison is not None:
+                payload["search_comparison"] = normalized_comparison
+                payload["comparison_status"] = "measured"
+            elif comparison_status is not None:
+                if comparison_status != "skipped":
+                    raise InvalidFindingPackError("comparison_status must be 'skipped' when no comparison is declared")
+                payload["comparison_status"] = "skipped"
         except (InvalidIdentifierError, TypeError, ValueError) as error:
             raise InvalidFindingPackError(str(error)) from error
 
@@ -176,6 +185,13 @@ class CanonicalFindingPackCompiler:
                 decision_slot_id=slot["id"],
                 expected_revision=self._ledger.get_revision(round_id),
             )
+        from .coordinator import ResearchRunCoordinator
+
+        ResearchRunCoordinator(self._ledger).assess_finding_pack_contribution(
+            round_id,
+            finding,
+            expected_revision=self._ledger.get_revision(round_id),
+        )
         return finding
 
 
@@ -743,6 +759,49 @@ def _normalize_option_effects(value: Any, options: tuple[str, ...]) -> list[dict
             }
         )
     return normalized
+
+
+def _normalize_search_comparison(
+    value: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Validate the batch cross-comparison carrier for a Finding Pack payload."""
+
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise InvalidFindingPackError("search_comparison must be a mapping")
+    allowed = {"comparison_id", "provider_fanout", "duplicates", "captures", "coverage_met", "contradictions"}
+    unexpected = set(value) - allowed
+    if unexpected:
+        raise InvalidFindingPackError(f"search_comparison has unsupported keys: {sorted(unexpected)}")
+    counts: dict[str, int] = {}
+    for name in ("provider_fanout", "duplicates", "captures"):
+        raw = value.get(name, 0)
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+            raise InvalidFindingPackError(f"search_comparison.{name} must be a nonnegative integer")
+        counts[name] = raw
+    coverage = value.get("coverage_met", 0)
+    if coverage not in (0, 1, True, False):
+        raise InvalidFindingPackError("search_comparison.coverage_met must be 0 or 1")
+    raw_contradictions = value.get("contradictions", ())
+    if isinstance(raw_contradictions, (str, bytes)) or not isinstance(raw_contradictions, Sequence):
+        raise InvalidFindingPackError("search_comparison.contradictions must be a sequence of strings")
+    contradictions: list[str] = []
+    for item in raw_contradictions:
+        if not isinstance(item, str) or not item.strip():
+            raise InvalidFindingPackError("search_comparison.contradictions must be non-empty strings")
+        contradictions.append(item.strip())
+    comparison: dict[str, Any] = {
+        **counts,
+        "coverage_met": int(bool(coverage)),
+        "contradictions": contradictions,
+    }
+    comparison_id = value.get("comparison_id")
+    if comparison_id is not None:
+        if not isinstance(comparison_id, str) or not comparison_id.strip():
+            raise InvalidFindingPackError("search_comparison.comparison_id must be a non-empty string")
+        comparison["comparison_id"] = comparison_id.strip()
+    return comparison
 
 
 def _normalize_research_continuations(value: Any) -> list[dict[str, Any]]:

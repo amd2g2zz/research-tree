@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-08-31
+goal: "Merge the dispute governance module into contradictions.py — one module
+  surface for contradiction classification plus dispute governance; coordinator
+  pressure-signal behavior verbatim-equivalent; the four dead dispute
+  entrypoints retire with negative-test lockout."

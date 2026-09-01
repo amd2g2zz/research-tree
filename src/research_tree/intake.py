@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass, field
-from hashlib import sha256
 import os
-from pathlib import Path
 import stat
 import subprocess
-from typing import Iterable, Sequence
+from dataclasses import dataclass, field
+from hashlib import sha256
+from pathlib import Path
+from typing import Iterable, Mapping, Sequence
 
+from .authority import AuthorityRole
 from .domain import (
     ArtifactRef,
     ArtifactRevision,
@@ -19,8 +20,15 @@ from .domain import (
     utc_now,
     validate_identifier,
 )
+from .freshness import (
+    BaselineFreshness,
+    FreshnessPolicy,
+)
+from .freshness import (
+    assess as _assess_freshness,
+)
+from .problem_forest import Forest, ForestNode, ForestSpace
 from .run_ledger import RunLedger
-
 
 INPUT_LEDGER_ARTIFACT_KIND = "input-ledger-entry"
 
@@ -200,9 +208,7 @@ class RepositorySafetyPolicy:
     max_file_bytes: int = 1_000_000
     max_total_bytes: int = 5_000_000
     max_files: int = 2_000
-    excluded_directories: frozenset[str] = field(
-        default_factory=lambda: DEFAULT_EXCLUDED_DIRECTORIES
-    )
+    excluded_directories: frozenset[str] = field(default_factory=lambda: DEFAULT_EXCLUDED_DIRECTORIES)
     secret_filenames: frozenset[str] = field(default_factory=lambda: DEFAULT_SECRET_FILENAMES)
     secret_suffixes: frozenset[str] = field(default_factory=lambda: DEFAULT_SECRET_SUFFIXES)
     binary_suffixes: frozenset[str] = field(default_factory=lambda: DEFAULT_BINARY_SUFFIXES)
@@ -298,8 +304,13 @@ class _BaselineBuilder:
 class RepositoryInspector:
     """Inspect a local repository without following links or running project code."""
 
-    def __init__(self, policy: RepositorySafetyPolicy | None = None) -> None:
+    def __init__(
+        self,
+        policy: RepositorySafetyPolicy | None = None,
+        freshness_policy: "FreshnessPolicy | None" = None,
+    ) -> None:
         self._policy = policy or RepositorySafetyPolicy()
+        self._freshness_policy = freshness_policy
 
     def inspect(
         self,
@@ -327,6 +338,7 @@ class RepositoryInspector:
             "repository_root": str(root),
             "read_scope": [self._scope_label(root, path) for path in selected_paths],
             "revision": revision,
+            "freshness": _freshness_payload(self._freshness_policy, revision),
             "anchors": sorted(
                 builder.anchors,
                 key=lambda anchor: (str(anchor["path"]), str(anchor["symbol"] or "")),
@@ -479,7 +491,8 @@ class RepositoryInspector:
         is_dependency = filename in DEPENDENCY_FILENAMES or filename.startswith("requirements")
         is_deployment = (
             filename in DEPLOYMENT_FILENAMES
-            or ".github" in path_parts and "workflows" in path_parts
+            or ".github" in path_parts
+            and "workflows" in path_parts
             or suffix == ".tf"
             or "k8s" in path_parts
             or "kubernetes" in path_parts
@@ -544,6 +557,55 @@ class RepositoryInspector:
         root = Path(repository_root).resolve(strict=False)
         target = Path(resolved_target).resolve(strict=False)
         return "symlink_not_followed" if RepositoryInspector._is_within_root(root, target) else "external_symlink"
+
+    def collect_problem_forest(
+        self,
+        *,
+        baseline: dict[str, object] | None = None,
+        intent_text: str = "",
+        repository_root: str | Path | None = None,
+    ) -> "Forest":
+        """Return a sparse Requester Forest from a baseline.
+
+        Sparse by design: vague intent or absent anchors must NOT fabricate
+        requirements. Returns at most one anchor node per distinct
+        ``kind`` in the baseline (e.g. ``goal``, ``unknown``); lower
+        confidence for vague intent so the bounded-reconnaissance trigger
+        fires downstream.
+        """
+
+        anchor_payload = baseline if isinstance(baseline, Mapping) else None
+        if anchor_payload is None and repository_root is not None:
+            anchor_payload = self.inspect(repository_root)
+        intent_is_vague = not isinstance(intent_text, str) or len(intent_text.strip()) < 8
+        nodes: list[ForestNode] = []
+        if anchor_payload is not None:
+            anchors = anchor_payload.get("anchors")
+            if isinstance(anchors, list) and anchors:
+                representative = anchors[0]
+                if isinstance(representative, Mapping):
+                    path = str(representative.get("path") or "unknown")
+                    symbol = representative.get("symbol")
+                    body = {
+                        "statement": f"baseline anchor observed at {path}",
+                        "kind": "baseline_anchor",
+                    }
+                    if symbol is not None:
+                        body["symbol"] = str(symbol)
+                    nodes.append(
+                        ForestNode.create(
+                            node_id=f"r-baseline-{path.replace('/', '-')[:48]}",
+                            space=ForestSpace.REQUESTER,
+                            origin_role=AuthorityRole.INTENT_OWNER,
+                            source_ref=f"intake:baseline:{path}",
+                            body=body,
+                            confidence=0.3 if intent_is_vague else 0.6,
+                        )
+                    )
+        forest = Forest()
+        for node in nodes:
+            forest = forest.append(node)
+        return forest
 
     def _git_revision(self, root: Path) -> dict[str, object]:
         inside_repository = self._git(root, "rev-parse", "--is-inside-work-tree")
@@ -776,9 +838,7 @@ class CanonicalInputIntakeService:
                 raise InvalidContextBundleError("Context Bundles cannot nest another Context Bundle")
             member_artifacts.append(artifact)
 
-        parent_refs = tuple(
-            ArtifactRef(round_id, artifact.id, artifact.revision) for artifact in member_artifacts
-        )
+        parent_refs = tuple(ArtifactRef(round_id, artifact.id, artifact.revision) for artifact in member_artifacts)
         member_refs = [reference.to_dict() for reference in parent_refs]
         payload = self._ledger_payload(
             round_id=round_id,
@@ -885,3 +945,39 @@ class CanonicalInputIntakeService:
         if member_refs is not None:
             payload["member_refs"] = member_refs
         return payload
+
+
+def _freshness_payload(
+    policy: FreshnessPolicy | None,
+    revision: dict[str, object],
+) -> dict[str, object] | None:
+    """Issue #327: baseline freshness admission record (None when no policy).
+
+    Non-git repositories and pre-observation baselines record freshness_unknown
+    via an empty commit id — assess() refuses an empty inspected_commit, so the
+    marker is filled from the content fingerprint when commit is missing.
+    """
+
+    if policy is None:
+        return None
+    commit = revision.get("commit")
+    if isinstance(commit, str) and commit:
+        inspected = commit
+    else:
+        fingerprint = str(revision.get("sha256") or "")
+        inspected = fingerprint[:12] or "unsynced-baseline"
+    authority = revision.get("authority_commit")
+    ahead_value = revision.get("behind_authority", 0)
+    ahead = int(ahead_value) if isinstance(ahead_value, int) and not isinstance(ahead_value, bool) else 0
+    behind = revision.get("ahead_authority")
+    behind_value = int(behind) if isinstance(behind, int) and not isinstance(behind, bool) else None
+    changed = tuple(str(path) for path in revision.get("relevant_path_changes", ()))
+    record: BaselineFreshness = _assess_freshness(
+        inspected_commit=inspected,
+        authority_commit=str(authority) if authority is not None else None,
+        ahead=ahead,
+        behind=behind_value,
+        changed_paths=changed,
+        policy=policy,
+    )
+    return record.to_dict()

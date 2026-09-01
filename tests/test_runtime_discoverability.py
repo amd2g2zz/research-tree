@@ -54,7 +54,7 @@ def test_legacy_application_facade_is_not_importable() -> None:
 
 def test_legacy_feedback_service_is_not_published() -> None:
     import research_tree
-    import research_tree.feedback as feedback
+    from research_tree import feedback
 
     assert not hasattr(research_tree, "FeedbackRoundService")
     assert not hasattr(feedback, "FeedbackRoundService")

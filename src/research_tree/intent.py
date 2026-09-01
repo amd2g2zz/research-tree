@@ -15,7 +15,6 @@ from .domain import (
 from .intake import INPUT_LEDGER_ARTIFACT_KIND
 from .run_ledger import RunLedger
 
-
 INTENT_MODEL_KIND = "intent-model"
 WORKING_BRIEF_KIND = "working-brief"
 
@@ -122,8 +121,7 @@ class CanonicalIntentModelCompiler:
             raise InvalidIntentModelError(str(error)) from error
 
         parent_refs = tuple(
-            ArtifactRef(round_id, artifact.id, artifact.revision)
-            for artifact in (*bundle_artifacts, *input_artifacts)
+            ArtifactRef(round_id, artifact.id, artifact.revision) for artifact in (*bundle_artifacts, *input_artifacts)
         )
         return self._ledger.append_artifact(
             round_id,
@@ -181,7 +179,9 @@ class CanonicalWorkingBriefCompiler:
             hypotheses = _mapping_sequence(
                 stored_model.payload.get("hypotheses"), "intent_model hypotheses", error_type=InvalidWorkingBriefError
             )
-            leading_ids = tuple(item["id"] for item in hypotheses if item.get("status") == "leading" and isinstance(item.get("id"), str))
+            leading_ids = tuple(
+                item["id"] for item in hypotheses if item.get("status") == "leading" and isinstance(item.get("id"), str)
+            )
             viable_ids = tuple(
                 item["id"]
                 for item in hypotheses
@@ -199,9 +199,13 @@ class CanonicalWorkingBriefCompiler:
                 "intent_hypothesis_ids": leading_ids,
                 "viable_intent_hypothesis_ids": viable_ids,
                 "input_roles": _normalize_input_roles(input_roles, input_ids),
-                "working_interpretation": _nonempty_string(working_interpretation, "working_interpretation", error_type=InvalidWorkingBriefError),
+                "working_interpretation": _nonempty_string(
+                    working_interpretation, "working_interpretation", error_type=InvalidWorkingBriefError
+                ),
                 "material_conflicts": _normalize_conflicts(material_conflicts, input_ids),
-                "technical_outcome": _nonempty_string(technical_outcome, "technical_outcome", error_type=InvalidWorkingBriefError),
+                "technical_outcome": _nonempty_string(
+                    technical_outcome, "technical_outcome", error_type=InvalidWorkingBriefError
+                ),
                 "non_goals": stored_model.payload.get("non_goals", ()),
                 "retained_hard_constraints": stored_model.payload.get("hard_constraints", ()),
                 "assumptions": _string_tuple(assumptions, "assumptions", error_type=InvalidWorkingBriefError),
@@ -215,7 +219,12 @@ class CanonicalWorkingBriefCompiler:
             *(ArtifactRef(round_id, item.id, item.revision) for item in (*bundle_artifacts, *input_artifacts)),
         )
         return self._ledger.append_artifact(
-            round_id, brief_id, WORKING_BRIEF_KIND, _json_ready(payload), parent_refs=parent_refs, expected_revision=expected_revision
+            round_id,
+            brief_id,
+            WORKING_BRIEF_KIND,
+            _json_ready(payload),
+            parent_refs=parent_refs,
+            expected_revision=expected_revision,
         )
 
 
@@ -307,18 +316,12 @@ def _normalize_intent_analysis(
         "success_signals": _string_tuple(
             analysis["success_signals"], "success_signals", error_type=InvalidIntentModelError
         ),
-        "decision_drivers": _normalize_decision_drivers(
-            analysis["decision_drivers"], input_ids
-        ),
+        "decision_drivers": _normalize_decision_drivers(analysis["decision_drivers"], input_ids),
         "hard_constraints": _string_tuple(
             analysis["hard_constraints"], "hard_constraints", error_type=InvalidIntentModelError
         ),
-        "non_goals": _string_tuple(
-            analysis["non_goals"], "non_goals", error_type=InvalidIntentModelError
-        ),
-        "unresolved_interpretations": _normalize_unresolved(
-            analysis["unresolved_interpretations"], hypotheses
-        ),
+        "non_goals": _string_tuple(analysis["non_goals"], "non_goals", error_type=InvalidIntentModelError),
+        "unresolved_interpretations": _normalize_unresolved(analysis["unresolved_interpretations"], hypotheses),
     }
 
 
@@ -337,16 +340,10 @@ def _normalize_signals(
             f"signals[{index}]",
             InvalidIntentModelError,
         )
-        input_id = _identifier(
-            signal["input_id"], f"signals[{index}].input_id", InvalidIntentModelError
-        )
+        input_id = _identifier(signal["input_id"], f"signals[{index}].input_id", InvalidIntentModelError)
         if input_id not in input_ids:
-            raise InvalidIntentModelError(
-                f"signals[{index}].input_id must be one of the selected input_ids"
-            )
-        kind = _nonempty_string(
-            signal["kind"], f"signals[{index}].kind", error_type=InvalidIntentModelError
-        )
+            raise InvalidIntentModelError(f"signals[{index}].input_id must be one of the selected input_ids")
+        kind = _nonempty_string(signal["kind"], f"signals[{index}].kind", error_type=InvalidIntentModelError)
         if kind not in SIGNAL_KINDS:
             raise InvalidIntentModelError(f"signals[{index}].kind is unsupported: {kind}")
         normalized.append(
@@ -390,9 +387,7 @@ def _normalize_hypotheses(value: Any, input_ids: tuple[str, ...]) -> list[dict[s
             f"hypotheses[{index}]",
             InvalidIntentModelError,
         )
-        hypothesis_id = _identifier(
-            hypothesis["id"], f"hypotheses[{index}].id", InvalidIntentModelError
-        )
+        hypothesis_id = _identifier(hypothesis["id"], f"hypotheses[{index}].id", InvalidIntentModelError)
         if hypothesis_id in seen_ids:
             raise InvalidIntentModelError(f"duplicate hypothesis id: {hypothesis_id}")
         seen_ids.add(hypothesis_id)
@@ -419,18 +414,14 @@ def _normalize_hypotheses(value: Any, input_ids: tuple[str, ...]) -> list[dict[s
             error_type=InvalidIntentModelError,
         )
         if confidence not in CONFIDENCES:
-            raise InvalidIntentModelError(
-                f"hypotheses[{index}].confidence is unsupported: {confidence}"
-            )
+            raise InvalidIntentModelError(f"hypotheses[{index}].confidence is unsupported: {confidence}")
         validation = _nonempty_string(
             hypothesis["validation"],
             f"hypotheses[{index}].validation",
             error_type=InvalidIntentModelError,
         )
         if validation not in VALIDATION_PATHS:
-            raise InvalidIntentModelError(
-                f"hypotheses[{index}].validation is unsupported: {validation}"
-            )
+            raise InvalidIntentModelError(f"hypotheses[{index}].validation is unsupported: {validation}")
         normalized.append(
             {
                 "id": hypothesis_id,
@@ -471,9 +462,7 @@ def _normalize_decision_drivers(value: Any, input_ids: tuple[str, ...]) -> list[
             error_type=InvalidIntentModelError,
         )
         if dimension not in DECISION_DRIVER_DIMENSIONS:
-            raise InvalidIntentModelError(
-                f"decision_drivers[{index}].dimension is unsupported: {dimension}"
-            )
+            raise InvalidIntentModelError(f"decision_drivers[{index}].dimension is unsupported: {dimension}")
         signal_refs = _identifier_tuple(
             driver["signal_refs"],
             f"decision_drivers[{index}].signal_refs",
@@ -500,9 +489,7 @@ def _normalize_decision_drivers(value: Any, input_ids: tuple[str, ...]) -> list[
 
 
 def _normalize_unresolved(value: Any, hypotheses: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    unresolved = _mapping_sequence(
-        value, "unresolved_interpretations", error_type=InvalidIntentModelError
-    )
+    unresolved = _mapping_sequence(value, "unresolved_interpretations", error_type=InvalidIntentModelError)
     hypothesis_statuses = {
         hypothesis["id"]: hypothesis["status"]
         for hypothesis in hypotheses
@@ -530,9 +517,7 @@ def _normalize_unresolved(value: Any, hypotheses: Sequence[Mapping[str, Any]]) -
         booleans: dict[str, bool] = {}
         for field in ("consequential", "non_recoverable", "rankable"):
             if not isinstance(item[field], bool):
-                raise InvalidIntentModelError(
-                    f"unresolved_interpretations[{index}].{field} must be a bool"
-                )
+                raise InvalidIntentModelError(f"unresolved_interpretations[{index}].{field} must be a bool")
             booleans[field] = item[field]
         normalized.append(
             {
@@ -560,9 +545,7 @@ def _normalize_triggers(value: Any, selected_input_ids: tuple[str, ...]) -> list
             f"triggers[{index}]",
             InvalidWorkingBriefError,
         )
-        kind = _nonempty_string(
-            trigger["kind"], f"triggers[{index}].kind", error_type=InvalidWorkingBriefError
-        )
+        kind = _nonempty_string(trigger["kind"], f"triggers[{index}].kind", error_type=InvalidWorkingBriefError)
         if kind not in TRIGGER_KINDS:
             raise InvalidWorkingBriefError(f"triggers[{index}].kind is unsupported: {kind}")
         trigger_ids = _identifier_tuple(
@@ -571,9 +554,7 @@ def _normalize_triggers(value: Any, selected_input_ids: tuple[str, ...]) -> list
             error_type=InvalidWorkingBriefError,
         )
         if not set(trigger_ids) <= set(selected_input_ids):
-            raise InvalidWorkingBriefError(
-                f"triggers[{index}].input_ids must be selected Working Brief inputs"
-            )
+            raise InvalidWorkingBriefError(f"triggers[{index}].input_ids must be selected Working Brief inputs")
         normalized.append(
             {
                 "kind": kind,
@@ -586,27 +567,21 @@ def _normalize_triggers(value: Any, selected_input_ids: tuple[str, ...]) -> list
     return normalized
 
 
-def _normalize_input_roles(
-    value: Mapping[str, str], selected_input_ids: tuple[str, ...]
-) -> dict[str, str]:
+def _normalize_input_roles(value: Mapping[str, str], selected_input_ids: tuple[str, ...]) -> dict[str, str]:
     if not isinstance(value, Mapping):
         raise InvalidWorkingBriefError("input_roles must be a mapping")
     if set(value) != set(selected_input_ids):
         raise InvalidWorkingBriefError("input_roles must cover exactly the selected_input_ids")
     normalized: dict[str, str] = {}
     for input_id in selected_input_ids:
-        role = _nonempty_string(
-            value[input_id], f"input_roles[{input_id}]", error_type=InvalidWorkingBriefError
-        )
+        role = _nonempty_string(value[input_id], f"input_roles[{input_id}]", error_type=InvalidWorkingBriefError)
         if role not in WORKING_BRIEF_INPUT_ROLES:
             raise InvalidWorkingBriefError(f"input_roles[{input_id}] is unsupported: {role}")
         normalized[input_id] = role
     return normalized
 
 
-def _normalize_conflicts(
-    value: Any, selected_input_ids: tuple[str, ...]
-) -> list[dict[str, Any]]:
+def _normalize_conflicts(value: Any, selected_input_ids: tuple[str, ...]) -> list[dict[str, Any]]:
     conflicts = _mapping_sequence(value, "material_conflicts", error_type=InvalidWorkingBriefError)
     normalized: list[dict[str, Any]] = []
     for index, conflict in enumerate(conflicts):
@@ -622,22 +597,16 @@ def _normalize_conflicts(
             error_type=InvalidWorkingBriefError,
         )
         if len(ids) < 2:
-            raise InvalidWorkingBriefError(
-                f"material_conflicts[{index}] must cite at least two inputs"
-            )
+            raise InvalidWorkingBriefError(f"material_conflicts[{index}] must cite at least two inputs")
         if not set(ids) <= set(selected_input_ids):
-            raise InvalidWorkingBriefError(
-                f"material_conflicts[{index}].input_ids must be selected inputs"
-            )
+            raise InvalidWorkingBriefError(f"material_conflicts[{index}].input_ids must be selected inputs")
         status = _nonempty_string(
             conflict["status"],
             f"material_conflicts[{index}].status",
             error_type=InvalidWorkingBriefError,
         )
         if status not in CONFLICT_STATUSES:
-            raise InvalidWorkingBriefError(
-                f"material_conflicts[{index}].status is unsupported: {status}"
-            )
+            raise InvalidWorkingBriefError(f"material_conflicts[{index}].status is unsupported: {status}")
         normalized.append(
             {
                 "input_ids": ids,
@@ -659,9 +628,7 @@ def _normalize_disposition(value: Mapping[str, str] | None) -> dict[str, str]:
         raise InvalidWorkingBriefError("prior_material_disposition must be a mapping")
     normalized: dict[str, str] = {}
     for artifact_id, disposition in value.items():
-        normalized_id = _identifier(
-            artifact_id, "prior_material_disposition artifact id", InvalidWorkingBriefError
-        )
+        normalized_id = _identifier(artifact_id, "prior_material_disposition artifact id", InvalidWorkingBriefError)
         normalized_value = _nonempty_string(
             disposition,
             f"prior_material_disposition[{normalized_id}]",
@@ -752,14 +719,12 @@ def _ensure_brief_context_is_modeled(
     unmodeled_inputs = set(selected_input_ids) - set(modeled_input_ids)
     if unmodeled_inputs:
         raise InvalidWorkingBriefError(
-            "Working Brief cannot select inputs absent from the Intent Model: "
-            f"{sorted(unmodeled_inputs)}"
+            f"Working Brief cannot select inputs absent from the Intent Model: {sorted(unmodeled_inputs)}"
         )
     unmodeled_bundles = set(context_bundle_ids) - set(modeled_bundle_ids)
     if unmodeled_bundles:
         raise InvalidWorkingBriefError(
-            "Working Brief cannot select Context Bundles absent from the Intent Model: "
-            f"{sorted(unmodeled_bundles)}"
+            f"Working Brief cannot select Context Bundles absent from the Intent Model: {sorted(unmodeled_bundles)}"
         )
     modeled_refs = set(intent_model.parent_refs)
     selected_artifacts = (*bundle_artifacts, *input_artifacts)

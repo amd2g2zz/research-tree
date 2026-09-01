@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
-from pathlib import Path
 import sqlite3
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
-
 
 ROOT = Path(__file__).parents[1]
 
@@ -72,9 +71,7 @@ def complete_graph() -> dict[str, object]:
                 "human_only": False,
                 "confidence": "medium",
                 "source": "reconnaissance",
-                "attributes": {
-                    "anchor": {"kind": "source", "ref": "https://example.test/coordinator"}
-                },
+                "attributes": {"anchor": {"kind": "source", "ref": "https://example.test/coordinator"}},
             },
         ]
     )
@@ -168,16 +165,12 @@ def test_controller_requires_explicit_handoff_confirmation(tmp_path: Path) -> No
     assert result["status"] == "autonomous"
     assert result["phase"] == "research"
 
-    compiled = module.AlignmentGraphStore(
-        module.database_path(tmp_path, "handoff-run")
-    ).compile_handoff()
+    compiled = module.AlignmentGraphStore(module.database_path(tmp_path, "handoff-run")).compile_handoff()
     assert compiled["alignment_digest"] != decision["alignment_digest"]
     assert compiled["compiled_graph_digest"] == compiled["alignment_digest"]
     assert set(compiled["decision_slots"]) == {"question-architecture"}
     assert len(compiled["baseline_findings"]) == 1
-    assert compiled["execution_context"]["authority"] == [
-        "The agent owns autonomous research after confirmation."
-    ]
+    assert compiled["execution_context"]["authority"] == ["The agent owns autonomous research after confirmation."]
     paths = compiled["baseline_findings"][0]["observations"][0]["alignment_paths"]
     assert {path[0]["relation"] for path in paths} == {"supports", "limits"}
     output = tmp_path / "compiled-handoff.json"
@@ -209,7 +202,10 @@ def test_alignment_database_uses_project_run_authority(tmp_path: Path) -> None:
 
     database = module.database_path(tmp_path, "run-1", "topic-1")
 
-    assert database == tmp_path / ".research-tree" / "projects" / "topic-1" / "runs" / "run-1" / "alignment" / "alignment.db"
+    assert (
+        database
+        == tmp_path / ".research-tree" / "projects" / "topic-1" / "runs" / "run-1" / "alignment" / "alignment.db"
+    )
     assert not (tmp_path / ".research-tree-alignment").exists()
 
 
@@ -250,9 +246,7 @@ def test_handoff_preserves_indirect_evidence_paths(tmp_path: Path) -> None:
         "I confirm the strategy and authorize autonomous research.",
         decision["alignment_digest"],
     )
-    compiled = module.AlignmentGraphStore(
-        module.database_path(tmp_path, "indirect-run")
-    ).compile_handoff()
+    compiled = module.AlignmentGraphStore(module.database_path(tmp_path, "indirect-run")).compile_handoff()
     path = compiled["baseline_findings"][0]["observations"][0]["alignment_paths"][0]
     assert [edge["relation"] for edge in path] == ["supports", "limits"]
 
@@ -300,9 +294,7 @@ def test_refined_research_question_replaces_old_obligation_and_reanchors_evidenc
         "I confirm the refined strategy and authorize autonomous research.",
         decision["alignment_digest"],
     )
-    compiled = module.AlignmentGraphStore(
-        module.database_path(tmp_path, "refinement-run")
-    ).compile_handoff()
+    compiled = module.AlignmentGraphStore(module.database_path(tmp_path, "refinement-run")).compile_handoff()
     assert set(compiled["decision_slots"]) == {"question-architecture"}
     path = compiled["baseline_findings"][0]["observations"][0]["alignment_paths"][0]
     assert [edge["direction"] for edge in path] == ["forward", "reverse"]
@@ -360,9 +352,7 @@ def test_strategy_tracks_require_slot_coverage_and_compile_exact_track_metadata(
         "I confirm all four strategy tracks for autonomous research.",
         decision["alignment_digest"],
     )
-    compiled = module.AlignmentGraphStore(
-        module.database_path(tmp_path, "track-coverage-run")
-    ).compile_handoff()
+    compiled = module.AlignmentGraphStore(module.database_path(tmp_path, "track-coverage-run")).compile_handoff()
     assert {slot["track_id"] for slot in compiled["decision_slots"].values()} == {
         "track-architecture",
         "track-evidence",
@@ -370,7 +360,9 @@ def test_strategy_tracks_require_slot_coverage_and_compile_exact_track_metadata(
         "track-validation",
     }
     assert all(slot["evidence_boundary"].startswith("bounded ") for slot in compiled["decision_slots"].values())
-    assert all(slot["track_closure_oracle"].endswith("independent evidence.") for slot in compiled["decision_slots"].values())
+    assert all(
+        slot["track_closure_oracle"].endswith("independent evidence.") for slot in compiled["decision_slots"].values()
+    )
 
 
 def test_strategy_tracks_reject_uncovered_active_track(tmp_path: Path) -> None:
@@ -435,10 +427,9 @@ def test_alignment_database_preserves_parallel_edges_and_rebuilds_view(
     state = store.status()
 
     assert len(state["graph"]["edges"]) == 2
-    assert {
-        (edge["source_id"], edge["target_id"])
-        for edge in state["graph"]["edges"]
-    } == {("evidence-recon", "question-architecture")}
+    assert {(edge["source_id"], edge["target_id"]) for edge in state["graph"]["edges"]} == {
+        ("evidence-recon", "question-architecture")
+    }
     with sqlite3.connect(database) as connection:
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         assert connection.execute("SELECT COUNT(*) FROM events").fetchone()[0] >= 3
@@ -476,9 +467,7 @@ def test_confirm_rejects_stale_displayed_graph(tmp_path: Path) -> None:
     "node_id",
     ["goal", "use", "scope", "authority", "strategy", "success", "feasibility"],
 )
-def test_post_confirmation_graph_change_stales_handoff(
-    tmp_path: Path, node_id: str
-) -> None:
+def test_post_confirmation_graph_change_stales_handoff(tmp_path: Path, node_id: str) -> None:
     module = controller()
     run_id = f"post-confirm-{node_id}"
     module.init(tmp_path, run_id)
@@ -518,9 +507,7 @@ def test_readiness_rejects_supported_evidence_that_handoff_would_drop(
 
     decision = module.plan(tmp_path, "evidence-quality-run", graph)
     assert decision["action"] == "reconnaissance"
-    assert any(
-        "no structured anchor" in reason for reason in decision["readiness"]["reasons"]
-    )
+    assert any("no structured anchor" in reason for reason in decision["readiness"]["reasons"])
 
 
 def test_handoff_excludes_explicitly_superseded_research_obligation(
@@ -564,9 +551,7 @@ def test_handoff_excludes_explicitly_superseded_research_obligation(
         decision["alignment_digest"],
     )
 
-    compiled = module.AlignmentGraphStore(
-        module.database_path(tmp_path, "supersession-run")
-    ).compile_handoff()
+    compiled = module.AlignmentGraphStore(module.database_path(tmp_path, "supersession-run")).compile_handoff()
     assert set(compiled["decision_slots"]) == {"question-architecture"}
     assert compiled["diagnostics"]["excluded_superseded_nodes"] == [
         {
@@ -615,9 +600,7 @@ def test_confirmed_graph_initializes_persisted_tree_with_zero_delta_baseline(
     )
     root = tree.payload["nodes"]["root:question-architecture"]
     assert root["status"] == "frontier"
-    assert root["decision_oracle"] == (
-        "The leading architecture survives an independent executable validation."
-    )
+    assert root["decision_oracle"] == ("The leading architecture survives an independent executable validation.")
     parent_ids = {ref.artifact_id for ref in tree.parent_refs}
     assert set(tree.payload["consumed_finding_ids"]) < parent_ids
     assert len(parent_ids) == 2

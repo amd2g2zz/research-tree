@@ -6,14 +6,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import tomllib
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "skill-src" / "SKILL.template.md"
@@ -49,13 +48,16 @@ COMMON_FILES = (
     Path("references/research-quality-playbook.md"),
     Path("references/alignment-controller.md"),
     Path("references/skill-activation.md"),
+    Path("scripts/lifecycle_hook_launcher.py"),
 )
 COMMON_FILE_MAP = (
     (Path("src/research_tree/alignment_graph.py"), Path("scripts/alignment_controller.py")),
+    (Path("src/research_tree/speech_acts.py"), Path("scripts/speech_acts.py")),
     (Path("src/research_tree/skill_activation.py"), Path("scripts/skill_activation.py")),
+    (Path("src/research_tree/lifecycle_hook.py"), Path("scripts/lifecycle_hook.py")),
+    (Path("src/research_tree/origins.py"), Path("scripts/origins.py")),
     (Path("src/research_tree/host_capabilities.py"), Path("scripts/native_workflow_contract.py")),
     (Path("src/research_tree/project_workspace.py"), Path("scripts/project_workspace_contract.py")),
-    (Path("src/research_tree/context_ledger.py"), Path("scripts/context_ledger_contract.py")),
 )
 HERMES_FILES = (
     Path("references/hermes-alignment.md"),
@@ -68,6 +70,7 @@ HERMES_FILES = (
     Path("scripts/hermes_execution_adapter.py"),
     Path("scripts/host_event_protocol.py"),
     Path("scripts/hermes_event_adapter.py"),
+    Path("scripts/context_ledger_contract.py"),
     Path("scripts/hermes_executable_closure.json"),
 )
 CLAUDE_FILES = (
@@ -75,12 +78,14 @@ CLAUDE_FILES = (
     Path("references/claude-native-orchestration.md"),
     Path("scripts/native_execution_adapter.py"),
     Path("scripts/host_event_protocol.py"),
+    Path("scripts/context_ledger_contract.py"),
 )
 CODEX_FILES = (
     Path("references/codex-cli-compatibility.md"),
     Path("references/codex-native-orchestration.md"),
     Path("scripts/native_execution_adapter.py"),
     Path("scripts/host_event_protocol.py"),
+    Path("scripts/context_ledger_contract.py"),
 )
 HOST_FILE_MAP = {
     "codex": ((Path("skill-src/codex-openai.yaml"), Path("agents/openai.yaml")),),

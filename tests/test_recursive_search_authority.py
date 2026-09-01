@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import research_tree
-
 from research_tree import evaluate_research_stop, finalize_research_delivery, initialize_research_state
 
 

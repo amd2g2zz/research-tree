@@ -11,7 +11,6 @@ from research_tree.skill_activation import (
     loader_integrity_status,
 )
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_DIRS = {
     "codex": ROOT / "packages" / "codex" / "research-tree",

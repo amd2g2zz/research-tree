@@ -11,7 +11,7 @@
     "tracked_result_bytes": 65536
   },
   "entrypoints": {
-    "unit": "uv run pytest -q tests/test_evaluation_suite.py tests/test_alpha1_baseline.py",
+    "unit": "uv run pytest -q tests/test_evaluation_suite.py",
     "integration": "uv run pytest -q tests/test_evaluation_assets.py tests/test_evaluation_suite.py",
     "public_alpha1": "uv run python scripts/check_evaluation_assets.py --public-alpha1",
     "black_box": "uv run python evaluation/harness/run_release_gates.py",

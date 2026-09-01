@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).parents[1]
 REGISTRY = ROOT / "openspec/changes/unify-research-runtime-alpha2/registries/evaluation-paths-v1.json"
 

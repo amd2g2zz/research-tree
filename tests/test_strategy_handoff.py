@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import pytest
+from strategy_support import write_alignment_verification
 
 from research_tree.coordinator import CoordinatorConflictError, IllegalTransitionError, ResearchRunCoordinator
-from research_tree.domain import ArtifactRef
 from research_tree.decision_frame import DecisionFrame, IntentHypothesis
+from research_tree.domain import ArtifactRef
 from research_tree.run_ledger import RunLedger
-from research_tree.strategy_projection import StrategyProjection
+from research_tree.strategy_projection import StrategyProjection, authority_fingerprint
 
 
 def _append(ledger: RunLedger, run_id: str, artifact_id: str, kind: str, payload: dict, parents=()):
@@ -81,7 +82,7 @@ def _projection(ledger, coordinator, handoff, target):
         evidence_expectations=("independent source",),
         autonomy_envelope={"allowed": ["research"]},
         replanning_policy={"same_round": ["depth"]},
-        success_oracles=("oracle-1",),
+        success_oracles=({"id": "oracle-1", "evidence_standard_ids": ("standard-1",)},),
         delivery_contract={"technical": "package", "human": "report"},
         stop_rule="oracles pass",
         preference_influences=(),
@@ -106,6 +107,7 @@ def test_direct_stage_skip_and_generic_confirmation_are_fail_closed(tmp_path) ->
         next(item for item in ledger.load_run("run-85").artifacts if item.kind == "blueprint-target"),
     )
     projection = _projection(ledger, coordinator, handoff, target)
+    write_alignment_verification(ledger, projection, "run-85")
     coordinator.display_strategy("run-85", projection, expected_revision=ledger.get_revision("run-85"))
     before = ledger.get_revision("run-85")
     with pytest.raises(CoordinatorConflictError, match="generic"):
@@ -121,11 +123,12 @@ def test_direct_stage_skip_and_generic_confirmation_are_fail_closed(tmp_path) ->
 def test_contextual_confirmation_replays_and_stale_digest_rejects(tmp_path) -> None:
     ledger, coordinator, handoff, target, _ = _context(tmp_path)
     projection = _projection(ledger, coordinator, handoff, target)
+    write_alignment_verification(ledger, projection, "run-85")
     displayed = coordinator.display_strategy("run-85", projection, expected_revision=ledger.get_revision("run-85"))
     confirmed = coordinator.confirm_handoff(
         "run-85",
         projection_ref=ArtifactRef("run-85", projection.id, projection.revision),
-        confirmation=f"I accept the displayed strategy {projection.display_digest} and authorize research within it.",
+        confirmation=f"I accept the displayed strategy {projection.display_digest} authority-fingerprint {authority_fingerprint(projection)} and authorize research within it.",
         expected_revision=ledger.get_revision("run-85"),
         idempotency_key="confirm-1",
     )
@@ -134,7 +137,7 @@ def test_contextual_confirmation_replays_and_stale_digest_rejects(tmp_path) -> N
         coordinator.confirm_handoff(
             "run-85",
             projection_ref=ArtifactRef("run-85", projection.id, projection.revision),
-            confirmation=f"I accept the displayed strategy {projection.display_digest} and authorize research within it.",
+            confirmation=f"I accept the displayed strategy {projection.display_digest} authority-fingerprint {authority_fingerprint(projection)} and authorize research within it.",
             expected_revision=0,
             idempotency_key="confirm-1",
         )

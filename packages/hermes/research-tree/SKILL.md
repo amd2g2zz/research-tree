@@ -11,244 +11,296 @@ Follow `references/skill-activation.md`: only exact `/research-tree activation-p
 
 ## Outcome
 
-Turn a research request into two co-primary deliverables:
+Run technical research as a joint epistemic process. The requester is
+authoritative about preferences, outcomes, and authority, but not about
+technical feasibility. The agent contributes reconnaissance, counterevidence,
+and structure, and is equally provisional. User feedback, agent
+self-correction, and external evidence update one Living Brief. Produce two
+co-primary deliverables: a cited, evidence-bearing Technical Research Package
+able to drive implementation, and a professional Human Research Report (the
+Human Brief artifact) deep enough to support a human decision. Create OpenSpec
+artifacts only when explicitly requested.
 
-1. an evidence-bearing Technical Research Package detailed enough to drive
-   implementation; and
-2. a professional Human Research Report (persisted as the Human Brief artifact)
-   that the requester can understand, challenge, and use. It is not a shallow
-   summary.
+## Goal model
 
-The requester and agent co-evolve the intent before strategy handoff. The
-requester controls outcomes, preferences, and authority, but both human and
-agent technical claims remain falsifiable. After handoff, the agent owns the
-long-horizon research inside the agreed autonomy envelope.
+- The confirmed StrategyProjection is the primary goal. Its decision_targets
+  and success_oracles define what the run may claim and when it may complete.
+- Decision Slots are secondary: each slot carries a required `serves` link
+  (target_id plus oracle_ids) into a confirmed target and oracle. No
+  confirmed projection means no dispatch.
+- Truth is artifact-decided: Finding Packs, goal-contribution assessments,
+  and per-oracle satisfaction registrations decide outcomes. Worker
+  confidence, agent enthusiasm, and insistence never do.
 
 ## Activation contract
 
-Use the ordered state machine `verified_load -> bounded_reconnaissance ->
-alignment_question -> explicit_handoff -> autonomous_dispatch`. Deep research
-requests trigger this contract. Ordinary explanation, small edits, one-shot
-questions, and unrelated requests do not trigger it.
+Use this ordered state machine on Hermes:
 
-No dispatch, delegation, external research, or final artifact is allowed before
-explicit handoff. Missing or stale loader evidence, unavailable resources,
-incomplete alignment, and implicit acknowledgement return a bounded `blocked`
-disposition naming the failed phase and next safe action.
+`verified_load -> bounded_reconnaissance -> alignment_question -> explicit_handoff -> autonomous_dispatch`
+
+Deep technical research requesting evidence and a decision-ready deliverable
+triggers this contract. Ordinary explanation, small edits, one-shot answers,
+and unrelated requests do not; negative triggers must not start
+reconnaissance or dispatch. Before `explicit_handoff`, do not dispatch,
+delegate, call external research, or write a final research artifact. Missing
+or stale loader receipts, misalignment, unavailable resources, or an implicit
+handoff return a bounded blocked disposition naming the failed phase and the
+next safe action. Silence, "okay", or "continue" is not alignment evidence.
 
 ## Progressive loading
 
-Hermes injects this file into the model request in full. Keep the first turn
-small; never eagerly load every supporting file.
+Hermes injects this file in full; keep the first turn small and never eagerly
+load every supporting file.
 
 - Resolve files from Hermes' injected `[Skill directory: ...]` value or with
-  `skill_view`; never resolve them from the task workspace.
-- Read `references/hermes-alignment.md` when intent is vague, disputed, or not
-  yet at strategy equilibrium. It contains the detailed mutual-alignment loop.
-- Read `references/alignment-controller.md` and initialize its state before the
-  first alignment question; run its `plan` before every question and `record`
-  after every response.
-- Read `references/hermes-research-execution.md` only after strategy handoff or
-  when recovering an autonomous run.
-- Read `references/hermes-delivery.md` only when synthesizing or auditing final
-  deliverables. At that phase, use `assets/brief-template.md`,
+  `skill_view`; never resolve them from the task workspace. The installed
+  package is read-only; keep run state in the writable workspace.
+- Read `references/hermes-agent-compatibility.md` before the first alignment
+  or research action in a Hermes session.
+- Read `references/hermes-alignment.md` when intent is vague, disputed, or
+  not yet at strategy equilibrium; it carries the detailed alignment loop.
+- Read `references/alignment-controller.md` and initialize its state before
+  the first alignment question; run its `plan` before every pre-handoff
+  question and `record` after every response. Two unchanged fingerprints
+  select reconnaissance instead of a repeated question.
+- Read `references/hermes-research-execution.md` only after strategy handoff
+  or when recovering an autonomous run.
+- Read `references/hermes-delivery.md` only when synthesizing or auditing
+  final deliverables; at that phase use `assets/brief-template.md`,
   `assets/research-strategy-template.md`,
   `assets/technical-research-package-template.md`, and
-  `assets/human-brief-template.md` for persisted artifacts rather than pasting
-  their schemas into chat.
+  `assets/human-brief-template.md` for persisted artifacts rather than
+  pasting schemas into chat.
 - Read `references/hermes-native-orchestration.md` only before delegation,
-  recovery, or durable scheduling.
-- Read `references/hermes-agent-compatibility.md` only for host capability,
-  installation, or rendering questions.
-- Read `references/blueprint-generation-research.md` only when revising a
-  Blueprint Target or Decision Map, and `references/product-contracts.md` only
-  when exact persisted schemas matter.
-- Read `references/research-tree-architecture.md` before initializing,
-  expanding, pruning, or closing the active research tree.
-- Read `references/debug-tracing.md` only for explicit behavior diagnosis.
-
-Do not load `references/research-quality-playbook.md` in Hermes; the three
-Hermes phase references are its context-bounded operational form.
+  recovery, or durable scheduling, and `references/debug-tracing.md` only
+  for explicit diagnosis (tracing is hook-only and never blocks research).
 
 ## Python execution contract
 
 When operating in a `research-tree` source checkout, run every bundled Python
 script through the locked project environment: `uv run --frozen python ...`.
-Discover the checkout containing `pyproject.toml` and `uv.lock` before invoking
-the script, and use `uv run --project <checkout> --frozen python ...` when the
-current working directory is elsewhere. Never substitute the system `python`
-executable. If no `uv` project can be found, report an actionable environment
-blocker instead of producing a parser-level error from an incompatible Python.
-
-## Stable lifecycle contract
-
-When the checkout runtime is available, use `research-tree install`,
-`research-tree doctor`, `research-tree run`, `research-tree resume`,
-`research-tree status`, and `research-tree verify`. Pass an ordinary workspace
-and plain-language authority fields, never HostEvent or SQLite inputs. A
-prepared or pending verification receipt is fail-closed and does not grant
-completion authority.
-
-## Phase 1: mutual alignment
-
-Before composing any question, update the internal Intent Model, open-gap
-list, state fingerprint, and strategy revision, then run
-the `plan` command from `scripts/alignment_controller.py`. Ask only when it
-returns `ask_one`.
-Record the response immediately. Two unchanged turns trigger reconnaissance;
-six alignment turns or two asks for one gap end questioning. Do not expose the
-gap table or make the requester approve the whole internal state.
-
-Unless the requester explicitly says to skip discussion and execute directly,
-treat the initial request as materially incomplete. A repository plus a
-question still requires understanding the desired outcome, users, boundary,
-quality bar, environment, authority, and success oracle.
-
-Before asking detailed questions:
-
-1. inspect supplied artifacts, repository state, and the smallest useful set
-   of external sources;
-2. mirror the current reading as a hypothesis, including one assumption,
-   blind spot, or counterargument;
-3. add knowledge the requester did not yet have and explain why it changes the
-   decision; and
-4. invite one open-ended correction or elaboration in the requester's own
-   words.
-
-Keep each interactive response under 1000 characters. A turn must contain
-progress or teaching; never return a question-only questionnaire. Do not use
-multiple-choice menus as the default. Use native `clarify` only for a rare,
-bounded decision after the distinction is understood and only when the active
-Hermes surface exposes it. Otherwise use ordinary dialogue.
-
-Treat vague language, "I don't know", confusion, and corrections as difficulty
-signals. Search, inspect, or run a safe spike; then explain one useful
-distinction and ask one guided reflection. Do not invent requirements or stop
-because the requester lacks vocabulary.
-
-Maintain a Living Brief and claim ledger in the writable task workspace.
-Persist structured belief deltas and decisions, not full conversation
-transcripts or secrets. User feedback that corrects the agent changes the
-brief; it is not merely a report-edit request.
-
-Before handoff, establish an Alignment Checkpoint containing goal and
-deliverables, scope and non-goals, authority and environment, success oracle,
-evidence standard, feasibility, and unresolved high-impact decisions. This
-creates a visible decision-equilibrium draft. Show the strategy projection from
-the Alignment Graph and wait for explicit confirmation of the outcome, scope, authority,
-and autonomous-research transition. The agent must not declare alignment
-complete from its own checkpoint. "Okay" or "continue" alone is not alignment
-evidence.
-
-For the full algorithm and equilibrium tests, load
-`references/hermes-alignment.md`.
-
-## Phase 2: autonomous plan-to-execute research
-
-At handoff, state the Autonomy envelope after strategy handoff:
-
-- autonomous choices: research, search, experiments, delegation, scheduling,
-  and recoverable strategy revisions inside granted authority;
-- hard stops: insufficient authority or safety boundary, unavailable required
-  capability, or an honestly unevaluable completion oracle;
-- continuation state: brief revision, one active tree revision, Decision Map,
-  task state, evidence ledger, Insight Digest, and next ready wave;
-- completion oracle and evidence threshold; and
-- retry/replan policy without silent goal downgrade.
-
-This work is cost-tolerant unless the requester supplies a monetary cap. Host
-time slices, context, concurrency, and tool limits are checkpoint boundaries,
-not reasons to declare the research complete or infeasible.
-
-Compile the strategy into a dependency DAG of bounded work items.
-Do not hand a broad track to one worker; do not let workers re-delegate unless a
-deliberate nested-orchestrator design and host depth allow it. Every item needs
-one decision slot, evidence target, source boundary, artifact path, completion
-oracle, and replan trigger.
-
-Execute ready items in waves. Use Hermes-native `todo` only as a visible
-session mirror; workspace state is authoritative. When `delegate_task` exists,
-batch independent leaf tasks in one `delegate_task(tasks=[...])` call and keep
-doing coordinator work while they run. Verify source anchors and artifacts;
-never treat a child summary as proof.
-
-After every wave:
-
-1. ingest atomic claims with provenance, applicability, confidence, limits,
-   and counterevidence;
-2. update contradictions and the Insight Digest;
-3. test whether evidence changes intent, strategy, scope, or success criteria;
-4. replace the active tree when premises change and record why; and
-5. persist continuation state before another dispatch or return.
-
-Intent understanding remains active throughout the round; it is not a one-time
-pre-research gate.
-
-Research recursively until the evidence coverage and decision slots satisfy
-the completion oracle. Initialize the persisted tree from existing Finding
-Packs as a zero-delta baseline, then repeat: select frontier, execute, ingest,
-measure state delta, update bounded residual Decision Slot risk, grow structured
-continuations, normalize by observed branch complexity, prune or defer,
-checkpoint, and select again. A tree, source list, recommendations list, exhausted worker
-wave, or compiled brief is not completion. A worker may report a blocker only
-after available search, local inspection, and safe alternatives have been
-attempted.
-
-Decision-slot closure is not final completion. Persist `delivery_pending` and
-continue to the delivery phase until both deep reports exist; register them
-with the canonical delivery authority so their UTF-8, depth, and digest checks are recorded.
-
-Load `references/hermes-research-execution.md` for task states, Finding Packs,
-insight generation, contradiction handling, recovery, and convergence gates.
-
-## Phase 3: delivery
-
-Produce the Technical Research Package first. It must include the evolved
-problem framing, method and source boundaries, findings with citations,
-counterevidence, resolved and open contradictions, decisions and rejected
-alternatives, implementation consequences, validation plan, risks,
-uncertainty, and exact artifact status. Distinguish observed, inferred,
-proposed, and executed work.
-
-Then produce a Human Research Report in clear professional language: what was
-learned, why it matters, what changed, the recommended direction, meaningful
-trade-offs, remaining uncertainty, and what artifact actually exists. Make it
-deep enough to support a human decision; do not reduce it to a shallow brief or
-use it as a substitute for the technical package.
-
-Do not advance to implementation or OpenSpec unless explicitly requested.
-Requester dissatisfaction, a correction, or a depth objection reopens the
-Living Brief and triggers another evidence-bearing batch.
-
-Load `references/hermes-delivery.md` for detailed package gates and report
-evaluation.
+Discover the checkout containing `pyproject.toml` and `uv.lock` before
+invoking the script, and use `uv run --project <checkout> --frozen python ...`
+when the current working directory is elsewhere.
+Never substitute the system `python` executable. If no `uv` project can be found, report an actionable
+environment blocker instead of producing a parser-level error from an
+incompatible Python.
 
 ## Hermes runtime adapter
 
-- Use Hermes-native tools only when exposed. Do not assume LangGraph,
-  LangChain, `ask_user_question`, or another host's state model exists.
-- Never call a named tool merely because another host exposes it; use ordinary
-  dialogue when Hermes lacks the equivalent capability.
-- Use `session_search` for relevant earlier dialogue and `memory` only for
-  durable cross-run preferences, never current task state.
-- Treat interrupted work as `unknown`; inspect artifacts and live delegation
-  logs before retrying with a new attempt ID.
-- Keep installed Skill files read-only during research. Store all run state and
-  deliverables in the writable task workspace.
-- Use `research-tree-debug` only when available and explicitly diagnosing
-  behavior; trace failure must never block research.
-- Use `scripts/hermes_skill_adapter.py` only for package validation, prompt-risk
-  diagnosis, gateway-log diagnosis, hook rendering, or staging.
-- After handoff, use `scripts/hermes_execution_adapter.py` to translate
-  delegation/provider observations, project coordinator actions into Hermes,
-  and emit `unknown_outcome` before retrying interrupted attempts. The
-  coordinator ledger owns durable state and completion; the adapter never
-  infers either from waves, hooks, cards, empty work, or report shape.
+- Use Hermes-native conversation, tools, skills, delegation, and `AIAgent`
+  behavior. Do not assume LangGraph or LangChain state or checkpoints are
+  present.
+- Follow the active messaging channel's rendering constraints; replace
+  tables with labeled bullets where tables are unsupported. Keep research
+  artifacts in the writable task workspace and never modify the installed
+  package during an ordinary run.
+
+## Phase 1: mutual alignment
+
+Treat every initial request as exploratory and materially incomplete until
+reconnaissance says otherwise, even when it sounds specific. A vague, short,
+or contradictory brief is a difficulty signal, not permission to invent
+missing requirements.
+
+- Inspect supplied material and the repository before asking anything
+  detailed, and run bounded reconnaissance so each turn adds knowledge the
+  requester did not have. Never answer an exploratory request with only a
+  questionnaire, option table, plan, or research tree.
+- Ask one open-ended, guided prompt at a time, answered in their own words.
+  Do not use multiple-choice menus as the default discovery mechanism; when
+  the active Hermes toolset exposes native `clarify`, use it only for a rare
+  discrete decision after open-ended guidance, never as a substitute.
+- No question-only turn: every turn mirrors the current understanding, names
+  one consequential gap in the current context, adds the smallest useful
+  evidence, and invites correction. Keep interactive turns under 1000
+  characters and split work into short rounds (progress, new information,
+  impact, one decision, next step). On confusion, missing vocabulary, or
+  "I don't know", run a teaching reconnaissance cycle: inspect, explain
+  plainly, show one implication, then ask one guided question.
+- Co-evolve cognition before strategy handoff: expose your reading,
+  assumptions, strongest counterargument, and consequence if wrong; invite
+  challenge; state what changed on both sides. Persist an alignment-turn
+  record (mirror, gap, evidence, delta, decision effect) after each
+  meaningful exchange. If no field changed, run reconnaissance instead of
+  repeating the question. Intent understanding remains active throughout the round.
+
+### Claims, feasibility, and cost
+
+- Every user and agent technical assertion is a claim with provenance,
+  evidence status, and consequence if wrong. Statuses: asserted, hypothesis,
+  supported, refuted, unknown, superseded. Evidence levels: proposed,
+  source-inspected, built, executed, independently-reviewed. Mark
+  single-source claims unverified and keep contradictions visible.
+- Classify constraints as hard, preference, aspiration, or estimate. Never
+  silently relax a hard constraint and never reject the task because a
+  negotiable aspiration is unmet. Human insistence does not make an
+  infeasible combination feasible.
+- Long-horizon research is cost-tolerant: never invent a monetary budget and
+  never use API or token spend as a reason to narrow or stop. Operational
+  guardrails (time slices, tool-call batches, concurrency, storage, safety,
+  host limits) end a batch with a resumable checkpoint, never a final stop.
+- Dispose feasibility explicitly: plausible, conditional, infeasible, or
+  indeterminate. State infeasibility with the conflicting constraints, the
+  relevant bound, and the nearest feasible reframings; never silently
+  substitute your preferred alternative; never declare impossibility from
+  intuition: run the smallest feasibility spike that could change the
+  disposition.
+
+### Strategy lifecycle and goal wiring
+
+The strategy handoff has two gates: a decision-equilibrium draft, then an
+explicitly confirmed projection.
+
+1. Propose. Draft outcome, decision targets, tracks, evidence expectations,
+   autonomy envelope, and success oracles. Persist the draft with
+   `research-tree strategy propose` when the checkout runtime is available;
+   otherwise persist the equivalent intent in workspace artifacts.
+2. Display. `research-tree strategy display` shows a projection only after
+   the falsifiability review (`validate_falsifiability`) accepts it: every
+   oracle names evidence standards, every target reference resolves. Before
+   display, dispatch a fresh-context subagent that reads only the original
+   conversation and the projection draft, restates its own understanding of
+   outcome, scope, authority, and each success oracle, and records any
+   discrepancy with the draft. Register that restatement as the alignment
+   verification, naming the subagent's session identity as the verifier and
+   your session as the context — a verification issued by your own session is
+   rejected (`independent_verification_required`). Display is inspection, not
+   acceptance.
+3. Confirm. `research-tree strategy confirm` requires a confirmation that
+   quotes the displayed digest; a bare "yes" is a rubber stamp and changes
+   nothing. The downstream basis is `latest_confirmed`, fail-closed: draft,
+   displayed, or superseded projections never count.
+4. Compile Research Tree revision zero only after confirmation. Do not
+   create or display a Research Tree before this boundary. Every dispatched
+   slot carries its required `serves` link validated against the confirmed
+   projection; an invalid link rejects the slot.
+
+### Autonomy envelope after strategy handoff
+
+Declare once at handoff and then operate inside it: autonomous choices
+(research, tools, delegation, intent and strategy revision within granted
+authority); hard stop triggers (insufficient authority or safety boundary, a
+missing capability, or an oracle that cannot be honestly evaluated);
+continuation state persisted after every meaningful batch; the completion
+oracle; and the failure policy (retry or replan recoverable failures, persist
+a blocker with evidence, never silently downgrade the goal). If evidence
+invalidates the strategy, create a successor revision internally and continue
+without another approval.
+
+### Assistance and correction protocol
+
+The requester is authoritative about goals, never about truth.
+
+- Error, ambiguity, or confused logic in the requester's input: do not
+  silently obey and do not silently fix. Ask one Socratic clarification at a
+  time (small steps over rounds, each restating what you heard), or derive
+  the counterexample: "by the current oracle, evidence X is judged unmet."
+- Insistence after clarification: warn the consequence concretely (which
+  oracle goes unmet, which contradiction follows), then comply and record a
+  waived goal-satisfaction verdict with an explicit waiver reason.
+- Agent error: record the correction and revise intent, scope, or tree;
+  never reduce it to a cosmetic report edit.
+- Interruption: use `apply_correction` with a `CorrectionEvent` (kind
+  exactly `correction` or `reopen`)
+  when the checkout runtime is available; otherwise persist the equivalent
+  intent in workspace artifacts. Reordering only not-yet-dispatched work in
+  one round takes the lighter `record_same_round_replan` path instead.
+- Contradicted delivery: `apply_contradiction`
+  when the checkout runtime is available; otherwise persist the equivalent
+  intent in workspace artifacts. Present the re-entry offer instead of an
+  improvised apology.
+- After presenting both deliverables, collect exactly one of the
+  `ACCEPTANCE_DECISIONS` via `DeliveryAcceptance` bound to the displayed
+  digest. Silence or "okay" is not acceptance. User-visible status messages
+  echo `research-tree status`
+  when the checkout runtime is available; otherwise persist the equivalent
+  intent in workspace artifacts and answer from the persisted checkpoint.
+
+## Phase 2: autonomous plan-to-execute research
+
+- Dispatch only the dependency-ready frontier after revision zero. Give each worker only the Decision Slot, its source boundary, stop condition, and Finding Pack schema.
+- A worker MUST NOT receive the strategy projection digest, primary goal text, or other slots.
+- Use Hermes' native plan-to-execute model: mirror the wave in `todo`,
+  persist the authoritative checkpoint in the task workspace, and dispatch
+  dependency-ready leaf work as one `delegate_task(tasks=[...])` batch. The
+  parent continues coordinator work while children run; never poll by
+  repeated delegation.
+- Workers return atomic Finding Packs, not prose chapters. The coordinator
+  owns contradiction checks, deduplication, coverage, Living Brief updates,
+  and synthesis. Do not hand a broad track to one worker or let workers re-delegate;
+  capacity left unused without a dependency, safety, duplicate,
+  or capability reason is a conformance failure.
+- A worker may report a blocker only after searching available sources and
+  tools, inspecting local references or the repository, and trying safe
+  alternatives; record the missing capability and evidence. "I don't know"
+  by itself is not a blocker.
+- After ingesting a verified pack, record its goal-contribution verdict
+  (`assess_goal_contribution`). ADVANCES and PARTIAL count toward the slot;
+  NO_CONTRIBUTION and CONTRADICTS leave the tree's consumed set untouched,
+  trigger a same-round replan naming the guidance defect, and the second
+  consecutive NO_CONTRIBUTION escalates to a method-switch consultation.
+  Insight Digest signals uncovered, thin, contested, and qualified are
+  successor-work triggers, not report-writing cues; only a converging slot
+  advances to Decision Ledger review. Worker confidence is never an update
+  signal.
+- Run `scripts/hermes_execution_adapter.py` probe-host with explicit live
+  observations before selecting delegation, goals, Kanban, hooks, or
+  scheduled drain; use `project-workflow` for the bounded batch and
+  `reconcile-host` after restart. Absent or denied native workflow support
+  selects `coordinator-dispatch-v1`; no goal, Kanban card, hook, or drain
+  result owns completion.
+- Use the stable lifecycle sequence `research-tree install`,
+  `research-tree doctor`, `research-tree run`, `research-tree resume`,
+  `research-tree status`, and `research-tree verify`
+  when the checkout runtime is available; otherwise persist the equivalent
+  intent in workspace artifacts. Pass a normal workspace and plain-language
+  authority fields; never HostEvent or SQLite inputs; a prepared or pending
+  verification receipt does not grant completion authority.
+
+## Phase 3: delivery
+
+- Before any implementation, target edit, or irreversible experiment, emit an
+  Alignment Checkpoint: goal and deliverable, scope and non-goals, authority
+  and environment, success oracle, unresolved high-impact decisions, and
+  feasibility. Do not act while a high-impact field is unknown or
+  agent-selected.
+- Never end a requested investigation after only showing a research tree,
+  option table, diagnosis, or proposed fix list: return evidence-bearing
+  progress in the same round (inspected sources, repository facts, a safe
+  experiment, or a scoped feasibility result). "Recommendations only" means
+  do not edit the target system; it never means skip the research.
+- Deliver both artifacts or none: the Technical Research Package
+  (repository-grounded, cited, honest evidence levels, ordered work with
+  validation and rollback) and the Human Brief (decision-oriented language,
+  what changed in each side's model, what was actually built or executed,
+  what remains uncertain, next milestone). They must agree on scope,
+  decisions, uncertainty, and evidence. An interim note is not the final
+  report: while the Living Brief is still exploring or reopened, label the
+  response interim and continue.
+- Completion is gated per oracle: the coordinator registers a verdict via
+  `write_goal_satisfaction` for every success oracle (satisfied or partial
+  cites evidence that resolves to run artifacts; waived carries a waiver
+  reason; unmet is explicit and never covers an oracle). While an oracle is
+  uncovered the run cannot complete, and the blocker names
+  `resolve:goal_satisfaction:<oracle_id>`. Independently, before delivery
+  acceptance dispatch a fresh-context subagent that reads only the Finding
+  Packs and the confirmed oracles — never your summary — and records a
+  per-oracle verdict with references to the packs it read; a delivery review
+  issued by your own session is rejected (`independent_review_required`).
+  Do not report completion while either gate is blocked. Dissatisfaction,
+  correction, or a depth objection reopens the Living Brief for a new
+  evidence-bearing batch.
 
 ## Completion standard
 
-Finish only when the Alignment Checkpoint and autonomy handoff are supported,
-the active plan-to-execute DAG has no unresolved required item, decisive
-claims have traceable evidence, contradictions are resolved or explicitly
-bounded, the Insight Digest has influenced decisions, both deliverables pass
-their gates, and artifact claims match what was actually executed.
+A round finishes only when both deliverables pass their gates, the per-oracle
+completion gate is green, and feedback produced evidence-bearing progress.
+
+## Implementation boundary
+
+Do not implement the researched product unless explicitly asked. Small safe
+prototypes and experiments are research evidence. OpenSpec conversion is
+optional and only on explicit request: preserve Living Brief revisions,
+evidence anchors, conditional decisions, validation oracles, and unresolved
+disagreements in it.

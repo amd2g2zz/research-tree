@@ -16,7 +16,6 @@ from .intake import INPUT_LEDGER_ARTIFACT_KIND
 from .intent import INTENT_MODEL_KIND, WORKING_BRIEF_KIND
 from .run_ledger import RunLedger
 
-
 BLUEPRINT_TARGET_KIND = "blueprint-target"
 SLOT_KINDS = {
     "architecture",
@@ -61,8 +60,15 @@ class CanonicalBlueprintTargetCompiler:
         slots: Sequence[Mapping[str, Any]],
         change: Mapping[str, Any],
         expected_revision: int,
+        alignment_handoff: ArtifactRevision | None = None,
     ) -> ArtifactRevision:
-        """Append one lineage-bound target revision with an explicit precondition."""
+        """Append one lineage-bound target revision with an explicit precondition.
+
+        ``alignment_handoff`` optionally binds the target to the exact stored
+        alignment-handoff revision so ``coordinator.initialize`` can accept the
+        target without any out-of-band lineage write (issue #470). Omitted, the
+        compiled parent_refs are unchanged.
+        """
 
         try:
             snapshot = self._ledger.load_run(round_id)
@@ -98,6 +104,11 @@ class CanonicalBlueprintTargetCompiler:
                 )
             normalized_change = _normalize_change(change)
             _validate_change(previous_target, normalized_slots, normalized_change)
+            handoff_ref = (
+                None
+                if alignment_handoff is None
+                else _resolve_alignment_handoff(snapshot.artifacts, alignment_handoff, round_id)
+            )
         except (InvalidIdentifierError, TypeError, ValueError) as error:
             raise InvalidBlueprintTargetError(str(error)) from error
 
@@ -111,11 +122,14 @@ class CanonicalBlueprintTargetCompiler:
         }
         brief_ref = ArtifactRef(round_id, brief.id, brief.revision)
         model_ref = ArtifactRef(round_id, model.id, model.revision)
-        parent_refs = (
-            (brief_ref, model_ref)
+        lineage = (
+            [brief_ref, model_ref]
             if previous_target is None
-            else (ArtifactRef(round_id, previous_target.id, previous_target.revision), brief_ref, model_ref)
+            else [ArtifactRef(round_id, previous_target.id, previous_target.revision), brief_ref, model_ref]
         )
+        if handoff_ref is not None:
+            lineage.append(handoff_ref)
+        parent_refs = tuple(lineage)
         return self._ledger.append_artifact(
             round_id,
             target_id,
@@ -126,9 +140,32 @@ class CanonicalBlueprintTargetCompiler:
         )
 
 
-def _resolve_exact_artifact(
-    artifacts: Sequence[ArtifactRevision], artifact: ArtifactRevision
-) -> ArtifactRevision:
+def _resolve_alignment_handoff(
+    artifacts: Sequence[ArtifactRevision], handoff: ArtifactRevision, round_id: str
+) -> ArtifactRef:
+    """Resolve the optional bind parent to the exact stored handoff revision."""
+
+    from .alignment_handoff import ALIGNMENT_HANDOFF_KIND
+
+    if not isinstance(handoff, ArtifactRevision):
+        raise InvalidBlueprintTargetError("alignment_handoff must be an ArtifactRevision")
+    for stored in artifacts:
+        if stored.id == handoff.id and stored.revision == handoff.revision:
+            if stored != handoff:
+                raise InvalidBlueprintTargetError("alignment_handoff does not match its stored revision")
+            if stored.kind != ALIGNMENT_HANDOFF_KIND:
+                raise InvalidBlueprintTargetError(
+                    f"alignment_handoff must be an {ALIGNMENT_HANDOFF_KIND} artifact, not {stored.kind!r}"
+                )
+            if stored.round_id != round_id:
+                raise InvalidBlueprintTargetError("alignment_handoff must belong to target round")
+            return ArtifactRef(round_id, stored.id, stored.revision)
+    raise InvalidBlueprintTargetError(
+        f"alignment_handoff must resolve to a stored {ALIGNMENT_HANDOFF_KIND} revision in the run ledger"
+    )
+
+
+def _resolve_exact_artifact(artifacts: Sequence[ArtifactRevision], artifact: ArtifactRevision) -> ArtifactRevision:
     if not isinstance(artifact, ArtifactRevision):
         raise InvalidBlueprintTargetError("working_brief must be an ArtifactRevision")
     for stored in artifacts:
@@ -139,12 +176,8 @@ def _resolve_exact_artifact(
     raise InvalidBlueprintTargetError("working_brief has not been persisted in the active run ledger")
 
 
-def _resolve_brief_model(
-    artifacts: Sequence[ArtifactRevision], brief: ArtifactRevision
-) -> ArtifactRevision:
-    model_id = _identifier(
-        brief.payload.get("intent_model_id"), "working_brief intent_model_id"
-    )
+def _resolve_brief_model(artifacts: Sequence[ArtifactRevision], brief: ArtifactRevision) -> ArtifactRevision:
+    model_id = _identifier(brief.payload.get("intent_model_id"), "working_brief intent_model_id")
     artifact_by_ref = {(artifact.id, artifact.revision): artifact for artifact in artifacts}
     for reference in brief.parent_refs:
         if reference.artifact_id != model_id:
@@ -169,9 +202,7 @@ def _resolve_brief_inputs(
             )
         artifact = artifact_by_ref.get((input_id, references[0].revision))
         if artifact is None or artifact.kind != INPUT_LEDGER_ARTIFACT_KIND:
-            raise InvalidBlueprintTargetError(
-                f"working_brief input parent is not an Input Ledger artifact: {input_id}"
-            )
+            raise InvalidBlueprintTargetError(f"working_brief input parent is not an Input Ledger artifact: {input_id}")
         if artifact.payload.get("kind") == "context_bundle":
             raise InvalidBlueprintTargetError("working_brief selected inputs cannot be Context Bundles")
         selected.append(artifact)
@@ -185,9 +216,7 @@ def _brief_selected_input_ids(brief: ArtifactRevision) -> tuple[str, ...]:
     )
 
 
-def _brief_hypothesis_ids(
-    brief: ArtifactRevision, model: ArtifactRevision
-) -> frozenset[str]:
+def _brief_hypothesis_ids(brief: ArtifactRevision, model: ArtifactRevision) -> frozenset[str]:
     carried_ids = _identifier_sequence(
         brief.payload.get("intent_hypothesis_ids"),
         "working_brief intent_hypothesis_ids",
@@ -198,18 +227,11 @@ def _brief_hypothesis_ids(
         "working_brief viable_intent_hypothesis_ids",
         allow_empty=True,
     )
-    model_hypotheses = _mapping_sequence(
-        model.payload.get("hypotheses"), "intent_model hypotheses"
-    )
-    model_ids = {
-        _identifier(hypothesis.get("id"), "intent_model hypothesis id")
-        for hypothesis in model_hypotheses
-    }
+    model_hypotheses = _mapping_sequence(model.payload.get("hypotheses"), "intent_model hypotheses")
+    model_ids = {_identifier(hypothesis.get("id"), "intent_model hypothesis id") for hypothesis in model_hypotheses}
     visible = frozenset((*carried_ids, *viable_ids))
     if not visible or not visible <= model_ids:
-        raise InvalidBlueprintTargetError(
-            "working_brief intent hypotheses must be visible in its exact Intent Model"
-        )
+        raise InvalidBlueprintTargetError("working_brief intent hypotheses must be visible in its exact Intent Model")
     return visible
 
 
@@ -267,6 +289,7 @@ def _normalize_slots(
                 "status",
                 "bounded_research_need",
                 "fallback",
+                "serves",
             },
             label,
         )
@@ -275,9 +298,7 @@ def _normalize_slots(
             raise InvalidBlueprintTargetError(f"duplicate Decision Slot id: {slot_id}")
         seen_ids.add(slot_id)
         kind = _enum(candidate["kind"], f"{label}.kind", SLOT_KINDS)
-        hypothesis_ids = _identifier_sequence(
-            candidate["intent_hypothesis_ids"], f"{label}.intent_hypothesis_ids"
-        )
+        hypothesis_ids = _identifier_sequence(candidate["intent_hypothesis_ids"], f"{label}.intent_hypothesis_ids")
         unknown_hypotheses = set(hypothesis_ids) - visible_hypotheses
         if unknown_hypotheses:
             raise InvalidBlueprintTargetError(
@@ -306,13 +327,9 @@ def _normalize_slots(
             raise InvalidBlueprintTargetError(
                 f"{label} cannot cite repository touchpoints without a selected repository baseline"
             )
-        bounded_need = _string_or_empty(
-            candidate["bounded_research_need"], f"{label}.bounded_research_need"
-        )
+        bounded_need = _string_or_empty(candidate["bounded_research_need"], f"{label}.bounded_research_need")
         if priority == "P0" and status in {"open", "researching"} and not bounded_need:
-            raise InvalidBlueprintTargetError(
-                f"{label} P0 {status} slot requires a bounded_research_need"
-            )
+            raise InvalidBlueprintTargetError(f"{label} P0 {status} slot requires a bounded_research_need")
         normalized.append(
             {
                 "id": slot_id,
@@ -322,9 +339,7 @@ def _normalize_slots(
                 "priority": priority,
                 "impact": _enum(candidate["impact"], f"{label}.impact", LEVELS),
                 "uncertainty": _enum(candidate["uncertainty"], f"{label}.uncertainty", LEVELS),
-                "irreversibility": _enum(
-                    candidate["irreversibility"], f"{label}.irreversibility", LEVELS
-                ),
+                "irreversibility": _enum(candidate["irreversibility"], f"{label}.irreversibility", LEVELS),
                 "constraints": _normalize_constraints(
                     candidate["constraints"],
                     label,
@@ -335,23 +350,30 @@ def _normalize_slots(
                 "repository_touchpoints": touchpoints,
                 "greenfield_assumptions": list(assumptions),
                 "depends_on": list(
-                    _identifier_sequence(
-                        candidate["depends_on"], f"{label}.depends_on", allow_empty=True
-                    )
+                    _identifier_sequence(candidate["depends_on"], f"{label}.depends_on", allow_empty=True)
                 ),
-                "evidence_standard": _nonempty_string(
-                    candidate["evidence_standard"], f"{label}.evidence_standard"
-                ),
+                "evidence_standard": _nonempty_string(candidate["evidence_standard"], f"{label}.evidence_standard"),
                 "validation": _normalize_validation(candidate["validation"], label),
-                "closure_rule": _nonempty_string(
-                    candidate["closure_rule"], f"{label}.closure_rule"
-                ),
+                "closure_rule": _nonempty_string(candidate["closure_rule"], f"{label}.closure_rule"),
                 "status": status,
                 "bounded_research_need": bounded_need,
                 "fallback": _nonempty_string(candidate["fallback"], f"{label}.fallback"),
+                "serves": _normalize_serves(candidate["serves"], label),
             }
         )
     return normalized
+
+
+def _normalize_serves(value: Any, label: str) -> dict[str, Any]:
+    """Normalize the slot's required serves link (shape only; projection basis checked at compile)."""
+
+    if not isinstance(value, Mapping):
+        raise InvalidBlueprintTargetError(f"{label}.serves must be a mapping")
+    _require_exact_keys(value, {"target_id", "oracle_ids"}, f"{label}.serves")
+    return {
+        "target_id": _identifier(value["target_id"], f"{label}.serves.target_id"),
+        "oracle_ids": list(_identifier_sequence(value["oracle_ids"], f"{label}.serves.oracle_ids", allow_empty=True)),
+    }
 
 
 def _normalize_touchpoints(
@@ -369,8 +391,10 @@ def _normalize_touchpoints(
             raise InvalidBlueprintTargetError(
                 f"{label}.repository_touchpoints[{index}].symbol must be a string or null"
             )
-        symbol = None if symbol_raw is None else _nonempty_string(
-            symbol_raw, f"{label}.repository_touchpoints[{index}].symbol"
+        symbol = (
+            None
+            if symbol_raw is None
+            else _nonempty_string(symbol_raw, f"{label}.repository_touchpoints[{index}].symbol")
         )
         if repository_anchors:
             if symbol is None and not any(anchor_path == path for anchor_path, _ in repository_anchors):
@@ -403,9 +427,7 @@ def _normalize_constraints(
         if kind == "input":
             input_id = _identifier(reference, f"{item_label}.ref")
             if input_id not in selected_input_ids:
-                raise InvalidBlueprintTargetError(
-                    f"{item_label}.ref must be a selected Working Brief input"
-                )
+                raise InvalidBlueprintTargetError(f"{item_label}.ref must be a selected Working Brief input")
         if kind == "repository":
             _validate_repository_ref(reference, item_label, repository_anchors)
         normalized.append(
@@ -454,9 +476,7 @@ def _validate_dependencies(slots: Sequence[Mapping[str, Any]]) -> None:
         dependencies = tuple(slot["depends_on"])
         unknown = set(dependencies) - slot_ids
         if unknown:
-            raise InvalidBlueprintTargetError(
-                f"Decision Slot {slot_id} depends on unknown slots: {sorted(unknown)}"
-            )
+            raise InvalidBlueprintTargetError(f"Decision Slot {slot_id} depends on unknown slots: {sorted(unknown)}")
         if slot_id in dependencies:
             raise InvalidBlueprintTargetError(f"Decision Slot {slot_id} cannot depend on itself")
         adjacency[slot_id] = dependencies
@@ -479,13 +499,9 @@ def _validate_dependencies(slots: Sequence[Mapping[str, Any]]) -> None:
         visit(slot_id)
 
 
-def _latest_target(
-    artifacts: Sequence[ArtifactRevision], target_id: str
-) -> ArtifactRevision | None:
+def _latest_target(artifacts: Sequence[ArtifactRevision], target_id: str) -> ArtifactRevision | None:
     targets = [
-        artifact
-        for artifact in artifacts
-        if artifact.id == target_id and artifact.kind == BLUEPRINT_TARGET_KIND
+        artifact for artifact in artifacts if artifact.id == target_id and artifact.kind == BLUEPRINT_TARGET_KIND
     ]
     return max(targets, key=lambda artifact: artifact.revision, default=None)
 
@@ -513,12 +529,8 @@ def _normalize_change(value: Any) -> dict[str, Any]:
     return {
         "kind": _enum(value["kind"], "change.kind", CHANGE_KINDS),
         "reason": _nonempty_string(value["reason"], "change.reason"),
-        "from_slot_ids": list(
-            _identifier_sequence(value["from_slot_ids"], "change.from_slot_ids", allow_empty=True)
-        ),
-        "to_slot_ids": list(
-            _identifier_sequence(value["to_slot_ids"], "change.to_slot_ids", allow_empty=True)
-        ),
+        "from_slot_ids": list(_identifier_sequence(value["from_slot_ids"], "change.from_slot_ids", allow_empty=True)),
+        "to_slot_ids": list(_identifier_sequence(value["to_slot_ids"], "change.to_slot_ids", allow_empty=True)),
     }
 
 
@@ -575,9 +587,7 @@ def _validate_change(
             after = current[slot_id]
             if slot_id not in from_ids:
                 if before != after:
-                    raise InvalidBlueprintTargetError(
-                        "reprioritize cannot modify unlisted Decision Slots"
-                    )
+                    raise InvalidBlueprintTargetError("reprioritize cannot modify unlisted Decision Slots")
                 continue
             before_without_priority = {key: value for key, value in before.items() if key != "priority"}
             after_without_priority = {key: value for key, value in after.items() if key != "priority"}
@@ -610,9 +620,7 @@ def _require_change_sets(
     expected_to: set[str],
 ) -> None:
     if from_ids != expected_from or to_ids != expected_to or not (expected_from or expected_to):
-        raise InvalidBlueprintTargetError(
-            f"{kind} change source/target ids do not match the actual slot changes"
-        )
+        raise InvalidBlueprintTargetError(f"{kind} change source/target ids do not match the actual slot changes")
 
 
 def _require_shared_slots_unchanged(
@@ -623,8 +631,7 @@ def _require_shared_slots_unchanged(
     changed = [slot_id for slot_id in shared_ids if previous[slot_id] != current[slot_id]]
     if changed:
         raise InvalidBlueprintTargetError(
-            "change kind permits only its named id-set transition; changed shared slots: "
-            f"{sorted(changed)}"
+            f"change kind permits only its named id-set transition; changed shared slots: {sorted(changed)}"
         )
 
 
@@ -690,6 +697,4 @@ def _require_exact_keys(value: Mapping[str, Any], expected: set[str], label: str
     if actual != expected:
         missing = sorted(expected - actual)
         extra = sorted(actual - expected)
-        raise InvalidBlueprintTargetError(
-            f"{label} has unexpected keys; missing={missing}, extra={extra}"
-        )
+        raise InvalidBlueprintTargetError(f"{label} has unexpected keys; missing={missing}, extra={extra}")

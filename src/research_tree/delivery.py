@@ -5,6 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from .completion_inputs import GOAL_SATISFACTION_VERDICTS
+from .contradictions import (
+    blocking_contradictions,
+    claim_from_mapping,
+    invalidating_contradictions,
+    unresolved_claim_ids,
+)
+from .coordinator import (
+    GOAL_CONTRIBUTION_ASSESSMENT_KIND,
+    CoordinatorConflictError,
+    ResearchRunCoordinator,
+)
 from .decision_map import BLUEPRINT_TARGET_KIND
 from .domain import (
     ArtifactRef,
@@ -14,15 +26,9 @@ from .domain import (
     thaw_json,
     validate_identifier,
 )
+from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
 from .intake import INPUT_LEDGER_ARTIFACT_KIND
 from .intent import INTENT_MODEL_KIND, WORKING_BRIEF_KIND
-from .evidence import EvidenceAnchor, EvidenceResolver, EvidenceValidationError
-from .contradictions import (
-    blocking_contradictions,
-    claim_from_mapping,
-    invalidating_contradictions,
-    unresolved_claim_ids,
-)
 from .ledger import (
     ALTERNATIVE_DISPOSITIONS,
     ANCHOR_KINDS,
@@ -33,11 +39,95 @@ from .ledger import (
     VALIDATION_KINDS,
 )
 from .run_ledger import LedgerError, RunLedger
-
+from .strategy_projection import StrategyProjection, authority_fingerprint, latest_confirmed
 
 TECHNICAL_RESEARCH_PACKAGE_KIND = "technical-research-package"
 HUMAN_RESEARCH_REPORT_KIND = "human-research-report"
 HUMAN_BRIEF_KIND = "human-brief"
+HUMAN_BRIEF_OPERATING_MODEL_SCHEMA = 1
+"""Issue #452: schema of the Human Brief's operating-model block (#292 gate 8)."""
+
+HUMAN_BRIEF_ROLES = (
+    {
+        "role": "research_owner",
+        "responsibility": (
+            "Owns the research outcome: keeps the Living Brief honest, closes Decision Slots with "
+            "evidence, and registers per-oracle goal_satisfaction verdicts from real run artifacts."
+        ),
+        "handoff_surface": (
+            "Hands the confirmed projection, Finding Packs, and the compiled Technical Research "
+            "Package to the implementation agent with their origin labels; hands unresolved "
+            "blockers to the human requester at the decision gate."
+        ),
+    },
+    {
+        "role": "platform_integrator",
+        "responsibility": (
+            "Installs and operates host packages and runtime hooks; keeps agent, worker, and tool "
+            "content distinguishable through the closed origin vocabulary."
+        ),
+        "handoff_surface": (
+            "Receives host-install and capability findings from the research owner and returns "
+            "availability facts (install status, runtime availability, fallback state) to the "
+            "operator view."
+        ),
+    },
+    {
+        "role": "governance_auditor",
+        "responsibility": (
+            "Audits evidence custody, authority fingerprints, and completion claims; independent "
+            "review is a distinct execution, not a relabeled self-check."
+        ),
+        "handoff_surface": (
+            "Receives the delivery pair digests, the blocker list, and quarantine records; returns "
+            "acceptance, waiver, or rejection decisions with reasons."
+        ),
+    },
+)
+HUMAN_BRIEF_FALLBACK_PLAN = (
+    {
+        "capability": "checkout runtime",
+        "degraded_path": (
+            "When the checkout runtime is available, runtime verbs supply the blocker list and "
+            "completion diagnostics; otherwise persist the equivalent blocker table from the "
+            "persisted artifacts and label its origin."
+        ),
+    },
+    {
+        "capability": "host delegation",
+        "degraded_path": (
+            "When a host capability (Codex, Claude Code, Hermes) is unavailable, record the gap as "
+            "a blocker with its resolution action instead of inferring success; the run stays in "
+            "its current fail-closed state."
+        ),
+    },
+    {
+        "capability": "external sources",
+        "degraded_path": (
+            "When external sources are unreachable, downgrade the affected claim to repository or "
+            "supplied-material evidence and record the missing-source limitation rather than "
+            "promoting an unverified claim."
+        ),
+    },
+)
+HUMAN_BRIEF_BASELINE_DIMENSIONS = {
+    "sla": {
+        "basis": "baseline_run",
+        "dimension": "stage time limits: alignment confirmation, dispatch response, and the delivery window",
+        "commitments": None,
+    },
+    "concurrency_limits": {
+        "basis": "baseline_run",
+        "dimension": "concurrent slot and run ceilings with over-limit behavior",
+        "commitments": None,
+    },
+    "adoption_metrics": {
+        "basis": "baseline_run",
+        "dimension": "run count, completion rate, waiver rate, and noise trend",
+        "commitments": None,
+    },
+}
+BLOCKER_OWNER_ROLES = frozenset({"research_owner", "platform_integrator", "governance_auditor", "human_requester"})
 READINESS_GATES = (
     "intent_alignment",
     "decision_closure",
@@ -193,6 +283,7 @@ class _DeliveryCompilerBase:
                 brief,
                 document,
                 normalized_readiness,
+                _operating_model(round_id, snapshot.artifacts, self._ledger),
             )
             human_payload = {
                 "technical_package_ref": next_package_ref.to_dict(),
@@ -329,6 +420,7 @@ def _validate_human_document(document: Mapping[str, Any]) -> None:
             "readiness_findings",
             "next_work_item_ids",
             "risks_and_uncertainty",
+            "operating_model",
         },
         "human brief document",
     )
@@ -405,6 +497,138 @@ def _validate_human_document(document: Mapping[str, Any]) -> None:
         _require_exact_keys(risk, {"statement", "response"}, label)
         _nonempty_string(risk["statement"], f"{label}.statement")
         _nonempty_string(risk["response"], f"{label}.response")
+    _validate_operating_model(document["operating_model"])
+
+
+def _validate_operating_model(value: Any) -> None:
+    """Validate the Human Brief operating model against its exact-key schema.
+
+    Fail-closed and named-field: every violation names the offending field so
+    a rejected operating model always says which key was inadmissible.
+    """
+
+    model = _mapping_value(value, "human brief operating model")
+    _require_exact_keys(
+        model,
+        {
+            "schema",
+            "roles",
+            "outcome_layers",
+            "blockers",
+            "fallback_plan",
+            "baseline_dimensions",
+        },
+        "human brief operating model",
+    )
+    if model["schema"] != HUMAN_BRIEF_OPERATING_MODEL_SCHEMA:
+        raise InvalidDeliveryError("human brief operating model schema must be 1")
+    roles = _mapping_sequence(model["roles"], "human brief operating model roles")
+    if len(roles) != len(HUMAN_BRIEF_ROLES):
+        raise InvalidDeliveryError(
+            "human brief operating model roles must name exactly three roles: "
+            + ", ".join(entry["role"] for entry in HUMAN_BRIEF_ROLES)
+        )
+    for index, role in enumerate(roles):
+        label = f"human brief operating model roles[{index}]"
+        _require_exact_keys(role, {"role", "responsibility", "handoff_surface"}, label)
+        if role["role"] not in {entry["role"] for entry in HUMAN_BRIEF_ROLES}:
+            raise InvalidDeliveryError(
+                f"human brief operating model roles[{index}].role must be one of "
+                "{" + ", ".join(sorted({entry["role"] for entry in HUMAN_BRIEF_ROLES})) + "}"
+            )
+        _nonempty_string(role["responsibility"], f"{label}.responsibility")
+        _nonempty_string(role["handoff_surface"], f"{label}.handoff_surface")
+    layers = _mapping_value(model["outcome_layers"], "human brief operating model outcome_layers")
+    _require_exact_keys(
+        layers,
+        {"confirmed_projection", "oracle_verdicts", "slot_contributions"},
+        "human brief operating model outcome_layers",
+    )
+    if layers["confirmed_projection"] is not None:
+        confirmed = _mapping_value(
+            layers["confirmed_projection"], "human brief operating model outcome_layers confirmed_projection"
+        )
+        _require_exact_keys(
+            confirmed,
+            {"projection_id", "projection_revision", "display_digest", "authority_fingerprint"},
+            "human brief operating model outcome_layers confirmed_projection",
+        )
+        _identifier(
+            confirmed["projection_id"],
+            "human brief operating model outcome_layers confirmed_projection.projection_id",
+        )
+        _positive_int(
+            confirmed["projection_revision"],
+            "human brief operating model outcome_layers confirmed_projection.projection_revision",
+        )
+        _nonempty_string(
+            confirmed["display_digest"],
+            "human brief operating model outcome_layers confirmed_projection.display_digest",
+        )
+        _nonempty_string(
+            confirmed["authority_fingerprint"],
+            "human brief operating model outcome_layers confirmed_projection.authority_fingerprint",
+        )
+    for index, verdict in enumerate(
+        _mapping_sequence(
+            layers["oracle_verdicts"],
+            "human brief operating model outcome_layers oracle_verdicts",
+            allow_empty=True,
+        )
+    ):
+        label = f"human brief operating model outcome_layers oracle_verdicts[{index}]"
+        _require_exact_keys(verdict, {"oracle_id", "verdict", "waiver_reason"}, label)
+        _nonempty_string(verdict["oracle_id"], f"{label}.oracle_id")
+        if verdict["verdict"] not in GOAL_SATISFACTION_VERDICTS:
+            raise InvalidDeliveryError(f"{label}.verdict must be one of: satisfied, partial, unmet, waived")
+        if verdict["waiver_reason"] is not None:
+            _nonempty_string(verdict["waiver_reason"], f"{label}.waiver_reason")
+    for index, contribution in enumerate(
+        _mapping_sequence(
+            layers["slot_contributions"],
+            "human brief operating model outcome_layers slot_contributions",
+            allow_empty=True,
+        )
+    ):
+        label = f"human brief operating model outcome_layers slot_contributions[{index}]"
+        _require_exact_keys(contribution, {"slot_id", "finding_pack_id", "verdict", "reason"}, label)
+        for field in ("slot_id", "finding_pack_id", "verdict", "reason"):
+            _nonempty_string(contribution[field], f"{label}.{field}")
+    blockers = _mapping_sequence(model["blockers"], "human brief operating model blockers")
+    for index, blocker in enumerate(blockers):
+        label = f"human brief operating model blockers[{index}]"
+        _require_exact_keys(blocker, {"obligation", "resolution_action", "owner_role"}, label)
+        _nonempty_string(blocker["obligation"], f"{label}.obligation")
+        _nonempty_string(blocker["resolution_action"], f"{label}.resolution_action")
+        if blocker["owner_role"] not in BLOCKER_OWNER_ROLES:
+            raise InvalidDeliveryError(f"{label}.owner_role must be one of: {', '.join(sorted(BLOCKER_OWNER_ROLES))}")
+    fallback = _mapping_sequence(model["fallback_plan"], "human brief operating model fallback_plan")
+    for index, entry in enumerate(fallback):
+        label = f"human brief operating model fallback_plan[{index}]"
+        _require_exact_keys(entry, {"capability", "degraded_path"}, label)
+        _nonempty_string(entry["capability"], f"{label}.capability")
+        _nonempty_string(entry["degraded_path"], f"{label}.degraded_path")
+    baseline = _mapping_value(model["baseline_dimensions"], "human brief operating model baseline_dimensions")
+    _require_exact_keys(
+        baseline,
+        {"sla", "concurrency_limits", "adoption_metrics"},
+        "human brief operating model baseline_dimensions",
+    )
+    for field in ("sla", "concurrency_limits", "adoption_metrics"):
+        entry = _mapping_value(baseline[field], f"human brief operating model baseline_dimensions {field}")
+        _require_exact_keys(
+            entry, {"basis", "dimension", "commitments"}, f"human brief operating model baseline_dimensions {field}"
+        )
+        if entry["basis"] != "baseline_run":
+            raise InvalidDeliveryError(
+                f"human brief operating model baseline_dimensions {field} basis must be baseline_run"
+            )
+        _nonempty_string(entry["dimension"], f"human brief operating model baseline_dimensions {field}.dimension")
+        if entry["commitments"] is not None:
+            raise InvalidDeliveryError(
+                f"human brief operating model baseline_dimensions {field} commitments must be null in schema "
+                f"{HUMAN_BRIEF_OPERATING_MODEL_SCHEMA}"
+            )
 
 
 def _validate_round_and_scope(value: Any) -> None:
@@ -1038,6 +1262,7 @@ def _human_document(
     brief: ArtifactRevision,
     technical_document: Mapping[str, Any],
     readiness: Mapping[str, Any],
+    operating_model: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     intent_basis = _mapping_value(technical_document["intent_basis"], "intent_basis")
     hypotheses = _mapping_sequence(intent_basis["hypotheses"], "intent hypotheses", allow_empty=True)
@@ -1131,7 +1356,151 @@ def _human_document(
             }
             for item in risks
         ],
+        "operating_model": dict(operating_model or {}),
     }
+
+
+def compile_operating_model(round_id: str, artifacts: Sequence[ArtifactRevision], ledger: RunLedger) -> dict[str, Any]:
+    """Public operator facade over the canonical operating-model compiler (#470)."""
+
+    return _operating_model(round_id, artifacts, ledger)
+
+
+def render_operating_model(model: Mapping[str, Any]) -> str:
+    """Public operator facade over the operating-model markdown renderer (#470)."""
+
+    return "\n".join(_render_operating_model(model))
+
+
+def _operating_model(round_id: str, artifacts: Sequence[ArtifactRevision], ledger: RunLedger) -> dict[str, Any]:
+    """Compile the Human Brief's operating model from real run artifacts.
+
+    Issue #452 (#292 gate 8): outcome layers read the confirmed
+    StrategyProjection, the per-oracle ``goal_satisfaction`` completion-input
+    registrations, and the ``goal-contribution-assessment`` artifacts; blockers
+    mirror the coordinator's ``why_not_complete`` resolve entries verbatim. SLA,
+    concurrency limits, and adoption metrics are baseline-run dimensions:
+    present, labeled, and never hand-filled with commitment values.
+    """
+
+    return {
+        "schema": HUMAN_BRIEF_OPERATING_MODEL_SCHEMA,
+        "roles": [dict(entry) for entry in HUMAN_BRIEF_ROLES],
+        "outcome_layers": _outcome_layers(artifacts, ledger, round_id),
+        "blockers": list(_operating_model_blockers(ledger, round_id)),
+        "fallback_plan": [dict(entry) for entry in HUMAN_BRIEF_FALLBACK_PLAN],
+        "baseline_dimensions": {key: dict(value) for key, value in HUMAN_BRIEF_BASELINE_DIMENSIONS.items()},
+    }
+
+
+def _outcome_layers(artifacts: Sequence[ArtifactRevision], ledger: RunLedger, round_id: str) -> dict[str, Any]:
+    """Resolve the three outcome layers from the run's own artifacts."""
+
+    from .completion_inputs import GOAL_SATISFACTION_ROLE, validate_goal_satisfaction_payload
+
+    projection = latest_confirmed(artifacts)
+    confirmed = None
+    if projection is not None:
+        resolved = StrategyProjection.from_dict(thaw_json(projection.payload))
+        confirmed = {
+            "projection_id": resolved.projection_id,
+            "projection_revision": resolved.revision,
+            "display_digest": resolved.display_digest,
+            "authority_fingerprint": authority_fingerprint(resolved),
+        }
+    verdicts: list[dict[str, Any]] = []
+    for item in ledger.list_completion_input_registrations(round_id).get(GOAL_SATISFACTION_ROLE, ()):
+        parsed = validate_goal_satisfaction_payload(thaw_json(item.payload))
+        verdicts.append(
+            {
+                "oracle_id": parsed["oracle_id"],
+                "verdict": parsed["verdict"],
+                "waiver_reason": parsed["waiver_reason"],
+            }
+        )
+    verdicts.sort(key=lambda entry: entry["oracle_id"])
+    return {
+        "confirmed_projection": confirmed,
+        "oracle_verdicts": list(verdicts),
+        "slot_contributions": _slot_contributions(artifacts),
+    }
+
+
+def _slot_contributions(artifacts: Sequence[ArtifactRevision]) -> tuple[dict[str, Any], ...]:
+    """Summarize goal contribution per slot, latest assessment per finding pack."""
+
+    latest: dict[str, ArtifactRevision] = {}
+    for item in artifacts:
+        if item.kind != GOAL_CONTRIBUTION_ASSESSMENT_KIND:
+            continue
+        pack_id = str(item.payload.get("finding_pack_id") or "")
+        current = latest.get(pack_id)
+        if current is None or (item.created_at, item.revision) >= (current.created_at, current.revision):
+            latest[pack_id] = item
+    contributions = []
+    for pack_id, item in sorted(latest.items()):
+        payload = thaw_json(item.payload)
+        contributions.append(
+            {
+                "slot_id": str(payload.get("slot_id")),
+                "finding_pack_id": str(payload.get("finding_pack_id")),
+                "verdict": str(payload.get("verdict")),
+                "reason": str(payload.get("reason")),
+            }
+        )
+    return list(sorted(contributions, key=lambda entry: (entry["slot_id"], entry["finding_pack_id"])))
+
+
+def _operating_model_blockers(ledger: RunLedger, round_id: str) -> tuple[dict[str, str], ...]:
+    """Mirror the coordinator's why_not_complete resolve entries as blocker rows.
+
+    One authority: the coordinator owns completion state, so the compiler never
+    re-derives it. When the coordinator has no state for the run, the blocker
+    list says so explicitly instead of claiming an unblocked run.
+    """
+
+    try:
+        why = ResearchRunCoordinator(ledger).why_not_complete(round_id)
+    except CoordinatorConflictError as error:
+        return (
+            {
+                "obligation": "coordinator_state",
+                "resolution_action": (
+                    "resolve:coordinator_state — the canonical run state is unavailable "
+                    f"({error}); re-enter alignment to initialize the run"
+                ),
+                "owner_role": "research_owner",
+            },
+        )
+    blockers = []
+    for action in why.get("next_actions", ()):
+        if not isinstance(action, str) or not action.strip():
+            continue
+        obligation = action
+        if obligation.startswith("resolve:"):
+            obligation = obligation[len("resolve:") :]
+        blockers.append(
+            {
+                "obligation": obligation.split(":", 1)[0],
+                "resolution_action": action,
+                "owner_role": _obligation_owner(obligation),
+            }
+        )
+    if not blockers:
+        blockers.append(
+            {
+                "obligation": "none",
+                "resolution_action": ("resolve:none — no unmet completion obligations are recorded for this run"),
+                "owner_role": "research_owner",
+            }
+        )
+    return list(blockers)
+
+
+def _obligation_owner(obligation: str) -> str:
+    if obligation.split(":", 1)[0] == "acceptance_ref":
+        return "human_requester"
+    return "research_owner"
 
 
 def _resolve_exact(
@@ -2402,8 +2771,94 @@ def _render_human_markdown(round_id: str, package_ref: ArtifactRef, document: Ma
         lines.append("- No additional structured risk was supplied.")
     for risk in risks:
         lines.append(f"- {_cell(risk['statement'])} Response: {_cell(risk['response'])}")
+    lines.extend(_render_operating_model(document["operating_model"]))
     lines.extend(["", "## Technical Package", "", f"- {_ref_label(package_ref.to_dict())}"])
     return "\n".join(lines) + "\n"
+
+
+def _render_operating_model(model: Mapping[str, Any]) -> list[str]:
+    """Render the operating model as the Human Brief's operator section."""
+
+    lines = [
+        "",
+        "## Operating Model",
+        "",
+        "Run facts for the operating model: fields carry this run's artifacts,",
+        "baseline-run dimensions carry measured baselines, not commitments.",
+        "",
+        "### Roles",
+        "",
+    ]
+    for role in model["roles"]:
+        lines.append(f"- {_cell(role['role'])}: {_cell(role['responsibility'])}")
+        lines.append(f"  - Handoff: {_cell(role['handoff_surface'])}")
+    lines.extend(
+        [
+            "",
+            "### SLA (baseline run)",
+            "",
+            "- Basis: baseline run — measured baseline, not a commitment.",
+            f"- Dimension: {_cell(model['baseline_dimensions']['sla']['dimension'])}.",
+            "- Commitments: none recorded; the first operating-model run sets the baseline.",
+            "",
+            "### Concurrency limits (baseline run)",
+            "",
+            "- Basis: baseline run — measured baseline, not a commitment.",
+            f"- Dimension: {_cell(model['baseline_dimensions']['concurrency_limits']['dimension'])}.",
+            "- Commitments: none recorded; the first operating-model run sets the baseline.",
+            "",
+            "### Blockers",
+            "",
+            "| Obligation | Resolution action | Owner role |",
+            "| --- | --- | --- |",
+        ]
+    )
+    for blocker in model["blockers"]:
+        lines.append(
+            f"| {_cell(blocker['obligation'])} | {_cell(blocker['resolution_action'])} | "
+            f"{_cell(blocker['owner_role'])} |"
+        )
+    layers = model["outcome_layers"]
+    lines.extend(["", "### Outcome layers", ""])
+    confirmed = layers["confirmed_projection"]
+    if confirmed is None:
+        lines.append("- Confirmed projection: none resolves for this run (fail-closed).")
+    else:
+        lines.append(
+            f"- Confirmed projection: {_cell(confirmed['projection_id'])}@{confirmed['projection_revision']} "
+            f"(display digest {_cell(confirmed['display_digest'])}, authority fingerprint "
+            f"{_cell(confirmed['authority_fingerprint'])})"
+        )
+    lines.append("- Oracle verdicts:")
+    for verdict in layers["oracle_verdicts"]:
+        reason = f" (waiver: {_cell(verdict['waiver_reason'])})" if verdict["waiver_reason"] else ""
+        lines.append(f"  - {_cell(verdict['oracle_id'])}: {_cell(verdict['verdict'])}{reason}")
+    if not layers["oracle_verdicts"]:
+        lines.append("  - none registered yet")
+    lines.append("- Slot contributions:")
+    for contribution in layers["slot_contributions"]:
+        lines.append(
+            f"  - {_cell(contribution['slot_id'])} / {_cell(contribution['finding_pack_id'])}: "
+            f"{_cell(contribution['verdict'])} — {_cell(contribution['reason'])}"
+        )
+    if not layers["slot_contributions"]:
+        lines.append("  - none recorded yet")
+    lines.extend(
+        [
+            "",
+            "### Adoption metrics (baseline run)",
+            "",
+            "- Basis: baseline run — measured baseline, not a commitment.",
+            f"- Dimension: {_cell(model['baseline_dimensions']['adoption_metrics']['dimension'])}.",
+            "- Commitments: none recorded; the first operating-model run sets the baseline.",
+            "",
+            "### Fallback plan",
+            "",
+        ]
+    )
+    for entry in model["fallback_plan"]:
+        lines.append(f"- {_cell(entry['capability'])}: {_cell(entry['degraded_path'])}")
+    return lines
 
 
 def _validation_next_action(validation: Any) -> str:
@@ -2546,10 +3001,8 @@ def _anchors(value: Any) -> str:
 
 
 def _anchor_label(value: Mapping[str, Any]) -> str:
-    """Render both legacy semantic anchors and strict typed evidence anchors."""
+    """Render a strict typed evidence anchor for the finding table."""
 
-    if "kind" in value and "ref" in value:
-        return f"{value['kind']}:{value['ref']}"
     if "artifact_ref" in value and "selector_type" in value:
         try:
             reference = ArtifactRef.from_dict(value["artifact_ref"])

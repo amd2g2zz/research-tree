@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
-import re
 from typing import Any, Mapping, Sequence
 
 from .domain import canonical_json_bytes, thaw_json
@@ -17,7 +17,6 @@ class AcceptanceError(ValueError):
 
 CANONICAL_TECHNICAL_KIND = "technical-research-package"
 CANONICAL_HUMAN_KIND = "human-research-report"
-LEGACY_HUMAN_KIND = "human-brief"
 CLAIM_CLASSES = frozenset({"fact", "inference", "recommendation", "unknown", "limitation"})
 DEPTH_DIMENSIONS = (
     "problem_fidelity",
@@ -83,8 +82,6 @@ def validate_semantic_deliveries(technical: Mapping[str, Any], human: Mapping[st
     human = _mapping(human, "human delivery")
     if technical.get("kind") != CANONICAL_TECHNICAL_KIND:
         raise AcceptanceError("technical delivery has a non-canonical kind")
-    if human.get("kind") == LEGACY_HUMAN_KIND:
-        raise AcceptanceError("human-brief is a legacy input, not an alpha2 acceptance output")
     if human.get("kind") != CANONICAL_HUMAN_KIND:
         raise AcceptanceError("human delivery has a non-canonical kind")
 

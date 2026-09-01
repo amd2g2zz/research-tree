@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import shutil
+from pathlib import Path
 
 import pytest
 
@@ -17,7 +17,6 @@ from research_tree.skill_setup import (
     resolve_target,
     skill_status,
 )
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -121,13 +120,16 @@ def test_copy_status_is_digest_current_tamper_detected_and_reinstallable(tmp_pat
         project_root=project,
     )
     assert reinstalled["installations"][0]["action"] == "installed"
-    assert skill_status(
-        ("codex",),
-        source=ROOT,
-        scope="user",
-        home=home,
-        project_root=project,
-    )["installations"][0]["status"] == "current"
+    assert (
+        skill_status(
+            ("codex",),
+            source=ROOT,
+            scope="user",
+            home=home,
+            project_root=project,
+        )["installations"][0]["status"]
+        == "current"
+    )
     (codex_target / "references" / "codex-native-orchestration.md").unlink()
     missing_resource = skill_status(
         ("codex",),
@@ -491,8 +493,7 @@ def test_vendored_upstream_payload_matches_pinned_digest() -> None:
     upstream = _upstream_anysearch_root()
     if not upstream.is_dir():
         pytest.skip("vendored upstream AnySearch payload absent (fetched in live-evidence phase)")
-    from research_tree.skill_setup import ANYSEARCH_PAYLOAD_FILES, ANYSEARCH_PINNED_SHA256
-    from research_tree.skill_setup import _dependency_payload_digest
+    from research_tree.skill_setup import ANYSEARCH_PAYLOAD_FILES, ANYSEARCH_PINNED_SHA256, _dependency_payload_digest
 
     assert _dependency_payload_digest(upstream, ANYSEARCH_PAYLOAD_FILES) == ANYSEARCH_PINNED_SHA256
 

@@ -112,11 +112,17 @@ def test_same_content_keeps_distinct_canonical_provenance(tmp_path: Path) -> Non
 
     reopened = RunLedger(tmp_path)
     assert first != second
-    assert EvidenceArtifact.from_revision(first, reopened.get_artifact(first)).locator["uri"] == "https://a.example.test/source"
-    assert EvidenceArtifact.from_revision(second, reopened.get_artifact(second)).locator["uri"] == "https://b.example.test/source"
+    assert (
+        EvidenceArtifact.from_revision(first, reopened.get_artifact(first)).locator["uri"]
+        == "https://a.example.test/source"
+    )
+    assert (
+        EvidenceArtifact.from_revision(second, reopened.get_artifact(second)).locator["uri"]
+        == "https://b.example.test/source"
+    )
 
 
-def test_repository_rejects_implicit_class_or_cas_metadata_mismatch(tmp_path: Path) -> None:
+def test_repository_rejects_cas_metadata_mismatch(tmp_path: Path) -> None:
     ledger, store = _ledger_and_store(tmp_path)
     content = store.ingest(b"primary source", "text/plain")
     artifact = _artifact(
@@ -127,12 +133,6 @@ def test_repository_rejects_implicit_class_or_cas_metadata_mismatch(tmp_path: Pa
         locator="https://example.test/one",
     )
 
-    with pytest.raises(EvidenceValidationError, match="evidence_class"):
-        EvidenceRepository(ledger, store).record(
-            EvidenceArtifact(**{**artifact.__dict__, "evidence_class": "legacy_unspecified"}),
-            content,
-            expected_run_revision=0,
-        )
     with pytest.raises(EvidenceValidationError, match="does not match CAS"):
         EvidenceRepository(ledger, store).record(
             EvidenceArtifact(**{**artifact.__dict__, "size_bytes": content.byte_size + 1}),
