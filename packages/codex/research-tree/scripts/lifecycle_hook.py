@@ -1,0 +1,585 @@
+"""Fail-open lifecycle observer shared by supported agent hosts."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import secrets
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, BinaryIO, Iterable, Sequence
+
+try:
+    from .origins import close_tag, open_tag
+    from .skill_activation import build_loader_receipt
+except ImportError:  # Standalone skill-packaged execution — issue #453.
+    import origins as _origins
+
+    close_tag = _origins.close_tag
+    open_tag = _origins.open_tag
+
+    import skill_activation as _skill_activation
+
+    build_loader_receipt = _skill_activation.build_loader_receipt
+
+MAX_INPUT_BYTES = 64 * 1024
+MAX_IDENTIFIER_LENGTH = 256
+PROJECT_IDENTIFIER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+HOST_EVENTS = {
+    "codex": frozenset(
+        {
+            "SessionStart",
+            "SessionEnd",
+            "UserPromptSubmit",
+            "PreCompact",
+            "PostCompact",
+            "SubagentStart",
+            "SubagentStop",
+            "Stop",
+        }
+    ),
+    "claude": frozenset(
+        {"SessionStart", "SessionEnd", "UserPromptSubmit", "PreCompact", "SubagentStop", "PostToolUse", "Stop"}
+    ),
+    "hermes": frozenset({"on_session_start", "on_session_end"}),
+}
+TRACE_DIRECTORY = Path(".research-tree-debug") / "events"
+TRACE_HOSTS = frozenset({"codex", "claude", "hermes"})
+TRACE_PHASES = frozenset(
+    {
+        "lifecycle_observed",
+        "intake",
+        "reconnaissance",
+        "alignment_turn",
+        "alignment_checkpoint",
+        "alignment_blocked",
+        "research_started",
+        "implementation_started",
+        "worker_blocked",
+        "completed",
+        "aborted",
+    }
+)
+TRACE_STATUSES = frozenset({"started", "completed", "blocked", "skipped", "failed"})
+TRACE_IDENTIFIER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
+TRACE_CODE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,95}\Z")
+
+# Issue #453 defect 2: lightweight user-input classification signals.
+# Heuristic rule table — first match wins, ordered so explicit halts outrank
+# corrections, corrections outrank answers, and answers outrank insights.
+PROMPT_SIGNAL_CATEGORIES = ("correction", "interruption", "insight", "answer", "neutral")
+PROMPT_SIGNAL_CONFIDENCES = ("high", "low")
+SIGNAL_DIRECTORY = Path(".research-tree-debug") / "signals"
+PROMPT_SIGNAL_RULES: tuple[tuple[str, str, re.Pattern[str], str], ...] = tuple(
+    (category, rule, re.compile(pattern, re.IGNORECASE), confidence)
+    for category, rule, pattern, confidence in (
+        ("interruption", "explicit_stop", r"^\s*(?:stop|cancel|abort|halt|pause|wait)\s*[!.]?\s*$", "high"),
+        (
+            "interruption",
+            "stop_command",
+            r"^\s*(?:stop|cancel|abort|halt|pause|wait)\b[,.!]|^\s*(?:stop|cancel|abort)\s+(?:that|this|it|now|doing|what|the\s+\w+)",
+            "high",
+        ),
+        ("correction", "explicit_no", r"^\s*no\s*[,.!]", "high"),
+        (
+            "correction",
+            "explicit_wrong",
+            r"\b(?:wrong|incorrect|misunderstood|not\s+what\s+i\s+(?:asked|wanted|meant))\b",
+            "high",
+        ),
+        ("correction", "actually_prefix", r"^\s*actually\b", "high"),
+        ("correction", "instead_of", r"\binstead\s+of\b", "low"),
+        ("correction", "should_be", r"\b(?:should|must)\s+(?:have\s+been|be)\b", "low"),
+        (
+            "answer",
+            "direct_affirmative",
+            r"^\s*(?:yes|yeah|yep|correct|confirmed|approved|go\s+ahead|proceed)\b",
+            "low",
+        ),
+        ("answer", "option_choice", r"^\s*(?:option|approach|plan|choice)\s+[abc123]\b", "low"),
+        (
+            "insight",
+            "volunteered_observation",
+            r"\bi\s+(?:noticed|found|realized|observed|learned|discovered)\b",
+            "low",
+        ),
+        ("insight", "prior_knowledge", r"\b(?:fyi|for\s+what\s+it'?s\s+worth|in\s+my\s+experience)\b", "low"),
+    )
+)
+
+
+def classify_prompt_signal(prompt: str) -> dict[str, str]:
+    """Classify a user prompt into a lightweight feedback signal category."""
+    text = prompt.strip() if isinstance(prompt, str) else ""
+    for category, rule, pattern, confidence in PROMPT_SIGNAL_RULES:
+        if pattern.search(text):
+            return {"category": category, "confidence": confidence, "rule": rule}
+    return {"category": "neutral", "confidence": "low", "rule": "default"}
+
+
+class LifecycleHookError(ValueError):
+    """Raised when a lifecycle payload or hook configuration is invalid."""
+
+
+def read_payload(stream: BinaryIO | None = None) -> dict[str, Any]:
+    """Read one bounded UTF-8 JSON object from a host hook payload."""
+    source = stream or sys.stdin.buffer
+    raw = source.read(MAX_INPUT_BYTES + 1)
+    if len(raw) > MAX_INPUT_BYTES:
+        raise LifecycleHookError("hook input exceeds the maximum size")
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise LifecycleHookError("hook input must be a UTF-8 JSON object") from exc
+    if not isinstance(payload, dict):
+        raise LifecycleHookError("hook input must be a JSON object")
+    return payload
+
+
+def _inside(root: Path, candidate: Path, label: str) -> Path:
+    try:
+        resolved = candidate.resolve(strict=False)
+        resolved.relative_to(root)
+    except (OSError, ValueError) as exc:
+        raise LifecycleHookError(f"{label} must remain inside the project") from exc
+    return resolved
+
+
+def find_project_root(start: Path) -> Path:
+    """Find the Research Tree checkout that owns the running hook."""
+    current = start.resolve(strict=False)
+    for candidate in (current, *current.parents):
+        if (
+            (candidate / "pyproject.toml").is_file()
+            and (candidate / "packages").is_dir()
+            and (candidate / "skill-src").is_dir()
+        ):
+            return candidate
+    raise LifecycleHookError("hook must run inside a Research Tree checkout")
+
+
+def validate_workspace(
+    payload: dict[str, Any],
+    *,
+    project_root: Path | None = None,
+    process_cwd: Path | None = None,
+) -> tuple[Path, Path]:
+    """Validate both the process and host-reported working directories."""
+    actual_cwd = (process_cwd or Path.cwd()).resolve(strict=False)
+    root = project_root.resolve(strict=False) if project_root is not None else find_project_root(actual_cwd)
+    _inside(root, actual_cwd, "process cwd")
+
+    raw_cwd = payload.get("cwd")
+    if not isinstance(raw_cwd, str) or not raw_cwd.strip():
+        raise LifecycleHookError("hook input requires an absolute cwd")
+    reported = Path(raw_cwd)
+    if not reported.is_absolute():
+        raise LifecycleHookError("hook cwd must be absolute")
+    return root, _inside(root, reported, "reported cwd")
+
+
+def _validate_event(payload: dict[str, Any], host: str, event: str) -> None:
+    try:
+        allowed = HOST_EVENTS[host]
+    except KeyError as exc:
+        raise LifecycleHookError(f"unsupported hook host: {host}") from exc
+    if event not in allowed:
+        raise LifecycleHookError(f"unsupported {host} hook event: {event}")
+    actual = payload.get("hook_event_name")
+    if actual is not None and actual != event:
+        raise LifecycleHookError("hook event does not match configured event")
+
+
+def _optional_identifier(payload: dict[str, Any], key: str) -> str | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value) > MAX_IDENTIFIER_LENGTH:
+        return None
+    return value
+
+
+def _write_record(root: Path, record: dict[str, Any], event_dir: Path) -> Path:
+    event_dir = _inside(root, event_dir, "hook event directory")
+    event_dir.mkdir(parents=True, exist_ok=True)
+    encoded = json.dumps(record, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+    prefix = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    for _ in range(3):
+        path = _inside(
+            root,
+            event_dir / f"{prefix}-{secrets.token_hex(8)}.json",
+            "hook event file",
+        )
+        try:
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            continue
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(encoded)
+        return path
+    raise LifecycleHookError("could not allocate a hook event file")
+
+
+def observe(
+    payload: dict[str, Any],
+    *,
+    host: str,
+    event: str,
+    project_root: Path | None = None,
+    process_cwd: Path | None = None,
+    debug: bool = False,
+) -> dict[str, Any]:
+    """Persist sanitized lifecycle metadata without affecting host behavior."""
+    if not isinstance(payload, dict):
+        raise LifecycleHookError("hook input must be a JSON object")
+    _validate_event(payload, host, event)
+
+    if event == "UserPromptSubmit":
+        # Prompt signals are opportunistic: they need a checkout to record in,
+        # but never an active run, and they never block the host session.
+        return _observe_prompt_signal(payload, host=host, project_root=project_root, process_cwd=process_cwd)
+
+    if event == "Stop" and payload.get("stop_hook_active") is True:
+        return {"status": "skipped_reentrant_stop", "host": host, "event": event}
+
+    project_id = payload.get("project_id")
+    run_id = payload.get("run_id")
+    if project_id is None and run_id is None:
+        project_id = os.environ.get("RESEARCH_TREE_PROJECT_ID")
+        run_id = os.environ.get("RESEARCH_TREE_RUN_ID")
+    if project_id is None and run_id is None:
+        return {"status": "skipped_inactive", "host": host, "event": event}
+
+    root, workspace = validate_workspace(payload, project_root=project_root, process_cwd=process_cwd)
+    record: dict[str, Any] = {
+        "schema": 1,
+        "source": "research-tree-lifecycle-hook",
+        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "host": host,
+        "event": event,
+        "workspace": workspace.relative_to(root).as_posix() or ".",
+    }
+    for key in ("session_id", "turn_id", "agent_id", "task_id", "attempt_id", "causation_id"):
+        value = _optional_identifier(payload, key)
+        if value is not None:
+            record[key] = value
+    if event in {"SessionStart", "on_session_start"}:
+        skill_dir_raw = os.environ.get("RESEARCH_TREE_SKILL_DIR")
+        session_id = record.get("session_id")
+        if isinstance(skill_dir_raw, str) and isinstance(session_id, str):
+            try:
+                loader = build_loader_receipt(
+                    Path(skill_dir_raw),
+                    host=host,
+                    session_id=session_id,
+                    evidence="host-session-start",
+                )
+                record["skill_load"] = loader
+            except (OSError, ValueError):
+                record["skill_load"] = {"state": "unverified_loader_integrity", "host": host}
+    if host == "claude" and event == "SubagentStop":
+        identity = tuple(
+            _optional_identifier(payload, key)
+            for key in ("task_id", "attempt_id", "agent_id", "session_id", "causation_id")
+        )
+        record["binding_status"] = "candidate" if all(identity) else "unknown_outcome"
+    if host == "claude" and event == "PostToolUse" and payload.get("tool_name") == "Agent":
+        response = payload.get("tool_response")
+        agent_id = _optional_identifier(response, "agentId") if isinstance(response, dict) else None
+        causation_id = _optional_identifier(payload, "tool_use_id")
+        if agent_id is not None:
+            record["agent_id"] = agent_id
+        if causation_id is not None:
+            record["causation_id"] = causation_id
+        record["binding_status"] = (
+            "host_identity_recorded" if agent_id is not None and causation_id is not None else "unknown_outcome"
+        )
+    if host == "codex" and event in ("SubagentStart", "SubagentStop"):
+        response = payload.get("tool_response")
+        agent_id = _optional_identifier(response, "agentId") if isinstance(response, dict) else None
+        if agent_id is not None:
+            record["agent_id"] = agent_id
+        record["binding_status"] = "candidate" if agent_id is not None else "unknown_outcome"
+    if (
+        not isinstance(project_id, str)
+        or not isinstance(run_id, str)
+        or not PROJECT_IDENTIFIER_RE.fullmatch(project_id)
+        or not PROJECT_IDENTIFIER_RE.fullmatch(run_id)
+    ):
+        raise LifecycleHookError("project_id and run_id must be opaque identifiers")
+    run_root = root / ".research-tree" / "projects" / project_id / "runs" / run_id
+    if not (run_root / "manifest.json").is_file():
+        raise LifecycleHookError("project run is not initialized")
+    record["project_id"] = project_id
+    record["run_id"] = run_id
+    path = _write_record(root, record, run_root / "events")
+    if debug:
+        try:
+            emit_trace(
+                host=host,
+                phase="lifecycle_observed",
+                status="completed",
+                codes=(f"event:{event}",),
+                project_root=root,
+            )
+        except (OSError, ValueError):
+            # Debug tracing is opt-in observability, never lifecycle behavior.
+            pass
+    return {
+        "status": "recorded",
+        "host": host,
+        "event": event,
+        "path": path.relative_to(root).as_posix(),
+        **({"skill_load": record["skill_load"]} if "skill_load" in record else {}),
+    }
+
+
+def _observe_prompt_signal(
+    payload: dict[str, Any],
+    *,
+    host: str,
+    project_root: Path | None,
+    process_cwd: Path | None,
+) -> dict[str, Any]:
+    """Record one opportunistic UserPromptSubmit signal (append-only, sanitized)."""
+    prompt = payload.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        return {"status": "skipped_empty_prompt", "host": host, "event": "UserPromptSubmit"}
+    root, workspace = validate_workspace(payload, project_root=project_root, process_cwd=process_cwd)
+    signal = classify_prompt_signal(prompt)
+    record: dict[str, Any] = {
+        "schema": 1,
+        "source": "research-tree-lifecycle-hook",
+        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "host": host,
+        "event": "UserPromptSubmit",
+        "category": signal["category"],
+        "confidence": signal["confidence"],
+        "rule": signal["rule"],
+        "prompt_length": len(prompt),
+        "workspace": workspace.relative_to(root).as_posix() or ".",
+    }
+    for key in ("session_id", "turn_id", "agent_id", "task_id", "attempt_id", "causation_id"):
+        value = _optional_identifier(payload, key)
+        if value is not None:
+            record[key] = value
+    path = _write_record(root, record, root / SIGNAL_DIRECTORY)
+    result: dict[str, Any] = {
+        "status": "recorded",
+        "host": host,
+        "event": "UserPromptSubmit",
+        "signal": signal,
+        "path": path.relative_to(root).as_posix(),
+    }
+    if signal["category"] == "correction" and signal["confidence"] == "high":
+        feed_path = _feed_correction_signal(root, payload, record)
+        if feed_path is not None:
+            result["run_signal_path"] = feed_path
+    return result
+
+
+def _feed_correction_signal(root: Path, payload: dict[str, Any], record: dict[str, Any]) -> str | None:
+    """Feed a high-confidence correction into the run-scoped correction path.
+
+    The hook cannot call ``apply_correction`` directly: a valid CorrectionEvent
+    requires run/task/domain identifiers, artifact digests and the ledger
+    revision that only the workflow has. Instead the signal is appended to the
+    run's events directory (the same append-only surface the alignment step
+    consumes), so the next alignment turn can route it through apply_correction
+    with full ledger context. Fail-open: returns None on any problem.
+    """
+    try:
+        project_id = payload.get("project_id")
+        run_id = payload.get("run_id")
+        if project_id is None and run_id is None:
+            project_id = os.environ.get("RESEARCH_TREE_PROJECT_ID")
+            run_id = os.environ.get("RESEARCH_TREE_RUN_ID")
+        if not isinstance(project_id, str) or not isinstance(run_id, str):
+            return None
+        if not PROJECT_IDENTIFIER_RE.fullmatch(project_id) or not PROJECT_IDENTIFIER_RE.fullmatch(run_id):
+            return None
+        run_root = root / ".research-tree" / "projects" / project_id / "runs" / run_id
+        if not (run_root / "manifest.json").is_file():
+            return None
+        feed = dict(record)
+        feed["project_id"] = project_id
+        feed["run_id"] = run_id
+        feed["route"] = "apply_correction"
+        path = _write_record(root, feed, run_root / "events")
+        return path.relative_to(root).as_posix()
+    except (LifecycleHookError, OSError):
+        return None
+
+
+def host_response(host: str) -> dict[str, Any]:
+    """Return a non-blocking response understood by the selected host."""
+    if host not in HOST_EVENTS:
+        raise LifecycleHookError(f"unsupported hook host: {host}")
+    return {} if host == "hermes" else {"continue": True}
+
+
+def labeled_host_response(host: str) -> str:
+    """Return the host response wrapped in a balanced <rt:event> pair.
+
+    Issue #440: content the hook injects into a host agent's context must be
+    distinguishable from the agent's own reasoning, so the payload carries
+    the hook contract marker on the tag attributes.
+    """
+
+    payload = host_response(host)
+    body = json.dumps(payload, separators=(",", ":"))
+    opening = open_tag(
+        "rt:event",
+        {"contract": "research-tree-hook", "schema_version": "1", "host": host},
+    )
+    return opening + body + close_tag("rt:event")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="research-tree-hook",
+        description="Record sanitized Research Tree agent lifecycle events.",
+    )
+    parser.add_argument("--host", choices=tuple(HOST_EVENTS), required=True)
+    parser.add_argument("--event", required=True)
+    parser.add_argument("--project-root", type=Path)
+    parser.add_argument("--project-id")
+    parser.add_argument("--run-id")
+    parser.add_argument("--session-id")
+    parser.add_argument("--debug", action="store_true")
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = build_parser()
+    arguments = parser.parse_args(argv)
+    try:
+        payload = read_payload()
+        for key in ("project_id", "run_id", "session_id"):
+            value = getattr(arguments, key)
+            if value is not None:
+                payload[key] = value
+        observe(
+            payload,
+            host=arguments.host,
+            event=arguments.event,
+            project_root=arguments.project_root,
+            debug=arguments.debug,
+        )
+    except (LifecycleHookError, OSError) as exc:
+        # Lifecycle observation must never block an agent session.
+        if arguments.debug:
+            print(f"research-tree hook debug: {exc}", file=sys.stderr)
+    print(labeled_host_response(arguments.host))
+    return 0
+
+
+class DebugTraceError(ValueError):
+    """Raised when a debug trace would be ambiguous or unsafe to persist."""
+
+
+def _trace_find_project_root(start: Path) -> Path:
+    """Find the checkout that owns an opt-in debug trace."""
+    current = start.resolve(strict=False)
+    for candidate in (current, *current.parents):
+        if (
+            (candidate / "pyproject.toml").is_file()
+            and (candidate / "packages").is_dir()
+            and (candidate / "skill-src").is_dir()
+        ):
+            return candidate
+    raise DebugTraceError("debug tracing must run inside a Research Tree checkout")
+
+
+def _trace_inside(root: Path, candidate: Path) -> Path:
+    try:
+        resolved = candidate.resolve(strict=False)
+        resolved.relative_to(root)
+    except (OSError, ValueError) as exc:
+        raise DebugTraceError("debug trace path must remain inside the project") from exc
+    return resolved
+
+
+def _trace_project_root(project_root: Path | None) -> Path:
+    root = project_root.resolve(strict=False) if project_root is not None else _trace_find_project_root(Path.cwd())
+    if not ((root / "pyproject.toml").is_file() and (root / "packages").is_dir() and (root / "skill-src").is_dir()):
+        raise DebugTraceError("project root is not a Research Tree checkout")
+    return root
+
+
+def _trace_identifier(value: str | None, label: str) -> str | None:
+    if value is None:
+        return None
+    if not TRACE_IDENTIFIER_RE.fullmatch(value):
+        raise DebugTraceError(f"{label} must be a bounded identifier")
+    return value
+
+
+def _trace_codes(values: Iterable[str]) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        if not TRACE_CODE_RE.fullmatch(value):
+            raise DebugTraceError("debug code must be a bounded identifier")
+        result.append(value)
+    if len(result) > 16:
+        raise DebugTraceError("a debug trace accepts at most 16 codes")
+    return result
+
+
+def _trace_write_record(root: Path, record: dict[str, Any]) -> Path:
+    destination = _trace_inside(root, root / TRACE_DIRECTORY)
+    destination.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(record, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+    for _ in range(3):
+        prefix = f"{time.time_ns():020d}"
+        path = _trace_inside(root, destination / f"{prefix}-{secrets.token_hex(8)}.json")
+        try:
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            continue
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+        return path
+    raise DebugTraceError("could not allocate a debug trace file")
+
+
+def emit_trace(
+    *,
+    host: str,
+    phase: str,
+    status: str,
+    codes: Iterable[str] = (),
+    run_id: str | None = None,
+    project_root: Path | None = None,
+) -> dict[str, Any]:
+    """Persist one sanitized workflow transition and return its relative path."""
+    if host not in TRACE_HOSTS:
+        raise DebugTraceError(f"unsupported debug host: {host}")
+    if phase not in TRACE_PHASES:
+        raise DebugTraceError(f"unsupported debug phase: {phase}")
+    if status not in TRACE_STATUSES:
+        raise DebugTraceError(f"unsupported debug status: {status}")
+
+    root = _trace_project_root(project_root)
+    record: dict[str, Any] = {
+        "schema": 1,
+        "source": "research-tree-debug",
+        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+        "host": host,
+        "phase": phase,
+        "status": status,
+        "codes": _trace_codes(codes),
+    }
+    normalized_run_id = _trace_identifier(run_id, "run id")
+    if normalized_run_id is not None:
+        record["run_id"] = normalized_run_id
+    path = _trace_write_record(root, record)
+    return {"status": "recorded", "path": path.relative_to(root).as_posix()}
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
