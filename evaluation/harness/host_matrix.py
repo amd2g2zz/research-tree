@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from research_tree.cli import main as cli_main
+from research_tree.completion_inputs import CompletionInputRegistrar
 from research_tree.coordinator import (
     HOST_EVENT_KIND,
     CoordinatorConflictError,
@@ -259,6 +260,33 @@ def _prepare_strategy_confirmation(ledger: RunLedger, coordinator: ResearchRunCo
         status="displayed",
     )
     coordinator.persist_strategy_projection(projection, expected_revision=ledger.get_revision(run_id))
+    # Issue #462: the display gate requires an independent subagent alignment
+    # verification bound to the projection content before display.
+    CompletionInputRegistrar(ledger).write_alignment_verification(
+        round_id=run_id,
+        verification_id=f"alignment-verification-{run_id}",
+        payload={
+            "schema": 1,
+            "id": f"alignment-verification-{run_id}",
+            "round_id": run_id,
+            "projection_ref": {
+                "round_id": run_id,
+                "artifact_id": projection.projection_id,
+                "revision": projection.revision,
+            },
+            "authority_fingerprint": authority_fingerprint(projection),
+            "verifier_identity": "agent-verifier-harness",
+            "session_context": "session-harness-main",
+            "understood": {
+                "outcome": "Independently restated: validate the requester decision.",
+                "scope": "Independently restated: research only.",
+                "authority": "Independently restated: autonomous research within the envelope.",
+                "success_oracles": [{"id": "oracle-1", "understanding": "Independently restated oracle oracle-1."}],
+            },
+            "discrepancies": [],
+        },
+        expected_revision=ledger.get_revision(run_id),
+    )
     coordinator.display_strategy(run_id, projection, expected_revision=ledger.get_revision(run_id))
     coordinator.confirm_handoff(
         run_id,

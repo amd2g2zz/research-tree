@@ -22,7 +22,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 
-from strategy_support import prepare_strategy  # noqa: E402
+from strategy_support import prepare_strategy, write_alignment_verification  # noqa: E402
 
 from research_tree.coordinator import CoordinatorConflictError  # noqa: E402
 from research_tree.domain import ArtifactRef  # noqa: E402
@@ -71,6 +71,7 @@ def _confirmation(projection) -> str:
 def test_confirmation_without_fingerprint_rejected(tmp_path: Path) -> None:
     ledger, coordinator, run_id = _coordinator(tmp_path)
     projection = prepare_strategy(ledger, coordinator, run_id)
+    write_alignment_verification(ledger, projection, run_id)
     coordinator.display_strategy(run_id, projection, expected_revision=ledger.get_revision(run_id))
     with pytest.raises(CoordinatorConflictError, match="authority_fingerprint_required"):
         coordinator.confirm_handoff(
@@ -84,6 +85,7 @@ def test_confirmation_without_fingerprint_rejected(tmp_path: Path) -> None:
 def test_confirmation_with_wrong_fingerprint_rejected(tmp_path: Path) -> None:
     ledger, coordinator, run_id = _coordinator(tmp_path)
     projection = prepare_strategy(ledger, coordinator, run_id)
+    write_alignment_verification(ledger, projection, run_id)
     coordinator.display_strategy(run_id, projection, expected_revision=ledger.get_revision(run_id))
     with pytest.raises(CoordinatorConflictError, match="authority_fingerprint_mismatch"):
         coordinator.confirm_handoff(
@@ -99,6 +101,7 @@ def test_confirmation_with_wrong_fingerprint_rejected(tmp_path: Path) -> None:
 def test_confirmation_with_correct_fingerprint_accepted(tmp_path: Path) -> None:
     ledger, coordinator, run_id = _coordinator(tmp_path)
     projection = prepare_strategy(ledger, coordinator, run_id)
+    write_alignment_verification(ledger, projection, run_id)
     coordinator.display_strategy(run_id, projection, expected_revision=ledger.get_revision(run_id))
     coordinator.confirm_handoff(
         run_id,
@@ -121,6 +124,7 @@ def test_guard_rejects_authority_drift_after_confirmation(tmp_path: Path) -> Non
     the handoff_confirmed guard — drift is blocked before compilation."""
     ledger, coordinator, run_id = _coordinator(tmp_path)
     projection = prepare_strategy(ledger, coordinator, run_id)
+    write_alignment_verification(ledger, projection, run_id)
     coordinator.display_strategy(run_id, projection, expected_revision=ledger.get_revision(run_id))
     coordinator.confirm_handoff(
         run_id,

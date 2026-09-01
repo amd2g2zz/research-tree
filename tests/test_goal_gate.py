@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from strategy_support import write_alignment_verification
 from test_goal_wiring import projection
 from test_research_run_coordinator import (
     _initialize,
@@ -50,6 +51,7 @@ def _confirm_projection(ledger, coordinator, success_oracles=(ORACLE_1,)):
         status="displayed",
     )
     coordinator.persist_strategy_projection(goal_projection, expected_revision=ledger.get_revision(RUN))
+    write_alignment_verification(ledger, goal_projection, RUN)
     coordinator.display_strategy(RUN, goal_projection, expected_revision=ledger.get_revision(RUN))
     coordinator.confirm_handoff(
         RUN,

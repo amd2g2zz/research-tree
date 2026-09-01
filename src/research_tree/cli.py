@@ -847,6 +847,10 @@ def _strategy_display(
         validate_falsifiability(projection)
     except StrategyProjectionError as error:
         raise CoordinatorConflictError(str(error)) from error
+    # Issue #462: pre-flight the independent-verification gate for the same reason —
+    # the draft must already carry an independent subagent alignment verification
+    # (bound by authority fingerprint) before the display revision is appended.
+    coordinator.require_independent_alignment_verification(run_id, projection)
     if projection.status == "draft":
         values = projection.to_dict()
         for derived in ("schema_version", "kind", "display_payload", "display_digest", "content_hash"):

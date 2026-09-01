@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 import pytest
+from strategy_support import write_alignment_verification
 
 from research_tree.alignment_graph import (
     confirm as alignment_confirm,
@@ -606,6 +607,11 @@ def test_strategy_lifecycle_cli_wires_display_confirm_and_tree_bridge(tmp_path: 
     stored = [item for item in ledger.load_run(RUN_ID).artifacts if item.kind == "strategy-projection"]
     assert [item.payload["status"] for item in stored] == ["draft"]
 
+    # Issue #462: the display gate requires the independent subagent alignment
+    # verification before the draft can be displayed.
+    write_alignment_verification(
+        ledger, StrategyProjection.from_dict(json.loads(projection_file.read_text(encoding="utf-8"))), RUN_ID
+    )
     assert cli_main([*arguments, "display"]) == 0
     displayed = json_output(capsys)
     assert displayed["command"] == "strategy.display"
@@ -861,6 +867,7 @@ def test_direct_transition_accepts_falsifiable_projection(tmp_path: Path) -> Non
         success_oracles=({"id": "oracle-1", "evidence_standard_ids": ("standard-1",)},),
     )
     coordinator.persist_strategy_projection(falsifiable, expected_revision=ledger.get_revision(RUN_ID))
+    write_alignment_verification(ledger, falsifiable, RUN_ID)
 
     state = coordinator.transition(
         RUN_ID,
@@ -960,6 +967,7 @@ def test_confirm_handoff_rejects_unfalsifiable_projection(tmp_path: Path) -> Non
         success_oracles=({"id": "oracle-1", "evidence_standard_ids": ("standard-1",)},),
     )
     coordinator.persist_strategy_projection(falsifiable, expected_revision=ledger.get_revision(RUN_ID))
+    write_alignment_verification(ledger, falsifiable, RUN_ID)
     coordinator.display_strategy(RUN_ID, falsifiable, expected_revision=ledger.get_revision(RUN_ID))
     unfalsifiable = _unfalsifiable_projection(ledger)
     ledger.append_strategy_projection(
