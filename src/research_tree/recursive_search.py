@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .claims import ProvenanceDescriptor, cluster_provenance_components
 from .domain import ArtifactRevision, thaw_json
 from .evidence_delta import (
     EvidenceBaseline,
@@ -111,7 +112,7 @@ def initialize_research_state(
         if str(slot.get("status", "open")) in {"open", "researching"}
     }
     state: dict[str, Any] = {
-        "schema": 1,
+        "schema": 2,
         "id": tree_id,
         "round_id": round_id,
         "transition_index": 0,
@@ -144,7 +145,7 @@ def initialize_research_state(
         findings = by_slot[slot_id]
         if not findings:
             continue
-        root["confidence"] = max(_source_quality_value(_payload(finding).get("source_quality")) for finding in findings)
+        root["confidence"] = min(_source_quality_value(_payload(finding).get("source_quality")) for finding in findings)
         for finding in findings:
             snapshot = _slot_evidence_snapshot(slot)
             _update_slot_evidence(slot, finding)
@@ -641,7 +642,7 @@ def _grow_from_finding(
         )
         if node["id"] not in known_ids:
             created.append(node)
-    quality = _ingest_quality(state, slot, payload, snapshot, new_children=len(created), cfg=cfg)
+    quality, _marginal = _ingest_quality(state, slot, payload, snapshot, new_children=len(created), cfg=cfg)
     damping = cfg.confidence_damping_min + (cfg.confidence_damping_max - cfg.confidence_damping_min) * (1.0 - quality)
     child_confidence = round(float(parent.get("confidence", 1.0)) * (1.0 - damping), 6)
     for node in created:
@@ -791,52 +792,76 @@ def _ensure_slot_frontier(
     *,
     trigger_ref: str,
 ) -> None:
-    """Grow mandatory closure work when a worker did not propose it."""
+    """Grow mandatory closure work when a worker did not propose it.
+
+    A failed validation oracle demands the independent-method retry before
+    anything else; otherwise unmet evidence minimums grow triangulation, and
+    a never-attempted required validation grows the validation node.
+    """
 
     if _has_open_node(state, slot["id"]):
         return
-    if not _slot_has_minimum_evidence(slot):
-        _add_node(
-            state,
-            parent=parent,
-            slot=slot,
-            question="Triangulate the current claims with an independent source or method.",
-            action_kind="deep_dive",
-            trigger_ref=trigger_ref,
-            evidence_needed="An independent anchor that can confirm or overturn the current claim set.",
-            oracle="At least two independent Finding Packs and evidence anchors exist for the slot.",
-            estimated_cost=1.0,
-            mandatory=True,
-            confidence=_closure_growth_confidence(state, parent),
-            damping=RecursiveSearchConfig(**state["config"]).confidence_damping_max,
-        )
-    elif slot["validation_required"] and not slot["validation_passed"]:
+    cfg = RecursiveSearchConfig(**state["config"])
+    validation_pending = bool(slot["validation_required"]) and not bool(slot["validation_passed"])
+    failed_validation = validation_pending and int(slot.get("validation_failures", 0)) > 0
+    retry_question = ""
+    if failed_validation:
         attempts = int(slot.get("validation_attempts", 0))
-        if slot.get("validation_status") == "failed":
-            question = (
-                "Re-run the Decision Slot validation oracle with an independent "
-                f"method after failed attempt {attempts}."
+        retry_question = (
+            f"Re-run the Decision Slot validation oracle with an independent method after failed attempt {attempts}."
+        )
+    if failed_validation:
+        _reopen_completed_obligation(
+            _add_node(
+                state,
+                parent=parent,
+                slot=slot,
+                question=retry_question,
+                action_kind="validation",
+                trigger_ref=trigger_ref,
+                evidence_needed="Executed or independently reviewed validation evidence.",
+                oracle=slot["validation_oracle"]
+                or ("The Decision Slot validation result is explicitly passed, failed, or inconclusive."),
+                estimated_cost=1.0,
+                mandatory=True,
+                confidence=_closure_growth_confidence(state, parent),
+                damping=cfg.confidence_damping_max,
             )
-        elif slot.get("validation_status") == "inconclusive":
-            question = (
-                f"Resolve the inconclusive Decision Slot validation with a different method after attempt {attempts}."
+        )
+    elif not _slot_has_minimum_evidence(slot):
+        _reopen_completed_obligation(
+            _add_node(
+                state,
+                parent=parent,
+                slot=slot,
+                question="Triangulate the current claims with an independent source or method.",
+                action_kind="deep_dive",
+                trigger_ref=trigger_ref,
+                evidence_needed="An independent anchor that can confirm or overturn the current claim set.",
+                oracle="At least two independent Finding Packs and evidence anchors exist for the slot.",
+                estimated_cost=1.0,
+                mandatory=True,
+                confidence=_closure_growth_confidence(state, parent),
+                damping=cfg.confidence_damping_max,
             )
-        else:
-            question = "Execute the Decision Slot validation oracle against the leading conclusion."
-        _add_node(
-            state,
-            parent=parent,
-            slot=slot,
-            question=question,
-            action_kind="validation",
-            trigger_ref=trigger_ref,
-            evidence_needed="Executed or independently reviewed validation evidence.",
-            oracle=slot["validation_oracle"]
-            or ("The Decision Slot validation result is explicitly passed, failed, or inconclusive."),
-            estimated_cost=1.0,
-            mandatory=True,
-            confidence=_closure_growth_confidence(state, parent),
-            damping=RecursiveSearchConfig(**state["config"]).confidence_damping_max,
+        )
+    elif validation_pending:
+        _reopen_completed_obligation(
+            _add_node(
+                state,
+                parent=parent,
+                slot=slot,
+                question="Execute the Decision Slot validation oracle against the leading conclusion.",
+                action_kind="validation",
+                trigger_ref=trigger_ref,
+                evidence_needed="Executed or independently reviewed validation evidence.",
+                oracle=slot["validation_oracle"]
+                or ("The Decision Slot validation result is explicitly passed, failed, or inconclusive."),
+                estimated_cost=1.0,
+                mandatory=True,
+                confidence=_closure_growth_confidence(state, parent),
+                damping=cfg.confidence_damping_max,
+            )
         )
 
 
@@ -859,7 +884,7 @@ def _node(**values: Any) -> dict[str, Any]:
         "selection_value": 0.0,
         "realized_delta": 0.0,
         "stagnation_count": 0,
-        "confidence": float(values.get("confidence", 1.0)),
+        "confidence": float(values.get("confidence", 0.5)),
         "damping": float(values.get("damping", 0.0)),
         "quality": values.get("quality"),
         "status": "frontier",
@@ -873,6 +898,15 @@ def _update_slot_evidence(slot: dict[str, Any], finding: Any) -> None:
     if finding_id and finding_id not in slot["finding_ids"]:
         slot["finding_ids"].append(finding_id)
     slot["anchor_fingerprints"] = sorted(set(slot["anchor_fingerprints"]) | _finding_anchor_fingerprints(payload))
+    slot["claim_fingerprints"] = sorted(set(slot.get("claim_fingerprints", ())) | _finding_claim_fingerprints(payload))
+    slot["effect_fingerprints"] = sorted(
+        set(slot.get("effect_fingerprints", ()))
+        | {
+            hashlib.sha256(f"{item.get('option')}:{item.get('effect')}".encode("utf-8")).hexdigest()
+            for item in payload.get("option_effects", ())
+            if isinstance(item, Mapping)
+        }
+    )
 
 
 def _resolve_parent(state: Mapping[str, Any], payload: Mapping[str, Any], slot_id: str) -> dict[str, Any] | None:
@@ -1000,9 +1034,14 @@ def _mutable_state(state: Mapping[str, Any]) -> dict[str, Any]:
 def _slot_evidence_snapshot(slot: Mapping[str, Any]) -> dict[str, Any]:
     """Pre-ingest evidence state used to measure marginal quality."""
     return {
+        "finding_ids": frozenset(slot["finding_ids"]),
         "findings": len(slot["finding_ids"]),
         "anchors": frozenset(slot["anchor_fingerprints"]),
         "contradictions": frozenset(slot.get("contradiction_refs", ())),
+        "claims": frozenset(slot.get("claim_fingerprints", ())),
+        "effects": frozenset(slot.get("effect_fingerprints", ())),
+        "quarantined": frozenset(slot.get("quarantined_finding_ids", ())),
+        "trusted_anchors": frozenset(slot.get("trusted_anchor_fingerprints", ())),
     }
 
 
@@ -1013,7 +1052,11 @@ def _closure_deficit_from_counts(findings: int, anchors: int) -> float:
 
 
 def _slot_closure_deficit(slot: Mapping[str, Any]) -> float:
-    return _closure_deficit_from_counts(len(slot["finding_ids"]), len(slot["anchor_fingerprints"]))
+    """Closure deficit counts trusted findings and trusted anchors only."""
+    quarantined = set(slot.get("quarantined_finding_ids", ()))
+    findings = len(set(slot["finding_ids"]) - quarantined)
+    anchors = slot.get("trusted_anchor_fingerprints", ()) if quarantined else slot["anchor_fingerprints"]
+    return _closure_deficit_from_counts(findings, len(anchors))
 
 
 def _finding_anchor_fingerprints(payload: Mapping[str, Any]) -> frozenset[str]:
@@ -1027,7 +1070,8 @@ def _finding_anchor_fingerprints(payload: Mapping[str, Any]) -> frozenset[str]:
 
 
 def _source_quality_value(value: Any) -> float:
-    return _SOURCE_QUALITY_CONFIDENCE.get(str(value), _ROOT_SOURCE_QUALITY)
+    """Missing or unknown capture quality defaults to the conservative 0.5."""
+    return _SOURCE_QUALITY_CONFIDENCE.get(str(value), 0.5)
 
 
 def _closure_growth_confidence(state: Mapping[str, Any], parent: Mapping[str, Any]) -> float:
@@ -1051,30 +1095,59 @@ def _absorb_cross_comparison(slot: dict[str, Any], payload: Mapping[str, Any]) -
             ref = str(item).strip()
             if ref and ref not in slot["contradiction_refs"]:
                 slot["contradiction_refs"].append(ref)
-        totals = slot.setdefault("search_comparison", {"provider_fanout": 0, "duplicates": 0, "captures": 0})
+        totals = slot.setdefault("search_comparison", {"provider_fanout": 0, "coverage_met": 0, "batches": {}})
         totals["provider_fanout"] = max(
             int(totals.get("provider_fanout", 0)), int(comparison.get("provider_fanout", 0))
         )
-        totals["duplicates"] = int(totals.get("duplicates", 0)) + int(comparison.get("duplicates", 0))
-        totals["captures"] = int(totals.get("captures", 0)) + int(comparison.get("captures", 0))
+        totals["coverage_met"] = max(int(totals.get("coverage_met", 0)), int(comparison.get("coverage_met", 0) or 0))
+        batch_key = str(comparison.get("comparison_id") or "").strip() or _comparison_key(comparison)
+        batches = totals.setdefault("batches", {})
+        batches[batch_key] = {
+            "duplicates": int(comparison.get("duplicates", 0) or 0),
+            "captures": int(comparison.get("captures", 0) or 0),
+            "coverage_met": int(comparison.get("coverage_met", 0) or 0),
+        }
 
 
 def _ingest_quality(
     state: Mapping[str, Any],
-    slot: Mapping[str, Any],
+    slot: dict[str, Any],
     payload: Mapping[str, Any],
     snapshot: Mapping[str, Any],
     *,
     new_children: int,
     cfg: RecursiveSearchConfig,
-) -> float:
-    """Measure the four recursion-quality dimensions for one evidence ingest."""
+) -> tuple[float, bool]:
+    """Measure the four recursion-quality dimensions for one evidence ingest.
+
+    Completeness is measured against a snapshot excluding the finding under
+    judgment (H3b/M4): a finding cannot credit itself with the gap it
+    appears to close. The slot's marginal novelty is recorded per-slot (M6),
+    never derived from the global last-transition delta.
+    """
+
+    finding_id = str(payload.get("id", "")).strip()
     finding_anchors = _finding_anchor_fingerprints(payload)
     new_anchors = len(finding_anchors - set(snapshot["anchors"]))
     expandability = new_anchors / max(1, len(finding_anchors))
-    deficit_before = _closure_deficit_from_counts(int(snapshot["findings"]), len(snapshot["anchors"]))
-    deficit_after = _slot_closure_deficit(slot)
-    completeness = 1.0 - deficit_after / deficit_before if deficit_before > 0 else 1.0
+
+    quarantined_before = set(snapshot["quarantined"])
+    trusted_before = len(set(snapshot["finding_ids"]) - quarantined_before)
+    anchors_before = snapshot["trusted_anchors"] if quarantined_before else snapshot["anchors"]
+    deficit_before = _closure_deficit_from_counts(trusted_before, len(anchors_before))
+    others_now = set(slot["finding_ids"]) - set(slot.get("quarantined_finding_ids", ())) - {finding_id}
+    deficit_after = _closure_deficit_from_counts(len(others_now), len(anchors_before))
+    completeness = max(0.0, min(1.0, 1.0 - deficit_after / deficit_before)) if deficit_before > 0 else 0.0
+
+    new_claims = len(_finding_claim_fingerprints(payload) - set(snapshot["claims"]))
+    new_effects = len(
+        {
+            hashlib.sha256(f"{item.get('option')}:{item.get('effect')}".encode("utf-8")).hexdigest()
+            for item in payload.get("option_effects", ())
+            if isinstance(item, Mapping)
+        }
+        - set(snapshot["effects"])
+    )
     new_contradictions = len(
         {str(item) for item in payload.get("contradictions", ())} - set(snapshot["contradictions"])
     )
@@ -1087,12 +1160,17 @@ def _ingest_quality(
         if other_id != slot["id"] and set(other["anchor_fingerprints"]) & finding_anchors
     )
     association = min(1.0, cross_links / 2)
-    return round(
-        cfg.quality_weight_expandability * expandability
-        + cfg.quality_weight_completeness * completeness
-        + cfg.quality_weight_heuristic * heuristic
-        + cfg.quality_weight_association * association,
-        6,
+    marginal = bool(new_anchors or new_claims or new_effects or new_contradictions or new_children)
+    slot["marginal_novelty"] = 1.0 if marginal else 0.0
+    return (
+        round(
+            cfg.quality_weight_expandability * expandability
+            + cfg.quality_weight_completeness * completeness
+            + cfg.quality_weight_heuristic * heuristic
+            + cfg.quality_weight_association * association,
+            6,
+        ),
+        marginal,
     )
 
 
@@ -1115,6 +1193,8 @@ def _apply_ingest_trust(
     finding_id = _finding_id(finding)
     cfg = RecursiveSearchConfig(**state["config"])
     ledger = state.setdefault("cross_validation", {})
+    ingest_claims = _finding_claim_fingerprints(payload)
+    ingest_clusters = _finding_cluster_labels(payload)
     verification = payload.get("verification")
     if isinstance(verification, Mapping) and str(verification.get("status", "")).strip() in {
         "passed",
@@ -1130,6 +1210,8 @@ def _apply_ingest_trust(
                 "attempts": 0,
                 "reason": "",
                 "anchor_fingerprints": sorted(ingest["anchor_fingerprints"]),
+                "claim_fingerprints": sorted(ingest_claims),
+                "cluster_labels": sorted(ingest_clusters),
             }
         )
         record["attempts"] = int(record.get("attempts", 0)) + 1
@@ -1142,7 +1224,9 @@ def _apply_ingest_trust(
     if trusted and finding_id:
         for other_id in list(slot.get("quarantined_finding_ids", ())):
             other = dict(ledger.get(other_id) or {})
-            if set(other.get("anchor_fingerprints", ())) & set(ingest["anchor_fingerprints"]):
+            claim_overlap = set(other.get("claim_fingerprints", ())) & set(ingest_claims)
+            cluster_overlap = set(other.get("cluster_labels", ())) & set(ingest_clusters)
+            if claim_overlap and not cluster_overlap:
                 other["status"] = "corroborated"
                 ledger[other_id] = other
                 _lift_quarantine(slot, other_id, other)
@@ -1159,6 +1243,8 @@ def _apply_ingest_trust(
             "reason": "confidence-below-threshold",
             "confidence": ingest["confidence"],
             "anchor_fingerprints": sorted(ingest["anchor_fingerprints"]),
+            "claim_fingerprints": sorted(ingest_claims),
+            "cluster_labels": sorted(ingest_clusters),
         }
 
 
@@ -1171,13 +1257,23 @@ def _lift_quarantine(slot: dict[str, Any], finding_id: str, record: Mapping[str,
 
 
 def _slot_evidence_saturated(state: Mapping[str, Any], slot: Mapping[str, Any], cfg: RecursiveSearchConfig) -> bool:
-    """True when no continue-signal holds: no contradictions, coverage met, novelty spent."""
+    """True when no continue-signal holds: no contradictions, coverage met, novelty spent.
+
+    Novelty is attributed per slot from that slot's own latest ingest (M6),
+    and once a batch comparison has been recorded for the slot, saturation is
+    additionally gated on the measured intent coverage from that comparison:
+    captured-but-never-complete coverage stays a coverage gap (M6/H1).
+    """
+
     if slot.get("contradiction_refs"):
         return False
     if not _slot_has_minimum_evidence(slot):
         return False
-    history = state.get("delta_history") or ()
-    marginal = float(history[-1]["realized_delta"]) if history else cfg.initial_marginal_novelty
+    comparison = slot.get("search_comparison") or {}
+    captures = sum(int(batch.get("captures", 0)) for batch in (comparison.get("batches") or {}).values())
+    if captures > 0 and int(comparison.get("coverage_met", 0)) < 1:
+        return False
+    marginal = float(slot.get("marginal_novelty", cfg.initial_marginal_novelty))
     return marginal <= cfg.novelty_stop_threshold
 
 
@@ -1195,14 +1291,17 @@ def _recursion_receipt(result: Mapping[str, Any]) -> dict[str, Any]:
     for slot in result["decision_slots"].values():
         comparison = slot.get("search_comparison") or {}
         fanout = max(fanout, int(comparison.get("provider_fanout", 0)))
-        duplicates += int(comparison.get("duplicates", 0))
-        captures += int(comparison.get("captures", 0))
+        for batch in (comparison.get("batches") or {}).values():
+            duplicates += int(batch.get("duplicates", 0))
+            captures += int(batch.get("captures", 0))
     cross_validation = result.get("cross_validation") or {}
+    quarantine_live = sum(len(slot.get("quarantined_finding_ids", ())) for slot in result["decision_slots"].values())
     return {
         "terminal_reason_distribution": dict(sorted(distribution.items())),
         "provider_fanout": fanout,
         "dedup_ratio": round(duplicates / captures, 6) if captures else 0.0,
-        "quarantine_count": len(cross_validation),
+        "quarantine_count": quarantine_live,
+        "cross_validation_records": len(cross_validation),
         "cross_validation_failures": sum(1 for record in cross_validation.values() if record.get("status") == "failed"),
         "confidence": {
             "min": min(confidences) if confidences else 1.0,
@@ -1222,3 +1321,54 @@ def _recursion_receipt(result: Mapping[str, Any]) -> dict[str, Any]:
             },
         },
     }
+
+
+def _finding_claim_fingerprints(payload: Mapping[str, Any]) -> frozenset[str]:
+    """Normalized claim-text fingerprints used for corroboration matching."""
+    claims: set[str] = set()
+    for observation in payload.get("observations", ()):
+        if not isinstance(observation, Mapping):
+            continue
+        claim = str(observation.get("claim", "")).strip()
+        if claim:
+            claims.add(hashlib.sha256(" ".join(claim.lower().split()).encode("utf-8")).hexdigest())
+    return frozenset(claims)
+
+
+def _finding_cluster_labels(payload: Mapping[str, Any]) -> frozenset[str]:
+    """Provenance cluster labels of a finding's anchors, via claims clustering."""
+    descriptors = []
+    for observation in payload.get("observations", ()):
+        anchor = observation.get("anchor") if isinstance(observation, Mapping) else None
+        if not isinstance(anchor, Mapping):
+            continue
+        ref = anchor.get("ref")
+        if isinstance(ref, str) and ref.strip():
+            descriptors.append(ProvenanceDescriptor(upstream_id=ref.strip()))
+    if not descriptors:
+        return frozenset()
+    return frozenset(label for label, _identities in cluster_provenance_components(descriptors))
+
+
+def _comparison_key(comparison: Mapping[str, Any]) -> str:
+    """Stable identity for a batch comparison when no comparison_id is declared."""
+    import json
+
+    return (
+        "digest:"
+        + hashlib.sha256(json.dumps(dict(comparison), sort_keys=True, default=str).encode("utf-8")).hexdigest()[:16]
+    )
+
+
+def _reopen_completed_obligation(node: Mapping[str, Any] | None) -> None:
+    """Re-open an obligation node that completed while its grounding held.
+
+    When the evidence that grounded a mandatory closure obligation is later
+    quarantined, the obligation must return to the frontier instead of
+    silently vanishing behind an already-completed node identity.
+    """
+
+    if node is None or node["status"] != "completed":
+        return
+    node["status"] = "frontier"
+    node["terminal_reason"] = None

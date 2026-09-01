@@ -143,8 +143,8 @@ def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
         raise ResearchTreeStateError(
             f"tree state has unexpected keys; missing={sorted(required - actual)}, extra={sorted(actual - required)}"
         )
-    if value.get("schema") != 1:
-        raise ResearchTreeStateError("tree state schema must be 1")
+    if value.get("schema") != 2:
+        raise ResearchTreeStateError("tree state schema must be 2")
     validate_identifier(value.get("id"), "tree state id")
     validate_identifier(value.get("round_id"), "tree state round_id")
     transition = value.get("transition_index")

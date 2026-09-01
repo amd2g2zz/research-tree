@@ -18,6 +18,7 @@ def finding(
     contradictions: tuple[str, ...] = (),
     verification: dict[str, object] | None = None,
     search_comparison: dict[str, object] | None = None,
+    source_quality: str | None = "high",
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "id": finding_id,
@@ -42,6 +43,8 @@ def finding(
         payload["verification"] = verification
     if search_comparison is not None:
         payload["search_comparison"] = search_comparison
+    if source_quality is not None:
+        payload["source_quality"] = source_quality
     return payload
 
 
@@ -168,10 +171,10 @@ def test_confidence_damping_separates_high_and_low_quality_recursions() -> None:
     low = node_by_question(result, "ql-2")
 
     assert high["depth"] == low["depth"] == 2
-    assert high["damping"] == pytest.approx(0.185)
+    assert high["damping"] == pytest.approx(0.275)
     assert low["damping"] == pytest.approx(0.32)
-    assert high["confidence"] == pytest.approx(0.815 * 0.815)
-    assert low["confidence"] == pytest.approx(0.815 * 0.68)
+    assert high["confidence"] == pytest.approx(0.77 * 0.725)
+    assert low["confidence"] == pytest.approx(0.77 * 0.68)
     assert high["damping"] < low["damping"]
     assert high["confidence"] > low["confidence"]
 
@@ -237,8 +240,11 @@ def test_below_threshold_findings_are_quarantined_from_satisfied_evidence() -> N
         third, (finding("f5", anchors=(("source", "u1"), ("source", "u2")), research_node_id=triangulate_id),)
     )
 
-    assert result["status"] == "blocked"
-    assert "independent evidence is insufficient" in (result["stop_reason"] or "")
+    assert result["status"] == "searching"
+    assert any("Triangulate" in result["nodes"][node_id]["question"] for node_id in result["frontier_node_ids"])
+    assert len(result["decision_slots"]["slot-1"]["quarantined_finding_ids"]) == 4
+    assert result["recursion_receipt"]["quarantine_count"] == 4
+    assert result["recursion_receipt"]["cross_validation_records"] == 4
 
 
 def test_explicit_verification_pass_lifts_quarantine() -> None:
@@ -259,6 +265,8 @@ def test_explicit_verification_pass_lifts_quarantine() -> None:
     assert result["cross_validation"]["f2"]["status"] == "verified"
     assert "f2" not in result["decision_slots"]["slot-1"]["quarantined_finding_ids"]
     assert "independent evidence is insufficient" not in (result["stop_reason"] or "")
+    assert result["recursion_receipt"]["quarantine_count"] == 1
+    assert result["recursion_receipt"]["cross_validation_records"] == 2
 
 
 def test_cross_validation_failure_is_recorded_objectively() -> None:

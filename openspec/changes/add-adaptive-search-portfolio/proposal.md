@@ -56,3 +56,31 @@ continue/stop decision within the guardrail.
   `_grow_from_finding` LOW (7), `_slot_state` LOW (4), `_clusters` LOW (5),
   `plan` LOW (1, lower-bound), `run` UNKNOWN (confirmed by text search:
   no in-repo callers; change is additive optional kwargs only).
+
+## Fix Round (review round 2 on PR #477)
+
+- Producer wiring (H1/A-M1): `CanonicalFindingPackCompiler.compile` now carries
+  the batch comparison into the Finding Pack payload (`search_comparison`
+  with fanout/duplicates/captures/coverage_met/contradictions + a
+  `comparison_status` of `measured`/`skipped`, fail-closed validation), so
+  production packs feed `slot["contradiction_refs"]` and the receipt signals.
+- Quarantine lift independence (H2/A-M3): corroboration now requires claim
+  overlap with DISJOINT provenance clusters (via
+  `cluster_provenance_components`); a same-source mirror no longer lifts.
+- Quarantine containment (H3): `_slot_closure_deficit` counts trusted
+  findings/anchors only (residual risk stays positive under quarantine), and
+  ingest completeness is measured against a snapshot excluding the finding
+  under judgment (no self-credit). Zero-signal completeness clamps to 0
+  (M4), so `d_max` is reachable. Mandatory closure obligations re-open when
+  their grounding is quarantined; a failed validation oracle grows the
+  independent-method retry first.
+- Receipt truthing (M5/M7/L9): `quarantine_count` is the live
+  per-slot sum (ledger size renamed `cross_validation_records`); dedup
+  totals single-count per batch (keyed by comparison id); missing/unknown
+  source quality defaults to a conservative 0.5 and baseline aggregation is
+  min.
+- Per-slot novelty (M6): saturation consumes the slot's own latest-ingest
+  marginal novelty, and once comparisons are recorded it is additionally
+  gated on measured intent coverage (captured-but-never-complete stays a
+  coverage gap).
+- Tree-state schema bumped to 2 with the new required keys (L8).
