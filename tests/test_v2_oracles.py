@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / "evaluation" / "harness"))
 
 from v2_oracles import (  # noqa: E402
     BASELINE_RUN_NAME,
+    CLOSURE_GATES,
     DECISION_TARGETS,
     EVIDENCE_STANDARDS,
     METRIC_COVERAGE,
@@ -35,7 +36,8 @@ from research_tree.strategy_projection import (  # noqa: E402
     validate_falsifiability,
 )
 
-GATE_RANGE = frozenset(range(1, 11))
+GATE_RANGE = frozenset(CLOSURE_GATES)
+EXPECTED_METRIC_COUNT = 13
 
 
 def _fixture_projection(success_oracles, decision_targets) -> StrategyProjection:
@@ -96,6 +98,7 @@ def test_every_closure_gate_is_covered_by_at_least_one_oracle():
 
 def test_every_followup_metric_maps_to_at_least_one_known_oracle():
     known = {oracle["id"] for oracle in SUCCESS_ORACLES}
+    assert len(METRIC_COVERAGE) == EXPECTED_METRIC_COUNT
     for metric, oracle_ids in METRIC_COVERAGE:
         assert oracle_ids, metric
         assert set(oracle_ids) <= known, metric

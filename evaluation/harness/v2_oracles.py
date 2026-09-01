@@ -7,7 +7,10 @@ projection success oracle whose ``evidence_standard_ids`` name the evidence
 vocabulary the run must produce, so a projection built through
 ``build_success_oracles()`` / ``build_decision_targets()`` passes
 ``validate_falsifiability`` and the run's completion gate judges the #292
-gates oracle by oracle.
+gates oracle by oracle.  Gate attribution is prose-only metadata: the runtime
+enforces per oracle, never per gate.  Oracle entries feed the projection's
+authority fingerprint, so any statement or gate_ids edit invalidates existing
+alignment verifications and handoff confirmations.
 
 Pure data plus two builders; no runtime imports, no I/O.
 """
