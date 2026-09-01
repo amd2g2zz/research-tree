@@ -783,12 +783,14 @@ def _normalize_search_comparison(
     coverage = value.get("coverage_met", 0)
     if coverage not in (0, 1, True, False):
         raise InvalidFindingPackError("search_comparison.coverage_met must be 0 or 1")
+    raw_contradictions = value.get("contradictions", ())
+    if isinstance(raw_contradictions, (str, bytes)) or not isinstance(raw_contradictions, Sequence):
+        raise InvalidFindingPackError("search_comparison.contradictions must be a sequence of strings")
     contradictions: list[str] = []
-    for item in value.get("contradictions", ()):
-        ref = str(item).strip()
-        if not ref:
+    for item in raw_contradictions:
+        if not isinstance(item, str) or not item.strip():
             raise InvalidFindingPackError("search_comparison.contradictions must be non-empty strings")
-        contradictions.append(ref)
+        contradictions.append(item.strip())
     comparison: dict[str, Any] = {
         **counts,
         "coverage_met": int(bool(coverage)),
@@ -796,10 +798,9 @@ def _normalize_search_comparison(
     }
     comparison_id = value.get("comparison_id")
     if comparison_id is not None:
-        resolved = str(comparison_id).strip()
-        if not resolved:
-            raise InvalidFindingPackError("search_comparison.comparison_id must be non-empty")
-        comparison["comparison_id"] = resolved
+        if not isinstance(comparison_id, str) or not comparison_id.strip():
+            raise InvalidFindingPackError("search_comparison.comparison_id must be a non-empty string")
+        comparison["comparison_id"] = comparison_id.strip()
     return comparison
 
 

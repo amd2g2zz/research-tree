@@ -96,7 +96,16 @@ def test_pack_compile_records_skipped_comparison(tmp_path) -> None:
     assert "search_comparison" not in compiled.payload
 
 
-def test_pack_compile_rejects_invalid_comparison_payload(tmp_path) -> None:
+@pytest.mark.parametrize(
+    "bad_comparison",
+    [
+        {"provider_fanout": -1, "duplicates": 0, "captures": 0, "coverage_met": 0},
+        {"provider_fanout": 1, "duplicates": 0, "captures": 3, "coverage_met": 0, "contradictions": "abc"},
+        {"provider_fanout": 1, "duplicates": 0, "captures": 3, "coverage_met": 0, "contradictions": ["", "  "]},
+        {"provider_fanout": 1, "duplicates": 0, "captures": 3, "coverage_met": 0, "comparison_id": 42},
+    ],
+)
+def test_pack_compile_rejects_invalid_comparison_payload(tmp_path, bad_comparison) -> None:
     ledger, resolver, _record, _model, _brief, _target, work, _a, _b, _evidence, anchor = canonical_context(
         tmp_path, include_decision=False
     )
@@ -120,11 +129,20 @@ def test_pack_compile_rejects_invalid_comparison_payload(tmp_path) -> None:
             option_effects=[{"option": "isolated-worker", "effect": "supports", "claim_ids": ["claim-bad"]}],
             implementation_implications=["Keep the boundary."],
             remaining_uncertainties=[],
-            search_comparison={"provider_fanout": -1, "duplicates": 0, "captures": 0, "coverage_met": 0},
+            search_comparison=bad_comparison,
             expected_revision=ledger.get_revision("round-canonical"),
         )
 
 
+@pytest.mark.parametrize(
+    "bad_comparison",
+    [
+        {"provider_fanout": -1, "duplicates": 0, "captures": 0, "coverage_met": 0},
+        {"provider_fanout": 1, "duplicates": 0, "captures": 3, "coverage_met": 0, "contradictions": "abc"},
+        {"provider_fanout": 1, "duplicates": 0, "captures": 3, "coverage_met": 0, "contradictions": ["", "  "]},
+        {"provider_fanout": 1, "duplicates": 0, "captures": 3, "coverage_met": 0, "comparison_id": 42},
+    ],
+)
 def quarantine_chain(config: RecursiveSearchConfig, claim: str = CLAIM_A):
     state = initialize_research_state(
         round_id="round-h2",

@@ -1183,10 +1183,12 @@ def _apply_ingest_trust(
     """Quarantine low-confidence evidence and record cross-validation objectively.
 
     A finding whose ingest confidence falls below the declared threshold is
-    quarantined: it cannot count toward satisfied evidence until an
-    independent trusted finding shares one of its anchors (corroboration) or
-    an explicit verification pass clears it. Verification failures stay
-    recorded with attempts and reason; nothing is dropped silently.
+    quarantined: it cannot count toward satisfied evidence until a trusted
+    finding restates one of its claims from a disjoint provenance cluster
+    (corroboration = claim overlap plus cluster independence; sharing an
+    anchor means the same source and never lifts quarantine) or an explicit
+    verification pass clears it. Verification failures stay recorded with
+    attempts and reason; nothing is dropped silently.
     """
 
     payload = _payload(finding)
