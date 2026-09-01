@@ -134,6 +134,8 @@ def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
         "consumed_finding_ids",
         "delta_history",
         "penalty_history",
+        "cross_validation",
+        "recursion_receipt",
         "stop_reason",
     }
     if not isinstance(value, Mapping) or not required <= set(value) or set(value) - required:
@@ -157,6 +159,8 @@ def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
         "deliverables",
         "nodes",
         "evidence_baseline",
+        "cross_validation",
+        "recursion_receipt",
     ):
         if not isinstance(value.get(key), Mapping):
             raise ResearchTreeStateError(f"tree state {key} must be a mapping")

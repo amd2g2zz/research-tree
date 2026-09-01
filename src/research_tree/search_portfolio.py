@@ -690,6 +690,12 @@ class IntentDerivedSearchPortfolioPlan:
         portfolio_subquestion_ids = {item.subquestion_id for item in self.portfolio.subquestions}
         if {item.subquestion.subquestion_id for item in subquestions} != portfolio_subquestion_ids:
             raise InvalidSearchPortfolioError("planned subquestions must match the strict portfolio")
+        available_providers = {
+            item.provider_id for item in self.registry.registrations if item.availability != "unavailable"
+        }
+        selected_providers = {item.provider_id for item in self.portfolio.selected_methods}
+        if selected_providers != available_providers:
+            raise InvalidSearchPortfolioError("plan must fan out across every distinct available provider")
         rewrites = _sequence(self.query_rewrites, "query_rewrites")
         if not rewrites or any(not isinstance(item, QueryRewrite) for item in rewrites):
             raise InvalidSearchPortfolioError("query_rewrites must contain QueryRewrite values")
@@ -708,6 +714,11 @@ class IntentDerivedSearchPortfolioPlan:
         object.__setattr__(self, "planned_subquestions", tuple(subquestions))
         object.__setattr__(self, "query_rewrites", tuple(sorted(rewrites, key=lambda item: item.query_ref)))
         object.__setattr__(self, "assumptions", assumptions)
+
+    @property
+    def provider_fanout(self) -> int:
+        """Count of distinct available providers this plan fans out across."""
+        return len({item.provider_id for item in self.portfolio.selected_methods})
 
 
 class IntentDerivedSearchPortfolioPlanner:
@@ -1652,6 +1663,8 @@ class SearchPortfolioExecutor:
         adapters: Mapping[tuple[str, str], Any],
         *,
         batch_id: str = "batch-1",
+        captures: Sequence[Any] = (),
+        intent_terms: Sequence[str] = (),
     ) -> PortfolioExecution:
         if not isinstance(adapters, Mapping):
             raise InvalidSearchPortfolioError("adapters must be a mapping")
@@ -1691,7 +1704,21 @@ class SearchPortfolioExecutor:
             else:
                 raise InvalidSearchPortfolioError("method adapter must return a MethodExecutionOutcome or mapping")
             outcomes.append(outcome)
-        return self.execute(portfolio, (PortfolioBatch(batch_id, portfolio.portfolio_id, tuple(outcomes)),))
+        batch = PortfolioBatch(batch_id, portfolio.portfolio_id, tuple(outcomes))
+        if captures:
+            from .cross_comparison import apply_cross_comparison, compare_portfolio_batch
+
+            comparison = compare_portfolio_batch(
+                comparison_id=f"{batch_id}-comparison",
+                portfolio_id=portfolio.portfolio_id,
+                batch_id=batch_id,
+                outcomes=batch.outcomes,
+                captures=captures,
+                intent_terms=intent_terms,
+            )
+            measured = apply_cross_comparison(comparison, batch.outcomes)
+            batch = PortfolioBatch(batch_id, portfolio.portfolio_id, measured)
+        return self.execute(portfolio, (batch,))
 
     def execute(
         self,
