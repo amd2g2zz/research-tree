@@ -148,6 +148,7 @@ from .independent_review import (
     IndependentReviewError,
     validate_alignment_verification_payload,
     validate_delivery_review_payload,
+    verification_principal,
     verify_identity_independent,
 )
 from .insights import CanonicalInsightWriter, synthesize_insights, validate_insight_digest
@@ -312,11 +313,14 @@ from .source_capture import (
     SourceCapture,
 )
 from .strategy_projection import (
+    STRATEGY_PROJECTION_INVALIDATION_KIND,
+    STRATEGY_PROJECTION_INVALIDATION_SCHEMA_VERSION,
     STRATEGY_PROJECTION_KIND,
     STRATEGY_PROJECTION_SCHEMA_VERSION,
     StrategyProjection,
     StrategyProjectionError,
     macro_stage,
+    validate_strategy_projection_invalidation,
 )
 from .tree_state import (
     RESEARCH_TREE_STATE_KIND,
@@ -413,6 +417,7 @@ __all__ = [
     "IndependentReviewError",
     "validate_alignment_verification_payload",
     "validate_delivery_review_payload",
+    "verification_principal",
     "verify_identity_independent",
     "DataIntegrityError",
     "DeliveryArtifacts",
@@ -628,11 +633,14 @@ __all__ = [
     "DecisionFrame",
     "DecisionFrameValidationError",
     "IntentHypothesis",
+    "STRATEGY_PROJECTION_INVALIDATION_KIND",
+    "STRATEGY_PROJECTION_INVALIDATION_SCHEMA_VERSION",
     "STRATEGY_PROJECTION_KIND",
     "STRATEGY_PROJECTION_SCHEMA_VERSION",
     "StrategyProjection",
     "StrategyProjectionError",
     "macro_stage",
+    "validate_strategy_projection_invalidation",
     "WorkItemError",
     "validate_human_brief_payload",
     "validate_human_research_report_payload",

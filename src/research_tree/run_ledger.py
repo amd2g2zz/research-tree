@@ -922,6 +922,37 @@ class RunLedger:
                 raise LedgerIntegrityError("completion input registration violated a ledger constraint") from error
         return tuple(result)
 
+    def completion_input_registration_principals(self, run_id: str) -> dict[ArtifactRef, str]:
+        """Map each current registration to its recorded ledger issuer principal (#471).
+
+        The gate layer needs the durable write-time principal — not the payload's
+        re-declared identities — to judge structural independence. Quarantined
+        and non-current registrations are omitted, mirroring
+        :meth:`list_completion_input_registrations`.
+        """
+
+        self.initialize()
+        run_id = validate_identifier(run_id, "run_id")
+        with self._connect() as connection:
+            quarantined = self._quarantined_refs(connection, run_id)
+            rows = connection.execute(
+                "SELECT registration.artifact_id, registration.artifact_revision, artifact.artifact_json, "
+                "registration.issuer FROM completion_input_registrations registration "
+                "JOIN artifacts artifact ON artifact.run_id = registration.run_id "
+                "AND artifact.artifact_id = registration.artifact_id "
+                "AND artifact.revision = registration.artifact_revision "
+                "WHERE registration.run_id = ?",
+                (run_id,),
+            ).fetchall()
+        principals: dict[ArtifactRef, str] = {}
+        for artifact_id, revision, artifact_json, issuer in rows:
+            artifact = ArtifactRevision.from_dict(json.loads(artifact_json))
+            reference = ArtifactRef(artifact.round_id, artifact.id, artifact.revision)
+            if reference in quarantined or not self.is_latest_artifact(reference):
+                continue
+            principals[reference] = str(issuer)
+        return principals
+
     def list_completion_inputs(self, run_id: str) -> tuple[ArtifactRevision, ...]:
         """Return the newest registered, current completion input for each role."""
 

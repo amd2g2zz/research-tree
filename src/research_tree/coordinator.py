@@ -64,6 +64,8 @@ from .run_ledger import LedgerConflictError, RunLedger
 from .search_portfolio import PortfolioExecution, SearchPortfolio
 from .source_capture import ACQUISITION_RECEIPT_KIND, ANALYSIS_CHECKPOINT_KIND, SOURCE_CAPTURE_KIND
 from .strategy_projection import (
+    STRATEGY_PROJECTION_INVALIDATION_KIND,
+    STRATEGY_PROJECTION_INVALIDATION_SCHEMA_VERSION,
     STRATEGY_PROJECTION_KIND,
     StrategyProjection,
     StrategyProjectionError,
@@ -71,6 +73,7 @@ from .strategy_projection import (
     latest_confirmed,
     macro_stage,
     validate_falsifiability,
+    validate_strategy_projection_invalidation,
 )
 from .work_items import WORK_ITEM_KIND, CanonicalWorkItemCompiler
 
@@ -853,6 +856,18 @@ class ResearchRunCoordinator:
         changes: Mapping[str, Any],
         expected_revision: int,
     ) -> ArtifactRevision:
+        """Revise a strategy projection under #471 supersede semantics.
+
+        Before any confirmation the revision is written exactly as before. Once
+        an authoritative confirmed projection exists, that confirmation is the
+        human's authorization of the exact displayed content, so a revision can
+        never silently replace it: the prior confirmed revision is invalidated
+        by a ``strategy-projection-invalidation`` marker artifact, the revision
+        itself is written as an unconfirmed ``draft`` — never ``displayed`` —
+        and re-display requires the full independent alignment gate on the new
+        revision (fresh verification bound to the new revision and fingerprint).
+        """
+
         artifact, projection = self.require_strategy_projection(projection_ref, run_id=run_id)
         values = projection.to_dict()
         values.update(dict(changes))
@@ -861,7 +876,6 @@ class ResearchRunCoordinator:
                 "projection_id": projection.projection_id,
                 "run_id": run_id,
                 "revision": projection.revision + 1,
-                "status": "displayed",
             }
         )
         values["decision_frame_ref"] = projection.decision_frame_ref
@@ -872,22 +886,63 @@ class ResearchRunCoordinator:
         values.pop("display_payload", None)
         values.pop("display_digest", None)
         values.pop("content_hash", None)
+        confirmed = latest_confirmed(self.ledger.load_run(run_id).artifacts)
+        post_confirm = confirmed is not None
+        # Validate the revised content before any ledger write: a rejected
+        # revision must not leave an invalidation marker behind.
+        values["status"] = "draft" if post_confirm else "displayed"
         revised = StrategyProjection.create(**values)
+        parent_refs = [
+            ArtifactRef(run_id, artifact.id, artifact.revision),
+            revised.decision_frame_ref,
+            revised.alignment_handoff_ref,
+            revised.target_ref,
+        ]
+        if post_confirm:
+            parent_refs.append(
+                self._append_projection_invalidation(run_id, confirmed, expected_revision=expected_revision)
+            )
         try:
             return self.ledger.append_strategy_projection(
                 run_id,
                 revised.projection_id,
                 revised.to_dict(),
-                parent_refs=(
-                    ArtifactRef(run_id, artifact.id, artifact.revision),
-                    revised.decision_frame_ref,
-                    revised.alignment_handoff_ref,
-                    revised.target_ref,
-                ),
-                expected_revision=expected_revision,
+                parent_refs=tuple(parent_refs),
+                expected_revision=expected_revision + (1 if post_confirm else 0),
             )
         except LedgerConflictError as error:
             raise CoordinatorConflictError("stale_revision") from error
+
+    def _append_projection_invalidation(
+        self,
+        run_id: str,
+        confirmed: ArtifactRevision,
+        *,
+        expected_revision: int,
+    ) -> ArtifactRef:
+        """Append the #471 marker that voids a confirmed projection's authorization."""
+
+        superseded = StrategyProjection.from_dict(dict(confirmed.payload))
+        marker_id = f"{confirmed.id}-invalidation-{confirmed.revision}"
+        payload = {
+            "schema": STRATEGY_PROJECTION_INVALIDATION_SCHEMA_VERSION,
+            "id": marker_id,
+            "run_id": run_id,
+            "superseded_projection_ref": ArtifactRef(run_id, confirmed.id, confirmed.revision).to_dict(),
+            "superseded_display_digest": superseded.display_digest,
+            "superseded_authority_fingerprint": authority_fingerprint(superseded),
+            "reason": "post-confirm strategy revision invalidates the confirmed authorization pending the full display gate",
+        }
+        validate_strategy_projection_invalidation(payload)
+        marker = self.ledger.append_artifact(
+            run_id,
+            marker_id,
+            STRATEGY_PROJECTION_INVALIDATION_KIND,
+            payload,
+            parent_refs=(ArtifactRef(run_id, confirmed.id, confirmed.revision),),
+            expected_revision=expected_revision,
+        )
+        return ArtifactRef(run_id, marker.id, marker.revision)
 
     def initialize(
         self,
@@ -2403,9 +2458,7 @@ class ResearchRunCoordinator:
             display_digest = (payload or {}).get("display_digest")
             try:
                 reference = _ref(projection_ref, "projection_ref")
-                artifact, projection = self.require_strategy_projection(
-                    reference, run_id=run_id, require_displayed=event == "handoff_confirmed"
-                )
+                artifact, projection = self.require_strategy_projection(reference, run_id=run_id)
             except CoordinatorConflictError:
                 return False, None
             if display_digest != projection.display_digest or artifact.payload.get("display_digest") != display_digest:
@@ -2427,10 +2480,16 @@ class ResearchRunCoordinator:
             # Issue #292 gate 1: the fingerprint recorded at confirmation must
             # still match the projection's authority fields — a post-confirm
             # revise of scope/authority fails the guard here, blocking
-            # compilation before any execution.
+            # compilation before any execution. The content checks run before
+            # the status check so a tampered or replayed confirmation names the
+            # violated rule even when it targets a superseded (#471) draft.
             recorded = (payload or {}).get("authority_fingerprint")
             if recorded != authority_fingerprint(projection):
                 return False, "authority_fingerprint_drift"
+            # Only the exact displayed/confirmed revision the human authorized
+            # may pass; a #471 post-confirm revision is an unauthorized draft.
+            if projection.status not in {"displayed", "confirmed"}:
+                return False, "strategy_projection_not_displayed"
             return True, None
         if event == "handoff_confirmed":
             current = self._latest_state(run_id)
@@ -3371,12 +3430,14 @@ class ResearchRunCoordinator:
         projection content through the authority fingerprint (so a draft's
         promotion to displayed keeps its verification while any authority-field
         revision invalidates it), name a distinct execution identity for the
-        verifier, and independently restate every success oracle. A verifier
-        whose identity equals the session context is self-review; an artifact
-        without identity is not independent. Both fail closed.
+        verifier, and independently restate every success oracle. Issue #471:
+        independence is judged against the registration's durable write-time
+        principal, which must be the binding of the declared identity pair; an
+        unbound or coordinator principal fails closed.
         """
 
         oracle_ids = self._projection_oracle_ids(projection.display_payload)
+        principals = self.ledger.completion_input_registration_principals(run_id)
         for item in self.ledger.list_completion_input_registrations(run_id).get(ALIGNMENT_VERIFICATION_ROLE, ()):
             try:
                 parsed = validate_alignment_verification_payload(thaw_json(item.payload))
@@ -3387,7 +3448,11 @@ class ResearchRunCoordinator:
             projection_ref = parsed["projection_ref"]
             if projection_ref.round_id != run_id or projection_ref.artifact_id != projection.projection_id:
                 continue
-            if not verify_identity_independent(parsed["verifier_identity"], parsed["session_context"]):
+            if not verify_identity_independent(
+                parsed["verifier_identity"],
+                parsed["session_context"],
+                issuer=principals.get(ArtifactRef(item.round_id, item.id, item.revision)),
+            ):
                 continue
             restated = {str(entry["id"]) for entry in parsed["understood"]["success_oracles"]}
             if any(oracle_id not in restated for oracle_id in oracle_ids):
@@ -3403,8 +3468,10 @@ class ResearchRunCoordinator:
         Conjunction, not replacement: this diagnostic runs beside the #443
         goal_satisfaction diagnostic and both block ``delivery_accepted``. The
         review must be a single current ``delivery-review`` registration whose
-        verifier identity is distinct from the session context (fail-closed on
-        missing identities), whose evidence custody parents are exactly the
+        verifier identity is structurally independent — distinct from the
+        session context and bound to the registration's durable write-time
+        principal (#471); an unbound or coordinator principal fails closed —
+        whose evidence custody parents are exactly the
         custody references it names and still resolve to current,
         non-quarantined run artifacts, whose per-oracle verdicts cover every
         confirmed projection oracle, and whose overall verdict is not ``unmet``.
@@ -3430,7 +3497,12 @@ class ResearchRunCoordinator:
             parsed = validate_delivery_review_payload(thaw_json(review.payload))
         except IndependentReviewError:
             return {"status": "fail", "reason": "independent_review_invalid", "ref": review_ref}
-        if not verify_identity_independent(parsed["verifier_identity"], parsed["session_context"]):
+        principals = self.ledger.completion_input_registration_principals(run_id)
+        if not verify_identity_independent(
+            parsed["verifier_identity"],
+            parsed["session_context"],
+            issuer=principals.get(self._artifact_ref(review)),
+        ):
             return {"status": "fail", "reason": "verifier_not_independent", "ref": review_ref}
         if set(review.parent_refs) != set(parsed["evidence_custody"]):
             return {"status": "fail", "reason": "evidence_custody_lineage", "ref": review_ref}

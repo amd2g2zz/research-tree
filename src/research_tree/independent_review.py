@@ -26,10 +26,11 @@ independent and its gate rejects fail-closed.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any, Mapping, Sequence
 
-from .completion_inputs import CompletionInputError
-from .domain import ArtifactRef
+from .completion_inputs import COORDINATOR_ISSUER, CompletionInputError
+from .domain import ArtifactRef, canonical_json_bytes
 
 ALIGNMENT_VERIFICATION_KIND = "alignment-verification"
 DELIVERY_REVIEW_KIND = "delivery-review"
@@ -54,17 +55,57 @@ def _text(value: Any, label: str) -> str:
     return value
 
 
-def verify_identity_independent(verifier_identity: Any, session_context: Any) -> bool:
+def verification_principal(verifier_identity: str, session_context: str) -> str:
+    """Derive the durable ledger principal a review's identity pair binds to (#471).
+
+    Independence is judged against the principal the ledger recorded at write
+    time, not against the payload strings. The principal is a one-way SHA-256
+    binding of the declared verifier identity and session context, namespaced
+    by the #462 review issuer, so a registration's issuer cannot be minted,
+    swapped, or re-used across identity pairs after the fact: only the typed
+    registrar produces it, and a registration is append-once.
+    """
+
+    material = {
+        "issuer": INDEPENDENT_REVIEW_ISSUER,
+        "session_context": session_context.strip(),
+        "verifier_identity": verifier_identity.strip(),
+    }
+    return f"{INDEPENDENT_REVIEW_ISSUER}@{hashlib.sha256(canonical_json_bytes(material)).hexdigest()}"
+
+
+def verify_identity_independent(
+    verifier_identity: Any,
+    session_context: Any,
+    *,
+    issuer: Any = None,
+) -> bool:
     """Return whether a review's identities establish independence.
 
     Fail-closed: missing, blank, or oversized identities are never independent,
     and a verifier whose identity equals the session it reviews is self-review.
+
+    Issue #471 hardens the rule structurally:
+
+    - a review whose declared identity names the coordinator principal (the
+      canonical issuer the coordinator itself writes under) is self-issuance
+      regardless of any rename, and
+    - when the caller supplies the registration's durable ``issuer`` principal,
+      it must equal the write-time binding of the declared identity pair
+      (:func:`verification_principal`). An unbound, legacy-constant, or
+      coordinator principal can never satisfy an independent gate.
     """
 
     for value in (verifier_identity, session_context):
         if not isinstance(value, str) or not value.strip() or len(value) > _MAX_IDENTITY_LENGTH:
             return False
-    return verifier_identity.strip() != session_context.strip()
+    if verifier_identity.strip() == session_context.strip():
+        return False
+    if verifier_identity.strip() == COORDINATOR_ISSUER or session_context.strip() == COORDINATOR_ISSUER:
+        return False
+    if issuer is None:
+        return True
+    return isinstance(issuer, str) and issuer == verification_principal(verifier_identity, session_context)
 
 
 def validate_alignment_verification_payload(payload: Any) -> dict[str, Any]:
@@ -228,5 +269,6 @@ __all__ = [
     "IndependentReviewError",
     "validate_alignment_verification_payload",
     "validate_delivery_review_payload",
+    "verification_principal",
     "verify_identity_independent",
 ]
