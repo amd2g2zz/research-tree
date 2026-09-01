@@ -26,7 +26,7 @@ ignored by Git.
 Only when diagnosing hook behavior from a source checkout:
 
 ~~~bash
-uv run --locked research-tree-hook --host claude --event SessionStart --debug
+python scripts/lifecycle_hook_launcher.py --host claude --event SessionStart --debug
 ~~~
 
 It remains fail-open. A trace failure is swallowed like any other hook

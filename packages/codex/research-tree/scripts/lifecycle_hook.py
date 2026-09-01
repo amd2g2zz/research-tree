@@ -71,9 +71,23 @@ TRACE_CODE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,95}\Z")
 # Issue #453 defect 2: lightweight user-input classification signals.
 # Heuristic rule table — first match wins, ordered so explicit halts outrank
 # corrections, corrections outrank answers, and answers outrank insights.
+# Review calibration: only prompts that clearly overturn a prior conclusion
+# or instruction rank as high-confidence corrections. The tentative
+# "actually" prefix is medium, and correction vocabulary paired with
+# continuation semantics ("...but continue with the plan") is downgraded to
+# low, so neither is routed into the correction feed.
 PROMPT_SIGNAL_CATEGORIES = ("correction", "interruption", "insight", "answer", "neutral")
-PROMPT_SIGNAL_CONFIDENCES = ("high", "low")
+PROMPT_SIGNAL_CONFIDENCES = ("high", "medium", "low")
 SIGNAL_DIRECTORY = Path(".research-tree-debug") / "signals"
+MAX_SIGNAL_RECORDS = 200
+# Continuation semantics: the requester explicitly keeps the current course.
+CONTINUATION_SEMANTICS_RE = re.compile(
+    r"\b(?:"
+    r"continue|continues|continuing|carry(?:ing)?\s+on|keep(?:ing)?\s+going|go\s+on|proceed(?:s|ing)?|"
+    r"as\s+(?:planned|usual|scheduled|agreed)|no\s+(?:other\s+)?changes\s+needed|stay\s+the\s+course"
+    r")\b|照常|继续",
+    re.IGNORECASE,
+)
 PROMPT_SIGNAL_RULES: tuple[tuple[str, str, re.Pattern[str], str], ...] = tuple(
     (category, rule, re.compile(pattern, re.IGNORECASE), confidence)
     for category, rule, pattern, confidence in (
@@ -91,7 +105,7 @@ PROMPT_SIGNAL_RULES: tuple[tuple[str, str, re.Pattern[str], str], ...] = tuple(
             r"\b(?:wrong|incorrect|misunderstood|not\s+what\s+i\s+(?:asked|wanted|meant))\b",
             "high",
         ),
-        ("correction", "actually_prefix", r"^\s*actually\b", "high"),
+        ("correction", "actually_prefix", r"^\s*actually\b", "medium"),
         ("correction", "instead_of", r"\binstead\s+of\b", "low"),
         ("correction", "should_be", r"\b(?:should|must)\s+(?:have\s+been|be)\b", "low"),
         (
@@ -113,11 +127,20 @@ PROMPT_SIGNAL_RULES: tuple[tuple[str, str, re.Pattern[str], str], ...] = tuple(
 
 
 def classify_prompt_signal(prompt: str) -> dict[str, str]:
-    """Classify a user prompt into a lightweight feedback signal category."""
+    """Classify a user prompt into a lightweight feedback signal category.
+
+    Corrections carrying explicit continuation semantics are downgraded to
+    low confidence with a ``+continuation`` rule suffix: the requester kept
+    the current course, so the record stays queryable without being treated
+    as an overturn of the prior conclusion or instruction.
+    """
     text = prompt.strip() if isinstance(prompt, str) else ""
     for category, rule, pattern, confidence in PROMPT_SIGNAL_RULES:
-        if pattern.search(text):
-            return {"category": category, "confidence": confidence, "rule": rule}
+        if not pattern.search(text):
+            continue
+        if category == "correction" and CONTINUATION_SEMANTICS_RE.search(text):
+            return {"category": category, "confidence": "low", "rule": f"{rule}+continuation"}
+        return {"category": category, "confidence": confidence, "rule": rule}
     return {"category": "neutral", "confidence": "low", "rule": "default"}
 
 
@@ -338,6 +361,29 @@ def observe(
     }
 
 
+def _cap_signal_records(root: Path) -> None:
+    """Bound the signals directory: keep only the newest MAX_SIGNAL_RECORDS.
+
+    File names carry a fixed-width UTC timestamp prefix, so lexicographic
+    order is chronological. Cleanup is best-effort and fail-open: an unlink
+    failure must never break recording, and concurrent recorders may
+    transiently evict a few extra oldest records, which is acceptable for a
+    bounded diagnosis directory.
+    """
+    try:
+        records = [item for item in (root / SIGNAL_DIRECTORY).iterdir() if item.is_file() and item.suffix == ".json"]
+    except OSError:
+        return
+    overflow = len(records) - MAX_SIGNAL_RECORDS
+    if overflow <= 0:
+        return
+    for oldest in sorted(records, key=lambda item: item.name)[:overflow]:
+        try:
+            oldest.unlink()
+        except OSError:
+            return
+
+
 def _observe_prompt_signal(
     payload: dict[str, Any],
     *,
@@ -368,6 +414,7 @@ def _observe_prompt_signal(
         if value is not None:
             record[key] = value
     path = _write_record(root, record, root / SIGNAL_DIRECTORY)
+    _cap_signal_records(root)
     result: dict[str, Any] = {
         "status": "recorded",
         "host": host,
@@ -383,14 +430,16 @@ def _observe_prompt_signal(
 
 
 def _feed_correction_signal(root: Path, payload: dict[str, Any], record: dict[str, Any]) -> str | None:
-    """Feed a high-confidence correction into the run-scoped correction path.
+    """Append a high-confidence correction to the run-scoped events surface.
 
     The hook cannot call ``apply_correction`` directly: a valid CorrectionEvent
     requires run/task/domain identifiers, artifact digests and the ledger
-    revision that only the workflow has. Instead the signal is appended to the
-    run's events directory (the same append-only surface the alignment step
-    consumes), so the next alignment turn can route it through apply_correction
-    with full ledger context. Fail-open: returns None on any problem.
+    revision that only the workflow has. The signal record (marked
+    ``route: "apply_correction"``) is therefore appended to the run's events
+    directory for operator and agent inspection; the automated alignment
+    consumer that would route it through apply_correction is planned v2 work,
+    so today nothing reads these records automatically. Fail-open: returns
+    None on any problem.
     """
     try:
         project_id = payload.get("project_id")
