@@ -52,6 +52,7 @@ COMMON_FILES = (
 )
 COMMON_FILE_MAP = (
     (Path("src/research_tree/alignment_graph.py"), Path("scripts/alignment_controller.py")),
+    (Path("src/research_tree/speech_acts.py"), Path("scripts/speech_acts.py")),
     (Path("src/research_tree/skill_activation.py"), Path("scripts/skill_activation.py")),
     (Path("src/research_tree/lifecycle_hook.py"), Path("scripts/lifecycle_hook.py")),
     (Path("src/research_tree/origins.py"), Path("scripts/origins.py")),

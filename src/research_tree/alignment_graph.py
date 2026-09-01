@@ -147,7 +147,10 @@ def _normalize_node_status(value: Any) -> str:
     text = str(value)
     if text in NODE_STATUSES:
         return text
-    from .speech_acts import normalize_status as _normalize
+    try:
+        from .speech_acts import normalize_status as _normalize
+    except ImportError:  # packaged single-file layout: speech_acts ships beside this script (#470)
+        from speech_acts import normalize_status as _normalize
 
     return _normalize(value)
 
@@ -328,8 +331,12 @@ class AlignmentGraphStore:
             stagnant = int(controller["stagnant_turns"])
             status = node["status"]
             if outcome == "answered":
-                from .speech_acts import AuthorityTransitionError, SpeechAct
-                from .speech_acts import transition as _speech_transition
+                try:
+                    from .speech_acts import AuthorityTransitionError, SpeechAct
+                    from .speech_acts import transition as _speech_transition
+                except ImportError:  # packaged single-file layout (#470)
+                    from speech_acts import AuthorityTransitionError, SpeechAct
+                    from speech_acts import transition as _speech_transition
 
                 normalized = _normalize_node_status(status)
                 speech_act = SpeechAct(

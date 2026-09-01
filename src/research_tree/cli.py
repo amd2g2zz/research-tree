@@ -11,6 +11,10 @@ from typing import Any, Mapping, Sequence
 
 from .alignment_graph import AlignmentGraphError, AlignmentGraphStore, database_path
 from .alignment_handoff import goal_decomposition, initialize_research_from_alignment
+
+# isort: split
+from .alignment_handoff import ALIGNMENT_HANDOFF_KIND
+from .completion_inputs import CompletionInputRegistrar
 from .coordinator import (
     CompletionBlockedError,
     CoordinatorConflictError,
@@ -19,7 +23,12 @@ from .coordinator import (
     ResearchRunCoordinator,
     StaleStateError,
 )
+from .decision_frame import DecisionFrame, IntentHypothesis
+from .decision_map import BLUEPRINT_TARGET_KIND, CanonicalBlueprintTargetCompiler
+from .delivery import compile_operating_model, render_operating_model
 from .domain import ArtifactRef, ArtifactRevision, RuntimeStoreError
+from .intake import CanonicalInputIntakeService
+from .intent import WORKING_BRIEF_KIND, CanonicalIntentModelCompiler, CanonicalWorkingBriefCompiler
 from .origins import close_tag, open_tag
 from .project_workspace import (
     ProjectWorkspaceError,
@@ -54,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="research-tree",
         description="Stable, host-neutral lifecycle commands; the canonical coordinator retains completion authority.",
-        epilog="Commands: install, doctor, run, resume, status, strategy, verify.",
+        epilog="Commands: install, doctor, run, initialize, resume, status, strategy, operating-model, verify.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     commands = parser.add_subparsers(dest="command", required=True)
@@ -79,6 +88,25 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--scope", required=True, help="plain-language in-scope boundary")
     run.add_argument("--authority", required=True, help="plain-language authorization boundary")
     run.add_argument("--success-oracle", required=True, help="plain-language completion evidence rule")
+
+    initialize = commands.add_parser(
+        "initialize",
+        help="bind the compiled alignment handoff to a blueprint target and initialize the run",
+    )
+    _add_workspace(initialize)
+    _add_run_identity(initialize, required=True)
+    initialize.add_argument("--brief", type=Path, help="operator document compiling the intent model and Working Brief")
+    initialize.add_argument("--blueprint", type=Path, help="operator document compiling the Blueprint Target")
+    initialize.add_argument("--frame", type=Path, help="operator document persisting the decision frame")
+    initialize.add_argument("--idempotency-key")
+
+    operating_model = commands.add_parser(
+        "operating-model",
+        help="render the Human Brief operating model: roles, SLA, concurrency, blockers, fallback",
+    )
+    _add_workspace(operating_model)
+    _add_run_identity(operating_model, required=True)
+    operating_model.add_argument("--json", action="store_true", help="emit the canonical payload instead of markdown")
 
     resume = commands.add_parser("resume", help="resume a durable governed run without widening authority")
     _add_workspace(resume)
@@ -105,6 +133,11 @@ def build_parser() -> argparse.ArgumentParser:
     strategy_verbs = strategy.add_subparsers(dest="strategy_verb", required=True)
     propose = strategy_verbs.add_parser("propose", help="persist a reviewed strategy projection draft")
     propose.add_argument("--projection", required=True, type=Path)
+    propose.add_argument(
+        "--alignment-verification",
+        type=Path,
+        help="independent subagent alignment verification document (registered before display)",
+    )
     strategy_verbs.add_parser("display", help="display the projection after falsifiability review")
     confirm = strategy_verbs.add_parser(
         "confirm",
@@ -777,6 +810,193 @@ def _emit(payload: Mapping[str, Any]) -> None:
     print(open_tag("rt:tool-output", attributes) + body + close_tag("rt:tool-output"))
 
 
+def _latest_kind(artifacts: Sequence[ArtifactRevision], kind: str) -> ArtifactRevision | None:
+    """Resolve the latest revision of one artifact kind, or None."""
+
+    candidates = [item for item in artifacts if item.kind == kind]
+    return max(candidates, key=lambda item: item.revision) if candidates else None
+
+
+def _compile_working_brief(ledger: RunLedger, run_id: str, document: Mapping[str, Any]) -> ArtifactRevision:
+    """Compile the intent model and Working Brief from one operator document (#470)."""
+
+    inputs = tuple(document.get("inputs", ()))
+    intake = CanonicalInputIntakeService(ledger)
+    for entry in inputs:
+        intake.ingest_text(
+            round_id=run_id,
+            input_id=str(entry["id"]),
+            kind=str(entry["kind"]),
+            content=str(entry["content"]),
+            origin_type=str(entry["origin_type"]),
+            origin_locator=str(entry["origin_locator"]),
+            role=str(entry.get("role", "signal")),
+            expected_revision=ledger.get_revision(run_id),
+        )
+    model = CanonicalIntentModelCompiler(ledger).compile(
+        round_id=run_id,
+        intent_id=str(document["intent_id"]),
+        context_bundle_ids=tuple(document.get("context_bundle_ids", ())),
+        input_ids=[str(entry["id"]) for entry in inputs],
+        analysis=dict(document["analysis"]),
+        expected_revision=ledger.get_revision(run_id),
+    )
+    return CanonicalWorkingBriefCompiler(ledger).compile(
+        round_id=run_id,
+        brief_id=str(document["brief_id"]),
+        intent_model=model,
+        triggers=tuple(document.get("triggers", ())),
+        context_bundle_ids=tuple(document.get("context_bundle_ids", ())),
+        selected_input_ids=tuple(document["selected_input_ids"]),
+        input_roles=dict(document["input_roles"]),
+        material_conflicts=tuple(document.get("material_conflicts", ())),
+        working_interpretation=str(document["working_interpretation"]),
+        technical_outcome=str(document["technical_outcome"]),
+        assumptions=tuple(document.get("assumptions", ())),
+        expected_revision=ledger.get_revision(run_id),
+    )
+
+
+def _resolve_working_brief(ledger: RunLedger, run_id: str, arguments: argparse.Namespace) -> ArtifactRevision:
+    if arguments.brief is not None:
+        return _compile_working_brief(ledger, run_id, _read_json_object(arguments.brief))
+    brief = _latest_kind(ledger.load_run(run_id).artifacts, WORKING_BRIEF_KIND)
+    if brief is None:
+        raise CoordinatorConflictError("working_brief_missing")
+    return brief
+
+
+def _resolve_blueprint_target(
+    ledger: RunLedger,
+    run_id: str,
+    arguments: argparse.Namespace,
+    brief: ArtifactRevision,
+    handoff: ArtifactRevision,
+) -> ArtifactRevision:
+    """Compile (with the handoff bind) or resolve the blueprint target of the run."""
+
+    if arguments.blueprint is not None:
+        document = _read_json_object(arguments.blueprint)
+        return CanonicalBlueprintTargetCompiler(ledger).compile(
+            round_id=run_id,
+            target_id=str(document["target_id"]),
+            working_brief=brief,
+            slots=tuple(document["slots"]),
+            change=dict(document["change"]),
+            expected_revision=ledger.get_revision(run_id),
+            alignment_handoff=handoff,
+        )
+    target = _latest_kind(ledger.load_run(run_id).artifacts, BLUEPRINT_TARGET_KIND)
+    if target is None:
+        raise CoordinatorConflictError("blueprint_target_missing")
+    if ArtifactRef(run_id, handoff.id, handoff.revision) not in target.parent_refs:
+        raise CoordinatorConflictError("blueprint_target_handoff_lineage")
+    return target
+
+
+def _persist_frame(
+    coordinator: ResearchRunCoordinator,
+    ledger: RunLedger,
+    run_id: str,
+    frame_path: Path,
+    target: ArtifactRevision,
+) -> dict[str, Any]:
+    """Persist the decision frame document bound to the compiled blueprint target."""
+
+    document = dict(_read_json_object(frame_path))
+    document["hypotheses"] = [IntentHypothesis.from_dict(item) for item in document.get("hypotheses", ())]
+    document["target_ref"] = ArtifactRef(run_id, target.id, target.revision)
+    try:
+        frame = DecisionFrame.create(**document)
+    except (TypeError, ValueError) as error:
+        raise CliInputError(f"decision_frame_invalid: {error}") from error
+    stored = coordinator.persist_decision_frame(frame, expected_revision=ledger.get_revision(run_id))
+    return ArtifactRef(run_id, stored.id, stored.revision).to_dict()
+
+
+def _initialize(arguments: argparse.Namespace) -> dict[str, Any]:
+    """Bridge a prepared run to an initialized run-state through the canonical chain (#470)."""
+
+    workspace = arguments.workspace.expanduser().resolve()
+    ledger = RunLedger(workspace)
+    run_id = arguments.run_id
+    snapshot = ledger.load_run(run_id)
+    handoff = _latest_kind(snapshot.artifacts, ALIGNMENT_HANDOFF_KIND)
+    if handoff is None:
+        initialize_research_from_alignment(
+            ledger,
+            round_id=run_id,
+            tree_id=f"tree-{run_id}",
+            alignment_database=database_path(workspace, run_id, arguments.project_id),
+            expected_revision=ledger.get_revision(run_id),
+        )
+        snapshot = ledger.load_run(run_id)
+        handoff = _latest_kind(snapshot.artifacts, ALIGNMENT_HANDOFF_KIND)
+    brief = _resolve_working_brief(ledger, run_id, arguments)
+    target = _resolve_blueprint_target(ledger, run_id, arguments, brief, handoff)
+    coordinator = ResearchRunCoordinator(ledger)
+    state = coordinator.initialize(
+        run_id=run_id,
+        alignment_handoff=handoff,
+        blueprint_target=target,
+        expected_revision=ledger.get_revision(run_id),
+        idempotency_key=arguments.idempotency_key,
+    )
+    frame_ref = None
+    if arguments.frame is not None:
+        frame_ref = _persist_frame(coordinator, ledger, run_id, arguments.frame, target)
+    return _stable_payload(
+        "initialize",
+        status="initialized",
+        run={
+            "project_id": arguments.project_id,
+            "run_id": run_id,
+            "authority_revision": ledger.get_revision(run_id),
+        },
+        result={
+            "state": state.payload.get("state"),
+            "handoff_ref": ArtifactRef(run_id, handoff.id, handoff.revision).to_dict(),
+            "target_ref": ArtifactRef(run_id, target.id, target.revision).to_dict(),
+            "frame_ref": frame_ref,
+        },
+    )
+
+
+def _operating_model(arguments: argparse.Namespace) -> str | dict[str, Any]:
+    """Render the canonical Human Brief operating model for operator reading (#470)."""
+
+    workspace = arguments.workspace.expanduser().resolve()
+    ledger = RunLedger(workspace)
+    snapshot = ledger.load_run(arguments.run_id)
+    model = compile_operating_model(arguments.run_id, snapshot.artifacts, ledger)
+    if arguments.json:
+        return _stable_payload(
+            "operating-model",
+            status="ready",
+            run={
+                "project_id": arguments.project_id,
+                "run_id": arguments.run_id,
+                "authority_revision": None,
+            },
+            result={"operating_model": model},
+        )
+    return render_operating_model(model)
+
+
+def _projection_from_document(document: Mapping[str, Any]) -> StrategyProjection:
+    """Accept a serialized projection or a base document the product completes (#470)."""
+
+    try:
+        if "display_payload" in document:
+            return StrategyProjection.from_dict(document)
+        values = dict(document)
+        for name in ("decision_frame_ref", "alignment_handoff_ref", "target_ref"):
+            values[name] = ArtifactRef.from_dict(values[name])
+        return StrategyProjection.create(**values)
+    except (StrategyProjectionError, TypeError, KeyError, ValueError) as error:
+        raise CliInputError("strategy_projection_invalid") from error
+
+
 def _latest_strategy_projection(ledger: RunLedger, run_id: str) -> ArtifactRevision:
     """Resolve the current strategy-projection revision for the run."""
 
@@ -808,14 +1028,20 @@ def _strategy_propose(
 ) -> dict[str, Any]:
     """Persist a reviewed projection draft through coordinator.persist_strategy_projection."""
 
-    document = _read_json_object(arguments.projection)
-    try:
-        proposal = StrategyProjection.from_dict(document)
-    except StrategyProjectionError as error:
-        raise CliInputError("strategy_projection_invalid") from error
+    proposal = _projection_from_document(_read_json_object(arguments.projection))
     if proposal.run_id != arguments.run_id:
         raise CliInputError("strategy_projection_cross_run")
     stored = coordinator.persist_strategy_projection(proposal, expected_revision=ledger.get_revision(arguments.run_id))
+    if arguments.alignment_verification is not None:
+        verification = dict(_read_json_object(arguments.alignment_verification))
+        verification["projection_ref"] = ArtifactRef(arguments.run_id, stored.projection_id, stored.revision).to_dict()
+        verification["authority_fingerprint"] = authority_fingerprint(proposal)
+        CompletionInputRegistrar(ledger).write_alignment_verification(
+            round_id=arguments.run_id,
+            verification_id=str(verification.get("id")),
+            payload=verification,
+            expected_revision=ledger.get_revision(arguments.run_id),
+        )
     return _stable_payload(
         f"strategy.{arguments.strategy_verb}",
         status="proposed",
@@ -965,6 +1191,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0 if payload["readiness"]["ready"] else 4
         if arguments.command == "run":
             _emit(_run_lifecycle(arguments))
+            return 0
+        if arguments.command == "initialize":
+            _emit(_initialize(arguments))
+            return 0
+        if arguments.command == "operating-model":
+            payload = _operating_model(arguments)
+            if isinstance(payload, str):
+                print(payload)
+            else:
+                _emit(payload)
             return 0
         if arguments.command == "resume":
             _emit(_resume(arguments))
