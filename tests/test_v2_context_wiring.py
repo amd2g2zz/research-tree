@@ -215,6 +215,16 @@ def test_budget_exhaustion_is_resumable_unknown_never_pass(tmp_path: Path):
     assert context["execution_state"] == "unknown"
     assert receipt["per_oracle"][CONTEXT_ORACLE] == "unmet"
     assert set(receipt["per_oracle"]) == ALL_ORACLES
+    from research_tree.run_ledger import RunLedger
+
+    review = next(
+        item
+        for item in RunLedger(tmp_path / "workspace").load_run("run-v2-trackb").artifacts
+        if item.kind == "delivery-review"
+    )
+    review_payload = dict(review.payload)
+    assert review_payload["verdict"] == "unmet"
+    assert review_payload["per_oracle"][CONTEXT_ORACLE]["verdict"] == "unmet"
 
 
 def test_oracle_set_keeps_thirteen_oracles_separate():

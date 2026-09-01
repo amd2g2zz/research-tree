@@ -139,6 +139,14 @@ GOAL_SATISFACTION_EVIDENCE_KINDS = frozenset(
     {"finding-pack", "slot-closure-assessment", "goal-contribution-assessment"}
 )
 
+_missing_waivers = [
+    oracle["id"]
+    for oracle in build_success_oracles()
+    if oracle["id"] not in RUNTIME_ORACLES and oracle["id"] not in WAIVED_REASONS
+]
+if _missing_waivers:
+    raise RuntimeError(f"non-runtime oracles without waiver reasons: {_missing_waivers}")
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -561,22 +569,29 @@ def _register_completion_inputs(ledger: RunLedger, run_id: str, target) -> None:
     )
 
 
-def _write_delivery_review(ledger: RunLedger, packs: dict[str, Any]) -> Any:
+def _write_delivery_review(ledger: RunLedger, packs: dict[str, Any], *, context_gate_compromised: bool) -> Any:
     custody = [
         ArtifactRef(RUN_ID, pack.id, pack.revision).to_dict()
         for pack in (packs["matrix"], packs["handoff"], packs["review"], packs["completion"])
     ]
+
+    def _verdict(oracle_id: str) -> str:
+        if oracle_id == "oracle-context-discipline" and context_gate_compromised:
+            return "unmet"
+        return "satisfied" if oracle_id in RUNTIME_ORACLES else "partial"
+
+    def _basis(oracle_id: str) -> str:
+        if _verdict(oracle_id) == "unmet":
+            return "Context gate compromised: budget exhausted or read failure."
+        if oracle_id in RUNTIME_ORACLES:
+            return "Governed-run evidence pack grounds this oracle."
+        return "Track-A-carried oracle: attested only for the governed-run scope; waived in goal satisfaction."
+
     oracle_verdicts = {
-        oracle["id"]: {
-            "verdict": "satisfied" if oracle["id"] in RUNTIME_ORACLES else "partial",
-            "basis": (
-                "Governed-run evidence pack grounds this oracle."
-                if oracle["id"] in RUNTIME_ORACLES
-                else "Track-A-carried oracle: attested only for the governed-run scope; waived in goal satisfaction."
-            ),
-        }
+        oracle["id"]: {"verdict": _verdict(oracle["id"]), "basis": _basis(oracle["id"])}
         for oracle in build_success_oracles()
     }
+    overall = "unmet" if any(v["verdict"] == "unmet" for v in oracle_verdicts.values()) else "satisfied"
     return CompletionInputRegistrar(ledger).write_delivery_review(
         round_id=RUN_ID,
         review_id=f"delivery-review-{RUN_ID}",
@@ -588,7 +603,7 @@ def _write_delivery_review(ledger: RunLedger, packs: dict[str, Any]) -> Any:
             "session_context": MAIN_SESSION,
             "per_oracle": oracle_verdicts,
             "evidence_custody": custody,
-            "verdict": "satisfied",
+            "verdict": overall,
         },
         expected_revision=ledger.get_revision(RUN_ID),
     )
@@ -632,6 +647,11 @@ def run_governed_evaluation(
     budget_mapping: dict[str, int | float | None] = dict(
         declared_context_budget if declared_context_budget is not None else DECLARED_CONTEXT_BUDGET
     )
+    canonical_budget = ContextBudget.from_mapping(budget_mapping).as_dict()
+    if set(budget_mapping) != set(canonical_budget) or any(value is None for value in budget_mapping.values()):
+        raise ContextLedgerError(
+            "declared budget is not enforceable: unknown keys or null values normalize to unbounded"
+        )
     ledger, coordinator, _handoff, target = _setup(workspace, RUN_ID)
     projection = _confirm_v2_projection(
         ledger,
@@ -686,7 +706,7 @@ def run_governed_evaluation(
     verdicts = _register_goal_satisfactions(
         ledger, packs, matrix_receipt["status"], context_exhausted=context_gate_compromised
     )
-    review = _write_delivery_review(ledger, packs)
+    review = _write_delivery_review(ledger, packs, context_gate_compromised=context_gate_compromised)
     completion = _advance(ledger, coordinator)
     return {
         "schema_version": 1,
@@ -750,6 +770,14 @@ def run_governed_evaluation(
             "declared_budget_reason": (
                 "declared at admission: carried by the confirmed strategy projection and the persisted "
                 "context-admission-record; receipts account reads in file bytes (host-unmediated)"
+            ),
+            "registry_digest_scope": (
+                "self-issued tamper-evidence over the baseline payload only; the external provenance anchor "
+                "for the baseline numbers is the #292 issue record"
+            ),
+            "budget_wave_semantics": (
+                "declared budget is enforced per ledger wave; cumulative-across-waves bound and resume-time "
+                "budget replacement are context_ledger_contract obligations (disclosed, not solved here)"
             ),
         },
         "blocker": (

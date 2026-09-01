@@ -107,11 +107,18 @@ def cross_check(declared: Mapping[str, Any], registry: Mapping[str, Any]) -> dic
     declared_scores = declared.get("role_scores")
     if not isinstance(declared_scores, Mapping):
         raise BaselineAdmissionError("baseline-registry-invalid", "declared role_scores must be an object")
+    extra_roles = sorted(set(declared_scores) - set(ROLE_KEYS))
+    if extra_roles:
+        raise BaselineAdmissionError(
+            "baseline-registry-invalid", f"declared role_scores carries unregistered roles: {extra_roles}"
+        )
     admitted_scores: dict[str, float] = {}
     for role in ROLE_KEYS:
         if role not in declared_scores:
             raise BaselineAdmissionError(f"baseline-role-missing:{role}", "declared baseline omits a registered role")
         registered = baseline["role_scores"][role]
+        if isinstance(declared_scores[role], bool):
+            raise BaselineAdmissionError(f"baseline-role-score-mismatch:{role}", "declared role score must be a number")
         if declared_scores[role] != registered["value"]:
             raise BaselineAdmissionError(
                 f"baseline-role-score-mismatch:{role}",
