@@ -1,0 +1,38 @@
+{
+  "schema": "impact-scope-v1",
+  "change": "mechanism-level-research-depth",
+  "issue": 494,
+  "files": [
+    "openspec/changes/mechanism-level-research-depth/design.md",
+    "openspec/changes/mechanism-level-research-depth/evidence/detect-changes-output.txt",
+    "openspec/changes/mechanism-level-research-depth/evidence/impact-scope.json",
+    "openspec/changes/mechanism-level-research-depth/proposal.md",
+    "openspec/changes/mechanism-level-research-depth/specs/mechanism-level-research-depth/spec.md",
+    "openspec/changes/mechanism-level-research-depth/tasks.md",
+    "src/research_tree/__init__.py",
+    "src/research_tree/cross_comparison.py",
+    "src/research_tree/recursive_search.py",
+    "src/research_tree/search_portfolio.py",
+    "tests/test_acquisition.py",
+    "tests/test_cross_comparison.py",
+    "tests/test_recursive_search.py",
+    "tests/test_search_portfolio.py"
+  ],
+  "symbols": [
+    {"name": "SourceMechanism", "file": "src/research_tree/search_portfolio.py"},
+    {"name": "assess_acquisition_batch", "file": "src/research_tree/search_portfolio.py"},
+    {"name": "BatchCoverageAssessment", "file": "src/research_tree/search_portfolio.py"},
+    {"name": "SearchPortfolioExecutor.run", "file": "src/research_tree/search_portfolio.py"},
+    {"name": "SearchPortfolioExecutor.execute", "file": "src/research_tree/search_portfolio.py"},
+    {"name": "CaptureRecord", "file": "src/research_tree/cross_comparison.py"},
+    {"name": "MechanismCluster", "file": "src/research_tree/cross_comparison.py"},
+    {"name": "BatchCrossComparison", "file": "src/research_tree/cross_comparison.py"},
+    {"name": "compare_portfolio_batch", "file": "src/research_tree/cross_comparison.py"},
+    {"name": "evaluate_research_stop", "file": "src/research_tree/recursive_search.py"},
+    {"name": "apply_research_results", "file": "src/research_tree/recursive_search.py"},
+    {"name": "initialize_research_state", "file": "src/research_tree/recursive_search.py"},
+    {"name": "_slot_state", "file": "src/research_tree/recursive_search.py"},
+    {"name": "_update_slot_evidence", "file": "src/research_tree/recursive_search.py"},
+    {"name": "_ensure_mechanism_drilldown", "file": "src/research_tree/recursive_search.py"}
+  ]
+}
