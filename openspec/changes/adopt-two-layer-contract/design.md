@@ -5,19 +5,17 @@
 Issue #501 records the 2026-09-03 architecture ruling: engine-side behavior
 enumeration cannot cover open-ended alignment behaviors (通过词表肯定是无法覆
 盖的，很多需要通过 prompt 来解). The prompt layer already carries ~2000 lines
-of craft guidance (teaching cycles, counterarguments, short-round discipline)
-yet none of it is engine-enforced; engine vocabulary attempts
-(`alignment_graph.py` 19 node types / `POLICY_ACTIONS` in `decision_frame.py`,
-4 actions) cannot express the behaviors the prose promises. The ruling splits
-the system into two layers with a hard division principle: the engine never
-enumerates *what* the agent may say — it gates on *what structural traces the
-agent must leave*; the prompt layer carries all open-ended strategy as craft
-guidance, and anything load-bearing gets an engine-side structural gate.
-
-This change ratifies the ruling as ADR-008 and delivers the mechanical seam
-(`turn_contract.py`) plus the plan-mandated impact-scope audit script and PR
-template. It deliberately does NOT rewire the alignment controller: that is
-#489/#490's file ownership.
+of craft guidance yet none of it is engine-enforced; engine vocabulary
+(``POLICY_ACTIONS`` in `decision_frame.py`, alignment_graph's node/ask
+bookkeeping) cannot express the behaviors the prose promises. The ruling
+splits the system into two layers with a hard division principle: the engine
+never enumerates *what* the agent may say — it gates on *what structural
+traces the agent must leave*; the prompt layer carries all open-ended
+strategy as craft guidance, and anything load-bearing gets an engine-side
+structural gate. This change ratifies the ruling as ADR-008 and delivers the
+mechanical seam plus the plan-mandated audit script and PR template; it
+deliberately does NOT rewire the alignment controller (that is #489/#490's
+file ownership).
 
 ## Goals / Non-Goals
 
@@ -119,33 +117,25 @@ for persistence into the turn-record (#497).
 
 Runtime dependencies stay `[]` (ADR-001); ADR-007's pydantic boundary applies
 when pydantic is promoted to runtime deps and `src/research_tree/schemas.py`
-exists — the whitelist-validation style here is the same pattern that codebase
-already uses (~420 sites) and centralizing into `schemas.py` is deferred until
-a second consumer exists (#489). No production module imports
+exists — the whitelist-validation style here is the same pattern the codebase
+already uses (~420 sites), and centralizing into `schemas.py` is deferred
+until a second consumer exists (#489). No production module imports
 `turn_contract` yet; being uncalled is what makes it a seam.
 
-### check_impact_scope consumes machine-readable GitNexus output when available
+### check_impact_scope consumes machine-readable output when available
 
 Grounded in `node .gitnexus/run.cjs detect-changes --help` (options: `--scope
-unstaged|staged|all|compare`, `--base-ref`, `--repo`, `--limit`). The script
-accepts a saved detect-changes JSON report plus an `impact_scope` sidecar and
-fails when a changed symbol's file falls outside the declared scope; when a
-detect-changes report is unavailable (the CLI prints human-readable output
-and the JSON shape is version-dependent — see script docstring for the exact
-limitation observed on the installed version), it falls back to
-`git diff --name-only <base>...HEAD` cross-referenced against the declared
-file scope. Both modes are deterministic, offline, and MCP-free; the fallback
-is explicitly file-level (documented limitation, not a symbol-level audit).
-
-### impact_scope sidecar lives in the change's evidence/ directory
-
-Per the delivery policy's `ephemeral_verification_paths`, JSON reports under
-`openspec/changes/<id>/evidence/` are not matched by the ignore globs (which
-cover `-output.txt`, `-output.log`, `-receipt.json`, `verification-*.md`, and
-specific named JSONs), so a `detect-changes-report.json` / `impact-scope.json`
-pair there is commitable and wave-reviewable. The sidecar schema
+unstaged|staged|all|compare`, `--base-ref`, `--repo`, `--limit`). Observed on
+the installed version: the command has no JSON flag and prints a
+human-readable report, so symbol-level text parsing would be fragile theater.
+The script therefore accepts a saved detect-changes JSON report (for future
+versions / exports) or falls back to `git diff --name-only <base>...HEAD`
+cross-referenced against the declared file scope — a documented FILE-LEVEL
+audit, deterministic, offline, MCP-free. The sidecar schema
 (`impact-scope-v1`) declares `files` (exact repo-relative paths) and optional
-`symbols` (name + file + status), and is validated with named errors.
+`symbols` (name + file + status) and lives in the change's `evidence/`
+directory (not matched by the delivery-policy ignore globs, so it is
+commitable and wave-reviewable).
 
 ## Rejected Designs
 
@@ -182,18 +172,16 @@ pair there is commitable and wave-reviewable. The sidecar schema
 
 ## Risks / Trade-offs
 
-- [Seam drift: #489 wires the contract and discovers the schema needs fields
-  this PR did not anticipate] -> schema_version is present from day one;
-  additive field growth via optional keys follows the tree_state optional-key
-  precedent; the six initial trace types come verbatim from the issue so the
-  S4 waves can register against them unchanged.
+- [Seam drift: #489 wires the contract and needs fields this PR did not
+  anticipate] -> schema_version is present from day one; additive optional
+  keys follow the tree_state precedent; the six initial trace types come
+  verbatim from the issue so the S4 waves register against them unchanged.
 - [File-level fallback may miss a changed symbol inside a declared file] ->
-  documented limitation; the primary mode consumes the GitNexus report, and
-  the PR template keeps the human-checked detect_changes/impact_scope
-  checklist in the loop.
+  documented limitation; the PR template keeps the human-checked
+  detect_changes/impact_scope checklist in the loop.
 - [Six initial types under-specify payloads] -> required_fields start minimal
-  (each type declares the structural keys the issues name, e.g. option-set
-  carries `options`); S4 waves widen their own types, never others'.
+  (one structural key each); refined shapes register NEW types rather than
+  redefining existing ones.
 
 ## Migration Plan
 

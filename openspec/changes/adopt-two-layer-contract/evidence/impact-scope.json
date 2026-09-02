@@ -1,0 +1,39 @@
+{
+  "schema": "impact-scope-v1",
+  "change": "adopt-two-layer-contract",
+  "issue": 501,
+  "files": [
+    ".github/PULL_REQUEST_TEMPLATE.md",
+    ".gitignore",
+    "docs/adr/ADR-008-two-layer-contract.md",
+    "openspec/changes/adopt-two-layer-contract/design.md",
+    "openspec/changes/adopt-two-layer-contract/evidence/detect-changes-audit.json",
+    "openspec/changes/adopt-two-layer-contract/evidence/impact-scope.json",
+    "openspec/changes/adopt-two-layer-contract/proposal.md",
+    "openspec/changes/adopt-two-layer-contract/specs/turn-contract/spec.md",
+    "openspec/changes/adopt-two-layer-contract/tasks.md",
+    "scripts/check_impact_scope.py",
+    "src/research_tree/turn_contract.py",
+    "tests/test_check_impact_scope.py",
+    "tests/test_turn_contract.py"
+  ],
+  "symbols": [
+    {"name": "ContractTerms", "file": "src/research_tree/turn_contract.py", "status": "added"},
+    {"name": "ContractTermsError", "file": "src/research_tree/turn_contract.py", "status": "added"},
+    {"name": "CostCap", "file": "src/research_tree/turn_contract.py", "status": "added"},
+    {"name": "DuplicateTraceTypeError", "file": "src/research_tree/turn_contract.py", "status": "added"},
+    {"name": "MissingTraceError", "file": "src/research_tree/turn_contract.py", "status": "added"},
+    {"name": "TraceRecordError", "file": "src/research_tree/turn_contract.py", "status": "added"},
+    {"name": "TraceRegistryError", "file": "src/research_tree/turn_contract.py", "status": "added"},
+    {"name": "TraceType", "file": "src/research_tree/turn_contract.py", "status": "added"},
+    {"name": "TraceTypeRegistry", "file": "src/research_tree/turn_contract.py", "status": "added"},
+    {"name": "TurnContractError", "file": "src/research_tree/turn_contract.py", "status": "added"},
+    {"name": "verify_traces", "file": "src/research_tree/turn_contract.py", "status": "added"},
+    {"name": "ImpactScopeError", "file": "scripts/check_impact_scope.py", "status": "added"},
+    {"name": "audit_impact_scope", "file": "scripts/check_impact_scope.py", "status": "added"},
+    {"name": "changed_files_from_diff", "file": "scripts/check_impact_scope.py", "status": "added"},
+    {"name": "changed_files_from_report", "file": "scripts/check_impact_scope.py", "status": "added"},
+    {"name": "load_impact_scope", "file": "scripts/check_impact_scope.py", "status": "added"},
+    {"name": "main", "file": "scripts/check_impact_scope.py", "status": "added"}
+  ]
+}
