@@ -17,10 +17,16 @@ from typing import Any, Iterable, Mapping, Sequence
 
 log = logging.getLogger(__name__)
 
-SCHEMA = 2
+SCHEMA = 3
 MAX_TURNS = 6
+# Per-node/per-axis stall threshold (#496): a requester-only point that stayed
+# quiet this many turns with no active divergence axis is *locally stalled*.
+# This is no longer a global escape hatch — see MAX_TURNS for the (separately
+# governed) total-turn bound and plan() for the stall decision.
 MAX_STAGNANT_TURNS = 2
 MAX_ASKS_PER_NODE = 2
+AXIS_STATUSES = frozenset({"open", "converged"})
+DIALOGUE_MODES = frozenset({"handoff_ready", "divergent", "converging", "stalled"})
 IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 NODE_TYPES = frozenset(
     {
@@ -130,6 +136,36 @@ def _text(value: Any, label: str) -> str:
 
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+
+
+def _axis_id(node_id: str, description: str) -> str:
+    """Deterministic axis id so re-declaring a direction touches, not forks."""
+
+    return "axis-" + hashlib.sha256(_json([node_id, description]).encode("utf-8")).hexdigest()[:12]
+
+
+def _normalize_axes(value: Any) -> list[dict[str, Any]]:
+    """Validate caller-declared divergence axes (#496): strings or {id?, description}."""
+
+    if value is None:
+        return []
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise AlignmentGraphError("new axes must be a list")
+    axes: list[dict[str, Any]] = []
+    for raw in value:
+        if isinstance(raw, Mapping):
+            unknown = set(raw) - {"id", "description"}
+            if unknown:
+                raise AlignmentGraphError("divergence axis has unknown fields: " + ", ".join(sorted(unknown)))
+            axis_id = None if raw.get("id") is None else _identifier(raw["id"], "axis id")
+            description = _text(raw.get("description"), "axis description")
+        elif isinstance(raw, str):
+            axis_id = None
+            description = _text(raw, "axis description")
+        else:
+            raise AlignmentGraphError("each divergence axis must be a string or an object")
+        axes.append({"id": axis_id, "description": description})
+    return axes
 
 
 def _digest(value: Any) -> str:
@@ -251,25 +287,34 @@ class AlignmentGraphStore:
             nodes = state["graph"]["nodes"]
             readiness = _alignment_readiness(nodes, state["graph"]["edges"])
             controller = state["controller"]
+            stagnation = state["divergence"]["node_stagnation"]
+            active_axes: dict[str, list[dict[str, Any]]] = {}
+            for axis in state["divergence"]["axes"]:
+                if axis["status"] == "open" and axis["stagnant_turns"] < MAX_STAGNANT_TURNS:
+                    active_axes.setdefault(axis["node_id"], []).append(axis)
+            for axis_group in active_axes.values():
+                axis_group.sort(key=lambda axis: (axis["stagnant_turns"], -axis["opened_turn"], axis["axis_id"]))
+            # Divergence-aware eligibility (#496): MAX_ASKS_PER_NODE bounds
+            # re-asking one dimension; an active axis is a NEW dimension on the
+            # node and carries its own ask allowance. A locally stalled node
+            # (stagnation at the threshold, no active axis) is skipped — it is
+            # a stall, not a reason to abandon the dialogue elsewhere.
             eligible = [
                 node
                 for node in nodes
                 if node["human_only"]
                 and node["status"] in {"candidate", "disputed"}
-                and node["ask_count"] < MAX_ASKS_PER_NODE
                 and node["last_asked_turn"] != controller["turn"]
+                and (node["ask_count"] < MAX_ASKS_PER_NODE or node["id"] in active_axes)
+                and (stagnation.get(node["id"], 0) < MAX_STAGNANT_TURNS or node["id"] in active_axes)
             ]
-            eligible.sort(key=lambda node: (-node["impact"], node["ask_count"], node["id"]))
+            eligible.sort(
+                key=lambda node: (0 if node["id"] in active_axes else 1, -node["impact"], node["ask_count"], node["id"])
+            )
             if readiness["ready"]:
                 decision: dict[str, Any] = {
                     "action": "await_human_confirmation",
                     "reason": "the alignment graph supports a strategy handoff",
-                    "question": None,
-                }
-            elif controller["stagnant_turns"] >= MAX_STAGNANT_TURNS:
-                decision = {
-                    "action": "reconnaissance",
-                    "reason": "two consecutive turns produced no graph change",
                     "question": None,
                 }
             elif controller["turn"] >= MAX_TURNS:
@@ -285,18 +330,39 @@ class AlignmentGraphStore:
                     (controller["turn"], node["id"]),
                 )
                 connection.execute("UPDATE controller SET pending_node_id=? WHERE singleton=1", (node["id"],))
-                decision = {
-                    "action": "ask_one",
-                    "node_id": node["id"],
-                    "gap_id": node["id"],
-                    "question": f"Ask one open-ended question about: {node['statement']}",
-                    "reason": "highest-impact unresolved point that only the requester can settle",
-                }
+                axis_group = active_axes.get(node["id"])
+                if axis_group:
+                    axis = axis_group[0]
+                    decision = {
+                        "action": "ask_one",
+                        "node_id": node["id"],
+                        "gap_id": node["id"],
+                        "axis_id": axis["axis_id"],
+                        "axis": axis["description"],
+                        "question": f"Explore the opened divergence axis: {axis['description']}",
+                        "reason": "the user's answer opened an unexplored direction on this point; continue in dialogue",
+                    }
+                else:
+                    decision = {
+                        "action": "ask_one",
+                        "node_id": node["id"],
+                        "gap_id": node["id"],
+                        "question": f"Ask one open-ended question about: {node['statement']}",
+                        "reason": "highest-impact unresolved point that only the requester can settle",
+                    }
             else:
-                reason = "; ".join(readiness["reasons"][:3])
+                requester_nodes = [
+                    node for node in nodes if node["human_only"] and node["status"] in {"candidate", "disputed"}
+                ]
+                if requester_nodes and all(
+                    stagnation.get(node["id"], 0) >= MAX_STAGNANT_TURNS for node in requester_nodes
+                ):
+                    reason = "no open divergence axis remains and every requester-only question is locally stalled"
+                else:
+                    reason = "; ".join(readiness["reasons"][:3]) or "remaining uncertainty is agent-verifiable"
                 decision = {
                     "action": "reconnaissance",
-                    "reason": reason or "remaining uncertainty is agent-verifiable",
+                    "reason": reason,
                     "question": None,
                 }
             connection.execute(
@@ -316,9 +382,12 @@ class AlignmentGraphStore:
             "readiness": readiness,
         }
 
-    def record(self, node_id: str, outcome: str, fingerprint: str) -> dict[str, Any]:
+    def record(
+        self, node_id: str, outcome: str, fingerprint: str, new_axes: Sequence[Any] | None = None
+    ) -> dict[str, Any]:
         node_id = _identifier(node_id, "node id")
         outcome = _enum(outcome, OUTCOMES, "outcome")
+        axes = _normalize_axes(new_axes)
         with self._connect() as connection:
             self._require_schema(connection)
             node = connection.execute("SELECT * FROM nodes WHERE node_id=?", (node_id,)).fetchone()
@@ -328,8 +397,9 @@ class AlignmentGraphStore:
             hashed = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
             changed = hashed != controller["last_fingerprint"]
             turn = int(controller["turn"]) + 1
-            stagnant = int(controller["stagnant_turns"])
+            stagnant = int(node["stagnant_turns"])
             status = node["status"]
+            quiet = not changed
             if outcome == "answered":
                 try:
                     from .speech_acts import AuthorityTransitionError, SpeechAct
@@ -367,19 +437,28 @@ class AlignmentGraphStore:
             elif outcome == "reopened":
                 status = "candidate"
                 stagnant = 0
-            elif not changed:
+            elif quiet:
                 stagnant += 1
+            self._update_node_axes(connection, node_id, outcome, quiet, bool(axes), turn)
+            opened_axes: list[str] = []
+            if axes:
+                # A user-implied new direction is the opposite of a stall: the
+                # node's local convergence resets and each axis opens fresh.
+                stagnant = 0
+                for axis in axes:
+                    opened_axes.append(self._open_axis(connection, node_id, axis, turn))
             connection.execute(
-                "UPDATE nodes SET status=?, updated_at=? WHERE node_id=?",
-                (status, _now(), node_id),
+                "UPDATE nodes SET status=?, stagnant_turns=?, updated_at=? WHERE node_id=?",
+                (status, stagnant, _now(), node_id),
             )
+            global_stagnant = connection.execute("SELECT COALESCE(MAX(stagnant_turns), 0) FROM nodes").fetchone()[0]
             connection.execute(
                 """
                 UPDATE controller
                 SET turn=?, stagnant_turns=?, last_fingerprint=?, pending_node_id=NULL
                 WHERE singleton=1
                 """,
-                (turn, stagnant, hashed),
+                (turn, global_stagnant, hashed),
             )
             handoff_invalidated = self._invalidate_handoff_if_confirmed(connection)
             state = self._commit_event(
@@ -389,15 +468,76 @@ class AlignmentGraphStore:
                     "node_id": node_id,
                     "outcome": outcome,
                     "state_changed": changed,
+                    "opened_axes": opened_axes,
                     "handoff_invalidated": handoff_invalidated,
                 },
             )
+        dialogue_mode = state["divergence"]["mode"]
         return {
             "turn": state["controller"]["turn"],
-            "stagnant_turns": state["controller"]["stagnant_turns"],
+            "stagnant_turns": stagnant,
             "state_changed": changed,
-            "next_action": "reconnaissance" if stagnant >= MAX_STAGNANT_TURNS else "plan",
+            "opened_axes": opened_axes,
+            "dialogue_mode": dialogue_mode,
+            "next_action": "reconnaissance" if dialogue_mode == "stalled" else "plan",
         }
+
+    @staticmethod
+    def _open_axis(connection: sqlite3.Connection, node_id: str, axis: Mapping[str, Any], turn: int) -> str:
+        axis_id = axis["id"] or _axis_id(node_id, axis["description"])
+        existing = connection.execute("SELECT * FROM divergence_axes WHERE axis_id=?", (axis_id,)).fetchone()
+        if existing is not None:
+            if existing["node_id"] != node_id:
+                raise AlignmentGraphError(
+                    f"divergence axis {axis_id} belongs to node {existing['node_id']}, not {node_id}"
+                )
+            connection.execute(
+                "UPDATE divergence_axes SET status='open', stagnant_turns=0, last_turn=?, updated_at=? WHERE axis_id=?",
+                (turn, _now(), axis_id),
+            )
+            return axis_id
+        now = _now()
+        connection.execute(
+            """
+            INSERT INTO divergence_axes(
+                axis_id, node_id, description, status, opened_turn, last_turn, stagnant_turns, created_at, updated_at
+            ) VALUES(?, ?, ?, 'open', ?, ?, 0, ?, ?)
+            """,
+            (axis_id, node_id, axis["description"], turn, turn, now, now),
+        )
+        return axis_id
+
+    @staticmethod
+    def _update_node_axes(
+        connection: sqlite3.Connection, node_id: str, outcome: str, quiet: bool, axes_declared: bool, turn: int
+    ) -> None:
+        """Advance the open axes hanging on the recorded node (#496 lifecycle)."""
+
+        now = _now()
+        for row in connection.execute(
+            "SELECT * FROM divergence_axes WHERE node_id=? ORDER BY axis_id", (node_id,)
+        ).fetchall():
+            axis_id = row["axis_id"]
+            if outcome == "answered" and row["status"] == "open":
+                connection.execute(
+                    "UPDATE divergence_axes SET status='converged', stagnant_turns=0, updated_at=? WHERE axis_id=?",
+                    (now, axis_id),
+                )
+            elif outcome == "reopened" and row["status"] == "converged":
+                connection.execute(
+                    "UPDATE divergence_axes SET status='open', stagnant_turns=0, updated_at=? WHERE axis_id=?",
+                    (now, axis_id),
+                )
+            elif quiet and not axes_declared and row["status"] == "open":
+                connection.execute(
+                    "UPDATE divergence_axes SET stagnant_turns=stagnant_turns+1, last_turn=?, updated_at=? WHERE axis_id=?",
+                    (turn, now, axis_id),
+                )
+            elif row["status"] == "open":
+                connection.execute(
+                    "UPDATE divergence_axes SET stagnant_turns=0, last_turn=?, updated_at=? WHERE axis_id=?",
+                    (turn, now, axis_id),
+                )
 
     def confirm(self, confirmation: str, expected_digest: str | None = None) -> dict[str, Any]:
         text = " ".join(confirmation.split())
@@ -603,6 +743,7 @@ class AlignmentGraphStore:
             if event is None:
                 raise AlignmentGraphError("alignment event log is empty")
             state = json.loads(event["state_json"])
+            connection.execute("DELETE FROM divergence_axes")
             connection.execute("DELETE FROM edges")
             connection.execute("DELETE FROM nodes")
             self._restore_state(connection, state)
@@ -613,7 +754,7 @@ class AlignmentGraphStore:
         connection.executescript(
             """
             CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-            INSERT INTO metadata(key, value) VALUES('schema', '2');
+            INSERT INTO metadata(key, value) VALUES('schema', '3');
             CREATE TABLE controller(
                 singleton INTEGER PRIMARY KEY CHECK(singleton=1),
                 run_id TEXT NOT NULL,
@@ -643,6 +784,18 @@ class AlignmentGraphStore:
                 attributes_json TEXT NOT NULL,
                 ask_count INTEGER NOT NULL DEFAULT 0,
                 last_asked_turn INTEGER,
+                stagnant_turns INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE divergence_axes(
+                axis_id TEXT PRIMARY KEY,
+                node_id TEXT NOT NULL REFERENCES nodes(node_id),
+                description TEXT NOT NULL,
+                status TEXT NOT NULL,
+                opened_turn INTEGER NOT NULL,
+                last_turn INTEGER NOT NULL,
+                stagnant_turns INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -685,14 +838,14 @@ class AlignmentGraphStore:
     def _upsert_node(connection: sqlite3.Connection, node: Mapping[str, Any]) -> None:
         now = _now()
         prior = connection.execute(
-            "SELECT ask_count, last_asked_turn, created_at FROM nodes WHERE node_id=?", (node["id"],)
+            "SELECT ask_count, last_asked_turn, stagnant_turns, created_at FROM nodes WHERE node_id=?", (node["id"],)
         ).fetchone()
         connection.execute(
             """
             INSERT INTO nodes(
                 node_id,node_type,statement,status,impact,human_only,confidence,
-                source,oracle,attributes_json,ask_count,last_asked_turn,created_at,updated_at
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                source,oracle,attributes_json,ask_count,last_asked_turn,stagnant_turns,created_at,updated_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(node_id) DO UPDATE SET
                 node_type=excluded.node_type, statement=excluded.statement,
                 status=excluded.status, impact=excluded.impact,
@@ -713,6 +866,7 @@ class AlignmentGraphStore:
                 _json(node["attributes"]),
                 int(prior["ask_count"]) if prior else 0,
                 prior["last_asked_turn"] if prior else None,
+                int(prior["stagnant_turns"]) if prior else 0,
                 prior["created_at"] if prior else now,
                 now,
             ),
@@ -832,7 +986,25 @@ class AlignmentGraphStore:
             for row in connection.execute("SELECT * FROM edges ORDER BY edge_id")
         ]
         graph = {"nodes": nodes, "edges": edges}
-        return {
+        divergence_axes = [
+            {
+                "axis_id": row["axis_id"],
+                "node_id": row["node_id"],
+                "description": row["description"],
+                "status": row["status"],
+                "opened_turn": row["opened_turn"],
+                "last_turn": row["last_turn"],
+                "stagnant_turns": row["stagnant_turns"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in connection.execute("SELECT * FROM divergence_axes ORDER BY node_id, axis_id")
+        ]
+        node_stagnation = {
+            row["node_id"]: int(row["stagnant_turns"])
+            for row in connection.execute("SELECT node_id, stagnant_turns FROM nodes")
+        }
+        state = {
             "schema": SCHEMA,
             "controller": {
                 "run_id": controller["run_id"],
@@ -852,8 +1024,16 @@ class AlignmentGraphStore:
                 "updated_at": controller["updated_at"],
             },
             "graph": graph,
+            # Divergence-aware dialogue state (#496). Kept OUTSIDE `graph` so
+            # graph_digest keeps meaning graph content only.
+            "divergence": {
+                "axes": divergence_axes,
+                "node_stagnation": node_stagnation,
+            },
             "graph_digest": _digest(graph),
         }
+        state["divergence"]["mode"] = _dialogue_mode(state)
+        return state
 
     def _restore_state(self, connection: sqlite3.Connection, state: Mapping[str, Any]) -> None:
         controller = state["controller"]
@@ -882,14 +1062,44 @@ class AlignmentGraphStore:
         for node in state["graph"]["nodes"]:
             self._upsert_node(connection, node)
             connection.execute(
-                "UPDATE nodes SET ask_count=?,last_asked_turn=?,created_at=?,updated_at=? WHERE node_id=?",
-                (node["ask_count"], node["last_asked_turn"], node["created_at"], node["updated_at"], node["id"]),
+                "UPDATE nodes SET ask_count=?,last_asked_turn=?,stagnant_turns=?,created_at=?,updated_at=? WHERE node_id=?",
+                (
+                    node["ask_count"],
+                    node["last_asked_turn"],
+                    int(state["divergence"]["node_stagnation"].get(node["id"], 0)),
+                    node["created_at"],
+                    node["updated_at"],
+                    node["id"],
+                ),
             )
         for edge in state["graph"]["edges"]:
             self._upsert_edge(connection, edge)
             connection.execute(
                 "UPDATE edges SET created_at=?,updated_at=? WHERE edge_id=?",
                 (edge["created_at"], edge["updated_at"], edge["id"]),
+            )
+        for axis in state["divergence"]["axes"]:
+            connection.execute(
+                """
+                INSERT INTO divergence_axes(
+                    axis_id,node_id,description,status,opened_turn,last_turn,stagnant_turns,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(axis_id) DO UPDATE SET
+                    node_id=excluded.node_id,description=excluded.description,status=excluded.status,
+                    opened_turn=excluded.opened_turn,last_turn=excluded.last_turn,
+                    stagnant_turns=excluded.stagnant_turns,updated_at=excluded.updated_at
+                """,
+                (
+                    axis["axis_id"],
+                    axis["node_id"],
+                    axis["description"],
+                    axis["status"],
+                    axis["opened_turn"],
+                    axis["last_turn"],
+                    axis["stagnant_turns"],
+                    axis["created_at"],
+                    axis["updated_at"],
+                ),
             )
 
 
@@ -993,6 +1203,32 @@ def _normalize_update(value: Mapping[str, Any]) -> tuple[list[dict[str, Any]], l
             }
         )
     return nodes, edges
+
+
+def _dialogue_mode(state: Mapping[str, Any]) -> str:
+    """Classify the dialogue from per-node/per-axis state (#496).
+
+    ``handoff_ready`` — the graph supports a strategy handoff; ``divergent`` —
+    at least one active divergence axis (stay in dialogue with an exploratory
+    move); ``converging`` — some requester-only point is still below the stall
+    threshold; ``stalled`` — nothing new and no active axis anywhere
+    (agent-side reconnaissance is acceptable).
+    """
+
+    if _alignment_readiness(state["graph"]["nodes"], state["graph"]["edges"])["ready"]:
+        return "handoff_ready"
+    for axis in state["divergence"]["axes"]:
+        if axis["status"] == "open" and axis["stagnant_turns"] < MAX_STAGNANT_TURNS:
+            return "divergent"
+    stagnation = state["divergence"]["node_stagnation"]
+    for node in state["graph"]["nodes"]:
+        if (
+            node["human_only"]
+            and node["status"] in {"candidate", "disputed"}
+            and stagnation.get(node["id"], 0) < MAX_STAGNANT_TURNS
+        ):
+            return "converging"
+    return "stalled"
 
 
 def _alignment_readiness(nodes: Sequence[Mapping[str, Any]], edges: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -1179,9 +1415,18 @@ def plan(workspace: Path, run_id: str, update_file: Path, *, project_id: str | N
 
 
 def record(
-    workspace: Path, run_id: str, node_id: str, outcome: str, fingerprint: str, *, project_id: str | None = None
+    workspace: Path,
+    run_id: str,
+    node_id: str,
+    outcome: str,
+    fingerprint: str,
+    *,
+    project_id: str | None = None,
+    new_axes: Sequence[Any] | None = None,
 ) -> dict[str, Any]:
-    return AlignmentGraphStore(database_path(workspace, run_id, project_id)).record(node_id, outcome, fingerprint)
+    return AlignmentGraphStore(database_path(workspace, run_id, project_id)).record(
+        node_id, outcome, fingerprint, new_axes
+    )
 
 
 def confirm(
@@ -1210,6 +1455,13 @@ def _parser() -> argparse.ArgumentParser:
     recording.add_argument("--node-id", "--gap-id", dest="node_id", required=True)
     recording.add_argument("--outcome", choices=tuple(sorted(OUTCOMES)), required=True)
     recording.add_argument("--fingerprint", required=True)
+    recording.add_argument(
+        "--axis",
+        action="append",
+        default=None,
+        metavar="DESCRIPTION",
+        help="declare a divergence axis opened by the user's answer (repeatable, #496)",
+    )
     confirmation = commands.add_parser("confirm")
     confirmation.add_argument("--run-id", required=True)
     confirmation.add_argument("--confirmation", required=True)
@@ -1256,7 +1508,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             graph_file = args.graph_file if args.graph_file.is_absolute() else workspace / args.graph_file
             result = store.plan(_load_update(graph_file))
         elif args.command == "record":
-            result = store.record(args.node_id, args.outcome, args.fingerprint)
+            result = store.record(args.node_id, args.outcome, args.fingerprint, args.axis)
         elif args.command == "confirm":
             result = store.confirm(args.confirmation, args.expected_digest)
         elif args.command == "compile":
@@ -1317,6 +1569,11 @@ def _schema_document() -> dict[str, Any]:
             ],
             "relations": sorted(EDGE_RELATIONS),
             "statuses": sorted(EDGE_STATUSES),
+        },
+        "divergence_axis_declaration": {
+            "required": ["description"],
+            "allowed_fields": ["id", "description"],
+            "statuses": sorted(AXIS_STATUSES),
         },
         "example_update": {
             "nodes": [
