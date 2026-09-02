@@ -12,6 +12,7 @@
     "openspec/changes/adopt-two-layer-contract/proposal.md",
     "openspec/changes/adopt-two-layer-contract/specs/turn-contract/spec.md",
     "openspec/changes/adopt-two-layer-contract/tasks.md",
+    "openspec/changes/unify-research-runtime-alpha2/registries/documentation-authority-v1.json",
     "scripts/check_impact_scope.py",
     "src/research_tree/turn_contract.py",
     "tests/test_check_impact_scope.py",

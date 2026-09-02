@@ -71,9 +71,9 @@
 
 ## 8. Gates
 
-- [ ] 8.1 Full local gates green: pytest (no new failures), ruff check +
+- [x] 8.1 Full local gates green: pytest (no new failures), ruff check +
   format, check_delivery_workflow validate, check_openspec_governance,
   build_skill_packages --check.
-- [ ] 8.2 GitNexus `detect-changes --scope compare --base-ref dev`
+- [x] 8.2 GitNexus `detect-changes --scope compare --base-ref dev`
   reconciled with `check_impact_scope.py` against this change's
   `impact_scope`; report stored in `evidence/`.
