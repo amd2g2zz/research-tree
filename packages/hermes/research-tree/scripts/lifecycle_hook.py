@@ -88,6 +88,100 @@ CONTINUATION_SEMANTICS_RE = re.compile(
     r")\b|照常|继续",
     re.IGNORECASE,
 )
+
+# Issue #492: run-phase discriminator and the two-option research re-entry
+# protocol. During the research phase the runtime accepts exactly two protocol
+# paths — reopen alignment (re-align to user confirmation, recompile) or
+# supplemental evidence (record and stay in research) — plus status echo as
+# the only acceptable status interaction; everything else is refused, so no
+# third ambiguous path (and no chatty conversational drift) can reopen the
+# loop. The hook is a fail-open observer: it names the verdict on the record
+# surface, it never blocks the host session.
+RUN_PHASES = frozenset({"intake", "alignment", "compiled", "research", "validation", "delivery"})
+RESEARCH_PHASE = "research"
+RUN_PHASE_ENV = "RESEARCH_TREE_RUN_PHASE"
+RESEARCH_REENTRY_REFUSED_CODE = "research_reentry_refused"
+RESEARCH_REENTRY_ROUTES = frozenset({"reopen_alignment", "supplemental_evidence", "refused"})
+RESEARCH_REENTRY_RULES: tuple[tuple[str, str, re.Pattern[str]], ...] = tuple(
+    (path, rule, re.compile(pattern, re.IGNORECASE))
+    for path, rule, pattern in (
+        # Path (a): reopen alignment — re-align to user confirmation, recompile.
+        ("reopen_alignment", "realign", r"\bre-?align\w*\b|\breopen\s+alignment\b|重新对齐|重开对齐"),
+        (
+            "reopen_alignment",
+            "strategy_change",
+            r"\b(?:change|switch|revise|update|adjust|revisit|rework|redo|rethink)\s+"
+            r"(?:the\s+|our\s+|my\s+)?(?:strategy|direction|scope|goals?|plan|projection|approach|"
+            r"decision\s+targets?)\b",
+        ),
+        (
+            "reopen_alignment",
+            "new_direction",
+            r"\b(?:new|changed|different|wrong)\s+(?:strategy|direction|scope|goals?)\b"
+            r"|\bback\s+to\s+(?:the\s+)?(?:drawing\s+board|alignment)\b",
+        ),
+        ("reopen_alignment", "recompile", r"\bre-?compile\b|\bcompile\s+again\b|重新编译"),
+        (
+            "reopen_alignment",
+            "chinese_strategy_change",
+            r"改变?(?:策略|方向|范围|目标|计划)|调整(?:策略|方向|范围|目标)",
+        ),
+        # Path (b): supplemental evidence — record the input and stay in research.
+        (
+            "supplemental_evidence",
+            "new_material",
+            r"\b(?:new|additional|extra|more|updated?)\s+"
+            r"(?:evidence|sources?|data|information|info|findings?|references?|materials?|links?|"
+            r"papers?|articles?|documents?|files?|artifacts?|context)\b",
+        ),
+        (
+            "supplemental_evidence",
+            "provide_material",
+            r"\b(?:here(?:'s| is)|attached|uploaded|adding|sharing|supplement(?:ing|al|ary)?)\b"
+            r"[^\n]{0,80}?\b(?:evidence|source|data|paper|article|link|file|document|report|reference|"
+            r"material|study)\b",
+        ),
+        ("supplemental_evidence", "fyi", r"\bfyi\b|\bfor\s+(?:your|the)\s+information\b"),
+        ("supplemental_evidence", "record_evidence", r"\brecord\s+(?:this|it|that|as)\b[^\n]{0,40}\bevidence\b"),
+        (
+            "supplemental_evidence",
+            "chinese_material",
+            r"补充(?:一份)?(?:证据|材料|资料|来源)|新(?:证据|来源|资料|材料)|供参考",
+        ),
+        # Status echo — the only acceptable status interaction during research.
+        (
+            "status_echo",
+            "direct_status",
+            r"^\s*(?:status|progress)\s*[?.!]*$"
+            r"|^\s*(?:any\s+)?(?:status|progress)\s+(?:check|update|report|echo)\s*[?.!]*$",
+        ),
+        (
+            "status_echo",
+            "status_question",
+            r"\b(?:what(?:'s| is)|how(?:'s| is| are)|where\s+are)\b[^\n]{0,40}\b(?:status|progress|going|we)\b"
+            r"|\b(?:current|latest)\s+(?:status|progress|state)\b|\bhow\s+far\s+(?:along|have\s+you\s+gotten)\b",
+        ),
+        ("status_echo", "chinese_status", r"状态|进度|到哪(?:儿|里)了|怎么样了"),
+    )
+)
+
+
+def resolve_research_reentry(prompt: str) -> dict[str, str]:
+    """Resolve a research-phase prompt to exactly one re-entry protocol path.
+
+    Rule order is reopen alignment, then supplemental evidence, then status
+    echo; a prompt matching no rule is refused with
+    ``research_reentry_refused`` — a bare interruption that picks no path and
+    chatty conversational drift are both refusals, never a third path.
+    """
+
+    text = prompt.strip() if isinstance(prompt, str) else ""
+    for path, rule, pattern in RESEARCH_REENTRY_RULES:
+        if pattern.search(text):
+            return {"path": path, "rule": rule}
+    return {"path": "refused", "code": RESEARCH_REENTRY_REFUSED_CODE, "rule": "default"}
+
+
 PROMPT_SIGNAL_RULES: tuple[tuple[str, str, re.Pattern[str], str], ...] = tuple(
     (category, rule, re.compile(pattern, re.IGNORECASE), confidence)
     for category, rule, pattern, confidence in (
@@ -255,6 +349,7 @@ def observe(
     project_root: Path | None = None,
     process_cwd: Path | None = None,
     debug: bool = False,
+    run_phase: str | None = None,
 ) -> dict[str, Any]:
     """Persist sanitized lifecycle metadata without affecting host behavior."""
     if not isinstance(payload, dict):
@@ -264,7 +359,13 @@ def observe(
     if event == "UserPromptSubmit":
         # Prompt signals are opportunistic: they need a checkout to record in,
         # but never an active run, and they never block the host session.
-        return _observe_prompt_signal(payload, host=host, project_root=project_root, process_cwd=process_cwd)
+        return _observe_prompt_signal(
+            payload,
+            host=host,
+            project_root=project_root,
+            process_cwd=process_cwd,
+            run_phase=run_phase,
+        )
 
     if event == "Stop" and payload.get("stop_hook_active") is True:
         return {"status": "skipped_reentrant_stop", "host": host, "event": event}
@@ -384,12 +485,40 @@ def _cap_signal_records(root: Path) -> None:
             return
 
 
+def _resolve_run_phase(explicit: str | None, *, root: Path, payload: dict[str, Any]) -> str | None:
+    """Resolve the active run phase, fail-open (issue #492).
+
+    Precedence: explicit argument, then ``RESEARCH_TREE_RUN_PHASE``, then the
+    run manifest's optional ``phase`` key. An invalid explicit value is a
+    programmer error and raises; an invalid environment or manifest value is
+    ignored so a typo can never break the fail-open recording contract.
+    """
+
+    if explicit is not None:
+        if explicit not in RUN_PHASES:
+            raise LifecycleHookError(f"run phase must be one of: {', '.join(sorted(RUN_PHASES))}")
+        return explicit
+    environment = os.environ.get(RUN_PHASE_ENV)
+    if environment in RUN_PHASES:
+        return environment
+    try:
+        active = _active_run(root, payload)
+        if active is None:
+            return None
+        manifest = json.loads((active[0] / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, LifecycleHookError):
+        return None
+    phase = manifest.get("phase") if isinstance(manifest, dict) else None
+    return phase if phase in RUN_PHASES else None
+
+
 def _observe_prompt_signal(
     payload: dict[str, Any],
     *,
     host: str,
     project_root: Path | None,
     process_cwd: Path | None,
+    run_phase: str | None = None,
 ) -> dict[str, Any]:
     """Record one opportunistic UserPromptSubmit signal (append-only, sanitized)."""
     prompt = payload.get("prompt")
@@ -397,6 +526,9 @@ def _observe_prompt_signal(
         return {"status": "skipped_empty_prompt", "host": host, "event": "UserPromptSubmit"}
     root, workspace = validate_workspace(payload, project_root=project_root, process_cwd=process_cwd)
     signal = classify_prompt_signal(prompt)
+    resolved_phase = _resolve_run_phase(run_phase, root=root, payload=payload)
+    # During research every prompt resolves through the two-option protocol.
+    reentry = resolve_research_reentry(prompt) if resolved_phase == RESEARCH_PHASE else None
     record: dict[str, Any] = {
         "schema": 1,
         "source": "research-tree-lifecycle-hook",
@@ -413,6 +545,9 @@ def _observe_prompt_signal(
         value = _optional_identifier(payload, key)
         if value is not None:
             record[key] = value
+    if reentry is not None:
+        record["run_phase"] = resolved_phase
+        record["reentry"] = reentry
     path = _write_record(root, record, root / SIGNAL_DIRECTORY)
     _cap_signal_records(root)
     result: dict[str, Any] = {
@@ -422,25 +557,23 @@ def _observe_prompt_signal(
         "signal": signal,
         "path": path.relative_to(root).as_posix(),
     }
+    if reentry is not None:
+        result["run_phase"] = resolved_phase
+        result["reentry"] = reentry
     if signal["category"] == "correction" and signal["confidence"] == "high":
-        feed_path = _feed_correction_signal(root, payload, record)
+        feed_path = _feed_run_signal(root, payload, record, route="apply_correction")
         if feed_path is not None:
             result["run_signal_path"] = feed_path
+    if reentry is not None and reentry["path"] in RESEARCH_REENTRY_ROUTES:
+        feed_path = _feed_run_signal(root, payload, record, route="research_reentry")
+        if feed_path is not None:
+            result["run_reentry_path"] = feed_path
     return result
 
 
-def _feed_correction_signal(root: Path, payload: dict[str, Any], record: dict[str, Any]) -> str | None:
-    """Append a high-confidence correction to the run-scoped events surface.
+def _active_run(root: Path, payload: dict[str, Any]) -> tuple[Path, str, str] | None:
+    """Resolve the active run root for run-scoped signal routing (fail-open)."""
 
-    The hook cannot call ``apply_correction`` directly: a valid CorrectionEvent
-    requires run/task/domain identifiers, artifact digests and the ledger
-    revision that only the workflow has. The signal record (marked
-    ``route: "apply_correction"``) is therefore appended to the run's events
-    directory for operator and agent inspection; the automated alignment
-    consumer that would route it through apply_correction is planned v2 work,
-    so today nothing reads these records automatically. Fail-open: returns
-    None on any problem.
-    """
     try:
         project_id = payload.get("project_id")
         run_id = payload.get("run_id")
@@ -454,10 +587,35 @@ def _feed_correction_signal(root: Path, payload: dict[str, Any], record: dict[st
         run_root = root / ".research-tree" / "projects" / project_id / "runs" / run_id
         if not (run_root / "manifest.json").is_file():
             return None
+        return run_root, project_id, run_id
+    except (LifecycleHookError, OSError):
+        return None
+
+
+def _feed_run_signal(
+    root: Path,
+    payload: dict[str, Any],
+    record: dict[str, Any],
+    *,
+    route: str,
+) -> str | None:
+    """Append a routed copy of a signal record to the run-scoped events surface.
+
+    The hook cannot call into the workflow directly: a valid downstream action
+    requires run/task identifiers and ledger revisions that only the workflow
+    has. The routed record (marked with ``route``) is appended to the run's
+    events directory for operator and agent inspection. Fail-open: returns
+    None on any problem.
+    """
+    try:
+        active = _active_run(root, payload)
+        if active is None:
+            return None
+        run_root, project_id, run_id = active
         feed = dict(record)
         feed["project_id"] = project_id
         feed["run_id"] = run_id
-        feed["route"] = "apply_correction"
+        feed["route"] = route
         path = _write_record(root, feed, run_root / "events")
         return path.relative_to(root).as_posix()
     except (LifecycleHookError, OSError):
