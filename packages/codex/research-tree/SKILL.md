@@ -256,9 +256,15 @@ authority); hard stop triggers (insufficient authority or safety boundary, a
 missing capability, or an oracle that cannot be honestly evaluated);
 continuation state persisted after every meaningful batch; the completion
 oracle; and the failure policy (retry or replan recoverable failures, persist
-a blocker with evidence, never silently downgrade the goal). If evidence
-invalidates the strategy, create a successor revision internally and continue
-without another approval.
+a blocker with evidence, never silently downgrade the goal). The envelope
+closes at compilation: once the strategy is compiled it is frozen, and a
+strategy-material change requires user realignment — re-display the
+projection, collect a new confirmation that binds the recomputed authority
+fingerprint, and recompile — before it takes effect; a silent internal
+successor revision is rejected. During research, a user interruption
+resolves to exactly one re-entry path — reopen alignment (re-align,
+reconfirm, recompile) or record the input as supplemental evidence and stay
+in research — plus a plain status echo; conversational drift is refused.
 
 ## Protocol 4 — Assistance and correction protocol
 
