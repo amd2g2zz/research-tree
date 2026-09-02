@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Mapping, Sequence
 
 from .domain import ArtifactRef, ArtifactRevision, RuntimeStoreError, thaw_json, validate_identifier
@@ -10,6 +11,27 @@ from .run_ledger import RunLedger
 
 RESEARCH_TREE_STATE_KIND = "research-tree-state"
 TREE_STATUSES = {"searching", "blocked", "delivery_pending", "complete"}
+
+# Issue #492: explicit run-phase discriminator with gated transitions. A tree
+# is born `compiled` — revision zero exists only after the confirmed handoff
+# compiles — and every phase change must follow the gated graph below.
+TREE_PHASES = frozenset({"intake", "alignment", "compiled", "research", "validation", "delivery"})
+DEFAULT_TREE_PHASE = "compiled"
+TREE_PHASE_TRANSITIONS: Mapping[str, frozenset[str]] = {
+    "intake": frozenset({"intake", "alignment"}),
+    "alignment": frozenset({"alignment", "compiled"}),
+    # `compiled -> alignment` reopens alignment after compile; `research ->
+    # alignment` is the reopen edge of the two-option interruption protocol.
+    "compiled": frozenset({"compiled", "research", "alignment"}),
+    "research": frozenset({"research", "validation", "alignment"}),
+    "validation": frozenset({"validation", "delivery"}),
+    "delivery": frozenset({"delivery"}),
+}
+# Optional payload keys validated when present; legacy payloads without them
+# stay valid (the direct alignment-handoff append path predates the phase).
+_OPTIONAL_TREE_STATE_KEYS = frozenset({"phase", "strategy_authority_fingerprint", "realignment"})
+_FINGERPRINT_RE = re.compile(r"[0-9a-f]{64}")
+_REALIGNMENT_RECORD_KEYS = frozenset({"schema", "confirmation_digest", "authority_fingerprint", "reason"})
 
 
 class ResearchTreeStateError(RuntimeStoreError):
@@ -39,6 +61,8 @@ class CanonicalResearchTreeStateService:
         if _latest(snapshot.artifacts, tree_id) is not None:
             raise ResearchTreeStateError(f"research tree already exists: {tree_id}")
         payload = _normalized_state(state, tree_id, round_id, expected_transition=0)
+        if payload["phase"] != DEFAULT_TREE_PHASE:
+            raise ResearchTreeStateError("tree state birth phase must be 'compiled'")
         findings = _resolve_findings(snapshot.artifacts, round_id, baseline_findings)
         expected_ids = {finding.id for finding in findings}
         consumed = set(payload["consumed_finding_ids"])
@@ -74,6 +98,9 @@ class CanonicalResearchTreeStateService:
             round_id,
             expected_transition=int(stored.payload["transition_index"]) + 1,
         )
+        previous_phase = tree_phase_of(stored.payload)
+        validate_phase_transition(previous_phase, payload["phase"])
+        _validate_strategy_material_change(stored.payload, payload, previous_phase)
         findings = _resolve_findings(snapshot.artifacts, round_id, consumed_findings)
         previous_ids = set(stored.payload["consumed_finding_ids"])
         next_ids = set(payload["consumed_finding_ids"])
@@ -138,7 +165,11 @@ def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
         "recursion_receipt",
         "stop_reason",
     }
-    if not isinstance(value, Mapping) or not required <= set(value) or set(value) - required:
+    if (
+        not isinstance(value, Mapping)
+        or not required <= set(value)
+        or set(value) - (required | _OPTIONAL_TREE_STATE_KEYS)
+    ):
         actual = set(value) if isinstance(value, Mapping) else set()
         raise ResearchTreeStateError(
             f"tree state has unexpected keys; missing={sorted(required - actual)}, extra={sorted(actual - required)}"
@@ -152,6 +183,11 @@ def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
         raise ResearchTreeStateError("transition_index must be a nonnegative integer")
     if value.get("status") not in TREE_STATUSES:
         raise ResearchTreeStateError("tree state status is unsupported")
+    if "phase" in value and value["phase"] not in TREE_PHASES:
+        raise ResearchTreeStateError("tree state phase is unsupported")
+    _validate_strategy_fingerprint(value.get("strategy_authority_fingerprint"))
+    if "realignment" in value:
+        _validate_realignment_record(value["realignment"], value.get("strategy_authority_fingerprint"))
     for key in (
         "config",
         "decision_slots",
@@ -172,6 +208,92 @@ def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
         raise ResearchTreeStateError("frontier references unknown nodes")
 
 
+def tree_phase_of(payload: Mapping[str, Any]) -> str:
+    """Return the payload's run phase, defaulting to the birth phase.
+
+    Legacy payloads written before the phase field existed are reported as
+    ``compiled``: every research tree is born from a compiled handoff.
+    """
+
+    phase = payload.get("phase", DEFAULT_TREE_PHASE) if isinstance(payload, Mapping) else None
+    if phase not in TREE_PHASES:
+        raise ResearchTreeStateError("tree state phase is unsupported")
+    return phase  # type: ignore[no-any-return]
+
+
+def validate_phase_transition(previous_phase: str, next_phase: str) -> None:
+    """Reject any phase change outside the gated transition graph (#492)."""
+
+    allowed = TREE_PHASE_TRANSITIONS.get(previous_phase, frozenset())
+    if next_phase not in allowed:
+        raise ResearchTreeStateError(
+            f"illegal tree phase transition: {previous_phase} -> {next_phase}; allowed={sorted(allowed)}"
+        )
+
+
+def _validate_strategy_fingerprint(fingerprint: Any) -> None:
+    if fingerprint is None:
+        return
+    if not isinstance(fingerprint, str) or not _FINGERPRINT_RE.fullmatch(fingerprint):
+        raise ResearchTreeStateError(
+            "tree state strategy_authority_fingerprint must be a 64-character lowercase hex digest"
+        )
+
+
+def _validate_realignment_record(record: Any, fingerprint: Any) -> None:
+    if not isinstance(record, Mapping) or set(record) != _REALIGNMENT_RECORD_KEYS:
+        raise ResearchTreeStateError(
+            "tree state realignment record must carry exactly schema, confirmation_digest, "
+            "authority_fingerprint, reason"
+        )
+    schema = record.get("schema")
+    if isinstance(schema, bool) or not isinstance(schema, int) or schema != 1:
+        raise ResearchTreeStateError("tree state realignment record schema must be 1")
+    for key in ("confirmation_digest", "authority_fingerprint"):
+        digest = record.get(key)
+        if not isinstance(digest, str) or not _FINGERPRINT_RE.fullmatch(digest):
+            raise ResearchTreeStateError(
+                f"tree state realignment record {key} must be a 64-character lowercase hex digest"
+            )
+    reason = record.get("reason")
+    if not isinstance(reason, str) or not reason.strip() or len(reason) > 256:
+        raise ResearchTreeStateError("tree state realignment record reason must be a non-empty bounded string")
+    if fingerprint is not None and record["authority_fingerprint"] != fingerprint:
+        raise ResearchTreeStateError(
+            "tree state realignment record must bind the payload's strategy_authority_fingerprint"
+        )
+
+
+def _validate_strategy_material_change(
+    previous_payload: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    previous_phase: str,
+) -> None:
+    """Reject post-compile strategy-material changes that bypass realignment (#492).
+
+    A changed ``strategy_authority_fingerprint`` is a strategy-material change;
+    it is only accepted on the recompile edge out of re-entered alignment and
+    only with a realignment record binding the new fingerprint to a fresh user
+    confirmation (mechanism from PR #450). Dropping the fingerprint outside
+    that edge is rejected too.
+    """
+
+    previous_fingerprint = previous_payload.get("strategy_authority_fingerprint")
+    next_fingerprint = payload.get("strategy_authority_fingerprint")
+    if previous_fingerprint is None or next_fingerprint == previous_fingerprint:
+        return
+    if (previous_phase, payload["phase"]) != ("alignment", "compiled"):
+        raise ResearchTreeStateError(
+            "strategy fingerprint changed without user realignment: "
+            "re-enter alignment and recompile with a realignment record"
+        )
+    record = payload.get("realignment")
+    if not isinstance(record, Mapping) or record.get("authority_fingerprint") != next_fingerprint:
+        raise ResearchTreeStateError(
+            "strategy fingerprint change requires a user realignment record binding the new fingerprint"
+        )
+
+
 def _normalized_state(
     state: Mapping[str, Any],
     tree_id: str,
@@ -184,6 +306,9 @@ def _normalized_state(
         raise ResearchTreeStateError("tree state must be a mapping")
     payload["id"] = tree_id
     payload["round_id"] = round_id
+    # A tree is born compiled; writers that predate the phase field get the
+    # birth phase injected so the transition gate always has a discriminator.
+    payload.setdefault("phase", DEFAULT_TREE_PHASE)
     validate_tree_state_payload(payload)
     if payload["transition_index"] != expected_transition:
         raise ResearchTreeStateError(
