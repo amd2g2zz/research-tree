@@ -21,6 +21,7 @@ from research_tree import (
     RejectedMethod,
     SearchPortfolio,
     SearchPortfolioExecutor,
+    SourceMechanism,
     Subquestion,
     assess_acquisition_batch,
 )
@@ -528,3 +529,119 @@ def test_batch_assessment_records_all_decision_metrics_and_pivots_on_contradicti
     assert assessment.requires_deeper_work is True
     assert assessment.to_dict() == BatchCoverageAssessment.from_dict(assessment.to_dict()).to_dict()
     assert b"private_prompt" not in assessment.canonical_json_bytes()
+
+
+def mechanism_record(
+    source_ref: str,
+    *,
+    mechanism_id: str = "mechanism-1",
+    evidence_kinds: tuple[str, ...] = ("code-inspected",),
+) -> dict[str, object]:
+    return {
+        "mechanism_id": mechanism_id,
+        "source_ref": source_ref,
+        "approach": "A bounded retry queue with exponential backoff.",
+        "how_it_works": (
+            "Failed captures re-enter a durable queue whose delay doubles per "
+            "attempt up to a declared ceiling, then surface as a typed failure."
+        ),
+        "evidence_refs": (f"{source_ref}-code", f"{source_ref}-design"),
+        "evidence_kinds": list(evidence_kinds),
+    }
+
+
+def promotable_batch_outcomes() -> tuple[MethodExecutionOutcome, MethodExecutionOutcome]:
+    return (
+        execution_outcome(capture_refs=("capture-1",), source_depth="full-source"),
+        execution_outcome(
+            outcome_id="outcome-2",
+            method_id="repository-inspection",
+            provider_id="provider-b",
+            capture_refs=("capture-2",),
+            source_depth="full-source",
+        ),
+    )
+
+
+def test_promotion_without_mechanism_artifact_fails() -> None:
+    # Issue #494 scenario: promotion without a mechanism artifact fails.
+    assessment = assess_acquisition_batch(
+        assessment_id="assessment-mechanism-missing",
+        portfolio_id="portfolio-1",
+        batch_id="batch-1",
+        outcomes=promotable_batch_outcomes(),
+        mechanism_records=(),
+    )
+
+    assert assessment.missing_mechanism_refs == ("capture-1", "capture-2")
+    assert assessment.disposition == "deepen"
+    assert assessment.next_actions == ("require-source-mechanism",)
+    assert assessment.requires_deeper_work is True
+
+
+def test_promotion_with_full_mechanism_coverage_submits_for_closure() -> None:
+    assessment = assess_acquisition_batch(
+        assessment_id="assessment-mechanism-covered",
+        portfolio_id="portfolio-1",
+        batch_id="batch-1",
+        outcomes=promotable_batch_outcomes(),
+        mechanism_records=(
+            mechanism_record("capture-1", mechanism_id="mechanism-1"),
+            mechanism_record("capture-2", mechanism_id="mechanism-2"),
+        ),
+    )
+
+    assert assessment.missing_mechanism_refs == ()
+    assert assessment.disposition == "stop"
+    assert assessment.next_actions == ("submit-for-closure-assessment",)
+    assert assessment.mechanism_records[0].approach.startswith("A bounded retry queue")
+
+
+def test_readme_only_mechanism_record_is_rejected() -> None:
+    # Issue #494 scenario: a writeup that only restates a README fails promotion.
+    with pytest.raises(InvalidSearchPortfolioError, match="beyond the README"):
+        SourceMechanism(
+            mechanism_id="mechanism-readme",
+            source_ref="capture-1",
+            approach="A retry queue.",
+            how_it_works="It retries.",
+            evidence_refs=("capture-1-readme",),
+            evidence_kinds=("readme",),
+        )
+
+    with pytest.raises(InvalidSearchPortfolioError, match="beyond the README"):
+        assess_acquisition_batch(
+            assessment_id="assessment-mechanism-readme",
+            portfolio_id="portfolio-1",
+            batch_id="batch-1",
+            outcomes=promotable_batch_outcomes(),
+            mechanism_records=(
+                mechanism_record("capture-1", mechanism_id="mechanism-1", evidence_kinds=("readme",)),
+                mechanism_record("capture-2", mechanism_id="mechanism-2", evidence_kinds=("readme", "readme")),
+            ),
+        )
+
+
+def test_assessment_schema_v2_round_trips_and_v1_payloads_still_decode() -> None:
+    assessment = assess_acquisition_batch(
+        assessment_id="assessment-mechanism-v2",
+        portfolio_id="portfolio-1",
+        batch_id="batch-1",
+        outcomes=promotable_batch_outcomes(),
+        mechanism_records=(mechanism_record("capture-1"),),
+    )
+    assert assessment.schema_version == 2
+
+    payload = assessment.to_dict()
+    assert set(payload["missing_mechanism_refs"]) == {"capture-2"}
+    revived = BatchCoverageAssessment.from_dict(payload)
+    assert revived == assessment
+    assert revived.canonical_json_bytes() == assessment.canonical_json_bytes()
+
+    legacy = {
+        key: value for key, value in payload.items() if key not in {"mechanism_records", "missing_mechanism_refs"}
+    }
+    legacy["schema_version"] = 1
+    decoded_legacy = BatchCoverageAssessment.from_dict(legacy)
+    assert decoded_legacy.mechanism_records == ()
+    assert decoded_legacy.missing_mechanism_refs == ()

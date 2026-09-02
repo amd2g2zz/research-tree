@@ -18,6 +18,11 @@ from .evidence_delta import (
     measure_realized_delta,
 )
 from .run_ledger import RunLedger
+from .search_portfolio import (
+    BATCH_SOURCE_DEPTH_LEVELS,
+    InvalidSearchPortfolioError,
+    _mechanism_record,
+)
 from .tree_state import CanonicalResearchTreeStateService
 
 _WORKER_VALIDATION_STATUSES = frozenset({"passed", "failed", "inconclusive"})
@@ -27,6 +32,12 @@ _HEURISTIC_FRONTIER_WEIGHT = 0.4
 _MINIMUM_EVIDENCE = 2
 _SOURCE_QUALITY_CONFIDENCE = {"high": 1.0, "medium": 0.8, "low": 0.5}
 _ROOT_SOURCE_QUALITY = 1.0
+# Declared engagement depth per source (issue #494). Ranks mirror the
+# BATCH_SOURCE_DEPTH_LEVELS ordering used by the batch assessment.
+_SOURCE_DEPTH_RANK = {"none": 0, "snippet": 1, "summary": 2, "full-source": 3, "experiment": 4}
+assert set(_SOURCE_DEPTH_RANK) == set(BATCH_SOURCE_DEPTH_LEVELS)
+_SHALLOW_SOURCE_DEPTHS = frozenset({"none", "snippet", "summary"})
+_DEEP_SOURCE_DEPTHS = frozenset({"full-source", "experiment"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +163,7 @@ def initialize_research_state(
             ingest = _grow_from_finding(state, root, finding, baseline_event=True, evidence_snapshot=snapshot)
             _apply_ingest_trust(state, slot, finding, ingest)
         _ensure_slot_frontier(state, root, slot, trigger_ref="baseline:closure-gap")
+        _ensure_mechanism_drilldown(state, root, slot, trigger_ref="baseline:closure-gap")
     return evaluate_research_stop(prune_research_state(score_research_frontier(state)))
 
 
@@ -211,6 +223,12 @@ def apply_research_results(
             parent,
             slot,
             trigger_ref=f"finding:{_finding_id(finding)}:closure-gap",
+        )
+        _ensure_mechanism_drilldown(
+            result,
+            parent,
+            slot,
+            trigger_ref=f"finding:{_finding_id(finding)}",
         )
     return evaluate_research_stop(prune_research_state(score_research_frontier(result)))
 
@@ -485,18 +503,32 @@ def evaluate_research_stop(state: Mapping[str, Any]) -> dict[str, Any]:
             if node["decision_slot_id"] == slot_id and node["status"] == "frontier"
         ]
         slot["status"] = "researching"
+        landscape_required = bool(slot.get("landscape_required", True))
+        shallow_refs = _shallow_source_refs(slot) if landscape_required else ()
+        mechanism_missing = _missing_mechanism_refs(slot) if landscape_required else ()
+        slot_blockers: list[str] = []
         if (
             _slot_has_minimum_evidence(slot)
             and not open_nodes
+            and not shallow_refs
+            and not mechanism_missing
             and (not slot["validation_required"] or slot["validation_passed"])
         ):
-            blockers.append(f"{slot_id}: closure candidate requires coordinator assessment")
+            slot_blockers.append(f"{slot_id}: closure candidate requires coordinator assessment")
         if not _slot_has_minimum_evidence(slot):
-            blockers.append(f"{slot_id}: independent evidence is insufficient")
+            slot_blockers.append(f"{slot_id}: independent evidence is insufficient")
         if slot["validation_required"] and not slot["validation_passed"]:
-            blockers.append(f"{slot_id}: validation oracle has not passed")
+            slot_blockers.append(f"{slot_id}: validation oracle has not passed")
+        if shallow_refs:
+            slot_blockers.append(f"{slot_id}: shallow source depth blocks landscape closure: {', '.join(shallow_refs)}")
+        if mechanism_missing:
+            slot_blockers.append(
+                f"{slot_id}: promoted sources without mechanism artifacts: {', '.join(mechanism_missing)}"
+            )
         if open_nodes:
-            blockers.append(f"{slot_id}: {len(open_nodes)} frontier action(s) remain")
+            slot_blockers.append(f"{slot_id}: {len(open_nodes)} frontier action(s) remain")
+        slot["closure_blockers"] = slot_blockers
+        blockers.extend(slot_blockers)
     if result["decision_slots"] and all(slot["status"] == "closed" for slot in result["decision_slots"].values()):
         result["status"] = "delivery_pending"
         result["stop_reason"] = "coordinator must assess slot closure and delivery obligations"
@@ -537,6 +569,10 @@ def _slot_state(slot_id: str, slot: Mapping[str, Any]) -> dict[str, Any]:
         "trusted_anchor_fingerprints": [],
         "search_comparison": {"provider_fanout": 0, "duplicates": 0, "captures": 0},
         "residual_risk": _priority_value(priority),
+        "landscape_required": bool(slot.get("landscape_required", True)),
+        "source_depths": {},
+        "mechanism_source_refs": [],
+        "closure_blockers": [],
     }
 
 
@@ -865,6 +901,69 @@ def _ensure_slot_frontier(
         )
 
 
+def _shallow_source_refs(slot: Mapping[str, Any]) -> tuple[str, ...]:
+    """Sources declared at none/snippet/summary engagement depth (issue #494)."""
+
+    depths = slot.get("source_depths") or {}
+    return tuple(sorted(ref for ref, depth in depths.items() if depth in _SHALLOW_SOURCE_DEPTHS))
+
+
+def _missing_mechanism_refs(slot: Mapping[str, Any]) -> tuple[str, ...]:
+    """Sources engaged at promoted depth without a valid mechanism record."""
+
+    depths = slot.get("source_depths") or {}
+    covered = set(slot.get("mechanism_source_refs") or ())
+    return tuple(sorted(ref for ref, depth in depths.items() if depth in _DEEP_SOURCE_DEPTHS and ref not in covered))
+
+
+def _ensure_mechanism_drilldown(
+    state: dict[str, Any],
+    parent: Mapping[str, Any],
+    slot: dict[str, Any],
+    *,
+    trigger_ref: str,
+) -> None:
+    """Schedule the deeper follow-up batch for shallow or mechanism-missing sources.
+
+    Issue #494: shallow source engagement must not merely downgrade a score —
+    it blocks landscape closure and triggers a mandatory deeper action on the
+    same source. One identity-deduplicated node per named source.
+    """
+
+    if not slot.get("landscape_required", True):
+        return
+    targets = sorted(set(_shallow_source_refs(slot)) | set(_missing_mechanism_refs(slot)))
+    if not targets:
+        return
+    cfg = RecursiveSearchConfig(**state["config"])
+    for ref in targets:
+        _reopen_completed_obligation(
+            _add_node(
+                state,
+                parent=parent,
+                slot=slot,
+                question=(
+                    f"Drill into {ref}: engage the source at full-source depth and record its "
+                    "mechanism with evidence beyond the README."
+                ),
+                action_kind="deep_dive",
+                trigger_ref=f"{trigger_ref}:mechanism-drilldown",
+                evidence_needed=(
+                    "Full-source or experiment engagement with the named source plus a mechanism "
+                    "record citing inspected code, a design doc, or an experiment."
+                ),
+                oracle=(
+                    "The named source is engaged at full-source or experiment depth and its "
+                    "mechanism record cites evidence beyond the README."
+                ),
+                estimated_cost=1.0,
+                mandatory=True,
+                confidence=_closure_growth_confidence(state, parent),
+                damping=cfg.confidence_damping_max,
+            )
+        )
+
+
 def _node(**values: Any) -> dict[str, Any]:
     return {
         "id": values["node_id"],
@@ -907,6 +1006,52 @@ def _update_slot_evidence(slot: dict[str, Any], finding: Any) -> None:
             if isinstance(item, Mapping)
         }
     )
+    _absorb_source_depths(slot, payload)
+    _absorb_mechanism_record(slot, payload)
+
+
+def _absorb_source_depths(slot: dict[str, Any], payload: Mapping[str, Any]) -> None:
+    """Record the deepest declared engagement per cited source (issue #494).
+
+    A source is drilled once it has been engaged at full-source/experiment
+    depth; re-declaring it shallowly later cannot un-drill it, while a source
+    whose best engagement is still snippet/summary stays a closure blocker.
+    """
+
+    declared = payload.get("sources")
+    if not isinstance(declared, (list, tuple)) or isinstance(declared, (str, bytes)):
+        return
+    depths = slot.setdefault("source_depths", {})
+    for item in declared:
+        if not isinstance(item, Mapping):
+            continue
+        ref = str(item.get("ref", "")).strip()
+        depth = str(item.get("depth", "")).strip()
+        if not ref or depth not in _SOURCE_DEPTH_RANK:
+            continue
+        prior = depths.get(ref)
+        if prior is None or _SOURCE_DEPTH_RANK[depth] > _SOURCE_DEPTH_RANK[prior]:
+            depths[ref] = depth
+
+
+def _absorb_mechanism_record(slot: dict[str, Any], payload: Mapping[str, Any]) -> None:
+    """Mark a source mechanism-covered when its record satisfies the contract.
+
+    Absorption is lenient by design (issue #494): a malformed or README-only
+    record does not reject the evidence batch — the source simply stays
+    mechanism-missing and the drill-down loop asks for the real artifact.
+    """
+
+    raw = payload.get("mechanism")
+    if not isinstance(raw, Mapping):
+        return
+    try:
+        record = _mechanism_record(raw)
+    except InvalidSearchPortfolioError:
+        return
+    covered = slot.setdefault("mechanism_source_refs", [])
+    if record.source_ref not in covered:
+        covered.append(record.source_ref)
 
 
 def _resolve_parent(state: Mapping[str, Any], payload: Mapping[str, Any], slot_id: str) -> dict[str, Any] | None:

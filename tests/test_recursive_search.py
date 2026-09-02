@@ -13,8 +13,10 @@ def finding(
     continuation: dict[str, object] | None = None,
     validation: object | None = None,
     node_id: str | None = None,
+    sources: list[dict[str, object]] | None = None,
+    mechanism: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "id": finding_id,
         "decision_slot_id": "slot-architecture",
         "research_node_id": node_id,
@@ -29,6 +31,11 @@ def finding(
         "research_continuations": [] if continuation is None else [continuation],
         "validation_result": validation,
     }
+    if sources is not None:
+        payload["sources"] = sources
+    if mechanism is not None:
+        payload["mechanism"] = mechanism
+    return payload
 
 
 def slots(*, priority: str = "P0") -> dict[str, dict[str, object]]:
@@ -796,3 +803,184 @@ def test_persisted_coordinator_exposes_successor_actions_across_processes(
     assert actions_after_restart
     assert actions_after_restart[0]["parent_id"] == first_action["id"]
     assert actions_after_restart[0]["question"] == ("An independent execution check is still required.")
+
+
+SOURCE_A = "https://github.com/example/project-a"
+SOURCE_B = "https://github.com/example/project-b"
+
+
+def valid_mechanism(source_ref: str) -> dict[str, object]:
+    return {
+        "mechanism_id": "mechanism-1",
+        "source_ref": source_ref,
+        "approach": "A bounded retry queue with exponential backoff.",
+        "how_it_works": "Failed captures re-enter a durable queue whose delay doubles per attempt.",
+        "evidence_refs": [f"{source_ref}-code", f"{source_ref}-design"],
+        "evidence_kinds": ["code-inspected", "design-doc"],
+    }
+
+
+def readme_only_mechanism(source_ref: str) -> dict[str, object]:
+    return {
+        "mechanism_id": "mechanism-readme",
+        "source_ref": source_ref,
+        "approach": "A bounded retry queue with exponential backoff.",
+        "how_it_works": "Failed captures re-enter a durable queue whose delay doubles per attempt.",
+        "evidence_refs": [f"{source_ref}-readme"],
+        "evidence_kinds": ["readme"],
+    }
+
+
+def drilldown_nodes(state: dict[str, object], source_ref: str) -> list[dict[str, object]]:
+    nodes = state["nodes"]
+    assert isinstance(nodes, dict)
+    return [
+        node
+        for node in nodes.values()
+        if isinstance(node, dict)
+        and node["action_kind"] == "deep_dive"
+        and source_ref in str(node["question"])
+        and "mechanism" in str(node["oracle"])
+    ]
+
+
+def test_shallow_source_depth_blocks_landscape_slot_closure_and_schedules_deeper_batch() -> None:
+    # Issue #494 scenario: shallow depth blocks landscape-slot closure and
+    # schedules a deeper batch on the same source.
+    from research_tree import apply_research_results, initialize_research_state
+
+    state = initialize_research_state(
+        round_id="round-shallow-closure",
+        tree_id="research-tree",
+        decision_slots=slots(),
+    )
+    state["decision_slots"]["slot-architecture"]["validation_passed"] = True
+
+    result = apply_research_results(
+        state,
+        (
+            finding(
+                "finding-shallow-a",
+                anchor=SOURCE_A,
+                sources=[{"ref": SOURCE_A, "depth": "snippet"}],
+            ),
+            finding(
+                "finding-shallow-b",
+                anchor=SOURCE_B,
+                sources=[{"ref": SOURCE_B, "depth": "summary"}],
+            ),
+        ),
+    )
+
+    slot = result["decision_slots"]["slot-architecture"]
+    assert any("shallow source depth blocks landscape closure" in blocker for blocker in slot["closure_blockers"])
+    assert any(SOURCE_A in blocker for blocker in slot["closure_blockers"])
+    assert all(
+        "closure candidate requires coordinator assessment" not in blocker for blocker in slot["closure_blockers"]
+    )
+    for source_ref in (SOURCE_A, SOURCE_B):
+        scheduled = drilldown_nodes(result, source_ref)
+        assert scheduled, f"no drill-down scheduled for {source_ref}"
+        assert scheduled[0]["status"] == "frontier"
+        assert scheduled[0]["mandatory"] is True
+
+
+def test_full_source_source_without_beyond_readme_mechanism_blocks_closure() -> None:
+    from research_tree import apply_research_results, initialize_research_state
+
+    state = initialize_research_state(
+        round_id="round-readme-only-mechanism",
+        tree_id="research-tree",
+        decision_slots=slots(),
+    )
+
+    result = apply_research_results(
+        state,
+        (
+            finding(
+                "finding-readme-only",
+                anchor=SOURCE_A,
+                sources=[{"ref": SOURCE_A, "depth": "full-source"}],
+                mechanism=readme_only_mechanism(SOURCE_A),
+            ),
+        ),
+    )
+
+    slot = result["decision_slots"]["slot-architecture"]
+    assert any(
+        "promoted sources without mechanism artifacts" in blocker and SOURCE_A in blocker
+        for blocker in slot["closure_blockers"]
+    )
+    assert drilldown_nodes(result, SOURCE_A)
+
+
+def test_drilling_the_source_clears_shallow_and_mechanism_blockers() -> None:
+    from research_tree import RecursiveSearchConfig, apply_research_results, initialize_research_state
+
+    state = initialize_research_state(
+        round_id="round-drill-clears-blockers",
+        tree_id="research-tree",
+        decision_slots=slots(),
+        # Quarantine mechanics are covered by their own suite; this test
+        # isolates the shallow/mechanism closure-blocker lifecycle.
+        config=RecursiveSearchConfig(low_confidence_threshold=0.0),
+    )
+    state["decision_slots"]["slot-architecture"]["validation_passed"] = True
+
+    shallow = apply_research_results(
+        state,
+        (finding("finding-shallow-drill", anchor=SOURCE_A, sources=[{"ref": SOURCE_A, "depth": "snippet"}]),),
+    )
+    assert any(
+        "shallow source depth blocks landscape closure" in blocker
+        for blocker in shallow["decision_slots"]["slot-architecture"]["closure_blockers"]
+    )
+
+    drilled = apply_research_results(
+        shallow,
+        (
+            finding(
+                "finding-drilled",
+                anchor=f"{SOURCE_A}#code",
+                sources=[{"ref": SOURCE_A, "depth": "experiment"}],
+                mechanism=valid_mechanism(SOURCE_A),
+            ),
+        ),
+    )
+
+    slot = drilled["decision_slots"]["slot-architecture"]
+    assert all("shallow source depth" not in blocker for blocker in slot["closure_blockers"])
+    assert all("promoted sources without mechanism artifacts" not in blocker for blocker in slot["closure_blockers"])
+
+    # The remaining unrelated closure obligation (triangulation) still needs
+    # its evidence; once consumed, closure eligibility is restored.
+    corroborated = apply_research_results(
+        drilled,
+        (finding("finding-corroborating", anchor=SOURCE_B),),
+    )
+
+    slot = corroborated["decision_slots"]["slot-architecture"]
+    assert all("shallow source depth" not in blocker for blocker in slot["closure_blockers"])
+    assert all("promoted sources without mechanism artifacts" not in blocker for blocker in slot["closure_blockers"])
+    assert any("closure candidate requires coordinator assessment" in blocker for blocker in slot["closure_blockers"])
+
+
+def test_landscape_required_false_slot_is_exempt_from_shallow_blockers() -> None:
+    from research_tree import apply_research_results, initialize_research_state
+
+    decision_slots = slots()
+    decision_slots["slot-architecture"]["landscape_required"] = False
+    state = initialize_research_state(
+        round_id="round-landscape-opt-out",
+        tree_id="research-tree",
+        decision_slots=decision_slots,
+    )
+
+    result = apply_research_results(
+        state,
+        (finding("finding-opt-out", anchor=SOURCE_A, sources=[{"ref": SOURCE_A, "depth": "snippet"}]),),
+    )
+
+    slot = result["decision_slots"]["slot-architecture"]
+    assert all("shallow source depth" not in blocker for blocker in slot["closure_blockers"])
+    assert drilldown_nodes(result, SOURCE_A) == []
