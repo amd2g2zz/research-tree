@@ -76,7 +76,7 @@ def test_four_turn_conversation_appends_one_record_per_turn(tmp_path: Path) -> N
     assert [record.turn_index for record in records] == [1, 2, 3, 4]
     assert records[3].mirror == "mirror 4"
     assert records[3].gap == "gap 4"
-    assert records[3].delta == {"summary": "delta 4", "nodes": ()}
+    assert records[3].delta == {"summary": "delta 4", "nodes": []}
     assert records[3].user_move == RESPONSE_CLASS_GENERATION
     assert target.latest() is not None and target.latest().turn_index == 4  # type: ignore[union-attr]
     assert target.next_turn_index() == 5
@@ -135,7 +135,7 @@ def test_mirror_gap_and_delta_nodes_are_validated(tmp_path: Path) -> None:
         append_turn(target, 1, delta_nodes=("has spaces",))
     append_turn(target, 1, delta_nodes=("scope-backend", "risk-latency-1"))
     assert target.latest() is not None  # type: ignore[union-attr]
-    assert target.latest().delta == {"summary": "delta 1", "nodes": ("scope-backend", "risk-latency-1")}  # type: ignore[union-attr]
+    assert target.latest().delta == {"summary": "delta 1", "nodes": ["scope-backend", "risk-latency-1"]}  # type: ignore[union-attr]
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +153,7 @@ def test_continuity_gate_returns_grounding_for_the_next_turn(tmp_path: Path) -> 
     assert verdict["grounding"]["turn_index"] == 3
     assert verdict["grounding"]["mirror"] == "mirror 3"
     assert verdict["grounding"]["gap"] == "gap 3"
-    assert verdict["grounding"]["delta"] == {"summary": "delta 3", "nodes": ()}
+    assert verdict["grounding"]["delta"] == {"summary": "delta 3", "nodes": []}
 
 
 def test_continuity_gate_allows_regrounding_after_compaction_or_crash(tmp_path: Path) -> None:
