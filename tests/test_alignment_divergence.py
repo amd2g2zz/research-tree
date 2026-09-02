@@ -127,3 +127,55 @@ def test_quiet_turns_stagnate_node_and_axes_while_answered_converges(tmp_path: P
     divergence = store.status()["divergence"]
     assert divergence["axes"][0]["status"] == "open"
     assert divergence["axes"][0]["stagnant_turns"] == 0
+
+
+def test_plan_explores_new_axis_even_when_ask_budget_spent(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    _merge_gaps(store, ("gap-a", 5))
+    assert store.plan()["action"] == "ask_one"
+    store.record("gap-a", "unchanged", "fp")
+    assert store.plan()["action"] == "ask_one"
+    store.record("gap-a", "unchanged", "fp")
+    # Ask budget (MAX_ASKS_PER_NODE = 2) is now spent; nothing changed on the
+    # graph, but the user's answer opened a new dimension worth exploring.
+    result = store.record("gap-a", "unchanged", "fp", new_axes=["Which cost constraint binds first?"])
+    assert result["next_action"] == "plan"
+
+    decision = store.plan()
+    assert decision["action"] == "ask_one"
+    assert decision["node_id"] == "gap-a"
+    assert decision["axis_id"] == result["opened_axes"][0]
+    assert "cost constraint" in decision["axis"]
+
+
+def test_local_stagnation_does_not_terminate_other_node_exploration(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    _merge_gaps(store, ("gap-a", 5), ("gap-b", 4))
+    assert store.plan()["action"] == "ask_one"
+    store.record("gap-a", "unchanged", "fp")
+    store.record("gap-a", "unchanged", "fp")
+    third = store.record("gap-a", "unchanged", "fp")
+    assert third["stagnant_turns"] == 2
+
+    decision = store.plan()
+    assert decision["action"] == "ask_one"
+    assert decision["node_id"] == "gap-b"
+
+
+def test_full_stall_moves_to_reconnaissance_until_divergence_reopens(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    _merge_gaps(store, ("gap-a", 5))
+    store.record("gap-a", "unchanged", "fp")
+    store.record("gap-a", "unchanged", "fp")
+    third = store.record("gap-a", "unchanged", "fp")
+    assert third["dialogue_mode"] == "stalled"
+    assert third["next_action"] == "reconnaissance"
+
+    decision = store.plan()
+    assert decision["action"] == "reconnaissance"
+    assert "locally stalled" in decision["reason"]
+
+    store.record("gap-a", "unchanged", "fp", new_axes=["A cost constraint nobody mentioned"])
+    reopened = store.plan()
+    assert reopened["action"] == "ask_one"
+    assert reopened["axis_id"]

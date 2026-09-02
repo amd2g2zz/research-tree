@@ -100,9 +100,19 @@ def complete_graph() -> dict[str, object]:
     }
 
 
-def test_controller_asks_one_high_impact_gap_then_switches_to_reconnaissance(
+def test_controller_local_gap_stagnation_keeps_exploring_other_gaps(
     tmp_path: Path,
 ) -> None:
+    """Local convergence on one gap must not terminate the dialogue (#496).
+
+    Rewritten from ``test_controller_asks_one_high_impact_gap_then_switches_to_
+    reconnaissance``, which asserted the removed linear-convergence escape
+    (three quiet turns on gap-5 forced ``plan`` to ``reconnaissance``).  Issue
+    #496: stagnation is tracked per node; with gap-5 locally stalled and no
+    divergence axis, the controller explores the next requester-only gap
+    instead of leaving the dialogue.
+    """
+
     module = controller()
     module.init(tmp_path, "alignment-run")
     gaps = tmp_path / "gaps.json"
@@ -136,7 +146,9 @@ def test_controller_asks_one_high_impact_gap_then_switches_to_reconnaissance(
         "same-state",
     )
     assert third["stagnant_turns"] == 2
-    assert module.plan(tmp_path, "alignment-run", gaps)["action"] == "reconnaissance"
+    next_decision = module.plan(tmp_path, "alignment-run", gaps)
+    assert next_decision["action"] == "ask_one"
+    assert next_decision["gap_id"] == "gap-4"
 
 
 def test_controller_requires_explicit_handoff_confirmation(tmp_path: Path) -> None:

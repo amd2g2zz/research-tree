@@ -287,25 +287,34 @@ class AlignmentGraphStore:
             nodes = state["graph"]["nodes"]
             readiness = _alignment_readiness(nodes, state["graph"]["edges"])
             controller = state["controller"]
+            stagnation = state["divergence"]["node_stagnation"]
+            active_axes: dict[str, list[dict[str, Any]]] = {}
+            for axis in state["divergence"]["axes"]:
+                if axis["status"] == "open" and axis["stagnant_turns"] < MAX_STAGNANT_TURNS:
+                    active_axes.setdefault(axis["node_id"], []).append(axis)
+            for axis_group in active_axes.values():
+                axis_group.sort(key=lambda axis: (axis["stagnant_turns"], -axis["opened_turn"], axis["axis_id"]))
+            # Divergence-aware eligibility (#496): MAX_ASKS_PER_NODE bounds
+            # re-asking one dimension; an active axis is a NEW dimension on the
+            # node and carries its own ask allowance. A locally stalled node
+            # (stagnation at the threshold, no active axis) is skipped — it is
+            # a stall, not a reason to abandon the dialogue elsewhere.
             eligible = [
                 node
                 for node in nodes
                 if node["human_only"]
                 and node["status"] in {"candidate", "disputed"}
-                and node["ask_count"] < MAX_ASKS_PER_NODE
                 and node["last_asked_turn"] != controller["turn"]
+                and (node["ask_count"] < MAX_ASKS_PER_NODE or node["id"] in active_axes)
+                and (stagnation.get(node["id"], 0) < MAX_STAGNANT_TURNS or node["id"] in active_axes)
             ]
-            eligible.sort(key=lambda node: (-node["impact"], node["ask_count"], node["id"]))
+            eligible.sort(
+                key=lambda node: (0 if node["id"] in active_axes else 1, -node["impact"], node["ask_count"], node["id"])
+            )
             if readiness["ready"]:
                 decision: dict[str, Any] = {
                     "action": "await_human_confirmation",
                     "reason": "the alignment graph supports a strategy handoff",
-                    "question": None,
-                }
-            elif controller["stagnant_turns"] >= MAX_STAGNANT_TURNS:
-                decision = {
-                    "action": "reconnaissance",
-                    "reason": "two consecutive turns produced no graph change",
                     "question": None,
                 }
             elif controller["turn"] >= MAX_TURNS:
@@ -321,18 +330,39 @@ class AlignmentGraphStore:
                     (controller["turn"], node["id"]),
                 )
                 connection.execute("UPDATE controller SET pending_node_id=? WHERE singleton=1", (node["id"],))
-                decision = {
-                    "action": "ask_one",
-                    "node_id": node["id"],
-                    "gap_id": node["id"],
-                    "question": f"Ask one open-ended question about: {node['statement']}",
-                    "reason": "highest-impact unresolved point that only the requester can settle",
-                }
+                axis_group = active_axes.get(node["id"])
+                if axis_group:
+                    axis = axis_group[0]
+                    decision = {
+                        "action": "ask_one",
+                        "node_id": node["id"],
+                        "gap_id": node["id"],
+                        "axis_id": axis["axis_id"],
+                        "axis": axis["description"],
+                        "question": f"Explore the opened divergence axis: {axis['description']}",
+                        "reason": "the user's answer opened an unexplored direction on this point; continue in dialogue",
+                    }
+                else:
+                    decision = {
+                        "action": "ask_one",
+                        "node_id": node["id"],
+                        "gap_id": node["id"],
+                        "question": f"Ask one open-ended question about: {node['statement']}",
+                        "reason": "highest-impact unresolved point that only the requester can settle",
+                    }
             else:
-                reason = "; ".join(readiness["reasons"][:3])
+                requester_nodes = [
+                    node for node in nodes if node["human_only"] and node["status"] in {"candidate", "disputed"}
+                ]
+                if requester_nodes and all(
+                    stagnation.get(node["id"], 0) >= MAX_STAGNANT_TURNS for node in requester_nodes
+                ):
+                    reason = "no open divergence axis remains and every requester-only question is locally stalled"
+                else:
+                    reason = "; ".join(readiness["reasons"][:3]) or "remaining uncertainty is agent-verifiable"
                 decision = {
                     "action": "reconnaissance",
-                    "reason": reason or "remaining uncertainty is agent-verifiable",
+                    "reason": reason,
                     "question": None,
                 }
             connection.execute(
