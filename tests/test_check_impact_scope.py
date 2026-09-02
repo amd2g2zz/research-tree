@@ -18,9 +18,7 @@ ROOT = Path(__file__).parents[1]
 
 
 def auditor():
-    spec = importlib.util.spec_from_file_location(
-        "check_impact_scope", ROOT / "scripts/check_impact_scope.py"
-    )
+    spec = importlib.util.spec_from_file_location("check_impact_scope", ROOT / "scripts/check_impact_scope.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -32,9 +30,6 @@ def write_scope(root: Path, **overrides: object) -> Path:
         "schema": "impact-scope-v1",
         "change": "adopt-two-layer-contract",
         "files": ["src/research_tree/turn_contract.py", "tests/test_turn_contract.py"],
-        "symbols": [
-            {"name": "verify_traces", "file": "src/research_tree/turn_contract.py", "status": "added"}
-        ],
     }
     payload.update(overrides)
     path = root / "impact-scope.json"
