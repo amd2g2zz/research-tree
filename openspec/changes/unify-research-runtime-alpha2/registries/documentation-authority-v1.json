@@ -381,6 +381,17 @@
       "superseded_by": null,
       "validation_rule": "governed",
       "legacy_compatibility": "Archived batch-2 specs supersede prior alpha2 docs for the same capability."
-    }
-  ]
+    },
+    {
+      "path": ".github/PULL_REQUEST_TEMPLATE.md",
+      "class": "operational",
+      "authority": "operational",
+      "audience": "contributors",
+      "owner": "maintainers",
+      "lifecycle": "active",
+      "canonical_edit": ".github/PULL_REQUEST_TEMPLATE.md",
+      "update_trigger": "PR delivery-contract checklist change",
+      "superseded_by": null,
+      "validation_rule": "governed"
+    }  ]
 }

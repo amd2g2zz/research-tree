@@ -1,9 +1,6 @@
-"""Impact-scope audit gate (issue #501 plan §三).
-
-Covers scripts/check_impact_scope.py: impact_scope sidecar validation, the
-detect-changes JSON report mode, the documented git-diff fallback mode, and
-fail-closed behavior naming every changed path outside the declared scope.
-"""
+"""Impact-scope audit gate (issue #501 plan §三): sidecar validation, the
+detect-changes report mode, the documented git-diff fallback, and fail-closed
+behavior naming every changed path outside the declared scope."""
 
 from __future__ import annotations
 
@@ -46,8 +43,7 @@ def write_report(root: Path, entries: list[object], raw: str | None = None) -> P
 def init_repo(root: Path) -> Path:
     repo = root / "repo"
     repo.mkdir()
-    env_repo = subprocess.run(["git", "init", "-q", str(repo)], check=True, capture_output=True)
-    assert env_repo.returncode == 0
+    subprocess.run(["git", "init", "-q", str(repo)], check=True, capture_output=True)
     git = ["git", "-C", str(repo)]
     subprocess.run([*git, "config", "user.email", "audit@example.com"], check=True)
     subprocess.run([*git, "config", "user.name", "audit"], check=True)
@@ -99,10 +95,7 @@ def test_valid_sidecar_loads(tmp_path: Path) -> None:
 def test_report_mode_passes_when_changed_files_are_declared(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     module = auditor()
     scope = module.load_impact_scope(write_scope(tmp_path))
-    report = write_report(
-        tmp_path,
-        [{"symbol": "verify_traces", "file": "src/research_tree/turn_contract.py"}],
-    )
+    report = write_report(tmp_path, [{"symbol": "verify_traces", "file": "src/research_tree/turn_contract.py"}])
     result = module.audit_impact_scope(scope, module.changed_files_from_report(report))
     assert result["ok"] is True
     assert result["undeclared"] == []
@@ -127,21 +120,19 @@ def test_report_accepts_string_entries_and_alias_keys(tmp_path: Path) -> None:
     module = auditor()
     scope = module.load_impact_scope(write_scope(tmp_path))
     report = write_report(tmp_path, ["src/research_tree/turn_contract.py"])
-    assert module.audit_impact_scope(scope, module.changed_files_from_report(report))["ok"] is True
     aliased = write_report(tmp_path, [{"path": "src/research_tree/turn_contract.py"}], raw=None)
+    assert module.audit_impact_scope(scope, module.changed_files_from_report(report))["ok"] is True
     assert module.audit_impact_scope(scope, module.changed_files_from_report(aliased))["ok"] is True
 
 
 def test_unrecognized_report_shape_is_rejected_and_named(tmp_path: Path) -> None:
     module = auditor()
-    scope = module.load_impact_scope(write_scope(tmp_path))
     broken = write_report(tmp_path, [], raw="{not json")
     with pytest.raises(module.ImpactScopeError, match="detect-changes"):
         module.changed_files_from_report(broken)
     empty = write_report(tmp_path, [], raw=json.dumps({"unrelated": []}))
     with pytest.raises(module.ImpactScopeError, match="detect-changes"):
         module.changed_files_from_report(empty)
-    assert scope  # scope loads independently of the report
 
 
 # --- git-diff fallback mode (documented CLI limitation) ------------------------
@@ -178,17 +169,9 @@ def test_cli_requires_exactly_one_change_source(tmp_path: Path, capsys: pytest.C
         module.main(["--impact-scope", str(scope)])
     assert neither.value.code == 2
     report = write_report(tmp_path, ["src/research_tree/turn_contract.py"])
+    both_args = ["--impact-scope", str(scope), "--detect-changes-report", str(report), "--diff-base", "dev"]
     with pytest.raises(SystemExit) as both:
-        module.main(
-            [
-                "--impact-scope",
-                str(scope),
-                "--detect-changes-report",
-                str(report),
-                "--diff-base",
-                "dev",
-            ]
-        )
+        module.main(both_args)
     assert both.value.code == 2
 
 

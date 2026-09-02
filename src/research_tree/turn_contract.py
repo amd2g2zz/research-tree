@@ -6,20 +6,18 @@ open-ended behavior strategy (interview craft, teaching, counterexamples,
 persona). Contract terms and trace types are the ONLY enumerated space;
 behaviors are never enumerated.
 
-Per alignment turn the engine's policy job is contract emission:
-(1) emit contract terms (``target_gap`` / ``required_traces`` / ``cost_cap`` /
-``taboos``); (2) the prompt layer composes the turn freely against those terms;
-(3) the engine verifies the turn's recorded traces via :func:`verify_traces` —
-presence and schema checks only, never content quality (missing trace = gate
-failure naming the exact term); (4) the caller persists the turn-record with
-terms, traces, and the user-response class (#497 owns persistence).
+Per alignment turn: (1) the engine emits contract terms (``target_gap`` /
+``required_traces`` / ``cost_cap`` / ``taboos``); (2) the prompt layer composes
+the turn freely against those terms; (3) :func:`verify_traces` checks the
+turn's recorded traces — presence and schema only, never content quality
+(missing trace = gate failure naming the exact term); (4) the caller persists
+the turn-record with terms, traces, and the user-response class (#497).
 
 SEAM ONLY: nothing in ``alignment_graph.py``, ``decision_frame.py``, or
 ``lifecycle_hook.py`` is wired to this module yet — that rewiring belongs to
-issues #489/#490. Stdlib-only per ADR-001 (zero runtime dependencies);
-validates with the repository's whitelist pattern (strict key sets, errors
-naming the offending field) until ADR-007's pydantic boundary gains its first
-runtime consumer.
+issues #489/#490. Stdlib-only per ADR-001; validates with the repository's
+whitelist pattern (strict key sets, errors naming the offending field) until
+ADR-007's pydantic boundary gains its first runtime consumer.
 """
 
 from __future__ import annotations

@@ -10,9 +10,9 @@ trace exists*, never *what it says*; the prompt layer (SKILL + references)
 carries ALL open-ended behavior strategy (interview craft, teaching,
 counterexamples, persona) as craft guidance, not as engine-checklistable
 items. The enumerated space SHALL be limited to contract terms and trace
-types; behaviors SHALL never be enumerated. Design test for any future
-proposal: adding an enum entry for something the model should say violates
-the contract; adding a trace type the engine can verify conforms.
+types; behaviors SHALL never be enumerated. Design test: adding an enum
+entry for something the model should say violates the contract; adding a
+trace type the engine can verify conforms.
 
 #### Scenario: a contract-conforming extension
 
@@ -24,8 +24,8 @@ the contract; adding a trace type the engine can verify conforms.
 #### Scenario: a contract-violating extension
 
 - **WHEN** a proposal adds an engine enum entry for something the model
-  should say (for example a `teach` action in a fixed policy vocabulary, or a
-  fixed selection ladder over guidance moves)
+  should say (for example a `teach` action in a fixed policy vocabulary, or
+  a fixed selection ladder over guidance moves)
 - **THEN** the proposal violates the two-layer contract and SHALL be rejected
   in favor of a prompt-layer craft document plus, where load-bearing, an
   engine-side structural trace gate
@@ -37,10 +37,10 @@ terms: `target_gap` (the alignment-graph node this turn must advance),
 `required_traces` (a finite set of registered trace types the turn must
 leave), `cost_cap` (a user response-production ceiling distinguishing
 discrimination responses — capped at one sentence pointer (一句指认) — from
-generation responses, which may carry free text), and `taboos` (nodes already
-answered / asks already spent). The canonical loop SHALL be: emit contract
-terms → prompt layer composes the turn freely (infinite generation space) →
-engine verifies traces against terms → persist the turn-record (#497).
+generation responses, which may carry free text), and `taboos` (nodes
+already answered / asks already spent). The canonical loop SHALL be: emit
+contract terms → prompt layer composes the turn freely → engine verifies
+traces against terms → persist the turn-record (#497).
 
 #### Scenario: contract terms serialize strictly
 
@@ -90,7 +90,7 @@ type MUST be present among the recorded traces, every recorded trace type
 MUST be registered, and every required trace's payload MUST carry the type's
 declared required fields. A missing required trace SHALL fail with an error
 naming the exact missing term. `verify_traces` SHALL NOT inspect content
-quality, wording, or any quality beyond the declared structural fields.
+quality beyond the declared structural fields.
 
 #### Scenario: a missing required trace is named
 

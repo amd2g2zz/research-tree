@@ -24,13 +24,8 @@ from research_tree.turn_contract import (
     verify_traces,
 )
 
-INITIAL_TRACE_TYPES = (
-    "concept-card",
-    "counterargument",
-    "evidence-delta",
-    "guess-statement",
-    "option-set",
-    "possibility-survey",
+INITIAL_TRACE_TYPES = tuple(
+    "concept-card counterargument evidence-delta guess-statement option-set possibility-survey".split()
 )
 
 NODE_GAP = "gap.intent.primary"

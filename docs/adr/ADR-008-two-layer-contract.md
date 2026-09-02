@@ -95,14 +95,14 @@ for the same reason.
 
 ## Consequences
 
-- Every alignment-domain issue (#489–#500) is re-split into engine-gate vs
-  prompt-craft items against this contract; PR reviewers apply the design
-  test as a rejected-design compliance check.
+- Alignment-domain issues (#489–#500) re-split into engine-gate vs
+  prompt-craft items against this contract; reviewers apply the design test
+  as a rejected-design compliance check.
 - New trace types (e.g. #498's `proportionality_assessment`) extend the
   registry append-only; existing entries are never redefined.
-- Open-ended quality remains unverified by construction — the engine's
-  silence about "how good" is the contract working, not a gap. Behavioral
-  acceptance belongs to evaluation runs, not engine gates.
+- Open-ended quality stays unverified by construction — the engine's silence
+  about "how good" is the contract working, not a gap; behavioral acceptance
+  belongs to evaluation runs, not engine gates.
 - `scripts/check_impact_scope.py` and the PR template carry the governance
   side: impact reports and detect-changes reconciliation are mandatory PR
   checklist items so engine-layer changes stay inside their declared scope.
