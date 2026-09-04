@@ -26,6 +26,19 @@ except ImportError:  # Standalone skill-packaged execution — issue #453.
 
     build_loader_receipt = _skill_activation.build_loader_receipt
 
+try:
+    # Issue #497: refresh/validate the alignment turn-record file. The module
+    # is part of the checkout runtime; standalone skill-packaged execution
+    # does not ship it, and the hook stays fail-open without it.
+    from .alignment_turn_record import refresh_validation as _refresh_turn_record_validation
+except ImportError:
+    try:
+        from alignment_turn_record import (  # type: ignore[no-redef]
+            refresh_validation as _refresh_turn_record_validation,
+        )
+    except ImportError:
+        _refresh_turn_record_validation = None  # type: ignore[assignment]
+
 MAX_INPUT_BYTES = 64 * 1024
 MAX_IDENTIFIER_LENGTH = 256
 PROJECT_IDENTIFIER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
@@ -440,6 +453,16 @@ def observe(
         raise LifecycleHookError("project run is not initialized")
     record["project_id"] = project_id
     record["run_id"] = run_id
+    if event == "PostToolUse":
+        # Issue #497: refresh/validate the turn-record file after tool use so
+        # the record the next alignment turn must ground in stays verifiable.
+        turn_record = _observe_alignment_turn_record(
+            root,
+            payload,
+            run_phase=_resolve_run_phase(None, root=root, payload=payload),
+        )
+        if turn_record is not None:
+            record["alignment_turn_record"] = turn_record
     path = _write_record(root, record, run_root / "events")
     if debug:
         try:
@@ -459,6 +482,7 @@ def observe(
         "event": event,
         "path": path.relative_to(root).as_posix(),
         **({"skill_load": record["skill_load"]} if "skill_load" in record else {}),
+        **({"alignment_turn_record": record["alignment_turn_record"]} if "alignment_turn_record" in record else {}),
     }
 
 
@@ -529,6 +553,9 @@ def _observe_prompt_signal(
     resolved_phase = _resolve_run_phase(run_phase, root=root, payload=payload)
     # During research every prompt resolves through the two-option protocol.
     reentry = resolve_research_reentry(prompt) if resolved_phase == RESEARCH_PHASE else None
+    # Issue #497: refresh/validate the alignment turn-record file so compaction
+    # or long sessions cannot silently orphan it.
+    turn_record = _observe_alignment_turn_record(root, payload, run_phase=resolved_phase)
     record: dict[str, Any] = {
         "schema": 1,
         "source": "research-tree-lifecycle-hook",
@@ -548,6 +575,8 @@ def _observe_prompt_signal(
     if reentry is not None:
         record["run_phase"] = resolved_phase
         record["reentry"] = reentry
+    if turn_record is not None:
+        record["alignment_turn_record"] = turn_record
     path = _write_record(root, record, root / SIGNAL_DIRECTORY)
     _cap_signal_records(root)
     result: dict[str, Any] = {
@@ -560,6 +589,8 @@ def _observe_prompt_signal(
     if reentry is not None:
         result["run_phase"] = resolved_phase
         result["reentry"] = reentry
+    if turn_record is not None:
+        result["alignment_turn_record"] = turn_record
     if signal["category"] == "correction" and signal["confidence"] == "high":
         feed_path = _feed_run_signal(root, payload, record, route="apply_correction")
         if feed_path is not None:
@@ -619,6 +650,37 @@ def _feed_run_signal(
         path = _write_record(root, feed, run_root / "events")
         return path.relative_to(root).as_posix()
     except (LifecycleHookError, OSError):
+        return None
+
+
+def _observe_alignment_turn_record(
+    root: Path,
+    payload: dict[str, Any],
+    *,
+    run_phase: str | None,
+) -> dict[str, Any] | None:
+    """Refresh and validate the run's alignment turn-record file (issue #497).
+
+    Compaction and long sessions must not silently orphan the record file:
+    the hook re-validates it and surfaces the verdict on the record surface.
+    Fail-open, like every lifecycle observation: returns None when there is
+    no active run, when the runtime cannot reach the record module
+    (standalone execution), or when the run is outside the turn-record
+    protocol (no record file and not in the alignment phase). Never raises
+    into the observe path, and never creates workspace directories.
+    """
+    if _refresh_turn_record_validation is None:
+        return None
+    active = _active_run(root, payload)
+    if active is None:
+        return None
+    run_root, _project_id, _run_id = active
+    records_path = run_root / "alignment" / "turn-records.jsonl"
+    if run_phase != "alignment" and not records_path.is_file():
+        return None
+    try:
+        return _refresh_turn_record_validation(run_root)
+    except (OSError, ValueError):
         return None
 
 
