@@ -140,9 +140,7 @@ class AlignmentTurnRecord:
         unknown = set(value) - RECORD_KEYS
         missing = RECORD_KEYS - set(value)
         if unknown or missing:
-            raise TurnRecordError(
-                f"turn record field mismatch; missing: {sorted(missing)}, unknown: {sorted(unknown)}"
-            )
+            raise TurnRecordError(f"turn record field mismatch; missing: {sorted(missing)}, unknown: {sorted(unknown)}")
         if value["schema"] != SCHEMA_VERSION:
             raise TurnRecordError(f"turn record schema must be {SCHEMA_VERSION}")
         turn_index = value["turn_index"]

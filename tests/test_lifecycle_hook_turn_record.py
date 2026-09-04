@@ -129,7 +129,7 @@ def test_prompt_submit_reads_the_phase_from_the_manifest(tmp_path: Path) -> None
 
 def test_missing_record_file_reports_missing_but_stays_recorded(tmp_path: Path) -> None:
     root = project(tmp_path)
-    run_root = project_run(root, phase="alignment")
+    project_run(root, phase="alignment")
 
     result = submit(root, "let us start aligning")
 
@@ -145,9 +145,7 @@ def test_corrupt_record_file_reports_invalid_with_reason(tmp_path: Path) -> None
     root = project(tmp_path)
     run_root = project_run(root, phase="alignment")
     store = seeded_store(run_root, turns=1)
-    store.records_path.write_text(
-        store.records_path.read_text(encoding="utf-8") + "{broken\n", encoding="utf-8"
-    )
+    store.records_path.write_text(store.records_path.read_text(encoding="utf-8") + "{broken\n", encoding="utf-8")
 
     result = submit(root, "next exchange")
 
