@@ -112,8 +112,8 @@ missing requirements.
   it every turn. A missing or stale record blocks the next turn
   (fail-closed); a turn with no persisted delta is a protocol violation —
   run reconnaissance instead of repeating the question, and never answer
-  your own question; wait for the user. Intent understanding remains active
-  throughout the round.
+  your own question; wait for the user.
+  Intent understanding remains active throughout the round.
 
 ## Protocol 2 — Claims, feasibility, and cost
 
