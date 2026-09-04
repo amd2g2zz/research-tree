@@ -18,6 +18,9 @@ from typing import Any, Iterable, Mapping, Sequence
 log = logging.getLogger(__name__)
 
 SCHEMA = 3
+# Turn-cap bound (#491): reaching it never exits alignment. It triggers the
+# explicit `alignment_incomplete` blocked disposition (user extension or waive
+# required); the exit itself is decided by the alignment score below.
 MAX_TURNS = 6
 # Per-node/per-axis stall threshold (#496): a requester-only point that stayed
 # quiet this many turns with no active divergence axis is *locally stalled*.
@@ -25,6 +28,23 @@ MAX_TURNS = 6
 # governed) total-turn bound and plan() for the stall decision.
 MAX_STAGNANT_TURNS = 2
 MAX_ASKS_PER_NODE = 2
+# --- Alignment exit policy (#491) -------------------------------------------------
+# Alignment exits by a deterministic score over graph state, never by a silent
+# strategy switch. The score starts at ALIGNMENT_SCORE_MAX and subtracts
+# penalties for alignment residue (weights in score points below); offering
+# and accepting the handoff requires reaching ALIGNMENT_SCORE_EXIT_THRESHOLD
+# or a recorded explicit user waive (AlignmentGraphStore.waive).
+ALIGNMENT_SCORE_MAX = 100
+ALIGNMENT_SCORE_EXIT_THRESHOLD = ALIGNMENT_SCORE_MAX
+ALIGNMENT_SCORE_OPEN_GAP_WEIGHT = 20  # per impact point (1-5) of an open requester-only gap
+ALIGNMENT_SCORE_EXHAUSTED_ASK_WEIGHT = 10  # per open requester-only gap whose MAX_ASKS_PER_NODE budget is spent
+ALIGNMENT_SCORE_OPEN_AXIS_WEIGHT = 10  # per open divergence axis (#496), on any node
+# Impact at or above this counts as "high-impact" (same bar as the
+# high-impact disagreement rule in _alignment_readiness).
+ALIGNMENT_HIGH_IMPACT = 4
+# Dialogue turns granted when the user responds after an
+# `alignment_incomplete` blocked disposition (extension by engagement).
+ALIGNMENT_EXTENSION_TURNS = 3
 AXIS_STATUSES = frozenset({"open", "converged"})
 DIALOGUE_MODES = frozenset({"handoff_ready", "divergent", "converging", "stalled"})
 IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -302,27 +322,48 @@ class AlignmentGraphStore:
             eligible = [
                 node
                 for node in nodes
-                if node["human_only"]
-                and node["status"] in {"candidate", "disputed"}
-                and node["last_asked_turn"] != controller["turn"]
-                and (node["ask_count"] < MAX_ASKS_PER_NODE or node["id"] in active_axes)
-                and (stagnation.get(node["id"], 0) < MAX_STAGNANT_TURNS or node["id"] in active_axes)
+                if node["last_asked_turn"] != controller["turn"]
+                and (
+                    (
+                        node["human_only"]
+                        and node["status"] in {"candidate", "disputed"}
+                        and (node["ask_count"] < MAX_ASKS_PER_NODE or node["id"] in active_axes)
+                        and (stagnation.get(node["id"], 0) < MAX_STAGNANT_TURNS or node["id"] in active_axes)
+                    )
+                    # An active divergence axis is a user-raised direction
+                    # nobody explored yet (#491 score gate): it is askable on
+                    # any node, settled or not, so a below-threshold score has
+                    # a dialogue move to make before any user decision.
+                    or node["id"] in active_axes
+                )
             ]
             eligible.sort(
                 key=lambda node: (0 if node["id"] in active_axes else 1, -node["impact"], node["ask_count"], node["id"])
             )
-            if readiness["ready"]:
+            score = _alignment_score(nodes, state["divergence"]["axes"])
+            exit_allowed = (
+                score >= ALIGNMENT_SCORE_EXIT_THRESHOLD or _active_waive(connection, state["graph_digest"]) is not None
+            )
+            extension_deadline = _extension_deadline(connection)
+            extended = extension_deadline is not None and controller["turn"] <= extension_deadline
+            escalation = _escalation_nodes(nodes)
+            if readiness["ready"] and exit_allowed:
                 decision: dict[str, Any] = {
                     "action": "await_human_confirmation",
                     "reason": "the alignment graph supports a strategy handoff",
                     "question": None,
                 }
-            elif controller["turn"] >= MAX_TURNS:
-                decision = {
-                    "action": "reconnaissance",
-                    "reason": "alignment dialogue limit reached; resolve remaining nodes with evidence",
-                    "question": None,
-                }
+            elif not exit_allowed and controller["turn"] >= MAX_TURNS and not extended:
+                # Turn cap reached with the score still below the exit
+                # threshold (#491): the open points are the user's decision —
+                # never a silent strategy switch to reconnaissance.
+                decision = _blocked_disposition(
+                    nodes,
+                    state["divergence"]["axes"],
+                    score,
+                    "alignment turn budget reached with the alignment score below the exit threshold; "
+                    "the open points need your decision",
+                )
             elif eligible:
                 node = eligible[0]
                 connection.execute(
@@ -350,6 +391,17 @@ class AlignmentGraphStore:
                         "question": f"Ask one open-ended question about: {node['statement']}",
                         "reason": "highest-impact unresolved point that only the requester can settle",
                     }
+            elif escalation:
+                # Ask budget spent on a high-impact requester-only point with
+                # no dialogue move left (#491): name it for the user's decision
+                # instead of abandoning it to reconnaissance.
+                decision = _blocked_disposition(
+                    nodes,
+                    state["divergence"]["axes"],
+                    score,
+                    "the ask budget is spent on a high-impact requester-only point without convergence; "
+                    "it needs your decision",
+                )
             else:
                 requester_nodes = [
                     node for node in nodes if node["human_only"] and node["status"] in {"candidate", "disputed"}
@@ -380,6 +432,8 @@ class AlignmentGraphStore:
             "stagnant_turns": state["controller"]["stagnant_turns"],
             "alignment_digest": state["graph_digest"],
             "readiness": readiness,
+            "alignment_score": score,
+            "alignment_exit_threshold": ALIGNMENT_SCORE_EXIT_THRESHOLD,
         }
 
     def record(
@@ -473,13 +527,16 @@ class AlignmentGraphStore:
                 },
             )
         dialogue_mode = state["divergence"]["mode"]
+        # record() must not advise the escape plan() would refuse (#491): a
+        # stalled dialogue with an exhausted high-impact gap escalates instead.
+        stalled_next = "alignment_incomplete" if _escalation_nodes(state["graph"]["nodes"]) else "reconnaissance"
         return {
             "turn": state["controller"]["turn"],
             "stagnant_turns": stagnant,
             "state_changed": changed,
             "opened_axes": opened_axes,
             "dialogue_mode": dialogue_mode,
-            "next_action": "reconnaissance" if dialogue_mode == "stalled" else "plan",
+            "next_action": stalled_next if dialogue_mode == "stalled" else "plan",
         }
 
     @staticmethod
@@ -551,6 +608,14 @@ class AlignmentGraphStore:
             readiness = _alignment_readiness(state["graph"]["nodes"], state["graph"]["edges"])
             if not readiness["ready"]:
                 raise AlignmentGraphError("alignment graph is not ready: " + "; ".join(readiness["reasons"]))
+            score = _alignment_score(state["graph"]["nodes"], state["divergence"]["axes"])
+            if score < ALIGNMENT_SCORE_EXIT_THRESHOLD and _active_waive(connection, state["graph_digest"]) is None:
+                # User pressure cannot bypass the score gate (#491); only a
+                # recorded explicit waive unlocks a below-threshold exit.
+                raise AlignmentGraphError(
+                    f"alignment score {score} is below the exit threshold {ALIGNMENT_SCORE_EXIT_THRESHOLD}; "
+                    "alignment is incomplete: resolve the open points or record an explicit waive"
+                )
             last_decision = state["controller"].get("last_decision") or {}
             if last_decision.get("action") != "await_human_confirmation":
                 raise AlignmentGraphError("cannot confirm before the handoff draft is shown")
@@ -582,6 +647,43 @@ class AlignmentGraphStore:
             "status": state["controller"]["status"],
             "phase": state["controller"]["phase"],
             "handoff": state["controller"]["handoff"],
+        }
+
+    def waive(self, reason: str) -> dict[str, Any]:
+        """Record an explicit user waive of the alignment-exit gate (#491).
+
+        The waive is the user's recorded decision to proceed despite an
+        alignment score below ``ALIGNMENT_SCORE_EXIT_THRESHOLD`` (or a turn
+        cap with open gaps). It is bound to the graph digest at waive time:
+        any later graph change expires it and the gate re-engages. Generic
+        acknowledgements are rejected, same bar as handoff confirmation.
+        """
+        text = " ".join(str(reason).split())
+        if not text:
+            raise AlignmentGraphError("waive reason must be nonempty")
+        if text.casefold() in {"ok", "okay", "yes", "continue", "go ahead", "可以", "继续"}:
+            raise AlignmentGraphError("generic acknowledgement is not an alignment waive")
+        with self._connect() as connection:
+            self._require_schema(connection)
+            state = self._materialize(connection)
+            nodes = state["graph"]["nodes"]
+            score = _alignment_score(nodes, state["divergence"]["axes"])
+            details = {
+                "reason": text,
+                "reason_digest": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                "graph_digest": state["graph_digest"],
+                "alignment_score": score,
+                "alignment_exit_threshold": ALIGNMENT_SCORE_EXIT_THRESHOLD,
+                "blocked_nodes": sorted(
+                    node["id"] for node in nodes if node["human_only"] and node["status"] in {"candidate", "disputed"}
+                ),
+            }
+            self._commit_event(connection, "alignment_waived", details)
+        return {
+            "waived": True,
+            "graph_digest": details["graph_digest"],
+            "alignment_score": score,
+            "alignment_exit_threshold": ALIGNMENT_SCORE_EXIT_THRESHOLD,
         }
 
     def compile_handoff(self) -> dict[str, Any]:
@@ -1231,6 +1333,137 @@ def _dialogue_mode(state: Mapping[str, Any]) -> str:
     return "stalled"
 
 
+def _alignment_score(nodes: Sequence[Mapping[str, Any]], axes: Sequence[Mapping[str, Any]]) -> int:
+    """Deterministic alignment-exit score over graph state (#491).
+
+    Returns an integer 0..``ALIGNMENT_SCORE_MAX``: full convergence (no open
+    requester-only gap, no spent ask budget on an open gap, no open divergence
+    axis) scores the maximum and exits without user intervention; every piece
+    of residue subtracts its weight, so exiting is gated by alignment quality,
+    not by the turn counter. Exact integer arithmetic keeps the score stable
+    across reopens and event-log rebuilds.
+    """
+
+    penalty = 0
+    for node in nodes:
+        if node["human_only"] and node["status"] in {"candidate", "disputed"}:
+            penalty += ALIGNMENT_SCORE_OPEN_GAP_WEIGHT * int(node["impact"])
+            if node["ask_count"] >= MAX_ASKS_PER_NODE:
+                penalty += ALIGNMENT_SCORE_EXHAUSTED_ASK_WEIGHT
+    penalty += ALIGNMENT_SCORE_OPEN_AXIS_WEIGHT * sum(1 for axis in axes if axis["status"] == "open")
+    return max(0, ALIGNMENT_SCORE_MAX - penalty)
+
+
+def _escalation_nodes(nodes: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Open requester-only gaps whose ask budget is spent at high impact (#491).
+
+    These are named in the blocked disposition for the user's decision instead
+    of being abandoned to reconnaissance. An active divergence axis on the
+    node keeps the node askable first (#496 extra allowance composes); stalled
+    gaps that never exhausted their ask budget keep the #496 stall behavior.
+    """
+
+    return sorted(
+        (
+            node
+            for node in nodes
+            if node["human_only"]
+            and node["status"] in {"candidate", "disputed"}
+            and node["ask_count"] >= MAX_ASKS_PER_NODE
+            and node["impact"] >= ALIGNMENT_HIGH_IMPACT
+        ),
+        key=lambda node: (-node["impact"], node["id"]),
+    )
+
+
+def _blocked_disposition(
+    nodes: Sequence[Mapping[str, Any]], axes: Sequence[Mapping[str, Any]], score: int, reason: str
+) -> dict[str, Any]:
+    """Build the ``alignment_incomplete`` blocked disposition (#491).
+
+    The disposition names every open requester-only gap (impact-descending,
+    with its spent-ask flag), the open divergence axes, and the score versus
+    the exit threshold, and states the two resolutions: extend the dialogue or
+    record an explicit waive.
+    """
+
+    open_gaps = sorted(
+        (node for node in nodes if node["human_only"] and node["status"] in {"candidate", "disputed"}),
+        key=lambda node: (-node["impact"], node["id"]),
+    )
+    return {
+        "action": "alignment_incomplete",
+        "reason": reason,
+        "question": None,
+        "alignment_score": score,
+        "alignment_exit_threshold": ALIGNMENT_SCORE_EXIT_THRESHOLD,
+        "blocked_nodes": [
+            {
+                "node_id": node["id"],
+                "impact": node["impact"],
+                "asks_exhausted": node["ask_count"] >= MAX_ASKS_PER_NODE,
+            }
+            for node in open_gaps
+        ],
+        "exhausted_ask_nodes": [node["id"] for node in open_gaps if node["ask_count"] >= MAX_ASKS_PER_NODE],
+        "open_axes": [axis["description"] for axis in axes if axis["status"] == "open"],
+        "requires": "extend the dialogue by answering, or record an explicit waive",
+    }
+
+
+def _active_waive(connection: sqlite3.Connection, graph_digest: str) -> dict[str, Any] | None:
+    """Latest recorded waive still bound to the current graph content (#491).
+
+    A waive is accepted only while its ``graph_digest`` equals the current
+    one: any graph change (merge or a state-changing record) expires it and
+    the exit gate re-engages.
+    """
+
+    for row in connection.execute(
+        "SELECT details_json FROM events WHERE event_type='alignment_waived' ORDER BY sequence DESC"
+    ):
+        details = json.loads(row["details_json"])
+        if details.get("graph_digest") == graph_digest:
+            return details
+    return None
+
+
+def _extension_deadline(connection: sqlite3.Connection) -> int | None:
+    """Turn bound granted by user engagement after the latest blocked disposition (#491).
+
+    The first user response recorded after the newest ``alignment_incomplete``
+    plan decision grants ``ALIGNMENT_EXTENSION_TURNS`` further dialogue turns
+    from that response's turn; past the deadline the blocked disposition
+    returns and a fresh user response is required to extend again. Derived
+    from the append-only event log, so no schema change is needed.
+    """
+
+    newer_responses = 0
+    block_found = False
+    for row in connection.execute("SELECT event_type, details_json FROM events ORDER BY sequence DESC"):
+        if row["event_type"] == "response_recorded":
+            newer_responses += 1
+        elif (
+            row["event_type"] == "plan_selected"
+            and json.loads(row["details_json"]).get("action") == "alignment_incomplete"
+        ):
+            block_found = True
+            break
+    if not block_found or newer_responses == 0:
+        return None
+    total_responses = connection.execute("SELECT COUNT(*) FROM events WHERE event_type='response_recorded'").fetchone()[
+        0
+    ]
+    first_response = connection.execute(
+        "SELECT state_json FROM events WHERE event_type='response_recorded' ORDER BY sequence ASC LIMIT 1 OFFSET ?",
+        (total_responses - newer_responses,),
+    ).fetchone()
+    if first_response is None:
+        return None
+    first_response_turn = int(json.loads(first_response["state_json"])["controller"]["turn"])
+    return first_response_turn + ALIGNMENT_EXTENSION_TURNS
+
+
 def _alignment_readiness(nodes: Sequence[Mapping[str, Any]], edges: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     reasons: list[str] = []
     active_edges = [edge for edge in edges if edge["status"] == "active"]
@@ -1440,6 +1673,10 @@ def confirm(
     return AlignmentGraphStore(database_path(workspace, run_id, project_id)).confirm(confirmation, expected_digest)
 
 
+def waive(workspace: Path, run_id: str, reason: str, *, project_id: str | None = None) -> dict[str, Any]:
+    return AlignmentGraphStore(database_path(workspace, run_id, project_id)).waive(reason)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
@@ -1466,6 +1703,9 @@ def _parser() -> argparse.ArgumentParser:
     confirmation.add_argument("--run-id", required=True)
     confirmation.add_argument("--confirmation", required=True)
     confirmation.add_argument("--expected-digest", required=True)
+    waiving = commands.add_parser("waive", help="record an explicit user waive of the alignment-exit gate (#491)")
+    waiving.add_argument("--run-id", required=True)
+    waiving.add_argument("--reason", required=True)
     compilation = commands.add_parser("compile")
     compilation.add_argument("--run-id", required=True)
     compilation.add_argument(
@@ -1511,6 +1751,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = store.record(args.node_id, args.outcome, args.fingerprint, args.axis)
         elif args.command == "confirm":
             result = store.confirm(args.confirmation, args.expected_digest)
+        elif args.command == "waive":
+            result = store.waive(args.reason)
         elif args.command == "compile":
             result = store.compile_handoff()
             output = args.output or (store.database.parent / "handoff.json")

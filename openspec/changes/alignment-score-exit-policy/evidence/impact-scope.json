@@ -1,0 +1,99 @@
+{
+  "schema": "impact-scope-v1",
+  "change": "alignment-score-exit-policy",
+  "issue": 491,
+  "files": [
+    "openspec/changes/alignment-score-exit-policy/design.md",
+    "openspec/changes/alignment-score-exit-policy/proposal.md",
+    "openspec/changes/alignment-score-exit-policy/specs/alignment-exit-policy/spec.md",
+    "openspec/changes/alignment-score-exit-policy/tasks.md",
+    "openspec/changes/alignment-score-exit-policy/evidence/impact-scope.json",
+    "packages/claude-code/research-tree/skills/research-tree/scripts/alignment_controller.py",
+    "packages/codex/research-tree/scripts/alignment_controller.py",
+    "packages/hermes/research-tree/scripts/alignment_controller.py",
+    "src/research_tree/alignment_graph.py",
+    "tests/test_alignment_exit_policy.py"
+  ],
+  "symbols": [
+    {
+      "name": "MAX_TURNS",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "ALIGNMENT_SCORE_MAX",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "ALIGNMENT_SCORE_EXIT_THRESHOLD",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "ALIGNMENT_SCORE_OPEN_GAP_WEIGHT",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "ALIGNMENT_SCORE_EXHAUSTED_ASK_WEIGHT",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "ALIGNMENT_SCORE_OPEN_AXIS_WEIGHT",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "ALIGNMENT_HIGH_IMPACT",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "ALIGNMENT_EXTENSION_TURNS",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "AlignmentGraphStore.plan",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "AlignmentGraphStore.confirm",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "AlignmentGraphStore.record",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "AlignmentGraphStore.waive",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "_alignment_score",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "_escalation_nodes",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "_blocked_disposition",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "_active_waive",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "_extension_deadline",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "_parser",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "main",
+      "file": "src/research_tree/alignment_graph.py"
+    },
+    {
+      "name": "waive",
+      "file": "src/research_tree/alignment_graph.py"
+    }
+  ]
+}
