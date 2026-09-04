@@ -24,8 +24,8 @@ from research_tree.alignment_turn_record import (
 from research_tree.turn_contract import (
     RESPONSE_CLASS_DISCRIMINATION,
     RESPONSE_CLASS_GENERATION,
-    CostCap,
     ContractTerms,
+    CostCap,
     MissingTraceError,
 )
 
