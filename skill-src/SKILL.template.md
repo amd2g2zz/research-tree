@@ -104,10 +104,16 @@ missing requirements.
   show one implication, then ask one guided question.
 - Co-evolve cognition before strategy handoff: expose your reading,
   assumptions, strongest counterargument, and consequence if wrong; invite
-  challenge; state what changed on both sides. Persist an alignment-turn
-  record (mirror, gap, evidence, delta, decision effect) after each
-  meaningful exchange. If no field changed, run reconnaissance instead of
-  repeating the question. Intent understanding remains active throughout the round.
+  challenge; state what changed on both sides. Record-or-block: load and
+  ground this turn in the persisted alignment-turn record before speaking,
+  then append this exchange's record (mirror, gap, delta, user move,
+  contract terms, traces) to `turn-records.jsonl` in the run's
+  `alignment/` workspace before responding; the hooks refresh and validate
+  it every turn. A missing or stale record blocks the next turn
+  (fail-closed); a turn with no persisted delta is a protocol violation —
+  run reconnaissance instead of repeating the question, and never answer
+  your own question; wait for the user.
+  Intent understanding remains active throughout the round.
 
 ## Protocol 2 — Claims, feasibility, and cost
 
