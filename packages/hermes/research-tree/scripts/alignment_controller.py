@@ -18,7 +18,7 @@ from typing import Any, Iterable, Mapping, Sequence
 log = logging.getLogger(__name__)
 
 try:  # the two-layer contract seam (#504); the graph imports the contract, never the reverse (#489)
-    from .decision_frame import resolve_user_response_policy as _resolve_user_response_policy
+    from .decision_frame import resolve_user_response_policy
     from .turn_contract import (
         RESPONSE_CLASS_DISCRIMINATION,
         RESPONSE_CLASS_GENERATION,
@@ -26,15 +26,11 @@ try:  # the two-layer contract seam (#504); the graph imports the contract, neve
         ContractTerms,
         CostCap,
         TurnContractError,
-    )
-    from .turn_contract import (
-        verify_traces as _verify_traces,
+        verify_traces,
     )
 except ImportError:  # packaged single-file layout: the seam ships beside this script (#470)
     try:
-        from decision_frame import (  # type: ignore[no-redef]
-            resolve_user_response_policy as _resolve_user_response_policy,
-        )
+        from decision_frame import resolve_user_response_policy  # type: ignore[no-redef]
         from turn_contract import (  # type: ignore[no-redef]
             RESPONSE_CLASS_DISCRIMINATION,
             RESPONSE_CLASS_GENERATION,
@@ -42,13 +38,11 @@ except ImportError:  # packaged single-file layout: the seam ships beside this s
             ContractTerms,
             CostCap,
             TurnContractError,
-        )
-        from turn_contract import (
-            verify_traces as _verify_traces,
+            verify_traces,
         )
     except ImportError:  # seam unavailable: contract emission degrades fail-open (#489)
-        _resolve_user_response_policy = None  # type: ignore[assignment]
-        _verify_traces = None  # type: ignore[assignment]
+        resolve_user_response_policy = None  # type: ignore[assignment]
+        verify_traces = None  # type: ignore[assignment]
         RESPONSE_CLASS_DISCRIMINATION = "discrimination"  # type: ignore[assignment]
         RESPONSE_CLASS_GENERATION = "generation"  # type: ignore[assignment]
         RESPONSE_CLASSES = ("discrimination", "generation")  # type: ignore[assignment]
@@ -404,15 +398,15 @@ class AlignmentGraphStore:
             previous_terms = _previous_contract_terms(controller)
             signal = user_signal
             resolved_previous = previous_category
-            if signal is None and _resolve_user_response_policy is not None:
+            if signal is None and resolve_user_response_policy is not None:
                 feed_signal, feed_previous = _user_move_signal_from_feed(self.database.parent.parent)
                 signal = feed_signal
                 if resolved_previous is None:
                     resolved_previous = feed_previous
             verdict = None
-            if signal is not None and _resolve_user_response_policy is not None:
+            if signal is not None and resolve_user_response_policy is not None:
                 try:
-                    verdict = _resolve_user_response_policy(
+                    verdict = resolve_user_response_policy(
                         signal,
                         previous_terms,
                         previous_category=resolved_previous,
@@ -562,13 +556,13 @@ class AlignmentGraphStore:
                 raise AlignmentGraphError(f"unknown graph node: {node_id}")
             controller = connection.execute("SELECT * FROM controller WHERE singleton=1").fetchone()
             verified: tuple[str, ...] = ()
-            if normalized_traces is not None and _verify_traces is not None:
+            if normalized_traces is not None and verify_traces is not None:
                 # Canonical loop step 3 (#489): verify the recorded traces
                 # against the last plan's emitted terms BEFORE any state
                 # mutation; a missing required trace fails naming the term.
                 terms = _controller_row_terms(controller)
                 if terms is not None:
-                    verified = _verify_traces(terms, normalized_traces)
+                    verified = verify_traces(terms, normalized_traces)
             hashed = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
             changed = hashed != controller["last_fingerprint"]
             turn = int(controller["turn"]) + 1
