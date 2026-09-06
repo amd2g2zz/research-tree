@@ -623,9 +623,7 @@ def register_deliverable_quality_review(state: Mapping[str, Any], payload: Mappi
         "remediation_node_ids": remediation_ids,
     }
     result["status"] = "searching"
-    result["stop_reason"] = (
-        f"deliverable quality gate failed: {len(gaps)} named gap(s) reopened as remediation work"
-    )
+    result["stop_reason"] = f"deliverable quality gate failed: {len(gaps)} named gap(s) reopened as remediation work"
     return result
 
 

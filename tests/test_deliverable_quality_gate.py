@@ -92,9 +92,7 @@ def test_manifests_without_quality_review_stay_blocked(tmp_path: Path) -> None:
 
 def test_passing_quality_review_flips_delivery_pending(tmp_path: Path) -> None:
     technical, human = write_reports(tmp_path)
-    state = finalize_research_delivery(
-        closed_state("round-gate-pass"), technical_report=technical, human_report=human
-    )
+    state = finalize_research_delivery(closed_state("round-gate-pass"), technical_report=technical, human_report=human)
     gated = register_deliverable_quality_review(state, review_payload(state))
     assert gated["deliverable_quality_gate"]["status"] == "passed"
     assert gated["status"] == "delivery_pending"
@@ -103,9 +101,7 @@ def test_passing_quality_review_flips_delivery_pending(tmp_path: Path) -> None:
 
 def test_stale_quality_review_is_rejected(tmp_path: Path) -> None:
     technical, human = write_reports(tmp_path)
-    state = finalize_research_delivery(
-        closed_state("round-gate-stale"), technical_report=technical, human_report=human
-    )
+    state = finalize_research_delivery(closed_state("round-gate-stale"), technical_report=technical, human_report=human)
     payload = review_payload(state)
     payload["manifest_digests"] = {kind: "0" * 64 for kind in payload["manifest_digests"]}
     with pytest.raises(ValueError, match="stale"):
@@ -123,9 +119,7 @@ def test_non_independent_review_is_rejected(tmp_path: Path) -> None:
 
 def test_failed_review_creates_remediation_work(tmp_path: Path) -> None:
     technical, human = write_reports(tmp_path)
-    state = finalize_research_delivery(
-        closed_state("round-gate-fail"), technical_report=technical, human_report=human
-    )
+    state = finalize_research_delivery(closed_state("round-gate-fail"), technical_report=technical, human_report=human)
     failed = register_deliverable_quality_review(
         state,
         review_payload(
@@ -170,11 +164,17 @@ def test_gap_can_revive_discarded_node(tmp_path: Path) -> None:
     state["frontier_node_ids"].append(victim["id"])
     pruned = prune_research_state(state)
     assert pruned["nodes"][victim["id"]]["status"] == "deferred"
-    entry = next(e for e in pruned["discarded_evidence"] if e["node_id"] == victim["id"])
+    assert any(e["node_id"] == victim["id"] for e in pruned["discarded_evidence"])
 
     technical, human = write_reports(tmp_path)
     gated_state = finalize_research_delivery(
-        {**pruned, "decision_slots": {**pruned["decision_slots"], "slot-depth": {**pruned["decision_slots"]["slot-depth"], "status": "closed"}}},
+        {
+            **pruned,
+            "decision_slots": {
+                **pruned["decision_slots"],
+                "slot-depth": {**pruned["decision_slots"]["slot-depth"], "status": "closed"},
+            },
+        },
         technical_report=technical,
         human_report=human,
     )

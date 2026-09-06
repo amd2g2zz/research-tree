@@ -255,8 +255,8 @@ from .recursive_search import (
     evaluate_research_stop,
     finalize_research_delivery,
     initialize_research_state,
-    register_deliverable_quality_review,
     prune_research_state,
+    register_deliverable_quality_review,
     score_research_frontier,
     select_research_actions,
 )

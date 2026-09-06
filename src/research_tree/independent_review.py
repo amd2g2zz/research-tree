@@ -363,7 +363,9 @@ def validate_deliverable_quality_review_payload(payload: Any) -> dict[str, Any]:
         if not isinstance(oracle_id, str) or not oracle_id.strip():
             raise IndependentReviewError("deliverable quality review per_oracle keys must be non-empty oracle ids")
         if not isinstance(judgment, Mapping) or set(judgment) != {"verdict", "basis"}:
-            raise IndependentReviewError(f"deliverable quality review per_oracle[{oracle_id}] must carry verdict and basis")
+            raise IndependentReviewError(
+                f"deliverable quality review per_oracle[{oracle_id}] must carry verdict and basis"
+            )
         verdict = judgment["verdict"]
         if verdict not in DELIVERABLE_QUALITY_VERDICTS:
             raise IndependentReviewError(
@@ -372,7 +374,9 @@ def validate_deliverable_quality_review_payload(payload: Any) -> dict[str, Any]:
             )
         basis = judgment["basis"]
         if not isinstance(basis, str) or not basis.strip():
-            raise IndependentReviewError(f"deliverable quality review per_oracle[{oracle_id}].basis must be a non-empty string")
+            raise IndependentReviewError(
+                f"deliverable quality review per_oracle[{oracle_id}].basis must be a non-empty string"
+            )
         if verdict == "unmet":
             unmet = True
         parsed_per_oracle[str(oracle_id)] = {"verdict": str(verdict), "basis": basis}
@@ -393,10 +397,16 @@ def validate_deliverable_quality_review_payload(payload: Any) -> dict[str, Any]:
         parsed_gaps.append(
             {
                 "description": _text(gap["description"], f"deliverable quality review named_gaps[{index}].description"),
-                "target_slot_id": _text(gap["target_slot_id"], f"deliverable quality review named_gaps[{index}].target_slot_id"),
+                "target_slot_id": _text(
+                    gap["target_slot_id"], f"deliverable quality review named_gaps[{index}].target_slot_id"
+                ),
                 "oracle": _text(gap["oracle"], f"deliverable quality review named_gaps[{index}].oracle"),
                 **(
-                    {"revive_node_id": _text(gap["revive_node_id"], f"deliverable quality review named_gaps[{index}].revive_node_id")}
+                    {
+                        "revive_node_id": _text(
+                            gap["revive_node_id"], f"deliverable quality review named_gaps[{index}].revive_node_id"
+                        )
+                    }
                     if gap.get("revive_node_id") is not None
                     else {}
                 ),

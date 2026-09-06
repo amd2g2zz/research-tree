@@ -297,23 +297,17 @@ def _validate_quality_gate_record(record: Any) -> None:
         raise ResearchTreeStateError("tree state deliverable_quality_gate review_id must be a non-empty string")
     digests = record.get("manifest_digests")
     if not isinstance(digests, Mapping) or not digests:
-        raise ResearchTreeStateError(
-            "tree state deliverable_quality_gate manifest_digests must be a non-empty mapping"
-        )
+        raise ResearchTreeStateError("tree state deliverable_quality_gate manifest_digests must be a non-empty mapping")
     for kind, digest in digests.items():
         if not isinstance(kind, str) or not kind.strip():
-            raise ResearchTreeStateError(
-                "tree state deliverable_quality_gate manifest kinds must be non-empty strings"
-            )
+            raise ResearchTreeStateError("tree state deliverable_quality_gate manifest kinds must be non-empty strings")
         if not isinstance(digest, str) or not _FINGERPRINT_RE.fullmatch(digest):
             raise ResearchTreeStateError(
                 f"tree state deliverable_quality_gate manifest_digests[{kind}] must be a 64-character hex digest"
             )
     remediation = record.get("remediation_node_ids")
     if isinstance(remediation, (str, bytes)) or not isinstance(remediation, Sequence):
-        raise ResearchTreeStateError(
-            "tree state deliverable_quality_gate remediation_node_ids must be a sequence"
-        )
+        raise ResearchTreeStateError("tree state deliverable_quality_gate remediation_node_ids must be a sequence")
     for node_id in remediation:
         if not isinstance(node_id, str) or not node_id.strip():
             raise ResearchTreeStateError(
