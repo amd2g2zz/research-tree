@@ -202,6 +202,18 @@ DEFAULT_TRACE_REGISTRY = TraceTypeRegistry(
         _initial_type("counterargument", "counterargument", "counterargument carried by a strategy display"),
         _initial_type("possibility-survey", "possibilities", "survey of the possibility space before an open question"),
         _initial_type("evidence-delta", "delta", "what evidence changed on this turn"),
+        # Issue #498: bidirectional complexity-constraint proportionality
+        # check (over-engineering AND under-proportioned constraints). The
+        # engine verifies presence + schema of the four structural fields;
+        # the judgment content is prompt-layer craft (layer 1 of the ladder —
+        # waiver on insistence and compile-time conflict rejection already
+        # exist as layers 2-3).
+        TraceType(
+            name="proportionality_assessment",
+            required_fields=("direction", "finding", "alternative", "reframing"),
+            description="complexity-constraint proportionality: over/under direction, named "
+            "simpler-alternative or magnitude conflict, nearest-feasible reframing",
+        ),
     )
 )
 
