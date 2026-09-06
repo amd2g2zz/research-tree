@@ -176,7 +176,7 @@ def test_required_traces_derive_from_gap_type(tmp_path: Path) -> None:
     _merge_gaps(store, ("gap-proposal", 5, "candidate"))
 
     decision = store.plan()
-    assert decision["contract_terms"]["required_traces"] == ["possibility-survey"]
+    assert decision["contract_terms"]["required_traces"] == ["possibility-survey", "proportionality_assessment"]
 
     # A disputed point is a misunderstood-intent gap: the turn must restate
     # the corrected understanding.
@@ -221,7 +221,7 @@ def test_proposal_gap_under_a_discrimination_cap_requires_the_option_set(tmp_pat
         "response_class": RESPONSE_CLASS_DISCRIMINATION,
         "max_sentences": 1,
     }
-    assert decision["contract_terms"]["required_traces"] == ["option-set"]
+    assert decision["contract_terms"]["required_traces"] == ["option-set", "proportionality_assessment"]
 
     # Non-asking decisions emit an empty trace gate.
     ready = _store(tmp_path / "ready")
@@ -296,11 +296,23 @@ def test_a_recorded_turn_carrying_the_traces_persists_terms_traces_and_user_move
     store = _store(tmp_path, run_shaped=True)
     _merge_gaps(store, ("gap-a", 5, "candidate"))
     decision = store.plan()
-    required = decision["contract_terms"]["required_traces"][0]
-    traces = [{"type": required, "payload": {"possibilities": ["build", "buy"]}}]
+    required = list(decision["contract_terms"]["required_traces"])
+    assert required == ["possibility-survey", "proportionality_assessment"]
+    traces = [
+        {"type": "possibility-survey", "payload": {"possibilities": ["build", "buy"]}},
+        {
+            "type": "proportionality_assessment",
+            "payload": {
+                "direction": "over",
+                "finding": "The proposal outscopes the stated goal.",
+                "alternative": "A minimal CLI suffices.",
+                "reframing": "Nearest feasible framing: single-command build.",
+            },
+        },
+    ]
 
     result = store.record("gap-a", "changed", "fp-2", traces=traces, user_move=RESPONSE_CLASS_GENERATION)
-    assert result["verified_traces"] == (required,)
+    assert result["verified_traces"] == tuple(required)
 
     with sqlite3.connect(store.database) as connection:
         connection.row_factory = sqlite3.Row
@@ -328,7 +340,7 @@ def test_a_recorded_turn_carrying_the_traces_persists_terms_traces_and_user_move
     assert persisted.contract_terms == terms
     assert persisted.contract_terms is not None
     assert persisted.contract_terms.target_gap == "gap-a"
-    assert persisted.traces == ({"type": required, "payload": {"possibilities": ["build", "buy"]}},)
+    assert persisted.traces == tuple(traces)
     assert persisted.user_move == RESPONSE_CLASS_GENERATION
 
 

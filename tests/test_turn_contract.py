@@ -25,7 +25,8 @@ from research_tree.turn_contract import (
 )
 
 INITIAL_TRACE_TYPES = tuple(
-    "concept-card counterargument evidence-delta guess-statement option-set possibility-survey".split()
+    "concept-card counterargument evidence-delta guess-statement option-set "
+    "possibility-survey proportionality_assessment".split()
 )
 
 NODE_GAP = "gap.intent.primary"
@@ -59,8 +60,11 @@ def _terms_dict(**overrides: object) -> dict[str, object]:
 # --- 1. Trace-type registry (tasks 1.1, 1.2) ---------------------------------
 
 
-def test_default_registry_seeds_exactly_the_six_initial_types() -> None:
+def test_default_registry_seeds_exactly_the_registered_initial_types() -> None:
+    # Issue #498 appended proportionality_assessment to the six initial
+    # types; the registry derives INITIAL_TRACE_TYPES, so both move together.
     assert DEFAULT_TRACE_REGISTRY.names() == INITIAL_TRACE_TYPES
+    assert "proportionality_assessment" in INITIAL_TRACE_TYPES
 
 
 def test_registering_duplicate_trace_type_is_rejected_and_names_it() -> None:
@@ -76,10 +80,10 @@ def test_register_duplicate_inside_constructor_is_rejected() -> None:
 
 
 def test_register_returns_new_registry_and_leaves_original_frozen() -> None:
-    extra = TraceType(name="proportionality_assessment", required_fields=("direction",))
+    extra = TraceType(name="trade-off-note", required_fields=("note",))
     extended = DEFAULT_TRACE_REGISTRY.register(extra)
-    assert "proportionality_assessment" in extended.names()
-    assert extended.names() == tuple(sorted([*INITIAL_TRACE_TYPES, "proportionality_assessment"]))
+    assert "trade-off-note" in extended.names()
+    assert extended.names() == tuple(sorted([*INITIAL_TRACE_TYPES, "trade-off-note"]))
     assert DEFAULT_TRACE_REGISTRY.names() == INITIAL_TRACE_TYPES
 
 
