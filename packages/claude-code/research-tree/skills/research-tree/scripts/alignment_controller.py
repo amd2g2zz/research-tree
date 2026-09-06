@@ -26,6 +26,8 @@ try:  # the two-layer contract seam (#504); the graph imports the contract, neve
         ContractTerms,
         CostCap,
         TurnContractError,
+    )
+    from .turn_contract import (
         verify_traces as _verify_traces,
     )
 except ImportError:  # packaged single-file layout: the seam ships beside this script (#470)
@@ -40,6 +42,8 @@ except ImportError:  # packaged single-file layout: the seam ships beside this s
             ContractTerms,
             CostCap,
             TurnContractError,
+        )
+        from turn_contract import (
             verify_traces as _verify_traces,
         )
     except ImportError:  # seam unavailable: contract emission degrades fail-open (#489)
@@ -548,8 +552,7 @@ class AlignmentGraphStore:
         if user_move is not None:
             if user_move not in RESPONSE_CLASSES:
                 raise AlignmentGraphError(
-                    f"user_move must be one of the turn_contract response classes {RESPONSE_CLASSES}: "
-                    f"{user_move!r}"
+                    f"user_move must be one of the turn_contract response classes {RESPONSE_CLASSES}: {user_move!r}"
                 )
             typed_user_move = user_move
         with self._connect() as connection:
@@ -1702,9 +1705,7 @@ def _gap_required_traces(node: Mapping[str, Any], *, reopened: bool, cap: Any) -
     return ("possibility-survey",)
 
 
-def _fallback_target(
-    nodes: Sequence[Mapping[str, Any]], active_axes_by_node: Mapping[str, Any]
-) -> str | None:
+def _fallback_target(nodes: Sequence[Mapping[str, Any]], active_axes_by_node: Mapping[str, Any]) -> str | None:
     """Turn center for non-asking decisions: top open gap, else axis node, else strategy."""
 
     open_gaps = sorted(
@@ -1740,9 +1741,7 @@ def _emit_contract_terms(
     if ContractTerms is None or not nodes:
         return None
     directive = verdict.gap_directive if verdict is not None else "keep"
-    taboos = set(
-        _emission_taboos(nodes, set(active_axes_by_node), stagnation, last_outcomes)
-    )
+    taboos = set(_emission_taboos(nodes, set(active_axes_by_node), stagnation, last_outcomes))
     if verdict is not None:
         taboos |= set(verdict.taboo_additions)
         taboos -= set(verdict.taboo_removals)
