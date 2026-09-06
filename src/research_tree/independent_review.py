@@ -47,6 +47,13 @@ ALIGNMENT_VERIFICATION_KIND = "alignment-verification"
 DELIVERY_REVIEW_KIND = "delivery-review"
 ALIGNMENT_VERIFICATION_ROLE = "alignment_verification"
 DELIVERY_REVIEW_ROLE = "delivery_review"
+# Issue #495: a fresh-context reviewer reads the *draft* deliverables plus the
+# confirmed projection's success oracles and records per-oracle verdicts plus
+# named gaps. The engine gates on this review's presence, independence, and
+# digest binding — never on how the judgment was composed (#501).
+DELIVERABLE_QUALITY_REVIEW_KIND = "deliverable-quality-review"
+DELIVERABLE_QUALITY_REVIEW_ROLE = "deliverable_quality_review"
+DELIVERABLE_QUALITY_VERDICTS = ("satisfied", "unmet")
 INDEPENDENT_REVIEW_ISSUER = "independent-subagent-verifier-v1"
 # Per-oracle and overall independent verdicts. ``unmet`` blocks the delivery
 # gate; the verdict is an independent quality judgment and stays independent of
@@ -305,15 +312,136 @@ def validate_delivery_review_payload(payload: Any) -> dict[str, Any]:
     }
 
 
+def validate_deliverable_quality_review_payload(payload: Any) -> dict[str, Any]:
+    """Validate one deliverable-quality-review payload (issue #495).
+
+    The review binds to the exact draft manifest digests so a stale review
+    cannot pass regenerated deliverables, and a failing review must name the
+    gaps it wants reopened — a pass never carries unadjudicated gaps.
+    """
+
+    required = {
+        "schema",
+        "id",
+        "round_id",
+        "verifier_identity",
+        "session_context",
+        "manifest_digests",
+        "per_oracle",
+        "named_gaps",
+    }
+    if not isinstance(payload, Mapping):
+        raise IndependentReviewError("deliverable quality review payload must be an object")
+    if set(payload) != required:
+        raise IndependentReviewError("deliverable quality review payload fields do not match schema")
+    if payload["schema"] != 1:
+        raise IndependentReviewError("deliverable quality review payload schema must be 1")
+    artifact_id = _text(payload["id"], "deliverable quality review id")
+    round_id = _text(payload["round_id"], "deliverable quality review round_id")
+    verifier_identity = _text(payload["verifier_identity"], "deliverable quality review verifier_identity")
+    session_context = _text(payload["session_context"], "deliverable quality review session_context")
+    # Independence binding follows the #471 contract: the salted principal is
+    # bound at write time by the completion-input registrar, never by calling
+    # the two-argument compat predicate here (structural gate forbids it).
+    digests_value = payload["manifest_digests"]
+    if not isinstance(digests_value, Mapping) or not digests_value:
+        raise IndependentReviewError("deliverable quality review manifest_digests must be a non-empty object")
+    manifest_digests: dict[str, str] = {}
+    for kind, digest in digests_value.items():
+        if not isinstance(kind, str) or not kind.strip():
+            raise IndependentReviewError("deliverable quality review manifest_digests keys must be non-empty kinds")
+        if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+            raise IndependentReviewError(
+                f"deliverable quality review manifest_digests[{kind}] must be a sha256 hex digest"
+            )
+        manifest_digests[str(kind)] = str(digest)
+    per_oracle = payload["per_oracle"]
+    if not isinstance(per_oracle, Mapping) or not per_oracle:
+        raise IndependentReviewError("deliverable quality review per_oracle must be a non-empty object")
+    parsed_per_oracle: dict[str, dict[str, str]] = {}
+    unmet = False
+    for oracle_id, judgment in per_oracle.items():
+        if not isinstance(oracle_id, str) or not oracle_id.strip():
+            raise IndependentReviewError("deliverable quality review per_oracle keys must be non-empty oracle ids")
+        if not isinstance(judgment, Mapping) or set(judgment) != {"verdict", "basis"}:
+            raise IndependentReviewError(
+                f"deliverable quality review per_oracle[{oracle_id}] must carry verdict and basis"
+            )
+        verdict = judgment["verdict"]
+        if verdict not in DELIVERABLE_QUALITY_VERDICTS:
+            raise IndependentReviewError(
+                f"deliverable quality review per_oracle[{oracle_id}].verdict must be one of: "
+                + ", ".join(DELIVERABLE_QUALITY_VERDICTS)
+            )
+        basis = judgment["basis"]
+        if not isinstance(basis, str) or not basis.strip():
+            raise IndependentReviewError(
+                f"deliverable quality review per_oracle[{oracle_id}].basis must be a non-empty string"
+            )
+        if verdict == "unmet":
+            unmet = True
+        parsed_per_oracle[str(oracle_id)] = {"verdict": str(verdict), "basis": basis}
+    gaps_value = payload["named_gaps"]
+    if not isinstance(gaps_value, Sequence) or isinstance(gaps_value, (str, bytes)):
+        raise IndependentReviewError("deliverable quality review named_gaps must be a sequence")
+    parsed_gaps: list[dict[str, Any]] = []
+    for index, gap in enumerate(gaps_value):
+        if not isinstance(gap, Mapping) or not {"description", "target_slot_id", "oracle"} <= set(gap):
+            raise IndependentReviewError(
+                f"deliverable quality review named_gaps[{index}] must carry description, target_slot_id, and oracle"
+            )
+        unknown = set(gap) - {"description", "target_slot_id", "oracle", "revive_node_id"}
+        if unknown:
+            raise IndependentReviewError(
+                f"deliverable quality review named_gaps[{index}] has unknown fields: " + ", ".join(sorted(unknown))
+            )
+        parsed_gaps.append(
+            {
+                "description": _text(gap["description"], f"deliverable quality review named_gaps[{index}].description"),
+                "target_slot_id": _text(
+                    gap["target_slot_id"], f"deliverable quality review named_gaps[{index}].target_slot_id"
+                ),
+                "oracle": _text(gap["oracle"], f"deliverable quality review named_gaps[{index}].oracle"),
+                **(
+                    {
+                        "revive_node_id": _text(
+                            gap["revive_node_id"], f"deliverable quality review named_gaps[{index}].revive_node_id"
+                        )
+                    }
+                    if gap.get("revive_node_id") is not None
+                    else {}
+                ),
+            }
+        )
+    if unmet and not parsed_gaps:
+        raise IndependentReviewError("deliverable quality review with an unmet oracle must name gaps")
+    if not unmet and parsed_gaps:
+        raise IndependentReviewError("deliverable quality review with all oracles satisfied must not name gaps")
+    return {
+        "schema": 1,
+        "id": artifact_id,
+        "round_id": round_id,
+        "verifier_identity": verifier_identity,
+        "session_context": session_context,
+        "manifest_digests": manifest_digests,
+        "per_oracle": parsed_per_oracle,
+        "named_gaps": parsed_gaps,
+    }
+
+
 __all__ = [
     "ALIGNMENT_VERIFICATION_KIND",
     "ALIGNMENT_VERIFICATION_ROLE",
+    "DELIVERABLE_QUALITY_REVIEW_KIND",
+    "DELIVERABLE_QUALITY_REVIEW_ROLE",
+    "DELIVERABLE_QUALITY_VERDICTS",
     "DELIVERY_REVIEW_KIND",
     "DELIVERY_REVIEW_ROLE",
     "DELIVERY_REVIEW_VERDICTS",
     "INDEPENDENT_REVIEW_ISSUER",
     "IndependentReviewError",
     "validate_alignment_verification_payload",
+    "validate_deliverable_quality_review_payload",
     "validate_delivery_review_payload",
     "verification_principal",
     "verify_identity_independent",

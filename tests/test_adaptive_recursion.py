@@ -93,7 +93,20 @@ def test_saturated_search_stops_before_max_depth() -> None:
 
     result = apply_research_results(
         state,
-        (finding("f3", slot_id, anchors=(("source", "u1"), ("source", "u2"))),),
+        (
+            finding(
+                "f3",
+                slot_id,
+                anchors=(("source", "u1"), ("source", "u2")),
+                search_comparison={
+                    "comparison_id": "batch-saturation",
+                    "provider_fanout": 1,
+                    "captures": 2,
+                    "duplicates": 0,
+                    "coverage_met": 1,
+                },
+            ),
+        ),
     )
 
     deferred = [node for node in result["nodes"].values() if node["terminal_reason"] == "evidence-saturated"]

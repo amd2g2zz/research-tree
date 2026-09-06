@@ -275,7 +275,18 @@ def test_per_slot_novelty_attribution_gates_saturation() -> None:
         state,
         (
             finding("fa3", "slot-1", anchors=(("source", "a1"), ("source", "a3")), continuations=("qa2",)),
-            finding("fb3", "slot-2", anchors=(("source", "b1"), ("source", "b2"))),
+            finding(
+                "fb3",
+                "slot-2",
+                anchors=(("source", "b1"), ("source", "b2")),
+                search_comparison={
+                    "comparison_id": "batch-slot-2",
+                    "provider_fanout": 1,
+                    "captures": 2,
+                    "duplicates": 0,
+                    "coverage_met": 1,
+                },
+            ),
         ),
     )
 
