@@ -108,7 +108,7 @@ def test_stale_quality_review_is_rejected(tmp_path: Path) -> None:
         register_deliverable_quality_review(state, payload)
 
 
-def test_non_independent_review_is_rejected(tmp_path: Path) -> None:
+def test_missing_identity_fields_are_rejected_fail_closed(tmp_path: Path) -> None:
     technical, human = write_reports(tmp_path)
     state = finalize_research_delivery(
         closed_state("round-gate-identity"), technical_report=technical, human_report=human

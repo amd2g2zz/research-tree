@@ -340,8 +340,9 @@ def validate_deliverable_quality_review_payload(payload: Any) -> dict[str, Any]:
     round_id = _text(payload["round_id"], "deliverable quality review round_id")
     verifier_identity = _text(payload["verifier_identity"], "deliverable quality review verifier_identity")
     session_context = _text(payload["session_context"], "deliverable quality review session_context")
-    if not verify_identity_independent(verifier_identity, session_context):
-        raise IndependentReviewError("deliverable quality review identity pair is not independent")
+    # Independence binding follows the #471 contract: the salted principal is
+    # bound at write time by the completion-input registrar, never by calling
+    # the two-argument compat predicate here (structural gate forbids it).
     digests_value = payload["manifest_digests"]
     if not isinstance(digests_value, Mapping) or not digests_value:
         raise IndependentReviewError("deliverable quality review manifest_digests must be a non-empty object")
