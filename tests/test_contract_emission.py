@@ -349,7 +349,7 @@ def test_legacy_record_without_traces_stays_green_after_an_emitting_plan(tmp_pat
 
 def test_emit_turn_contract_never_names_engine_strategies(tmp_path: Path) -> None:
     """The enumerated space is contract terms and trace types, never behaviors."""
-    import research_tree.alignment_graph as alignment_graph
+    from research_tree import alignment_graph
 
     for name in (
         "echo-guess",
