@@ -30,14 +30,37 @@ try:
     # Issue #497: refresh/validate the alignment turn-record file. The module
     # is part of the checkout runtime; standalone skill-packaged execution
     # does not ship it, and the hook stays fail-open without it.
-    from .alignment_turn_record import refresh_validation as _refresh_turn_record_validation
+    from .alignment_turn_record import (
+        AlignmentTurnRecordStore as _AlignmentTurnRecordStore,
+        refresh_validation as _refresh_turn_record_validation,
+    )
 except ImportError:
     try:
         from alignment_turn_record import (  # type: ignore[no-redef]
+            AlignmentTurnRecordStore as _AlignmentTurnRecordStore,
             refresh_validation as _refresh_turn_record_validation,
         )
     except ImportError:
+        _AlignmentTurnRecordStore = None  # type: ignore[assignment]
         _refresh_turn_record_validation = None  # type: ignore[assignment]
+
+try:
+    # Issue #490: the user-response policy table over contract terms. Like
+    # the turn-record module, this is checkout-runtime code the packaged
+    # standalone hook does not ship; absence degrades to no verdict.
+    from .decision_frame import (
+        DecisionFrameValidationError as _UserResponsePolicyError,
+        resolve_user_response_policy as _resolve_user_response_policy,
+    )
+except ImportError:
+    try:
+        from decision_frame import (  # type: ignore[no-redef]
+            DecisionFrameValidationError as _UserResponsePolicyError,
+            resolve_user_response_policy as _resolve_user_response_policy,
+        )
+    except ImportError:
+        _UserResponsePolicyError = None  # type: ignore[assignment]
+        _resolve_user_response_policy = None  # type: ignore[assignment]
 
 MAX_INPUT_BYTES = 64 * 1024
 MAX_IDENTIFIER_LENGTH = 256
@@ -177,6 +200,15 @@ RESEARCH_REENTRY_RULES: tuple[tuple[str, str, re.Pattern[str]], ...] = tuple(
         ("status_echo", "chinese_status", r"状态|进度|到哪(?:儿|里)了|怎么样了"),
     )
 )
+
+# Issue #490: run-scoped feed route for the typed user response. During the
+# alignment phase every classified prompt feeds an ``alignment_user_move``
+# record carrying the user move typed into the turn_contract seam response
+# classes plus the policy verdict over contract terms, so the alignment
+# turn-record ``user_move`` field and contract-term selection at the seam
+# are fed (#489 consumes the verdict as its emission input basis).
+ALIGNMENT_USER_MOVE_ROUTE = "alignment_user_move"
+MAX_RUN_SIGNAL_SCAN = 50
 
 
 def resolve_research_reentry(prompt: str) -> dict[str, str]:
@@ -556,6 +588,9 @@ def _observe_prompt_signal(
     # Issue #497: refresh/validate the alignment turn-record file so compaction
     # or long sessions cannot silently orphan it.
     turn_record = _observe_alignment_turn_record(root, payload, run_phase=resolved_phase)
+    # Issue #490: classify the persisted user-response class into contract-term
+    # adjustments and a typed user move (alignment phase only, fail-open).
+    user_move_policy = _observe_user_move_policy(root, payload, signal=signal, run_phase=resolved_phase)
     record: dict[str, Any] = {
         "schema": 1,
         "source": "research-tree-lifecycle-hook",
@@ -577,6 +612,8 @@ def _observe_prompt_signal(
         record["reentry"] = reentry
     if turn_record is not None:
         record["alignment_turn_record"] = turn_record
+    if user_move_policy is not None:
+        record["user_move_policy"] = user_move_policy
     path = _write_record(root, record, root / SIGNAL_DIRECTORY)
     _cap_signal_records(root)
     result: dict[str, Any] = {
@@ -591,6 +628,11 @@ def _observe_prompt_signal(
         result["reentry"] = reentry
     if turn_record is not None:
         result["alignment_turn_record"] = turn_record
+    if user_move_policy is not None:
+        result["user_move_policy"] = user_move_policy
+        feed_path = _feed_run_signal(root, payload, record, route=ALIGNMENT_USER_MOVE_ROUTE)
+        if feed_path is not None:
+            result["run_user_move_path"] = feed_path
     if signal["category"] == "correction" and signal["confidence"] == "high":
         feed_path = _feed_run_signal(root, payload, record, route="apply_correction")
         if feed_path is not None:
@@ -682,6 +724,76 @@ def _observe_alignment_turn_record(
         return _refresh_turn_record_validation(run_root)
     except (OSError, ValueError):
         return None
+
+
+def _previous_run_signal_category(run_root: Path) -> str | None:
+    """Newest prior ``alignment_user_move`` signal category for this run (#490).
+
+    The fed records in the run's events directory are run-scoped and carry
+    the classifying category, so the newest one is the previous prompt's
+    signal. File names carry a fixed-width UTC timestamp prefix, so
+    lexicographic order is chronological. Bounded, fail-open scan.
+    """
+    try:
+        directory = run_root / "events"
+        records = sorted(
+            (item for item in directory.iterdir() if item.is_file() and item.suffix == ".json"),
+            key=lambda item: item.name,
+            reverse=True,
+        )[:MAX_RUN_SIGNAL_SCAN]
+    except OSError:
+        return None
+    for path in records:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(record, dict) and record.get("route") == ALIGNMENT_USER_MOVE_ROUTE:
+            category = record.get("category")
+            if isinstance(category, str) and category:
+                return category
+    return None
+
+
+def _observe_user_move_policy(
+    root: Path,
+    payload: dict[str, Any],
+    *,
+    signal: dict[str, str],
+    run_phase: str | None,
+) -> dict[str, Any] | None:
+    """Resolve the user-response policy verdict for an alignment-phase prompt (#490).
+
+    The classified prompt signal becomes an input to contract-term selection:
+    the verdict (the user move typed into the turn_contract seam response
+    classes plus the cost_cap/taboo/gap adjustments) is computed against the
+    latest persisted turn record's contract terms — the ask the user is
+    responding to — and surfaced on the record/result for the run-scoped feed.
+    Fail-open like every lifecycle observation: returns None outside the
+    alignment phase (during research the two-option re-entry protocol
+    governs), without an active run, when the runtime modules are unreachable
+    (standalone execution), or when the record store is unreadable. Never
+    raises into the observe path, and never writes turn records itself.
+    """
+    if _resolve_user_response_policy is None or _AlignmentTurnRecordStore is None:
+        return None
+    if run_phase != "alignment":
+        return None
+    active = _active_run(root, payload)
+    if active is None:
+        return None
+    run_root, _project_id, _run_id = active
+    try:
+        latest = _AlignmentTurnRecordStore(run_root).latest()
+    except (OSError, ValueError):
+        return None
+    terms = latest.contract_terms if latest is not None else None
+    previous = _previous_run_signal_category(run_root)
+    try:
+        verdict = _resolve_user_response_policy(signal, terms, previous_category=previous)
+    except (ValueError, _UserResponsePolicyError):
+        return None
+    return verdict.to_dict()
 
 
 def host_response(host: str) -> dict[str, Any]:
