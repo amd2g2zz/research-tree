@@ -47,6 +47,7 @@ COMMON_FILES = (
     Path("references/research-tree-architecture.md"),
     Path("references/research-quality-playbook.md"),
     Path("references/alignment-controller.md"),
+    Path("references/alignment-craft.md"),
     Path("references/skill-activation.md"),
     Path("scripts/lifecycle_hook_launcher.py"),
 )
@@ -58,6 +59,12 @@ COMMON_FILE_MAP = (
     (Path("src/research_tree/origins.py"), Path("scripts/origins.py")),
     (Path("src/research_tree/host_capabilities.py"), Path("scripts/native_workflow_contract.py")),
     (Path("src/research_tree/project_workspace.py"), Path("scripts/project_workspace_contract.py")),
+    # The two-layer contract seam (#504/#489): the packaged single-file
+    # controller imports these beside itself (relative, then bare) so the
+    # packaged alignment loop emits and verifies contract terms.
+    (Path("src/research_tree/turn_contract.py"), Path("scripts/turn_contract.py")),
+    (Path("src/research_tree/decision_frame.py"), Path("scripts/decision_frame.py")),
+    (Path("src/research_tree/domain.py"), Path("scripts/domain.py")),
 )
 HERMES_FILES = (
     Path("references/hermes-alignment.md"),

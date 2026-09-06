@@ -3,6 +3,8 @@
   "files": [
     "scripts/alignment_controller.py",
     "scripts/context_ledger_contract.py",
+    "scripts/decision_frame.py",
+    "scripts/domain.py",
     "scripts/hermes_event_adapter.py",
     "scripts/hermes_execution_adapter.py",
     "scripts/hermes_runtime_hook.py",
@@ -13,7 +15,8 @@
     "scripts/origins.py",
     "scripts/project_workspace_contract.py",
     "scripts/skill_activation.py",
-    "scripts/speech_acts.py"
+    "scripts/speech_acts.py",
+    "scripts/turn_contract.py"
   ],
   "entrypoints": [
     {
@@ -24,6 +27,14 @@
     },
     {
       "path": "scripts/context_ledger_contract.py",
+      "arguments": []
+    },
+    {
+      "path": "scripts/decision_frame.py",
+      "arguments": []
+    },
+    {
+      "path": "scripts/domain.py",
       "arguments": []
     },
     {
@@ -74,6 +85,10 @@
     },
     {
       "path": "scripts/speech_acts.py",
+      "arguments": []
+    },
+    {
+      "path": "scripts/turn_contract.py",
       "arguments": []
     }
   ]

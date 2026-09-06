@@ -90,29 +90,31 @@ missing requirements.
   detailed, and run bounded reconnaissance so each turn adds knowledge the
   requester did not have. Never answer an exploratory request with only a
   questionnaire, option table, plan, or research tree.
+- The controller emits each turn's contract terms (`target_gap`,
+  `required_traces`, `cost_cap`, `taboos`); compose freely
+  (`references/alignment-craft.md` is the palette), the engine verifies
+  required traces at record time; the turn record closes the loop. A named
+  missing trace means produce it; never re-ask a `taboos` node.
 - Ask one open-ended, guided prompt at a time, answered in their own words.
-  Do not use multiple-choice menus as the default discovery mechanism;
-  structured input tools are transports for a rare discrete decision after
-  open-ended guidance, never a substitute for it.
+  Do not use multiple-choice menus as the default discovery mechanism; under
+  the emitted `cost_cap`, `discrimination` means they point and `generation`
+  invites their words.
 - No question-only turn: every turn mirrors the current understanding, names
-  one consequential gap in the current context, adds the smallest useful
-  evidence, and invites correction. Keep interactive turns under 1000
-  characters and split work into short rounds (progress, new information,
-  impact, one decision, next step). On confusion, missing vocabulary, or
-  "I don't know", run a teaching reconnaissance cycle: inspect the smallest
-  useful web, repository, or supplied sources, explain the result plainly,
-  show one implication, then ask one guided question.
+  the consequential gap, adds the smallest useful evidence, and invites
+  correction; keep interactive turns under 1000 characters, split into short
+  rounds. On confusion or missing vocabulary, run
+  a teaching reconnaissance cycle over the smallest useful sources: explain
+  plainly, show one implication, then compose the next turn.
 - Co-evolve cognition before strategy handoff: expose your reading,
   assumptions, strongest counterargument, and consequence if wrong; invite
-  challenge; state what changed on both sides. Record-or-block: load and
-  ground this turn in the persisted alignment-turn record before speaking,
-  then append this exchange's record (mirror, gap, delta, user move,
-  contract terms, traces) to `turn-records.jsonl` in the run's
-  `alignment/` workspace before responding; the hooks refresh and validate
-  it every turn. A missing or stale record blocks the next turn
-  (fail-closed); a turn with no persisted delta is a protocol violation —
-  run reconnaissance instead of repeating the question, and never answer
-  your own question; wait for the user.
+  challenge; state what changed on both sides. Record-or-block: ground this
+  turn in the persisted alignment-turn record before speaking, then `record`
+  the response (traces, user move) and append this exchange's record (mirror,
+  gap, delta, user move, contract terms, traces) to `turn-records.jsonl` in
+  the run's `alignment/` workspace; the hooks refresh and validate it every
+  turn. A missing or stale record blocks the next turn (fail-closed); a
+  delta-less turn is a protocol violation — run reconnaissance instead of
+  repeating it, never answer your own question, wait for the user.
   Intent understanding remains active throughout the round.
 
 ## Protocol 2 — Claims, feasibility, and cost
