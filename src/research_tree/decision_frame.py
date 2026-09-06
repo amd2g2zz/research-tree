@@ -6,15 +6,33 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from .domain import ArtifactRef, RuntimeStoreError, canonical_json_bytes, validate_identifier
-from .turn_contract import (
-    NODE_ID_RE,
-    RESPONSE_CLASS_DISCRIMINATION,
-    RESPONSE_CLASS_GENERATION,
-    RESPONSE_CLASSES,
-    ContractTerms,
-    CostCap,
-)
+try:
+    from .domain import ArtifactRef, RuntimeStoreError, canonical_json_bytes, validate_identifier
+except ImportError:  # packaged single-file layout: domain ships beside this script (#470)
+    from domain import (  # type: ignore[no-redef]
+        ArtifactRef,
+        RuntimeStoreError,
+        canonical_json_bytes,
+        validate_identifier,
+    )
+try:
+    from .turn_contract import (
+        NODE_ID_RE,
+        RESPONSE_CLASS_DISCRIMINATION,
+        RESPONSE_CLASS_GENERATION,
+        RESPONSE_CLASSES,
+        ContractTerms,
+        CostCap,
+    )
+except ImportError:  # packaged single-file layout: the seam ships beside this script (#470)
+    from turn_contract import (  # type: ignore[no-redef]
+        NODE_ID_RE,
+        RESPONSE_CLASS_DISCRIMINATION,
+        RESPONSE_CLASS_GENERATION,
+        RESPONSE_CLASSES,
+        ContractTerms,
+        CostCap,
+    )
 
 DECISION_FRAME_KIND = "decision-frame"
 DECISION_FRAME_SCHEMA_VERSION = 1
