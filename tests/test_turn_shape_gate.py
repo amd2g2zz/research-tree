@@ -34,7 +34,7 @@ def append_basic(s, index: int, **shape):
         mirror="I understand the goal.",
         gap="The scale is unnamed.",
         delta_summary="Scale anchored to a concrete deliverable.",
-        user_move="answer",
+        user_move="discrimination",
         turn_shape=shape or None,
     )
 
@@ -77,9 +77,7 @@ def test_multiple_decision_points_are_a_mechanical_violation(tmp_path) -> None:
 
 def test_transformation_ratio_placeholder_is_carried(tmp_path) -> None:
     s = store(tmp_path)
-    shape = measure_turn_shape(
-        "Digest first.", decision_count=1, question_count=0, transformation_ratio=0.8
-    )
+    shape = measure_turn_shape("Digest first.", decision_count=1, question_count=0, transformation_ratio=0.8)
     record = append_basic(s, 1, **shape)
     assert record.turn_shape["transformation_ratio"] == 0.8
 
@@ -93,7 +91,7 @@ def test_legacy_schema_one_records_still_read(tmp_path) -> None:
         "mirror": "Understood.",
         "gap": "Open.",
         "delta": {"summary": "Anchored.", "nodes": []},
-        "user_move": "answer",
+        "user_move": "discrimination",
         "contract_terms": None,
         "traces": [],
     }
