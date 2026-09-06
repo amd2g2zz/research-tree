@@ -32,12 +32,16 @@ try:
     # does not ship it, and the hook stays fail-open without it.
     from .alignment_turn_record import (
         AlignmentTurnRecordStore as _AlignmentTurnRecordStore,
+    )
+    from .alignment_turn_record import (
         refresh_validation as _refresh_turn_record_validation,
     )
 except ImportError:
     try:
         from alignment_turn_record import (  # type: ignore[no-redef]
             AlignmentTurnRecordStore as _AlignmentTurnRecordStore,
+        )
+        from alignment_turn_record import (
             refresh_validation as _refresh_turn_record_validation,
         )
     except ImportError:
@@ -50,12 +54,16 @@ try:
     # standalone hook does not ship; absence degrades to no verdict.
     from .decision_frame import (
         DecisionFrameValidationError as _UserResponsePolicyError,
+    )
+    from .decision_frame import (
         resolve_user_response_policy as _resolve_user_response_policy,
     )
 except ImportError:
     try:
         from decision_frame import (  # type: ignore[no-redef]
             DecisionFrameValidationError as _UserResponsePolicyError,
+        )
+        from decision_frame import (
             resolve_user_response_policy as _resolve_user_response_policy,
         )
     except ImportError:

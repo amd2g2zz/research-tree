@@ -9,11 +9,11 @@ from typing import Any, Mapping, Sequence
 from .domain import ArtifactRef, RuntimeStoreError, canonical_json_bytes, validate_identifier
 from .turn_contract import (
     NODE_ID_RE,
-    RESPONSE_CLASSES,
     RESPONSE_CLASS_DISCRIMINATION,
     RESPONSE_CLASS_GENERATION,
-    CostCap,
+    RESPONSE_CLASSES,
     ContractTerms,
+    CostCap,
 )
 
 DECISION_FRAME_KIND = "decision-frame"
@@ -435,7 +435,9 @@ class UserMoveVerdict:
 
     def __post_init__(self) -> None:
         if self.user_move not in RESPONSE_CLASSES:
-            raise DecisionFrameValidationError(f"user move must be one of the seam response classes: {self.user_move!r}")
+            raise DecisionFrameValidationError(
+                f"user move must be one of the seam response classes: {self.user_move!r}"
+            )
         if self.signal_category not in USER_SIGNAL_CATEGORIES:
             raise DecisionFrameValidationError(f"signal category is unsupported: {self.signal_category!r}")
         if self.signal_confidence not in _SIGNAL_CONFIDENCES:

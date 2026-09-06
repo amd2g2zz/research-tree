@@ -19,6 +19,7 @@ from research_tree.alignment_turn_record import AlignmentTurnRecordStore
 from research_tree.decision_frame import (
     GAP_DIRECTIVES,
     USER_SIGNAL_CATEGORIES,
+    DecisionFrameValidationError,
     resolve_user_response_policy,
 )
 from research_tree.lifecycle_hook import (
@@ -27,11 +28,11 @@ from research_tree.lifecycle_hook import (
     observe,
 )
 from research_tree.turn_contract import (
-    RESPONSE_CLASSES,
     RESPONSE_CLASS_DISCRIMINATION,
     RESPONSE_CLASS_GENERATION,
-    CostCap,
+    RESPONSE_CLASSES,
     ContractTerms,
+    CostCap,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -193,7 +194,9 @@ class TestPolicyTable:
         assert verdict.taboo_additions == ()
 
     def test_neutral_turns_leave_contract_terms_unchanged(self) -> None:
-        verdict = resolve_user_response_policy(signal("neutral", "low", "default"), ask_terms(), candidates=(NEXT_NODE,))
+        verdict = resolve_user_response_policy(
+            signal("neutral", "low", "default"), ask_terms(), candidates=(NEXT_NODE,)
+        )
         assert verdict.cost_cap is None
         assert verdict.taboo_additions == ()
         assert verdict.taboo_removals == ()
@@ -213,7 +216,9 @@ class TestPolicyTable:
 
     def test_a_correction_never_raises_an_emitted_cost_cap(self) -> None:
         floor = CostCap(response_class=RESPONSE_CLASS_DISCRIMINATION, max_sentences=1)
-        verdict = resolve_user_response_policy(signal("correction", "medium", "actually_prefix"), ask_terms(cost_cap=floor))
+        verdict = resolve_user_response_policy(
+            signal("correction", "medium", "actually_prefix"), ask_terms(cost_cap=floor)
+        )
         assert verdict.cost_cap == floor
 
     def test_answer_without_an_outstanding_ask_keeps_terms_unchanged(self) -> None:
@@ -231,13 +236,13 @@ class TestPolicyTable:
         assert RESPONSE_CLASSES == ("discrimination", "generation")
 
     def test_unknown_signal_category_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match="category is unsupported"):
+        with pytest.raises(DecisionFrameValidationError, match="category is unsupported"):
             resolve_user_response_policy(signal("gossip"), None)
-        with pytest.raises(ValueError, match="previous signal category is unsupported"):
+        with pytest.raises(DecisionFrameValidationError, match="previous signal category is unsupported"):
             resolve_user_response_policy(signal("neutral"), None, previous_category="gossip")
 
     def test_candidates_must_be_node_ids(self) -> None:
-        with pytest.raises(ValueError, match="node id"):
+        with pytest.raises(DecisionFrameValidationError, match="node id"):
             resolve_user_response_policy(signal("answer"), ask_terms(), candidates=("not a node id!",))
 
 
@@ -318,7 +323,7 @@ class TestHookPlumbing:
 
     def test_a_missing_turn_record_degrades_to_a_terms_less_verdict(self, tmp_path: Path) -> None:
         root = project(tmp_path)
-        run_root = project_run(root, phase="alignment")
+        project_run(root, phase="alignment")
         result = submit(root, "No, use pytest not unittest")
         verdict = result["user_move_policy"]
         assert isinstance(verdict, dict)
