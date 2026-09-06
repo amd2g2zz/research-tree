@@ -83,7 +83,7 @@ def _feed_user_move(run_root: Path, category: str, rule: str = "rule") -> None:
 def test_plan_emits_contract_terms_ranked_from_the_graph(tmp_path: Path) -> None:
     """target_gap follows the divergence-aware ranking; taboos name spent/settled nodes."""
     store = _store(tmp_path)
-    _merge_gaps(store, ("gap-fresh", 5, "candidate"), ("gap-axis", 4, "candidate"), ("gap-spent", 3, "candidate"))
+    _merge_gaps(store, ("gap-fresh", 5, "candidate"), ("gap-axis", 3, "candidate"), ("gap-spent", 2, "candidate"))
 
     decision = store.plan()
     assert decision["action"] == "ask_one"
@@ -93,39 +93,39 @@ def test_plan_emits_contract_terms_ranked_from_the_graph(tmp_path: Path) -> None
     assert terms["taboos"] == []
     assert terms["schema_version"] == 1
 
+    # The answer settles the node: it leaves the ranking and becomes taboo.
     store.record("gap-fresh", "answered", "fp-1")
     decision = store.plan()
     assert decision["gap_id"] == "gap-axis"
     assert decision["contract_terms"]["target_gap"] == "gap-axis"
-    # The answered node is already-answered: it is taboo for the composer.
     assert decision["contract_terms"]["taboos"] == ["gap-fresh"]
 
-    # Ask the axis node to its budget, then let the user open a new axis on it:
-    # the active axis outranks the spent ask budget.
-    store.record("gap-axis", "unchanged", "fp-2")
+    store.record("gap-axis", "unchanged", "fp-axis")
     decision = store.plan()
     assert decision["gap_id"] == "gap-axis"
-    store.record("gap-axis", "unchanged", "fp-3", new_axes=["What about the cost constraint?"])
+    store.record("gap-axis", "unchanged", "fp-axis", new_axes=["What about the cost constraint?"])
 
+    # The ask budget on the axis node is spent, but the active divergence axis
+    # outranks it: the turn stays on the axis.
     decision = store.plan()
     assert decision["action"] == "ask_one"
     assert decision["node_id"] == "gap-axis"
     assert decision["axis_id"]
     assert decision["contract_terms"]["target_gap"] == "gap-axis"
 
-    # An ask-spent, stalled node without an axis is excluded into taboos.
-    store.record("gap-axis", "unchanged", "fp-4")
-    store.record("gap-spent", "unchanged", "fp-5")
-    store.plan()
-    store.record("gap-spent", "unchanged", "fp-6")
+    store.record("gap-axis", "unchanged", "fp-axis")
+    decision = store.plan()
+    assert decision["gap_id"] == "gap-axis"
+    store.record("gap-axis", "unchanged", "fp-axis")
 
+    # The axis is spent and locally stalled with no axis left: the ranking
+    # excludes it into taboos and moves to the remaining fresh gap.
     decision = store.plan()
     assert decision["action"] == "ask_one"
-    assert decision["node_id"] == "gap-axis"
+    assert decision["node_id"] == "gap-spent"
     terms = decision["contract_terms"]
-    assert terms["target_gap"] == "gap-axis"
-    assert "gap-spent" in terms["taboos"]
-    assert "gap-fresh" in terms["taboos"]
+    assert terms["target_gap"] == "gap-spent"
+    assert set(terms["taboos"]) == {"gap-fresh", "gap-axis"}
     assert terms["target_gap"] not in terms["taboos"]
     # Additive surface: the existing decision keys are unchanged.
     assert decision["question"]
@@ -146,8 +146,10 @@ def test_user_move_redirect_is_applied_via_the_response_policy(tmp_path: Path) -
 
     answered = store.plan(user_signal=_signal("answer", "direct_affirmative"))
     assert answered["user_move_policy"]["gap_directive"] == "advance"
-    assert answered["contract_terms"]["target_gap"] == "gap-b"
-    assert "gap-a" in answered["contract_terms"]["taboos"]
+    # The answer settles the outstanding ask (gap-b): it becomes taboo and
+    # selection advances to the next candidate.
+    assert answered["contract_terms"]["target_gap"] == "gap-a"
+    assert "gap-b" in answered["contract_terms"]["taboos"]
 
     corrected = store.plan(user_signal=_signal("correction", "explicit_wrong"))
     assert corrected["user_move_policy"]["gap_directive"] == "reopen"
@@ -195,13 +197,26 @@ def test_required_traces_derive_from_gap_type(tmp_path: Path) -> None:
 def test_proposal_gap_under_a_discrimination_cap_requires_the_option_set(tmp_path: Path) -> None:
     """A pointing response requires the options be shown: option-set under a discrimination cap."""
     store = _store(tmp_path)
-    _merge_gaps(store, ("gap-a", 5, "candidate"))
+    _merge_gaps(store, ("gap-a", 5, "candidate"), ("gap-b", 4, "candidate"))
     store.plan()
 
+    # The repeated correction drops the ceiling to the one-sentence floor and
+    # re-opens the corrected node (misunderstood intent).
     decision = store.plan(
-        user_signal=_signal("correction", "explicit_wrong"),
+        user_signal=_signal("correction", "explicit_no"),
         previous_category="correction",
     )
+    assert decision["contract_terms"]["cost_cap"] == {
+        "response_class": RESPONSE_CLASS_DISCRIMINATION,
+        "max_sentences": 1,
+    }
+    assert decision["contract_terms"]["required_traces"] == ["guess-statement"]
+
+    # The user answers the re-opened ask; the next candidate is asked under
+    # the carried floor cap, so the pointing turn requires the option set.
+    store.record("gap-a", "answered", "fp-1")
+    decision = store.plan()
+    assert decision["node_id"] == "gap-b"
     assert decision["contract_terms"]["cost_cap"] == {
         "response_class": RESPONSE_CLASS_DISCRIMINATION,
         "max_sentences": 1,
