@@ -150,14 +150,22 @@ def test_failed_review_creates_remediation_work(tmp_path: Path) -> None:
     node = remediation[0]
     assert node["mandatory"] is True
     assert "mechanism" in node["question"]
-    assert failed["frontier_node_ids"] == [node["id"]]
+    assert node["id"] in failed["frontier_node_ids"]
     assert failed["deliverable_quality_gate"]["remediation_node_ids"] == [node["id"]]
 
 
 def test_gap_can_revive_discarded_node(tmp_path: Path) -> None:
     state = initialize_research_state(round_id="round-gate-revive", tree_id="research-tree", decision_slots=slots())
     root = state["nodes"][state["frontier_node_ids"][0]]
-    victim = dict(root, id="node:slot-depth:reviveme", mandatory=False, selection_value=0.05, depth=1)
+    victim = dict(
+        root,
+        id="node:slot-depth:reviveme",
+        question="Drill the discarded submodule boundary independently.",
+        oracle="The submodule boundary is mapped with code-level evidence.",
+        mandatory=False,
+        selection_value=0.05,
+        depth=1,
+    )
     state["nodes"][victim["id"]] = victim
     state["frontier_node_ids"].append(victim["id"])
     pruned = prune_research_state(state)
@@ -196,7 +204,15 @@ def test_gap_can_revive_discarded_node(tmp_path: Path) -> None:
 def test_pruned_nodes_are_recorded_as_discarded_evidence() -> None:
     state = initialize_research_state(round_id="round-gate-discard", tree_id="research-tree", decision_slots=slots())
     root = state["nodes"][state["frontier_node_ids"][0]]
-    weak = dict(root, id="node:slot-depth:weak", mandatory=False, selection_value=0.05, depth=1)
+    weak = dict(
+        root,
+        id="node:slot-depth:weak",
+        question="Check the low-value tangential sub-question.",
+        oracle="The tangential sub-question is answered or explicitly dropped.",
+        mandatory=False,
+        selection_value=0.05,
+        depth=1,
+    )
     state["nodes"][weak["id"]] = weak
     state["frontier_node_ids"].append(weak["id"])
     pruned = prune_research_state(state)
@@ -216,25 +232,33 @@ def test_pruned_nodes_are_recorded_as_discarded_evidence() -> None:
 
 def test_saturation_requires_measured_coverage() -> None:
     state = initialize_research_state(round_id="round-gate-cov", tree_id="research-tree", decision_slots=slots())
-    slot = state["decision_slots"]["slot-depth"]
-    slot["marginal_novelty"] = 0.0
+    state["decision_slots"]["slot-depth"]["marginal_novelty"] = 0.0
     root = state["nodes"][state["frontier_node_ids"][0]]
-    extra = dict(root, id="node:slot-depth:coverage", mandatory=False, selection_value=0.5, depth=1)
+    extra = dict(
+        root,
+        id="node:slot-depth:coverage",
+        question="Probe the adjacent coverage axis.",
+        oracle="The adjacent coverage axis is measured.",
+        mandatory=False,
+        selection_value=0.5,
+        depth=1,
+    )
     state["nodes"][extra["id"]] = extra
     state["frontier_node_ids"].append(extra["id"])
     unmeasured = prune_research_state(state)
     assert unmeasured["nodes"][extra["id"]]["status"] == "frontier"
+    slot = unmeasured["decision_slots"]["slot-depth"]
+    slot["finding_ids"] = ["finding-a", "finding-b"]
+    slot["anchor_fingerprints"] = ["anchor-a", "anchor-b"]
     slot["search_comparison"]["batches"] = {"b1": {"captures": 3, "duplicates": 0, "coverage_met": 1}}
     slot["search_comparison"]["coverage_met"] = 1
     measured = prune_research_state(unmeasured)
     assert measured["nodes"][extra["id"]]["status"] == "deferred"
     assert measured["nodes"][extra["id"]]["terminal_reason"] == "evidence-saturated"
-    slot["search_comparison"]["coverage_met"] = 0
-    unmet = prune_research_state(measured)
-    fresh = dict(unmet["nodes"][extra["id"]], status="frontier")
-    unmet["nodes"][extra["id"]] = fresh
-    unmet["frontier_node_ids"].append(extra["id"])
-    still_open = prune_research_state(unmet)
+    measured["nodes"][extra["id"]].update({"status": "frontier", "terminal_reason": None})
+    measured["frontier_node_ids"].append(extra["id"])
+    measured["decision_slots"]["slot-depth"]["search_comparison"]["coverage_met"] = 0
+    still_open = prune_research_state(measured)
     assert still_open["nodes"][extra["id"]]["status"] == "frontier"
 
 

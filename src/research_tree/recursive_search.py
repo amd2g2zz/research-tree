@@ -17,6 +17,7 @@ from .evidence_delta import (
     baseline_from_finding_packs,
     measure_realized_delta,
 )
+from .independent_review import validate_deliverable_quality_review_payload
 from .run_ledger import RunLedger
 from .search_portfolio import (
     BATCH_SOURCE_DEPTH_LEVELS,
@@ -142,6 +143,7 @@ def initialize_research_state(
         "delta_history": [],
         "penalty_history": [],
         "cross_validation": {},
+        "discarded_evidence": [],
         "stop_reason": None,
     }
     by_slot: dict[str, list[Any]] = {slot_id: [] for slot_id in slots}
@@ -318,7 +320,32 @@ def prune_research_state(state: Mapping[str, Any]) -> dict[str, Any]:
         node["status"] = "deferred"
         node["terminal_reason"] = "frontier capacity guardrail reached"
     result["frontier_node_ids"] = [node["id"] for node in selected]
+    # Issue #495: pruned work stays queryable. Every node the pruner set
+    # aside is registered with its terminal reason, oracle, and evidence
+    # need so the deliverable-quality recovery loop can revive it.
+    for node in result["nodes"].values():
+        if node["status"] in {"deferred", "duplicate"} and node.get("terminal_reason"):
+            _record_discarded_evidence(result, node)
     return result
+
+
+def _record_discarded_evidence(result: dict[str, Any], node: Mapping[str, Any]) -> None:
+    """Append one pruned-node entry to the discarded-evidence registry."""
+
+    registry = result.setdefault("discarded_evidence", [])
+    if any(entry["node_id"] == node["id"] for entry in registry):
+        return
+    registry.append(
+        {
+            "node_id": node["id"],
+            "terminal_reason": node.get("terminal_reason"),
+            "decision_oracle": node.get("oracle", ""),
+            "evidence_needed": node.get("evidence_needed", ""),
+            "decision_slot_id": node["decision_slot_id"],
+            "depth": node.get("depth", 0),
+            "selection_value": node.get("selection_value", 0.0),
+        }
+    )
 
 
 def select_research_actions(state: Mapping[str, Any], *, max_parallelism: int) -> tuple[Mapping[str, Any], ...]:
@@ -486,8 +513,119 @@ def finalize_research_delivery(
     }
     for manifest in result["deliverables"].values():
         manifest["status"] = "observed"
-    result["status"] = "delivery_pending"
-    result["stop_reason"] = "report manifests observed; coordinator must verify delivery and acceptance"
+    # Issue #495: manifests only *observe* the drafts. Delivery stays gated on
+    # a passing, digest-bound deliverable-quality review of exactly these
+    # bytes — a report merely existing is no longer delivery-pending.
+    gate = result.get("deliverable_quality_gate")
+    current = {kind: manifest.get("sha256") for kind, manifest in result["deliverables"].items()}
+    if isinstance(gate, Mapping) and gate.get("status") == "passed" and gate.get("manifest_digests") == current:
+        result["status"] = "delivery_pending"
+        result["stop_reason"] = "report manifests observed; coordinator must verify delivery and acceptance"
+    else:
+        result["status"] = "blocked"
+        result["stop_reason"] = (
+            "deliverable-quality gate has not passed; coordinator must register a passing "
+            "deliverable-quality review bound to the current draft deliverables"
+        )
+    return result
+
+
+def _quality_gate_digests(result: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        kind: manifest.get("sha256")
+        for kind, manifest in result["deliverables"].items()
+        if isinstance(manifest, Mapping)
+    }
+
+
+def register_deliverable_quality_review(state: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Record one fresh-context deliverable-quality review (issue #495).
+
+    A passing review — bound to the current manifest digests — lifts the tree
+    to ``delivery_pending``. A failing review reopens every named gap as
+    mandatory remediation work on its target slot (reviving a discarded node
+    when the gap names one) and returns the tree to ``searching``.
+    """
+
+    result = _mutable_state(state)
+    normalized = validate_deliverable_quality_review_payload(payload)
+    if any(not result["deliverables"].get(kind, {}).get("sha256") for kind in normalized["manifest_digests"]):
+        raise ValueError("deliverable quality review requires registered draft deliverables")
+    if normalized["manifest_digests"] != _quality_gate_digests(result):
+        raise ValueError("deliverable quality review is stale: manifest digests do not match current deliverables")
+    gaps = normalized["named_gaps"]
+    for gap in gaps:
+        if gap["target_slot_id"] not in result["decision_slots"]:
+            raise ValueError(f"named gap targets unknown decision slot: {gap['target_slot_id']}")
+    if not gaps:
+        result["deliverable_quality_gate"] = {
+            "status": "passed",
+            "review_id": normalized["id"],
+            "manifest_digests": dict(normalized["manifest_digests"]),
+            "remediation_node_ids": [],
+        }
+        result["status"] = "delivery_pending"
+        result["stop_reason"] = "deliverable quality gate passed; coordinator must verify delivery and acceptance"
+        return result
+    remediation_ids: list[str] = []
+    for gap in gaps:
+        slot = result["decision_slots"][gap["target_slot_id"]]
+        node: dict[str, Any] | None = None
+        if gap.get("revive_node_id") is not None:
+            candidate = result["nodes"].get(gap["revive_node_id"])
+            if candidate is None:
+                raise ValueError(f"named gap references unknown node: {gap['revive_node_id']}")
+            if not any(entry["node_id"] == gap["revive_node_id"] for entry in result.get("discarded_evidence", ())):
+                raise ValueError(f"revive_node_id is not recorded in discarded_evidence: {gap['revive_node_id']}")
+            node = candidate
+            node["status"] = "frontier"
+            node["terminal_reason"] = None
+            node["mandatory"] = True
+            node["question"] = f"Remediate quality gap: {gap['description']}"
+            node["oracle"] = gap["oracle"]
+        else:
+            digest = hashlib.sha256(
+                f"{gap['target_slot_id']}:remediation:{gap['description']}".encode("utf-8")
+            ).hexdigest()[:16]
+            node_id = f"node:{gap['target_slot_id']}:{digest}"
+            existing = result["nodes"].get(node_id)
+            if existing is None:
+                node = _node(
+                    node_id=node_id,
+                    parent_id=None,
+                    slot_id=gap["target_slot_id"],
+                    question=f"Remediate quality gap: {gap['description']}",
+                    action_kind="remediation",
+                    trigger_ref="deliverable-quality-review",
+                    evidence_needed="Evidence that closes the named deliverable-quality gap.",
+                    oracle=gap["oracle"],
+                    depth=0,
+                    estimated_cost=1.0,
+                    mandatory=True,
+                )
+                result["nodes"][node_id] = node
+            else:
+                node = existing
+                node["status"] = "frontier"
+                node["terminal_reason"] = None
+                node["mandatory"] = True
+        slot["status"] = "researching"
+        if slot["validation_required"]:
+            slot["validation_passed"] = False
+            slot["validation_status"] = "pending"
+        if node["id"] not in result["frontier_node_ids"]:
+            result["frontier_node_ids"].append(node["id"])
+        remediation_ids.append(node["id"])
+    result["deliverable_quality_gate"] = {
+        "status": "failed",
+        "review_id": normalized["id"],
+        "manifest_digests": dict(normalized["manifest_digests"]),
+        "remediation_node_ids": remediation_ids,
+    }
+    result["status"] = "searching"
+    result["stop_reason"] = (
+        f"deliverable quality gate failed: {len(gaps)} named gap(s) reopened as remediation work"
+    )
     return result
 
 
@@ -1419,6 +1557,11 @@ def _slot_evidence_saturated(state: Mapping[str, Any], slot: Mapping[str, Any], 
     comparison = slot.get("search_comparison") or {}
     captures = sum(int(batch.get("captures", 0)) for batch in (comparison.get("batches") or {}).values())
     if captures > 0 and int(comparison.get("coverage_met", 0)) < 1:
+        return False
+    # Issue #495: coverage must be *measured*, not skipped. A landscape slot
+    # with no recorded batch comparison cannot saturate on novelty alone —
+    # novelty 0 without a measurement is process exhaustion, not coverage.
+    if not captures and slot.get("landscape_required", True):
         return False
     marginal = float(slot.get("marginal_novelty", cfg.initial_marginal_novelty))
     return marginal <= cfg.novelty_stop_threshold

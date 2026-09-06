@@ -29,9 +29,24 @@ TREE_PHASE_TRANSITIONS: Mapping[str, frozenset[str]] = {
 }
 # Optional payload keys validated when present; legacy payloads without them
 # stay valid (the direct alignment-handoff append path predates the phase).
-_OPTIONAL_TREE_STATE_KEYS = frozenset({"phase", "strategy_authority_fingerprint", "realignment"})
+_OPTIONAL_TREE_STATE_KEYS = frozenset(
+    {"phase", "strategy_authority_fingerprint", "realignment", "deliverable_quality_gate", "discarded_evidence"}
+)
 _FINGERPRINT_RE = re.compile(r"[0-9a-f]{64}")
 _REALIGNMENT_RECORD_KEYS = frozenset({"schema", "confirmation_digest", "authority_fingerprint", "reason"})
+_QUALITY_GATE_RECORD_KEYS = frozenset({"status", "review_id", "manifest_digests", "remediation_node_ids"})
+_QUALITY_GATE_STATUSES = frozenset({"passed", "failed"})
+_DISCARDED_EVIDENCE_KEYS = frozenset(
+    {
+        "node_id",
+        "terminal_reason",
+        "decision_oracle",
+        "evidence_needed",
+        "decision_slot_id",
+        "depth",
+        "selection_value",
+    }
+)
 
 
 class ResearchTreeStateError(RuntimeStoreError):
@@ -188,6 +203,10 @@ def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
     _validate_strategy_fingerprint(value.get("strategy_authority_fingerprint"))
     if "realignment" in value:
         _validate_realignment_record(value["realignment"], value.get("strategy_authority_fingerprint"))
+    if "deliverable_quality_gate" in value:
+        _validate_quality_gate_record(value["deliverable_quality_gate"])
+    if "discarded_evidence" in value:
+        _validate_discarded_evidence(value["discarded_evidence"])
     for key in (
         "config",
         "decision_slots",
@@ -262,6 +281,75 @@ def _validate_realignment_record(record: Any, fingerprint: Any) -> None:
         raise ResearchTreeStateError(
             "tree state realignment record must bind the payload's strategy_authority_fingerprint"
         )
+
+
+def _validate_quality_gate_record(record: Any) -> None:
+    """Shape validation for the deliverable-quality gate record (issue #495)."""
+
+    if not isinstance(record, Mapping) or set(record) != _QUALITY_GATE_RECORD_KEYS:
+        raise ResearchTreeStateError(
+            "tree state deliverable_quality_gate must carry exactly status, review_id, "
+            "manifest_digests, remediation_node_ids"
+        )
+    if record.get("status") not in _QUALITY_GATE_STATUSES:
+        raise ResearchTreeStateError("tree state deliverable_quality_gate status is unsupported")
+    if not isinstance(record.get("review_id"), str) or not record["review_id"].strip():
+        raise ResearchTreeStateError("tree state deliverable_quality_gate review_id must be a non-empty string")
+    digests = record.get("manifest_digests")
+    if not isinstance(digests, Mapping) or not digests:
+        raise ResearchTreeStateError(
+            "tree state deliverable_quality_gate manifest_digests must be a non-empty mapping"
+        )
+    for kind, digest in digests.items():
+        if not isinstance(kind, str) or not kind.strip():
+            raise ResearchTreeStateError(
+                "tree state deliverable_quality_gate manifest kinds must be non-empty strings"
+            )
+        if not isinstance(digest, str) or not _FINGERPRINT_RE.fullmatch(digest):
+            raise ResearchTreeStateError(
+                f"tree state deliverable_quality_gate manifest_digests[{kind}] must be a 64-character hex digest"
+            )
+    remediation = record.get("remediation_node_ids")
+    if isinstance(remediation, (str, bytes)) or not isinstance(remediation, Sequence):
+        raise ResearchTreeStateError(
+            "tree state deliverable_quality_gate remediation_node_ids must be a sequence"
+        )
+    for node_id in remediation:
+        if not isinstance(node_id, str) or not node_id.strip():
+            raise ResearchTreeStateError(
+                "tree state deliverable_quality_gate remediation_node_ids entries must be non-empty strings"
+            )
+    if record["status"] == "passed" and remediation:
+        raise ResearchTreeStateError("a passed deliverable_quality_gate cannot carry remediation_node_ids")
+
+
+def _validate_discarded_evidence(registry: Any) -> None:
+    """Shape validation for the discarded-evidence registry (issue #495)."""
+
+    if isinstance(registry, (str, bytes)) or not isinstance(registry, Sequence):
+        raise ResearchTreeStateError("tree state discarded_evidence must be a sequence")
+    seen: set[str] = set()
+    for entry in registry:
+        if not isinstance(entry, Mapping) or set(entry) != _DISCARDED_EVIDENCE_KEYS:
+            raise ResearchTreeStateError(
+                "tree state discarded_evidence entry must carry exactly node_id, terminal_reason, "
+                "decision_oracle, evidence_needed, decision_slot_id, depth, selection_value"
+            )
+        node_id = entry.get("node_id")
+        if not isinstance(node_id, str) or not node_id.strip():
+            raise ResearchTreeStateError("tree state discarded_evidence node_id must be a non-empty string")
+        if node_id in seen:
+            raise ResearchTreeStateError(f"tree state discarded_evidence duplicates node: {node_id}")
+        seen.add(node_id)
+        for key in ("terminal_reason", "decision_oracle", "evidence_needed", "decision_slot_id"):
+            if not isinstance(entry.get(key), str) or not entry[key].strip():
+                raise ResearchTreeStateError(f"tree state discarded_evidence {key} must be a non-empty string")
+        depth = entry.get("depth")
+        if isinstance(depth, bool) or not isinstance(depth, int) or depth < 0:
+            raise ResearchTreeStateError("tree state discarded_evidence depth must be a nonnegative integer")
+        selection = entry.get("selection_value")
+        if isinstance(selection, bool) or not isinstance(selection, (int, float)):
+            raise ResearchTreeStateError("tree state discarded_evidence selection_value must be numeric")
 
 
 def _validate_strategy_material_change(
