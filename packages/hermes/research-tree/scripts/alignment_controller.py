@@ -1694,9 +1694,12 @@ def _gap_required_traces(node: Mapping[str, Any], *, reopened: bool, cap: Any) -
 
     if node["status"] == "disputed" or reopened:
         return ("guess-statement",)
+    # Issue #498: a proposal-shaped gap always also requires the
+    # complexity-constraint proportionality assessment — the necessity check
+    # the engine verifies structurally (layer 1 of the ladder).
     if cap is not None and cap.response_class == RESPONSE_CLASS_DISCRIMINATION:
-        return ("option-set",)
-    return ("possibility-survey",)
+        return ("option-set", "proportionality_assessment")
+    return ("possibility-survey", "proportionality_assessment")
 
 
 def _fallback_target(nodes: Sequence[Mapping[str, Any]], active_axes_by_node: Mapping[str, Any]) -> str | None:
