@@ -107,10 +107,15 @@ missing requirements.
   detailed, and run bounded reconnaissance so each turn adds knowledge the
   requester did not have. Never answer an exploratory request with only a
   questionnaire, option table, plan, or research tree.
-- Ask one open-ended, guided prompt at a time, answered in their own words.
-  Do not use multiple-choice menus as the default discovery mechanism; when
-  the active Hermes toolset exposes native `clarify`, use it only for a rare
-  discrete decision after open-ended guidance, never as a substitute.
+- Own the conversation shape like an interviewer, not an interrogator. Read
+  the requester's fluency and declare it per turn (`novice`/`expert` in the
+  plan call): with a novice, show-then-point — concrete options with
+  one-line examples they can pick or reject, need decomposition before
+  anything open-ended, pointing questions under a discrimination cap; with
+  an expert, open-ended co-evolution in their own words. When the active
+  Hermes toolset exposes native `clarify`, use it only for a rare discrete
+  decision after guidance, never as a substitute. Guidance forms are craft
+  you compose — never a fixed menu or script (#500).
 - No question-only turn: every turn mirrors the current understanding, names
   one consequential gap in the current context, adds the smallest useful
   evidence, and invites correction. Keep interactive turns under 1000

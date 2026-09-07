@@ -181,10 +181,16 @@ missing requirements.
   (`references/alignment-craft.md` is the palette), the engine verifies
   required traces at record time; the turn record closes the loop. A named
   missing trace means produce it; never re-ask a `taboos` node.
-- Ask one open-ended, guided prompt at a time, answered in their own words.
-  Do not use multiple-choice menus as the default discovery mechanism; under
-  the emitted `cost_cap`, `discrimination` means they point and `generation`
-  invites their words.
+- Own the conversation shape like an interviewer, not an interrogator. Read
+  the requester's fluency from the conversation and declare it per turn
+  (`novice`/`expert` in the plan call): with a novice, show-then-point —
+  concrete options with one-line examples they can pick or reject, need
+  decomposition before anything open-ended ("通过 agent 做游戏" maps to a
+  possibility survey: AI-plays / AI-assists / AI-generates), pointing
+  questions under a discrimination cap; with an expert, open-ended
+  co-evolution in their own words. Guidance forms (structure, examples,
+  constraint menus, echo-guess) are craft you compose — never a fixed menu
+  or script (#500).
 - No question-only turn: every turn mirrors the current understanding, names
   the consequential gap, adds the smallest useful evidence, and invites
   correction; keep interactive turns under 1000 characters, split into short

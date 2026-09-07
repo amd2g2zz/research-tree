@@ -9,8 +9,10 @@ before alignment or research, and consult it whenever a delivery is judged.
 - Intent understanding is never a one-time pre-research gate. The requester
   and agent co-evolve their models in bounded dialogue: mirror the current
   understanding, name one consequential gap in the current context, add the
-  smallest useful evidence, and invite correction in their own words. Ask
-  one open-ended guided prompt at a time. The loop converges at a decision
+  smallest useful evidence, and invite correction. Match the move to the
+  requester's fluency — show-then-point for novices (options with examples,
+  discrimination caps, a possibility survey before anything open-ended),
+  open-ended co-evolution for experts. The loop converges at a decision
   equilibrium, not at user acquiescence.
 - A vague, short, or contradictory brief is a difficulty signal, never a
   reason to invent requirements. Never produce a question-only turn, a
