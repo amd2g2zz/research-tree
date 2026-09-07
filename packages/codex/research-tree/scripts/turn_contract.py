@@ -214,6 +214,21 @@ DEFAULT_TRACE_REGISTRY = TraceTypeRegistry(
             description="complexity-constraint proportionality: over/under direction, named "
             "simpler-alternative or magnitude conflict, nearest-feasible reframing",
         ),
+        # Issue #499: mid-research user-update shapes. ``digest-first`` is the
+        # one-point digest (point + decision relevance + source pointer);
+        # ``viewpoint-hints`` reuses the material_alternatives / trade_off
+        # schema shape for 2-3 viewpoint hints with trade-offs. Presence and
+        # schema only — composition stays prompt-layer craft.
+        TraceType(
+            name="digest-first",
+            required_fields=("point", "decision_relevance", "source_pointer"),
+            description="digest-first user update: 1-2 sentence point + decision relevance + source pointer",
+        ),
+        _initial_type(
+            "viewpoint-hints",
+            "alternatives",
+            "distinct positions with trade-offs, material_alternatives/trade_off schema shape",
+        ),
     )
 )
 
