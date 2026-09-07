@@ -107,7 +107,7 @@ def test_prompt_submit_validates_the_record_file_and_writes_a_receipt(tmp_path: 
 
     assert result["status"] == "recorded"
     verdict = result["alignment_turn_record"]
-    assert verdict == {"status": "validated", "record_count": 2, "last_turn_index": 2}
+    assert verdict == {"status": "validated", "record_count": 2, "last_turn_index": 2, "last_turn_shape": None}
     record = json.loads((root / str(result["path"])).read_text(encoding="utf-8"))
     assert record["alignment_turn_record"] == verdict
     receipt_path = run_root / "alignment" / "turn-records.state.json"
@@ -166,6 +166,7 @@ def test_post_tool_use_refreshes_and_validates_the_record_file(tmp_path: Path) -
         "status": "validated",
         "record_count": 3,
         "last_turn_index": 3,
+        "last_turn_shape": None,
     }
     record = json.loads((root / str(result["path"])).read_text(encoding="utf-8"))
     assert record["alignment_turn_record"] == result["alignment_turn_record"]

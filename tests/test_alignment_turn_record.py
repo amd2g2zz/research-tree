@@ -240,12 +240,12 @@ def test_refresh_validation_reports_missing_invalid_and_validated(tmp_path: Path
     }
     append_turn(target, 1)
     verdict = refresh_validation(target.run_root)
-    assert verdict == {"status": "validated", "record_count": 1, "last_turn_index": 1}
+    assert verdict == {"status": "validated", "record_count": 1, "last_turn_index": 1, "last_turn_shape": None}
     receipt = json.loads(target.receipt_path.read_text(encoding="utf-8"))
     assert receipt["state"] == "validated"
     assert receipt["record_count"] == 1
     assert receipt["last_turn_index"] == 1
-    assert receipt["schema"] == 1
+    assert receipt["schema"] == 2
     assert receipt["validated_at"]
     target.records_path.write_text("{broken\n", encoding="utf-8")
     verdict = refresh_validation(target.run_root)

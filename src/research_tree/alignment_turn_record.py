@@ -49,14 +49,29 @@ __all__ = [
     "ContinuityGateError",
     "RECORDS_FILENAME",
     "RECEIPT_FILENAME",
+    "MAX_DECISION_POINTS",
+    "MAX_QUESTIONS",
+    "MAX_TURN_LENGTH",
     "SCHEMA_VERSION",
     "AlignmentTurnRecord",
     "AlignmentTurnRecordStore",
     "TurnRecordError",
+    "measure_turn_shape",
     "refresh_validation",
 ]
 
-SCHEMA_VERSION = 1
+# Round discipline (issue #493): the SKILL prose rules become measured
+# dimensions on the turn record — one record, three measured dimensions,
+# checked mechanically; what a compliant turn *says* stays prompt-layer craft
+# (#501). ``transformation_ratio`` is the #499 placeholder slot.
+SCHEMA_VERSION = 2
+MAX_TURN_LENGTH = 1000
+MAX_DECISION_POINTS = 1
+MAX_QUESTIONS = 1
+TURN_SHAPE_KEYS = frozenset(
+    {"length", "decision_count", "question_count", "transformation_ratio", "verdict", "violations"}
+)
+TURN_SHAPE_VERDICTS = frozenset({"compliant", "violated"})
 RECORDS_FILENAME = "turn-records.jsonl"
 RECEIPT_FILENAME = "turn-records.state.json"
 RECORD_KEYS = frozenset(
@@ -101,6 +116,72 @@ def _node_id(value: Any, label: str) -> str:
     return value
 
 
+def measure_turn_shape(
+    response_text: str,
+    *,
+    decision_count: int,
+    question_count: int,
+    transformation_ratio: float | None = None,
+) -> dict[str, Any]:
+    """Measure one composed turn against the round discipline (issue #493).
+
+    Pure and mechanical: the verdict flags named dimensions only — length over
+    the round cap, more than one decision point, more than one question. The
+    composer decides what a compliant turn says; the record only proves the
+    shape was measured. ``transformation_ratio`` is carried for #499.
+    """
+
+    if not isinstance(response_text, str):
+        raise TurnRecordError("turn shape response_text must be a string")
+    for name, count in (("decision_count", decision_count), ("question_count", question_count)):
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise TurnRecordError(f"turn shape {name} must be a nonnegative integer")
+    if transformation_ratio is not None and (
+        isinstance(transformation_ratio, bool) or not isinstance(transformation_ratio, (int, float))
+    ):
+        raise TurnRecordError("turn shape transformation_ratio must be numeric or None")
+    length = len(response_text)
+    violations: list[str] = []
+    if length > MAX_TURN_LENGTH:
+        violations.append(f"length>{MAX_TURN_LENGTH}: {length}")
+    if decision_count > MAX_DECISION_POINTS:
+        violations.append(f"decision_count>{MAX_DECISION_POINTS}: {decision_count}")
+    if question_count > MAX_QUESTIONS:
+        violations.append(f"question_count>{MAX_QUESTIONS}: {question_count}")
+    return {
+        "length": length,
+        "decision_count": decision_count,
+        "question_count": question_count,
+        "transformation_ratio": transformation_ratio,
+        "verdict": "violated" if violations else "compliant",
+        "violations": violations,
+    }
+
+
+def _validate_turn_shape(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != TURN_SHAPE_KEYS:
+        raise TurnRecordError("turn record turn_shape fields do not match schema")
+    verdict = value["verdict"]
+    if verdict not in TURN_SHAPE_VERDICTS:
+        raise TurnRecordError(f"turn shape verdict must be one of {sorted(TURN_SHAPE_VERDICTS)}")
+    for name in ("length", "decision_count", "question_count"):
+        count = value[name]
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise TurnRecordError(f"turn shape {name} must be a nonnegative integer")
+    ratio = value["transformation_ratio"]
+    if ratio is not None and (isinstance(ratio, bool) or not isinstance(ratio, (int, float))):
+        raise TurnRecordError("turn shape transformation_ratio must be numeric or None")
+    violations = value["violations"]
+    if isinstance(violations, (str, bytes)) or not isinstance(violations, list):
+        raise TurnRecordError("turn shape violations must be a list")
+    if any(not isinstance(item, str) or not item.strip() for item in violations):
+        raise TurnRecordError("turn shape violations entries must be non-empty strings")
+    expected = "violated" if violations else "compliant"
+    if verdict != expected:
+        raise TurnRecordError(f"turn shape verdict must be {expected!r} for the recorded violations: {violations}")
+    return dict(value)
+
+
 @dataclass(frozen=True, slots=True)
 class AlignmentTurnRecord:
     """One persisted alignment exchange (canonical loop step 4, issue #497)."""
@@ -114,6 +195,7 @@ class AlignmentTurnRecord:
     contract_terms: ContractTerms | None
     traces: tuple[dict[str, Any], ...]
     recorded_at: str
+    turn_shape: dict[str, Any] | None = None
 
     @property
     def delta(self) -> dict[str, Any]:
@@ -131,17 +213,30 @@ class AlignmentTurnRecord:
         }
         payload["contract_terms"] = self.contract_terms.to_dict() if self.contract_terms is not None else None
         payload["traces"] = [dict(trace) for trace in self.traces]
+        if self.turn_shape is not None:
+            payload["turn_shape"] = dict(self.turn_shape)
         return payload
 
     @classmethod
     def from_dict(cls, value: Any) -> "AlignmentTurnRecord":
         if not isinstance(value, Mapping):
             raise TurnRecordError("turn record must be a JSON object")
-        unknown = set(value) - RECORD_KEYS
+        schema = value.get("schema")
+        legacy = schema == 1
+        allowed_keys = RECORD_KEYS | (frozenset() if legacy else {"turn_shape"})
+        unknown = set(value) - allowed_keys
         missing = RECORD_KEYS - set(value)
         if unknown or missing:
             raise TurnRecordError(f"turn record field mismatch; missing: {sorted(missing)}, unknown: {sorted(unknown)}")
-        if value["schema"] != SCHEMA_VERSION:
+        if legacy:
+            # Schema 1 records (issue #497) predate the turn-shape dimensions;
+            # they stay readable — fail-closed continuity must survive.
+            turn_shape = None
+        elif "turn_shape" in value:
+            turn_shape = _validate_turn_shape(value["turn_shape"])
+        else:
+            turn_shape = None
+        if not legacy and schema != SCHEMA_VERSION:
             raise TurnRecordError(f"turn record schema must be {SCHEMA_VERSION}")
         turn_index = value["turn_index"]
         if isinstance(turn_index, bool) or not isinstance(turn_index, int) or turn_index < 1:
@@ -174,6 +269,7 @@ class AlignmentTurnRecord:
             contract_terms=contract_terms,
             traces=traces,
             recorded_at=recorded_at,
+            turn_shape=turn_shape,
         )
 
 
@@ -316,6 +412,7 @@ class AlignmentTurnRecordStore:
         contract_terms: ContractTerms | None = None,
         traces: Sequence[Mapping[str, Any]] = (),
         recorded_at: str | None = None,
+        turn_shape: Mapping[str, Any] | None = None,
     ) -> AlignmentTurnRecord:
         """Append one turn record; refuses gaps, replays, and delta-less turns."""
         records = self.records()
@@ -349,6 +446,7 @@ class AlignmentTurnRecordStore:
             raise TurnRecordError("delta_nodes must be unique")
         validated_traces = tuple(_trace_copy(trace, index) for index, trace in enumerate(traces))
         _validate_traces(validated_traces, contract_terms)
+        shape = _validate_turn_shape(turn_shape) if turn_shape is not None else None
         record = AlignmentTurnRecord(
             turn_index=turn_index,
             mirror=mirror_text,
@@ -359,6 +457,7 @@ class AlignmentTurnRecordStore:
             contract_terms=contract_terms,
             traces=validated_traces,
             recorded_at=recorded_at or _now(),
+            turn_shape=shape,
         )
         self.alignment_directory.mkdir(parents=True, exist_ok=True)
         line = json.dumps(record.to_dict(), ensure_ascii=True, separators=(",", ":")) + "\n"
@@ -391,6 +490,7 @@ def refresh_validation(run_root: Path) -> dict[str, Any]:
                 "status": "validated",
                 "record_count": len(records),
                 "last_turn_index": records[-1].turn_index if records else None,
+                "last_turn_shape": (records[-1].turn_shape or {}).get("verdict"),
             }
     if store.alignment_directory.is_dir():
         _write_receipt(store.receipt_path, verdict)
