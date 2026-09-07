@@ -78,6 +78,7 @@ class CanonicalFindingPackCompiler:
         validation_result: Mapping[str, Any] | None = None,
         search_comparison: Mapping[str, Any] | None = None,
         comparison_status: str | None = None,
+        transformation: Mapping[str, Any] | None = None,
     ) -> ArtifactRevision:
         try:
             snapshot = self._ledger.load_run(round_id)
@@ -152,6 +153,14 @@ class CanonicalFindingPackCompiler:
                 "validation_result": _normalize_validation_result(validation_result),
                 "evidence_mode": "strict",
             }
+            # Issue #499: the transformation record is presence+schema
+            # verified (a numeric ratio in [0, 1]); the observations'
+            # per-item anchor citation is already enforced above by the
+            # strict EvidenceAnchor normalization — verbatim source text
+            # belongs in provenance fields, never in observations.
+            normalized_transformation = _normalize_transformation(transformation)
+            if normalized_transformation is not None:
+                payload["transformation"] = normalized_transformation
             normalized_comparison = _normalize_search_comparison(search_comparison)
             if normalized_comparison is not None:
                 payload["search_comparison"] = normalized_comparison
@@ -400,6 +409,26 @@ def _target_slot(
         if slot.get("id") == slot_id:
             return slot
     raise error_type(f"Decision Slot is absent from Blueprint Target: {slot_id}")
+
+
+def _normalize_transformation(value: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Validate the optional transformation record (issue #499).
+
+    Presence+schema only: one numeric ``ratio`` in [0, 1] — the composer's
+    declared share of digested (agent-phrased, anchor-cited) content. Quote
+    policing of the text is the rejected design; the per-observation anchor
+    citation and the digest-first/viewpoint-hints trace types carry the
+    structural guarantee.
+    """
+
+    if value is None:
+        return None
+    if not isinstance(value, Mapping) or set(value) != {"ratio"}:
+        raise InvalidFindingPackError("transformation must carry exactly {ratio}")
+    ratio = value["ratio"]
+    if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not 0 <= float(ratio) <= 1:
+        raise InvalidFindingPackError("transformation ratio must be a number in [0, 1]")
+    return {"ratio": float(ratio)}
 
 
 def _normalize_observations(
