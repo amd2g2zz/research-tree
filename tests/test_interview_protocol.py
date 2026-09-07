@@ -44,10 +44,14 @@ def test_unknown_profile_is_rejected(tmp_path) -> None:
 
 
 def test_absent_profile_keeps_current_behavior(tmp_path) -> None:
-    store = _store(tmp_path)
-    baseline = store.plan()
-    explicit = store.plan(user_profile="expert")
-    assert baseline["contract_terms"] == explicit["contract_terms"]
+    baseline = _store(tmp_path / "a").plan()
+    explicit = _store(tmp_path / "b").plan(user_profile="expert")
+    novice = _store(tmp_path / "c").plan(user_profile="novice")["contract_terms"]
+    # Identical graph state: the expert declaration changes nothing versus an
+    # absent profile; the novice gate is the only posture change.
+    assert explicit["contract_terms"] == baseline["contract_terms"]
+    assert novice["cost_cap"]["response_class"] == "discrimination"
+    assert novice["required_traces"] == ["possibility-survey", "option-set"]
 
 
 def test_first_novice_ask_carries_survey_and_option_set(tmp_path) -> None:
@@ -91,8 +95,10 @@ def test_open_question_without_survey_fails_verification(tmp_path) -> None:
         )
 
 
-def test_expert_profile_does_not_force_survey_or_option_set(tmp_path) -> None:
+def test_expert_profile_does_not_force_the_novice_posture(tmp_path) -> None:
     store = _store(tmp_path)
     decision = store.plan(user_profile="expert")
-    assert "possibility-survey" not in decision["contract_terms"]["required_traces"]
+    # Expert turns keep the open-ended generation cap (#498 may still require
+    # a survey/proportionality from gap shape — that is not the novice gate).
     assert "option-set" not in decision["contract_terms"]["required_traces"]
+    assert decision["contract_terms"]["cost_cap"]["response_class"] == "generation"
