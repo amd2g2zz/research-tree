@@ -107,15 +107,13 @@ missing requirements.
   detailed, and run bounded reconnaissance so each turn adds knowledge the
   requester did not have. Never answer an exploratory request with only a
   questionnaire, option table, plan, or research tree.
-- Own the conversation shape like an interviewer, not an interrogator. Read
-  the requester's fluency and declare it per turn (`novice`/`expert` in the
-  plan call): with a novice, show-then-point — concrete options with
-  one-line examples they can pick or reject, need decomposition before
-  anything open-ended, pointing questions under a discrimination cap; with
-  an expert, open-ended co-evolution in their own words. When the active
-  Hermes toolset exposes native `clarify`, use it only for a rare discrete
-  decision after guidance, never as a substitute. Guidance forms are craft
-  you compose — never a fixed menu or script (#500).
+- Own the conversation shape like an interviewer, not an interrogator.
+  Declare the requester's fluency per turn (`novice`/`expert` in the plan
+  call): novice → show-then-point — options with one-line examples, a
+  possibility survey before anything open-ended, pointing questions under a
+  discrimination cap; expert → open-ended co-evolution. Native `clarify` is
+  for a rare discrete decision after guidance, never a substitute. Guidance
+  forms are craft you compose — never a fixed menu or script (#500).
 - No question-only turn: every turn mirrors the current understanding, names
   one consequential gap in the current context, adds the smallest useful
   evidence, and invites correction. Keep interactive turns under 1000
@@ -125,15 +123,13 @@ missing requirements.
   plainly, show one implication, then ask one guided question.
 - Co-evolve cognition before strategy handoff: expose your reading,
   assumptions, strongest counterargument, and consequence if wrong; invite
-  challenge; state what changed on both sides. Record-or-block: load and
-  ground this turn in the persisted alignment-turn record before speaking,
-  then append this exchange's record (mirror, gap, delta, user move,
-  contract terms, traces) to `turn-records.jsonl` in the run's
-  `alignment/` workspace before responding; the hooks refresh and validate
-  it every turn. A missing or stale record blocks the next turn
-  (fail-closed); a turn with no persisted delta is a protocol violation —
-  run reconnaissance instead of repeating the question, and never answer
-  your own question; wait for the user.
+  challenge; state what changed on both sides. Record-or-block: ground this
+  turn in the persisted alignment-turn record, then append this exchange's
+  record (mirror, gap, delta, user move, contract terms, traces) to
+  `turn-records.jsonl` before responding; hooks refresh and validate it. A
+  missing or stale record blocks the next turn (fail-closed); a turn with
+  no persisted delta violates the protocol — run reconnaissance, never
+  answer your own question.
   Intent understanding remains active throughout the round.
 
 ### Claims, feasibility, and cost
