@@ -55,6 +55,9 @@ SCHEMA = 3
 # explicit `alignment_incomplete` blocked disposition (user extension or waive
 # required); the exit itself is decided by the alignment score below.
 MAX_TURNS = 6
+# Issue #500: profile vocabulary the SKILL layer may declare per turn. The
+# engine never infers the profile — it only gates the structural posture.
+USER_PROFILES = frozenset({"novice", "expert"})
 # Per-node/per-axis stall threshold (#496): a requester-only point that stayed
 # quiet this many turns with no active divergence axis is *locally stalled*.
 # This is no longer a global escape hatch — see MAX_TURNS for the (separately
@@ -337,7 +340,14 @@ class AlignmentGraphStore:
         *,
         user_signal: Mapping[str, str] | None = None,
         previous_category: str | None = None,
+        user_profile: str | None = None,
     ) -> dict[str, Any]:
+        # Issue #500: the user profile is a turn-context INPUT set by the
+        # SKILL layer from conversation signals; the engine never infers it.
+        if user_profile is not None and user_profile not in USER_PROFILES:
+            raise AlignmentGraphError(
+                f"user_profile must be one of {sorted(USER_PROFILES)} or None, not {user_profile!r}"
+            )
         if update is not None:
             self.merge(update)
         with self._connect() as connection:
@@ -502,6 +512,8 @@ class AlignmentGraphStore:
                     last_outcomes,
                     previous_terms,
                     verdict,
+                    user_profile=user_profile,
+                    surveyed_gaps=_gaps_with_recorded_survey(connection),
                 )
                 if terms is not None:
                     decision["contract_terms"] = terms.to_dict()
@@ -1564,6 +1576,30 @@ def _last_response_outcomes(connection: sqlite3.Connection) -> dict[str, str]:
     return outcomes
 
 
+def _gaps_with_recorded_survey(connection: sqlite3.Connection) -> frozenset[str]:
+    """Gap ids with a recorded possibility-survey trace (issue #500).
+
+    Read from the append-only ``response_recorded`` event log — a survey
+    counts once recorded against the gap, whatever later turns did.
+    """
+
+    surveyed: set[str] = set()
+    for row in connection.execute(
+        "SELECT details_json FROM events WHERE event_type='response_recorded' ORDER BY sequence"
+    ):
+        details = json.loads(row["details_json"])
+        if not isinstance(details, Mapping):
+            continue
+        traces = details.get("traces")
+        if not isinstance(traces, Sequence):
+            continue
+        if any(isinstance(t, Mapping) and t.get("type") == "possibility-survey" for t in traces):
+            node_id = details.get("node_id")
+            if isinstance(node_id, str):
+                surveyed.add(node_id)
+    return frozenset(surveyed)
+
+
 def _contract_terms_of_decision(decision: Any) -> Any:
     """Parse a decision's emitted contract terms, when still parseable."""
 
@@ -1732,6 +1768,9 @@ def _emit_contract_terms(
     last_outcomes: Mapping[str, str],
     previous_terms: Any,
     verdict: Any,
+    *,
+    user_profile: str | None = None,
+    surveyed_gaps: frozenset[str] | None = None,
 ) -> Any:
     """Build the turn's ContractTerms from the graph state and the #490 verdict."""
 
@@ -1763,6 +1802,17 @@ def _emit_contract_terms(
         node = next((item for item in nodes if item["id"] == target), None)
         if node is not None:
             required = _gap_required_traces(node, reopened=(directive == "reopen"), cap=cap)
+    if user_profile == "novice" and decision["action"] == "ask_one" and CostCap is not None:
+        # Issue #500 interview posture, as emission policy (not a menu): a
+        # novice points rather than composes, so the cap drops to the
+        # discrimination floor, the turn must show options (show-then-point),
+        # and the possibility space must be mapped (survey on record) before
+        # anything open-ended is asked of them.
+        cap = CostCap(response_class=RESPONSE_CLASS_DISCRIMINATION, max_sentences=1)
+        surveyed = target in (surveyed_gaps or frozenset())
+        required = tuple(
+            name for name in ("possibility-survey", "option-set") if not (name == "possibility-survey" and surveyed)
+        )
     return ContractTerms(
         target_gap=target,
         required_traces=required,

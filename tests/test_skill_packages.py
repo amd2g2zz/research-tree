@@ -398,9 +398,15 @@ def test_intent_elicitation_is_open_ended_and_context_first() -> None:
     for body in (product, template, playbook):
         assert "open-ended" in body
         assert "current" in body and "context" in body
-        assert "in their own words" in body
+    # Issue #500: the interrogation primitive ("one open-ended question in
+    # their own words") became profile-aware interview ownership; the pins
+    # move with it — menus are craft for novices, never the default posture
+    # for an articulate requester.
     assert "never make a menu the default" in product
-    assert "Do not use multiple-choice menus as the default" in template
+    assert "show-then-point" in template
+    assert "novice" in template and "expert" in template
+    assert "possibility survey" in template or "possibility-survey" in template
+    assert "Match the move" in playbook and "fluency" in playbook
     assert "does not inherit" in playbook
 
 

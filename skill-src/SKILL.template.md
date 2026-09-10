@@ -95,10 +95,12 @@ missing requirements.
   (`references/alignment-craft.md` is the palette), the engine verifies
   required traces at record time; the turn record closes the loop. A named
   missing trace means produce it; never re-ask a `taboos` node.
-- Ask one open-ended, guided prompt at a time, answered in their own words.
-  Do not use multiple-choice menus as the default discovery mechanism; under
-  the emitted `cost_cap`, `discrimination` means they point and `generation`
-  invites their words.
+- Own the conversation shape like an interviewer, not an interrogator.
+  Declare fluency per turn (`novice`/`expert` in the plan call): novice →
+  show-then-point — options with one-line examples, a possibility survey
+  before anything open-ended, pointing questions; expert → open-ended
+  co-evolution. Guidance forms are craft you compose — never a fixed menu
+  or script (#500).
 - No question-only turn: every turn mirrors the current understanding, names
   the consequential gap, adds the smallest useful evidence, and invites
   correction; keep interactive turns under 1000 characters, split into short
@@ -108,13 +110,11 @@ missing requirements.
 - Co-evolve cognition before strategy handoff: expose your reading,
   assumptions, strongest counterargument, and consequence if wrong; invite
   challenge; state what changed on both sides. Record-or-block: ground this
-  turn in the persisted alignment-turn record before speaking, then `record`
-  the response (traces, user move) and append this exchange's record (mirror,
-  gap, delta, user move, contract terms, traces) to `turn-records.jsonl` in
-  the run's `alignment/` workspace; the hooks refresh and validate it every
-  turn. A missing or stale record blocks the next turn (fail-closed); a
-  delta-less turn is a protocol violation — run reconnaissance instead of
-  repeating it, never answer your own question, wait for the user.
+  turn in the persisted alignment-turn record, `record` the response (traces,
+  user move), and append the exchange's record to `turn-records.jsonl` in the
+  run's `alignment/` workspace; hooks refresh and validate it. A missing or
+  stale record blocks the next turn (fail-closed); a delta-less turn violates
+  the protocol — run reconnaissance, never answer your own question, wait.
   Intent understanding remains active throughout the round.
 
 ## Protocol 2 — Claims, feasibility, and cost
