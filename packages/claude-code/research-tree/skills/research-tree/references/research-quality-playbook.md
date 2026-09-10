@@ -11,8 +11,7 @@ before alignment or research, and consult it whenever a delivery is judged.
   understanding, name one consequential gap in the current context, add the
   smallest useful evidence, and invite correction. Match the move to
   fluency — show-then-point for novices, open-ended co-evolution for
-  experts. The loop converges at a decision equilibrium, not at user
-  acquiescence.
+  experts. The loop converges at a decision equilibrium, not at user acquiescence.
 - A vague, short, or contradictory brief is a difficulty signal, never a
   reason to invent requirements. Never produce a question-only turn, a
   workflow-status dump, or an unannotated option table; use short rounds

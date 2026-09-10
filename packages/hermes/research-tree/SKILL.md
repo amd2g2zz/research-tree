@@ -111,7 +111,7 @@ missing requirements.
   Declare the requester's fluency per turn (`novice`/`expert` in the plan
   call): novice → show-then-point — options with one-line examples, a
   possibility survey before anything open-ended, pointing questions under a
-  discrimination cap; expert → open-ended co-evolution. Native `clarify` is
+  discrimination cap; expert → open-ended co-evolution. native `clarify` is
   for a rare discrete decision after guidance, never a substitute. Guidance
   forms are craft you compose — never a fixed menu or script (#500).
 - No question-only turn: every turn mirrors the current understanding, names
