@@ -647,9 +647,16 @@ def test_strategy_lifecycle_cli_wires_display_confirm_and_tree_bridge(tmp_path: 
     assert confirmed["command"] == "strategy.confirm"
     assert confirmed["status"] == "confirmed"
     assert coordinator.state(RUN_ID).payload["state"] == "autonomous_research"
-    trees = [item for item in ledger.load_run(RUN_ID).artifacts if item.id == f"tree-{RUN_ID}"]
-    assert len(trees) == 1
+    trees = sorted(
+        (item for item in ledger.load_run(RUN_ID).artifacts if item.id == f"tree-{RUN_ID}"),
+        key=lambda item: item.revision,
+    )
+    # Issue #530: the phase clock is live — the tree is born `compiled` and the
+    # confirmed handoff advances it to `research` through the gated graph.
+    assert len(trees) == 2
     assert trees[0].payload["decision_slots"]
+    assert trees[0].payload["phase"] == "compiled"
+    assert trees[-1].payload["phase"] == "research"
 
     work = CanonicalWorkItemCompiler(ledger).compile(
         **work_item_arguments(target), expected_revision=ledger.get_revision(RUN_ID)
