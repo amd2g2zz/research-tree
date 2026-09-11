@@ -84,9 +84,7 @@ def grafted_node(
 def graft(state: dict[str, Any], *nodes: dict[str, Any], order: list[str]) -> None:
     for node in nodes:
         state["nodes"][node["id"]] = node
-    state["frontier_node_ids"] = [
-        node_id for node_id in order if state["nodes"][node_id]["status"] == "frontier"
-    ]
+    state["frontier_node_ids"] = [node_id for node_id in order if state["nodes"][node_id]["status"] == "frontier"]
 
 
 def selected_ids(state: dict[str, Any], *, max_parallelism: int) -> list[str]:

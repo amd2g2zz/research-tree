@@ -250,6 +250,7 @@ from .readiness import (
 )
 from .recursive_search import (
     CanonicalRecursiveResearchCoordinator,
+    NodeDependencyError,
     RecursiveSearchConfig,
     apply_research_results,
     evaluate_research_stop,
@@ -401,6 +402,7 @@ __all__ = [
     "VerifiedEvidence",
     "CanonicalRecursiveResearchCoordinator",
     "RecursiveSearchConfig",
+    "NodeDependencyError",
     "initialize_research_state",
     "apply_research_results",
     "score_research_frontier",
