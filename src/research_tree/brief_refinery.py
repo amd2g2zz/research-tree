@@ -44,17 +44,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass, replace
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from .claims import cluster_identity_groups
 
 __all__ = [
+    "REGISTRY_FILENAME",
     "REGISTRY_SCHEMA_VERSION",
     "LIFECYCLE_TRANSITIONS",
     "BriefRefinery",
+    "BriefRefineryStore",
     "RefineryObject",
     "ObjectType",
     "ObjectStatus",
@@ -66,7 +70,9 @@ __all__ = [
     "registry_digest",
 ]
 
+REGISTRY_FILENAME = "brief-registry.json"
 REGISTRY_SCHEMA_VERSION = 1
+REGISTRY_PAYLOAD_KEYS = frozenset({"schema", "objects", "digest"})
 
 # Mirrors alignment_graph.IDENTIFIER_RE / alignment_turn_record.NODE_ID_RE
 # so registry object ids can serve as turn-record delta nodes unchanged.
@@ -624,3 +630,69 @@ class BriefRefinery:
             assigned.append(object_id)
         return assigned
 
+
+class BriefRefineryStore:
+    """Engine-written JSON persistence for one run's brief registry (fail-closed).
+
+    Follows the ``alignment_turn_record`` store pattern: the registry lives
+    under the run's ``alignment/`` directory, writes are atomic (temporary
+    file + ``os.replace``, mode 0600), and loading verifies the SHA-256
+    digest over the object state — a missing file is a fresh empty registry,
+    a schema or digest mismatch refuses the load.
+    """
+
+    def __init__(self, run_root: Path) -> None:
+        self.run_root = Path(run_root)
+        self.alignment_directory = self.run_root / "alignment"
+        self.registry_path = self.alignment_directory / REGISTRY_FILENAME
+
+    def save(self, refinery: BriefRefinery) -> str:
+        """Persist the registry and return the recorded digest."""
+
+        if not isinstance(refinery, BriefRefinery):
+            raise RefineryError("BriefRefineryStore.save requires a BriefRefinery")
+        objects_payload = [object_.to_dict() for object_ in refinery.objects()]
+        digest = registry_digest(objects_payload)
+        payload = {"schema": REGISTRY_SCHEMA_VERSION, "objects": objects_payload, "digest": digest}
+        self.alignment_directory.mkdir(parents=True, exist_ok=True)
+        temporary = self.registry_path.with_name(f".{self.registry_path.name}.{os.getpid()}.tmp")
+        try:
+            descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, sort_keys=True, ensure_ascii=True, separators=(",", ":")) + "\n")
+            os.replace(temporary, self.registry_path)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return digest
+
+    def load(self) -> BriefRefinery:
+        """Load the registry, verifying the digest; missing file means empty."""
+
+        if not self.registry_path.is_file():
+            return BriefRefinery()
+        try:
+            payload = json.loads(self.registry_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            raise RefineryError(f"brief registry is not valid JSON: {self.registry_path}: {error}") from error
+        if not isinstance(payload, Mapping) or set(payload) != REGISTRY_PAYLOAD_KEYS:
+            raise RefineryError(
+                f"brief registry field mismatch; expected exactly {sorted(REGISTRY_PAYLOAD_KEYS)}: {self.registry_path}"
+            )
+        if payload["schema"] != REGISTRY_SCHEMA_VERSION:
+            raise RefineryError(f"brief registry schema must be {REGISTRY_SCHEMA_VERSION}: {self.registry_path}")
+        if not isinstance(payload["objects"], list):
+            raise RefineryError(f"brief registry objects must be a list: {self.registry_path}")
+        recorded = payload["digest"]
+        computed = registry_digest(payload["objects"])
+        if recorded != computed:
+            raise RegistryDigestError(
+                f"brief registry digest mismatch: recorded {recorded!r}, computed {computed!r} "
+                f"({self.registry_path} was edited outside the engine)"
+            )
+        objects: list[RefineryObject] = []
+        for index, entry in enumerate(payload["objects"]):
+            try:
+                objects.append(RefineryObject.from_dict(entry))
+            except RefineryError as error:
+                raise RefineryError(f"brief registry object {index} is invalid: {error}") from error
+        return BriefRefinery(objects)

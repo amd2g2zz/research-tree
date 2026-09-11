@@ -7,8 +7,24 @@ from .alignment_handoff import (
     ALIGNMENT_HANDOFF_KIND,
     initialize_research_from_alignment,
 )
+from .alignment_turn_record import REGISTRY_DELTA_ACTIONS, registry_delta
 from .authority import AuthorityRole, authority_scope, role_of
-from .claims import cluster_provenance_components
+from .brief_refinery import (
+    LIFECYCLE_TRANSITIONS,
+    REGISTRY_FILENAME,
+    REGISTRY_SCHEMA_VERSION,
+    BriefRefinery,
+    BriefRefineryStore,
+    ConfirmationRequiredError,
+    ExtractionSchemaError,
+    IllegalLifecycleTransition,
+    ObjectStatus,
+    ObjectType,
+    RefineryError,
+    RefineryObject,
+    RegistryDigestError,
+)
+from .claims import cluster_identity_groups, cluster_provenance_components
 from .closure import ASSESSMENT_KIND, ClosureAssessmentError, OracleService, SlotClosureAssessment, SlotClosureAssessor
 from .completion_inputs import CompletionInputError, CompletionInputRegistrar, delivery_manifest_digest
 from .content_store import (
@@ -699,4 +715,20 @@ __all__ = [
     "validate_research_strategy_payload",
     "validate_round_supersession_payload",
     "validate_same_round_replan_payload",
+    "REGISTRY_FILENAME",
+    "REGISTRY_SCHEMA_VERSION",
+    "LIFECYCLE_TRANSITIONS",
+    "BriefRefinery",
+    "BriefRefineryStore",
+    "RefineryObject",
+    "ObjectStatus",
+    "ObjectType",
+    "RefineryError",
+    "ExtractionSchemaError",
+    "IllegalLifecycleTransition",
+    "ConfirmationRequiredError",
+    "RegistryDigestError",
+    "REGISTRY_DELTA_ACTIONS",
+    "registry_delta",
+    "cluster_identity_groups",
 ]
