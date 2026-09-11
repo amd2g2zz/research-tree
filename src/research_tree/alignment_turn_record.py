@@ -65,11 +65,13 @@ __all__ = [
     "MAX_QUESTIONS",
     "MAX_TURN_LENGTH",
     "SCHEMA_VERSION",
+    "REGISTRY_DELTA_ACTIONS",
     "AlignmentTurnRecord",
     "AlignmentTurnRecordStore",
     "TurnRecordError",
     "measure_turn_shape",
     "refresh_validation",
+    "registry_delta",
 ]
 
 # Round discipline (issue #493): the SKILL prose rules become measured
@@ -865,3 +867,47 @@ def _write_receipt(receipt_path: Path, verdict: Mapping[str, Any]) -> None:
         os.replace(temporary, receipt_path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+# Brief-registry delta seam (issue #524, additive): a user input's delta can
+# now be precisely its brief-registry changes, so the no-delta protocol
+# violation check above becomes accurate for registry-only turns. The
+# refinery's change records convert into the exact delta payload this
+# module's ``append`` consumes; nothing existing changes.
+REGISTRY_DELTA_ACTIONS = frozenset({"registered", "confirmed", "transitioned"})
+REGISTRY_CHANGE_KEYS = frozenset({"action", "object_id"})
+
+
+def registry_delta(changes: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Convert a brief-registry change set into a turn-record delta payload.
+
+    Each change is ``{"action", "object_id"}`` with an action from
+    ``REGISTRY_DELTA_ACTIONS`` and an object id satisfying the delta-node
+    identifier rules. Returns ``{"summary", "nodes"}``: the summary names
+    the actions and object ids, the nodes are the unique object ids in
+    first-seen order. An empty change set is refused — an empty change set
+    is no delta, and appending a delta-less turn is a protocol violation.
+    """
+
+    if isinstance(changes, (str, bytes)) or not isinstance(changes, Sequence):
+        raise TurnRecordError("brief-registry change set must be a sequence of change records")
+    if not changes:
+        raise TurnRecordError(
+            "brief-registry change set is empty; an empty change set is no delta "
+            "(a turn without registry changes carries no registry delta)"
+        )
+    summary_parts: list[str] = []
+    nodes: list[str] = []
+    for index, change in enumerate(changes):
+        if not isinstance(change, Mapping) or set(change) != REGISTRY_CHANGE_KEYS:
+            raise TurnRecordError(f"registry change {index} must contain exactly action and object_id")
+        action = change["action"]
+        if action not in REGISTRY_DELTA_ACTIONS:
+            raise TurnRecordError(
+                f"registry change {index} action must be one of {sorted(REGISTRY_DELTA_ACTIONS)}: {action!r}"
+            )
+        object_id = _node_id(change["object_id"], f"registry change {index} object_id")
+        summary_parts.append(f"{action} {object_id}")
+        if object_id not in nodes:
+            nodes.append(object_id)
+    return {"summary": "brief-registry: " + ", ".join(summary_parts), "nodes": nodes}
