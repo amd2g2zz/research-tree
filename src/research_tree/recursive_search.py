@@ -28,6 +28,16 @@ from .tree_state import CanonicalResearchTreeStateService
 
 _WORKER_VALIDATION_STATUSES = frozenset({"passed", "failed", "inconclusive"})
 _WORKER_VALIDATION_NODE_MARKER = "worker_validation_continuation"
+# Issue #531: a node dependency is open only while it could still run.
+# completed/deferred/duplicate nodes resolve their edges; a duplicate lost
+# to an equivalent winner, so waiting on it would deadlock the DAG.
+_NODE_OPEN_STATUSES = frozenset({"frontier", "running"})
+
+
+class NodeDependencyError(ValueError):
+    """Raised when node ``depends_on`` edges violate DAG invariants at ingest."""
+
+
 _HEURISTIC_CONTRADICTION_WEIGHT = 0.6
 _HEURISTIC_FRONTIER_WEIGHT = 0.4
 _MINIMUM_EVIDENCE = 2
@@ -173,9 +183,15 @@ def apply_research_results(
     state: Mapping[str, Any],
     finding_packs: Sequence[Any],
 ) -> dict[str, Any]:
-    """Apply one evidence batch and recursively create successor actions."""
+    """Apply one evidence batch and recursively create successor actions.
+
+    Issue #531: the merge validates the node-level ``depends_on`` DAG —
+    unknown, self-referential, or cyclic edges are rejected before and after
+    the batch is applied, so an invalid graph never reaches dispatch.
+    """
 
     result = _mutable_state(state)
+    _validate_node_dependency_graph(result)
     baseline = EvidenceBaseline.from_dict(result["evidence_baseline"])
     consumed = set(result["consumed_finding_ids"])
     fresh = [finding for finding in finding_packs if _finding_id(finding) not in consumed]
@@ -232,6 +248,7 @@ def apply_research_results(
             slot,
             trigger_ref=f"finding:{_finding_id(finding)}",
         )
+    _validate_node_dependency_graph(result)
     return evaluate_research_stop(prune_research_state(score_research_frontier(result)))
 
 
@@ -349,18 +366,141 @@ def _record_discarded_evidence(result: dict[str, Any], node: Mapping[str, Any]) 
 
 
 def select_research_actions(state: Mapping[str, Any], *, max_parallelism: int) -> tuple[Mapping[str, Any], ...]:
+    """Cut the dispatch batch from the dependency-ready set (issue #531).
+
+    The compiled graph is the scheduler: only frontier nodes whose
+    ``depends_on`` edges are all resolved may dispatch, and slot-dependent
+    root nodes wait for their upstream slot to close. The cut honors the
+    selection-value order of ``frontier_node_ids``; a ready set smaller than
+    ``max_parallelism`` yields fewer actions — unready nodes are never
+    backfilled.
+    """
+
     if max_parallelism < 1:
         raise ValueError("max_parallelism must be positive")
-    return tuple(
-        {
-            **state["nodes"][node_id],
-            "decision_oracle": state["decision_slots"][state["nodes"][node_id]["decision_slot_id"]][
-                "validation_oracle"
-            ],
-            "execution_context": thaw_json(state["execution_context"]),
-        }
-        for node_id in state["frontier_node_ids"][:max_parallelism]
-    )
+    resolved = _resolved_node_ids(state)
+    actions: list[Mapping[str, Any]] = []
+    for node_id in state["frontier_node_ids"]:
+        if len(actions) >= max_parallelism:
+            break
+        node = state["nodes"][node_id]
+        if node.get("status", "frontier") != "frontier":
+            continue
+        if not _node_is_ready(state, node, resolved):
+            continue
+        context = thaw_json(state["execution_context"])
+        dependency_context = _dependency_context(state, node)
+        if dependency_context is not None:
+            context = {**context, "dependency_context": dependency_context}
+        actions.append(
+            {
+                **node,
+                "decision_oracle": state["decision_slots"][node["decision_slot_id"]]["validation_oracle"],
+                "execution_context": context,
+            }
+        )
+    return tuple(actions)
+
+
+def _resolved_node_ids(state: Mapping[str, Any]) -> set[str]:
+    """Node ids whose edges are satisfied: closed, deferred, or duplicated."""
+
+    return {
+        node_id
+        for node_id, node in state["nodes"].items()
+        if str(node.get("status", "frontier")) not in _NODE_OPEN_STATUSES
+    }
+
+
+def _node_is_ready(state: Mapping[str, Any], node: Mapping[str, Any], resolved: set[str]) -> bool:
+    """A node dispatches when its dependencies closed and its slot is unblocked.
+
+    Node-level edges resolve against ``resolved``. A root node additionally
+    waits for its slot's compiled ``depends_on`` slots to close, so a
+    downstream slot's roots stay out of the ready set until the upstream
+    slot closed (issue #531, slot-level propagation).
+    """
+
+    if any(str(dependency) not in resolved for dependency in node.get("depends_on", ()) or ()):
+        return False
+    if node.get("parent_id") is None:
+        slot = state["decision_slots"][node["decision_slot_id"]]
+        for upstream_id in slot.get("depends_on", ()) or ():
+            upstream = state["decision_slots"].get(str(upstream_id))
+            if upstream is None or upstream.get("status") != "closed":
+                return False
+    return True
+
+
+def _dependency_context(state: Mapping[str, Any], node: Mapping[str, Any]) -> list[dict[str, Any]] | None:
+    """What this dispatch stands on: dependency conclusions, digest-first.
+
+    Node dependencies always; for a root node, the closed upstream slots'
+    root conclusions. ``None`` for dependency-free nodes — their context is
+    byte-identical to the pre-#531 shape.
+    """
+
+    entries: list[dict[str, Any]] = []
+    for dependency_id in node.get("depends_on", ()) or ():
+        dependency = state["nodes"].get(str(dependency_id))
+        if dependency is not None:
+            entries.append(_dependency_entry("node", dependency))
+    if node.get("parent_id") is None:
+        slot = state["decision_slots"][node["decision_slot_id"]]
+        for upstream_id in slot.get("depends_on", ()) or ():
+            upstream_root = state["nodes"].get(f"root:{upstream_id}")
+            if upstream_root is not None:
+                entries.append(_dependency_entry("slot", upstream_root))
+    return entries or None
+
+
+def _dependency_entry(kind: str, dependency: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "node_id": dependency["id"],
+        "decision_slot_id": dependency["decision_slot_id"],
+        "question": dependency["question"],
+        "status": dependency["status"],
+        "conclusion_digest": _conclusion_digest(dependency),
+    }
+
+
+def _conclusion_digest(node: Mapping[str, Any]) -> str:
+    basis = f"{node['id']}:{node.get('status', '')}:{node.get('terminal_reason') or ''}"
+    return hashlib.sha256(basis.encode("utf-8")).hexdigest()[:16]
+
+
+def _validate_node_dependency_graph(state: Mapping[str, Any]) -> None:
+    """Reject unknown, self-referential, or cyclic node ``depends_on`` edges.
+
+    The node-level analogue of decision_map's compile-time slot check,
+    reusing the stable topological sweep from work_items so the merged graph
+    is provably acyclic before anything dispatches on it (issue #531).
+    """
+
+    nodes = state["nodes"]
+    dependencies: dict[str, set[str]] = {}
+    for node_id, node in nodes.items():
+        raw = node.get("depends_on", ()) if isinstance(node, Mapping) else ()
+        if isinstance(raw, (str, bytes)) or not isinstance(raw, Sequence):
+            raise NodeDependencyError(f"node {node_id} depends_on must be a sequence of node ids")
+        edges = {str(item) for item in raw}
+        if node_id in edges:
+            raise NodeDependencyError(f"node {node_id} cannot depend on itself")
+        unknown = edges - set(nodes)
+        if unknown:
+            raise NodeDependencyError(f"node {node_id} depends on unknown nodes: {sorted(unknown)}")
+        dependencies[node_id] = edges
+    while dependencies:
+        ready = sorted(node_id for node_id, edges in dependencies.items() if not edges)
+        if not ready:
+            raise NodeDependencyError(
+                "node depends_on must be acyclic; cycle among: " + ", ".join(sorted(dependencies))
+            )
+        for node_id in ready:
+            dependencies.pop(node_id)
+        for edges in dependencies.values():
+            edges.difference_update(ready)
 
 
 class CanonicalRecursiveResearchCoordinator:
@@ -690,6 +830,9 @@ def _slot_state(slot_id: str, slot: Mapping[str, Any]) -> dict[str, Any]:
         "priority": priority,
         "uncertainty": _uncertainty_value(slot.get("uncertainty", "medium")),
         "status": "researching",
+        # Issue #531: the compiled slot-level DAG propagates into execution —
+        # downstream slot roots stay unready until these slots close.
+        "depends_on": _slot_dependencies(slot),
         "finding_ids": [],
         "anchor_fingerprints": [],
         "validation_required": priority == "P0" or bool(validation),
@@ -710,6 +853,15 @@ def _slot_state(slot_id: str, slot: Mapping[str, Any]) -> dict[str, Any]:
         "mechanism_source_refs": [],
         "closure_blockers": [],
     }
+
+
+def _slot_dependencies(slot: Mapping[str, Any]) -> list[str]:
+    """The slot's compiled upstream dependencies, deduplicated and stable."""
+
+    raw = slot.get("depends_on", ())
+    if isinstance(raw, (str, bytes)) or not isinstance(raw, Sequence):
+        return []
+    return sorted({str(item) for item in raw})
 
 
 def _report_manifest(
@@ -915,6 +1067,7 @@ def _add_node(
     mandatory: bool = False,
     identity_namespace: str = "question",
     metadata: Mapping[str, Any] | None = None,
+    depends_on: Sequence[str] = (),
     confidence: float | None = None,
     damping: float | None = None,
     quality: float | None = None,
@@ -943,6 +1096,7 @@ def _add_node(
         estimated_cost=estimated_cost,
         mandatory=mandatory,
         identity_namespace=namespace,
+        depends_on=depends_on,
     )
     if metadata:
         node.update(copy.deepcopy(dict(metadata)))
@@ -1104,6 +1258,10 @@ def _node(**values: Any) -> dict[str, Any]:
     return {
         "id": values["node_id"],
         "parent_id": values["parent_id"],
+        # Issue #531: scheduling edges. parent_id keeps lineage; depends_on
+        # carries dispatch gating. Additive and optional — legacy trees
+        # without the key read identically.
+        "depends_on": list(values.get("depends_on") or ()),
         "decision_slot_id": values["slot_id"],
         "question": values["question"],
         "action_kind": values["action_kind"],
