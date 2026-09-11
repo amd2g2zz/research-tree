@@ -76,15 +76,32 @@ def test_verification_checks_presence_and_schema_only() -> None:
         )
 
 
-def test_proposal_shaped_gaps_require_the_assessment() -> None:
+def test_the_assessment_requires_a_magnitude_signal_or_strict_stance() -> None:
+    """Issue #526: the assessment is signal-triggered, not shape-triggered —
+    ordinary proposals are not strip-searched; a high-impact assertion, a
+    recorded over/under judgment, or S3 strictness requires it."""
     node = {"id": "n1", "status": "open", "human_only": True}
-    assert _gap_required_traces(node, reopened=False, cap=_cap()) == (
+    assert _gap_required_traces(node, reopened=False, cap=_cap()) == ("option-set",)
+    assert _gap_required_traces(node, reopened=False, cap=_cap("generation")) == ("possibility-survey",)
+    high_impact = {**node, "impact": 5}
+    assert _gap_required_traces(high_impact, reopened=False, cap=_cap()) == (
         "option-set",
         "proportionality_assessment",
     )
-    assert _gap_required_traces(node, reopened=False, cap=_cap("generation")) == (
+    judged = {**node, "attributes": {"proportionality_assessment": {"direction": "under"}}}
+    assert _gap_required_traces(judged, reopened=False, cap=_cap()) == (
+        "option-set",
+        "proportionality_assessment",
+    )
+    assert _gap_required_traces(node, reopened=False, cap=_cap(), stance="S3") == (
+        "option-set",
+        "proportionality_assessment",
+        "counterargument",
+    )
+    assert _gap_required_traces(node, reopened=False, cap=_cap("generation"), stance="S3") == (
         "possibility-survey",
         "proportionality_assessment",
+        "counterargument",
     )
 
 
