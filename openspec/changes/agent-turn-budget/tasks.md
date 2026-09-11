@@ -12,13 +12,13 @@
 - [ ] 2.1 turn_contract.py: `AgentTurnBudget` + named defaults + additive
       `ContractTerms.agent_turn_budget` / `deferred_traces` with
       backward-compatible parsing
-- [ ] 2.2 alignment_graph.py emission region: budget attachment, trace
+- [x] 2.2 alignment_graph.py emission region: budget attachment, trace
       queueing (≤2 required, `deferred_traces` carry + re-emission),
       question-budget disposition and non-question decision
-- [ ] 2.3 alignment_graph.py record region: `question_count` / `turn_chars`
+- [x] 2.3 alignment_graph.py record region: `question_count` / `turn_chars`
       measurements, `turn_budget_violations` in result + event details
 
 ## 3. Gate
 
-- [ ] 3.1 full suite + ruff + validate + governance + parity → PR
+- [x] 3.1 full suite + ruff + validate + governance + parity → PR
       feat/issue-527-agent-turn-budget → dev (do not merge)
