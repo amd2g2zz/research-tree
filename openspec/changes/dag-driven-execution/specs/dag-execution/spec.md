@@ -2,10 +2,10 @@
 
 ### Requirement: nodes carry scheduling dependencies as data
 
-A research node may declare `depends_on`: a list of node ids it must see
-closed before it is dispatchable. `parent_id` keeps lineage semantics;
-`depends_on` carries scheduling semantics. The field is additive and
-optional — nodes without it dispatch exactly as before.
+A research node MUST be able to declare `depends_on`: a list of node ids it
+must see closed before it is dispatchable. `parent_id` keeps lineage
+semantics; `depends_on` carries scheduling semantics. The field is additive
+and optional — nodes without it MUST dispatch exactly as before.
 
 #### Scenario: legacy nodes without depends_on behave as today
 - **WHEN** a persisted state whose nodes carry no `depends_on` key is selected from
@@ -14,8 +14,9 @@ optional — nodes without it dispatch exactly as before.
 
 ### Requirement: ingest rejects invalid node dependency edges
 
-Merging finding packs validates the merged node graph: `depends_on` must
-reference known node ids, never the node itself, and never form a cycle.
+Merging finding packs MUST validate the merged node graph: `depends_on`
+must reference known node ids, never the node itself, and never form a
+cycle. Violations MUST reject the merge before anything dispatches.
 
 #### Scenario: cycle in depends_on rejected at merge time
 - **WHEN** `apply_research_results` ingests into a state whose nodes form a
@@ -28,10 +29,11 @@ reference known node ids, never the node itself, and never form a cycle.
 
 ### Requirement: dispatch draws from the dependency-ready set
 
-`select_research_actions` computes the ready set — every `depends_on` node
-closed or deferred — and cuts `max_parallelism` from it by selection value.
-A high-value unready node does not dispatch; a ready set smaller than
-`max_parallelism` yields fewer actions, never a backfill from unready nodes.
+`select_research_actions` MUST compute the ready set — every `depends_on`
+node closed or deferred — and cut `max_parallelism` from it by selection
+value. A high-value unready node MUST NOT dispatch; a ready set smaller
+than `max_parallelism` MUST yield fewer actions, never a backfill from
+unready nodes.
 
 #### Scenario: open dependency blocks a high-value node
 - **WHEN** the highest-selection-value frontier node has an unclosed dependency
@@ -51,9 +53,9 @@ A high-value unready node does not dispatch; a ready set smaller than
 
 ### Requirement: dispatched work carries its dependency conclusions
 
-A dispatched node's execution context carries a `dependency_context`:
+A dispatched node's execution context MUST carry a `dependency_context`:
 per dependency — node id, decision slot, question, status, and a
-deterministic `conclusion_digest`. Dependency-free nodes carry no
+deterministic `conclusion_digest`. Dependency-free nodes MUST carry no
 `dependency_context`.
 
 #### Scenario: dispatched node receives dependency digests in context
@@ -64,9 +66,9 @@ deterministic `conclusion_digest`. Dependency-free nodes carry no
 
 ### Requirement: slot dependencies gate downstream slot roots
 
-The compiled slot-level `depends_on` propagates into the research state: a
-downstream slot's root nodes stay out of the ready set until the upstream
-slot closes.
+The compiled slot-level `depends_on` MUST propagate into the research
+state: a downstream slot's root nodes stay out of the ready set until the
+upstream slot closes.
 
 #### Scenario: downstream slot roots blocked until upstream slot closes
 - **WHEN** slot B depends on slot A and slot A is still researching

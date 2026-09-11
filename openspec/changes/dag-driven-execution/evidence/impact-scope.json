@@ -1,0 +1,30 @@
+{
+  "schema": "impact-scope-v1",
+  "change": "dag-driven-execution",
+  "files": [
+    "openspec/changes/dag-driven-execution/proposal.md",
+    "openspec/changes/dag-driven-execution/specs/dag-execution/spec.md",
+    "openspec/changes/dag-driven-execution/tasks.md",
+    "openspec/changes/dag-driven-execution/evidence/impact-scope.json",
+    "src/research_tree/__init__.py",
+    "src/research_tree/recursive_search.py",
+    "tests/test_dag_execution.py"
+  ],
+  "symbols": [
+    { "name": "select_research_actions", "file": "src/research_tree/recursive_search.py" },
+    { "name": "apply_research_results", "file": "src/research_tree/recursive_search.py" },
+    { "name": "_slot_state", "file": "src/research_tree/recursive_search.py" },
+    { "name": "_node", "file": "src/research_tree/recursive_search.py" },
+    { "name": "_add_node", "file": "src/research_tree/recursive_search.py" },
+    { "name": "NodeDependencyError", "file": "src/research_tree/recursive_search.py" },
+    { "name": "_NODE_OPEN_STATUSES", "file": "src/research_tree/recursive_search.py" },
+    { "name": "_resolved_node_ids", "file": "src/research_tree/recursive_search.py" },
+    { "name": "_node_is_ready", "file": "src/research_tree/recursive_search.py" },
+    { "name": "_dependency_context", "file": "src/research_tree/recursive_search.py" },
+    { "name": "_dependency_entry", "file": "src/research_tree/recursive_search.py" },
+    { "name": "_conclusion_digest", "file": "src/research_tree/recursive_search.py" },
+    { "name": "_validate_node_dependency_graph", "file": "src/research_tree/recursive_search.py" },
+    { "name": "_slot_dependencies", "file": "src/research_tree/recursive_search.py" },
+    { "name": "__all__", "file": "src/research_tree/__init__.py" }
+  ]
+}
