@@ -15,6 +15,15 @@ and a turn that introduces no persisted delta is a protocol violation (the
 self-ask/self-answer guard). Validation is presence-and-schema only, never
 content quality (ADR-008).
 
+Issue #529 adds one recovery attempt before the block: on a missing or stale
+record the gate rebuilds a baseline record from the alignment graph's
+append-only event log (read-only; the graph is ground truth and is never
+written from here). The recovery record is marked ``reconstructed: true`` —
+a schema-enforced marker so a repaired record never masquerades as an
+authored one — and the healed run continues in visibly degraded mode
+(receipts and gate verdicts name the repair). An empty, unreadable, or
+contradictory event log blocks exactly as before.
+
 Artifacts live under the run's existing ``alignment/`` workspace directory
 (see ``project_workspace.RUN_DIRECTORIES``):
 
@@ -32,6 +41,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,6 +49,7 @@ from typing import Any, Mapping, Sequence
 
 from .turn_contract import (
     DEFAULT_TRACE_REGISTRY,
+    RESPONSE_CLASS_GENERATION,
     RESPONSE_CLASSES,
     ContractTerms,
     TurnContractError,
@@ -47,6 +58,7 @@ from .turn_contract import (
 
 __all__ = [
     "ContinuityGateError",
+    "EVENT_LOG_SOURCE",
     "RECORDS_FILENAME",
     "RECEIPT_FILENAME",
     "MAX_DECISION_POINTS",
@@ -87,9 +99,24 @@ RECORD_KEYS = frozenset(
         "user_move",
         "contract_terms",
         "traces",
+        # Issue #529: the reconstruction marker — optional, schema-enforced
+        # (present implies the record IS reconstructed), written only by the
+        # reconstruction path.
+        "reconstructed",
     }
 )
 DELTA_KEYS = frozenset({"summary", "nodes"})
+
+# Issue #529 self-heal: the alignment graph database lives in the same
+# alignment/ directory as the record file (the graph's ``_run_dir`` layout),
+# and its append-only ``response_recorded`` events are the ground truth a
+# lost record file is rebuilt from. ``EVENT_LOG_SOURCE`` names that source in
+# the healed gate verdict.
+GRAPH_DATABASE_FILENAME = "alignment.db"
+EVENT_LOG_SOURCE = "alignment_event_log"
+# Mirrors alignment_graph._OPEN_GAP_STATUSES (kept local — this module reads
+# the graph's sqlite store without importing the graph's runtime).
+OPEN_GAP_STATUSES = frozenset({"candidate", "disputed"})
 
 # Mirrors alignment_graph.IDENTIFIER_RE / turn_contract.NODE_ID_RE. Kept local
 # so this module stays independent of the sqlite-backed graph module.
@@ -198,6 +225,10 @@ class AlignmentTurnRecord:
     traces: tuple[dict[str, Any], ...]
     recorded_at: str
     turn_shape: dict[str, Any] | None = None
+    # Issue #529: True only for records reconstructed from the alignment
+    # event log; authored records leave the field unset and their persisted
+    # payload unchanged.
+    reconstructed: bool = False
 
     @property
     def delta(self) -> dict[str, Any]:
@@ -217,6 +248,8 @@ class AlignmentTurnRecord:
         payload["traces"] = [dict(trace) for trace in self.traces]
         if self.turn_shape is not None:
             payload["turn_shape"] = dict(self.turn_shape)
+        if self.reconstructed:
+            payload["reconstructed"] = True
         return payload
 
     @classmethod
@@ -227,9 +260,19 @@ class AlignmentTurnRecord:
         legacy = schema == 1
         allowed_keys = RECORD_KEYS | (frozenset() if legacy else {"turn_shape"})
         unknown = set(value) - allowed_keys
-        missing = RECORD_KEYS - set(value)
+        # ``reconstructed`` is optional (issue #529): authored records omit it.
+        missing = (RECORD_KEYS - {"reconstructed"}) - set(value)
         if unknown or missing:
             raise TurnRecordError(f"turn record field mismatch; missing: {sorted(missing)}, unknown: {sorted(unknown)}")
+        # Issue #529 marker presence rules: the field's presence means the
+        # record IS reconstructed, so anything but boolean true is a schema
+        # error (a forged ``reconstructed: false`` never masquerades as an
+        # authored record's absence). Key presence, not truthiness — a null
+        # marker is a forge attempt, not an omission.
+        if "reconstructed" in value and value["reconstructed"] is not True:
+            raise TurnRecordError(
+                "turn record reconstructed marker must be boolean true when present; authored records omit it"
+            )
         if legacy:
             # Schema 1 records (issue #497) predate the turn-shape dimensions;
             # they stay readable — fail-closed continuity must survive.
@@ -272,6 +315,7 @@ class AlignmentTurnRecord:
             traces=traces,
             recorded_at=recorded_at,
             turn_shape=turn_shape,
+            reconstructed=value.get("reconstructed") is True,
         )
 
 
@@ -323,6 +367,142 @@ def _validate_traces(traces: Sequence[Mapping[str, Any]], contract_terms: Contra
         verify_traces(contract_terms, traces)
 
 
+def _graph_database_path_helper() -> Any:
+    """Lazily resolve the graph's canonical ``database_path`` helper (issue #529).
+
+    Function-level because ``alignment_graph`` imports ``lifecycle_hook``
+    which imports this module — a module-level import would close a cycle;
+    the bare-name fallback covers the packaged single-file layout (#470).
+    Returns None when the graph module is unreachable, in which case the
+    canonical adjacency (see ``AlignmentTurnRecordStore._graph_database``)
+    resolves the database.
+    """
+
+    try:
+        from .alignment_graph import database_path
+    except ImportError:
+        pass
+    else:
+        return database_path
+    try:
+        from alignment_graph import database_path  # type: ignore[no-redef]
+    except ImportError:
+        return None
+    return database_path
+
+
+def _read_response_events(database: Path) -> list[dict[str, Any]] | None:
+    """Read the graph's ``response_recorded`` event log, read-only (issue #529).
+
+    Opens the alignment SQLite store in read-only URI mode — the hook's
+    ``_budget_violations_from_events`` pattern; the graph is ground truth
+    and is never written from here. Returns the parsed events oldest-first,
+    or None when the log is missing, unreadable, empty, or corrupt: any of
+    those makes reconstruction impossible and the gate stays fail-closed.
+    """
+
+    if not database.is_file():
+        return None
+    try:
+        connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True, timeout=0.5)
+    except sqlite3.Error:
+        return None
+    try:
+        rows = connection.execute(
+            "SELECT details_json, state_json, created_at FROM events "
+            "WHERE event_type='response_recorded' ORDER BY sequence"
+        ).fetchall()
+    except sqlite3.Error:
+        return None
+    finally:
+        connection.close()
+    if not rows:
+        return None
+    events: list[dict[str, Any]] = []
+    for details_json, state_json, created_at in rows:
+        try:
+            details = json.loads(details_json)
+            state = json.loads(state_json)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        if not isinstance(details, dict) or not isinstance(state, dict):
+            return None
+        events.append({"details": details, "state": state, "recorded_at": created_at})
+    return events
+
+
+def _synthesized_baseline(event: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Synthesize the recovery record's fields from the latest event (issue #529).
+
+    The mirror is grounded in the event's materialized graph state, the delta
+    in the recorded response, ``recorded_at`` in the event's log timestamp.
+    Event traces survive only when they validate against the seam registry —
+    nothing is fabricated. Returns None when the event cannot ground a
+    schema-valid baseline (the gate then stays fail-closed).
+    """
+
+    details = event["details"]
+    node_id = details.get("node_id")
+    outcome = details.get("outcome")
+    if not isinstance(node_id, str) or not node_id.strip():
+        return None
+    if not isinstance(outcome, str) or not outcome.strip():
+        return None
+    state = event["state"]
+    controller = state.get("controller")
+    turn = controller.get("turn") if isinstance(controller, Mapping) else None
+    if isinstance(turn, bool) or not isinstance(turn, int) or turn < 1:
+        return None
+    graph = state.get("graph")
+    nodes_value = graph.get("nodes") if isinstance(graph, Mapping) else None
+    nodes = [node for node in nodes_value if isinstance(node, Mapping)] if isinstance(nodes_value, list) else []
+    edges_value = graph.get("edges") if isinstance(graph, Mapping) else None
+    edge_count = len(edges_value) if isinstance(edges_value, list) else 0
+    open_gaps = sum(1 for node in nodes if node.get("status") in OPEN_GAP_STATUSES)
+    mirror = (
+        f"Reconstructed baseline from the alignment event log: the graph holds {len(nodes)} nodes "
+        f"and {edge_count} edges with {open_gaps} open gap(s); the latest recorded turn {turn} "
+        f"logged outcome '{outcome}' on node '{node_id}'."
+    )
+    # The recorded node is the consequential gap under discussion; its
+    # statement (when still materialized) grounds the gap field.
+    statement = next(
+        (
+            node["statement"]
+            for node in nodes
+            if node.get("id") == node_id and isinstance(node.get("statement"), str) and node["statement"].strip()
+        ),
+        None,
+    )
+    gap = f"{node_id} — {statement}" if statement else node_id
+    user_move = details.get("user_move")
+    if user_move not in RESPONSE_CLASSES:
+        # The permissive default for logs that predate typed moves; the
+        # reconstructed marker carries the epistemic caveat.
+        user_move = RESPONSE_CLASS_GENERATION
+    traces: list[dict[str, Any]] = []
+    for trace in details.get("traces") or []:
+        try:
+            candidate = _trace_copy(trace, len(traces))
+            _validate_traces((candidate,), None)
+        except TurnRecordError:
+            continue
+        traces.append(candidate)
+    recorded_at = event.get("recorded_at")
+    if not isinstance(recorded_at, str) or not recorded_at.strip():
+        recorded_at = _now()
+    return {
+        "turn_index": turn,
+        "mirror": mirror,
+        "gap": gap,
+        "delta_summary": f"reconstructed: outcome '{outcome}' recorded on node '{node_id}'",
+        "delta_nodes": (node_id,) if re.fullmatch(NODE_ID_RE_SOURCE, node_id) else (),
+        "user_move": user_move,
+        "traces": tuple(traces),
+        "recorded_at": recorded_at,
+    }
+
+
 class AlignmentTurnRecordStore:
     """Append-only JSONL store of alignment turn records for one run."""
 
@@ -331,6 +511,33 @@ class AlignmentTurnRecordStore:
         self.alignment_directory = self.run_root / "alignment"
         self.records_path = self.alignment_directory / RECORDS_FILENAME
         self.receipt_path = self.alignment_directory / RECEIPT_FILENAME
+
+    def _graph_database(self) -> Path:
+        """Resolve the alignment graph database for this run (issue #529).
+
+        The graph's canonical helper (``alignment_graph.database_path``) is
+        the authority on the location; resolving it needs the
+        workspace/run-id/project-id decomposition that only the canonical
+        workspace layout provides, so the canonical adjacency — the database
+        lives in the same ``alignment/`` directory as the record file, which
+        is the helper's own layout — is the fallback (and the same file in
+        every layout the helper serves).
+        """
+
+        run_root = self.run_root
+        if (
+            run_root.parent.name == "runs"
+            and len(run_root.parents) > 4
+            and run_root.parents[2].name == "projects"
+            and run_root.parents[3].name == ".research-tree"
+        ):
+            helper = _graph_database_path_helper()
+            if helper is not None:
+                try:
+                    return helper(run_root.parents[4], run_root.name, run_root.parents[1].name)
+                except (OSError, ValueError):
+                    pass  # non-resolvable workspace: fall through to the adjacency
+        return self.alignment_directory / GRAPH_DATABASE_FILENAME
 
     # -- reads ---------------------------------------------------------------
 
@@ -366,6 +573,15 @@ class AlignmentTurnRecordStore:
         Allowed returns ``{"status": "allowed", "grounding": <latest record
         fields or None>, "record_count": N}``; anything else raises
         ``ContinuityGateError`` with a named reason.
+
+        Issue #529 self-heal: on a missing or stale record the gate first
+        attempts a baseline reconstruction from the alignment graph's
+        append-only event log. Success appends one reconstructed baseline
+        record and returns an allowed verdict marked degraded (``degraded``,
+        a named ``recovery`` section, ``grounding["reconstructed"]``);
+        failure raises the original fail-closed error unchanged. A verdict
+        grounded on a reconstructed latest record always reports degraded —
+        continuity repaired is never silently pristine.
         """
         if isinstance(next_turn, bool) or not isinstance(next_turn, int) or next_turn < 1:
             raise TurnRecordError(f"next_turn must be a positive integer: {next_turn!r}")
@@ -379,6 +595,9 @@ class AlignmentTurnRecordStore:
         if not records:
             if next_turn == 1:
                 return {"status": "allowed", "grounding": None, "record_count": 0}
+            healed = self._reconstruct(next_turn, records)
+            if healed is not None:
+                return healed
             raise ContinuityGateError(
                 "missing_turn_record",
                 f"alignment turn record file is missing; exchange {next_turn} is blocked "
@@ -386,6 +605,9 @@ class AlignmentTurnRecordStore:
             )
         latest = records[-1]
         if latest.turn_index < next_turn - 1:
+            healed = self._reconstruct(next_turn, records)
+            if healed is not None:
+                return healed
             raise ContinuityGateError(
                 "stale_turn_record",
                 f"alignment turn record is stale: latest persisted exchange is {latest.turn_index}, "
@@ -398,7 +620,131 @@ class AlignmentTurnRecordStore:
             "delta": latest.delta,
             "user_move": latest.user_move,
         }
-        return {"status": "allowed", "grounding": grounding, "record_count": len(records)}
+        verdict = {"status": "allowed", "grounding": grounding, "record_count": len(records)}
+        if latest.reconstructed:
+            grounding["reconstructed"] = True
+            verdict["degraded"] = True
+        return verdict
+
+    # -- self-heal reconstruction (issue #529) --------------------------------
+
+    def _reconstruct(self, next_turn: int, records: tuple[AlignmentTurnRecord, ...]) -> dict[str, Any] | None:
+        """Attempt the baseline reconstruction from the alignment event log.
+
+        Returns the healed (degraded) verdict, or None when reconstruction
+        is impossible or contradictory — the caller then raises today's
+        fail-closed error unchanged. Contradiction rules: the log's response
+        turn axis must be exactly ``1..N`` in sequence order; its latest
+        turn must reach the exchange the run expects and must extend (not
+        contradict) the persisted record file. The graph database is opened
+        read-only and never written.
+        """
+        events = _read_response_events(self._graph_database())
+        if events is None:
+            return None
+        turns: list[int] = []
+        for event in events:
+            controller = event["state"].get("controller")
+            turn = controller.get("turn") if isinstance(controller, Mapping) else None
+            if isinstance(turn, bool) or not isinstance(turn, int):
+                return None
+            turns.append(turn)
+        if turns != list(range(1, len(turns) + 1)):
+            return None
+        latest_turn = turns[-1]
+        if latest_turn < next_turn - 1:
+            return None
+        if records and latest_turn <= records[-1].turn_index:
+            return None
+        baseline = _synthesized_baseline(events[-1])
+        if baseline is None:
+            return None
+        try:
+            record = self.reconstruct(**baseline)
+        except (OSError, TurnRecordError):
+            return None
+        return {
+            "status": "allowed",
+            "grounding": {
+                "turn_index": record.turn_index,
+                "mirror": record.mirror,
+                "gap": record.gap,
+                "delta": record.delta,
+                "user_move": record.user_move,
+                "reconstructed": True,
+            },
+            "record_count": len(records) + 1,
+            "degraded": True,
+            "recovery": {"turn_index": record.turn_index, "source": EVENT_LOG_SOURCE},
+        }
+
+    def reconstruct(
+        self,
+        *,
+        turn_index: int,
+        mirror: str,
+        gap: str,
+        delta_summary: str,
+        user_move: str,
+        delta_nodes: Sequence[str] = (),
+        traces: Sequence[Mapping[str, Any]] = (),
+        recorded_at: str | None = None,
+    ) -> AlignmentTurnRecord:
+        """Append the reconstructed baseline record (issue #529 self-heal).
+
+        The only writer of the ``reconstructed`` marker: a record rebuilt
+        from the alignment event log must never masquerade as an authored
+        turn. Refuses to rewind or overwrite the persisted history (the
+        index must advance the file) and, like ``append``, refuses a
+        delta-less baseline — the recovery delta names the recorded outcome.
+        """
+        records = self.records()
+        if isinstance(turn_index, bool) or not isinstance(turn_index, int) or turn_index < 1:
+            raise TurnRecordError(f"turn_index must be a positive integer: {turn_index!r}")
+        if records and turn_index <= records[-1].turn_index:
+            raise ContinuityGateError(
+                "duplicate_turn_index",
+                f"turn record {turn_index} is already persisted; reconstruction must advance the file",
+            )
+        if not isinstance(delta_summary, str) or not delta_summary.strip():
+            raise TurnRecordError(
+                "reconstructed baseline introduces no persisted delta: a turn with an empty delta is a "
+                "protocol violation (self-ask/self-answer guard)"
+            )
+        mirror_text = _nonempty(mirror, "mirror")
+        gap_text = _nonempty(gap, "gap")
+        if user_move not in RESPONSE_CLASSES:
+            raise TurnRecordError(
+                f"user_move must be one of the turn_contract response classes {RESPONSE_CLASSES}: {user_move!r}"
+            )
+        nodes = tuple(_node_id(node, "delta_nodes entry") for node in delta_nodes)
+        if len(set(nodes)) != len(nodes):
+            raise TurnRecordError("delta_nodes must be unique")
+        validated_traces = tuple(_trace_copy(trace, index) for index, trace in enumerate(traces))
+        _validate_traces(validated_traces, None)
+        record = AlignmentTurnRecord(
+            turn_index=turn_index,
+            mirror=mirror_text,
+            gap=gap_text,
+            delta_summary=delta_summary,
+            delta_nodes=nodes,
+            user_move=user_move,
+            contract_terms=None,
+            traces=validated_traces,
+            recorded_at=recorded_at or _now(),
+            turn_shape=None,
+            reconstructed=True,
+        )
+        self._append_line(record)
+        return record
+
+    def _append_line(self, record: AlignmentTurnRecord) -> None:
+        """Append one record as a single strict-whitelist JSON line."""
+        self.alignment_directory.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(record.to_dict(), ensure_ascii=True, separators=(",", ":")) + "\n"
+        descriptor = os.open(self.records_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
+            handle.write(line)
 
     # -- append ---------------------------------------------------------------
 
@@ -461,11 +807,7 @@ class AlignmentTurnRecordStore:
             recorded_at=recorded_at or _now(),
             turn_shape=shape,
         )
-        self.alignment_directory.mkdir(parents=True, exist_ok=True)
-        line = json.dumps(record.to_dict(), ensure_ascii=True, separators=(",", ":")) + "\n"
-        descriptor = os.open(self.records_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-        with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
-            handle.write(line)
+        self._append_line(record)
         return record
 
 
@@ -473,8 +815,11 @@ def refresh_validation(run_root: Path) -> dict[str, Any]:
     """Validate the record file and write the receipt (hook refresh, issue #497).
 
     Returns ``{"status": "validated"|"missing"|"invalid", "record_count": N,
-    "last_turn_index": K}`` (plus ``reason`` when invalid). The receipt is
-    written only when the alignment directory already exists: the refresh
+    "last_turn_index": K}`` (plus ``reason`` when invalid). When the file
+    holds reconstructed records (issue #529) the verdict also carries
+    ``reconstructed_count`` and ``degraded: true`` — the receipt shows the
+    run was repaired from the event log, never silently pristine. The receipt
+    is written only when the alignment directory already exists: the refresh
     never creates workspace directories. Raises nothing for a missing or
     broken file — a broken file is a reported verdict, not an exception.
     """
@@ -494,6 +839,10 @@ def refresh_validation(run_root: Path) -> dict[str, Any]:
                 "last_turn_index": records[-1].turn_index if records else None,
                 "last_turn_shape": (records[-1].turn_shape or {}).get("verdict"),
             }
+            reconstructed_count = sum(1 for record in records if record.reconstructed)
+            if reconstructed_count:
+                verdict["reconstructed_count"] = reconstructed_count
+                verdict["degraded"] = True
     if store.alignment_directory.is_dir():
         _write_receipt(store.receipt_path, verdict)
     return verdict
@@ -507,6 +856,11 @@ def _write_receipt(receipt_path: Path, verdict: Mapping[str, Any]) -> None:
         "last_turn_index": verdict.get("last_turn_index"),
         "validated_at": _now(),
     }
+    if verdict.get("degraded") is True:
+        # Issue #529: reconstructed records in the file degrade the run's
+        # continuity receipt — visible, never silently pristine.
+        receipt["degraded"] = True
+        receipt["reconstructed_count"] = verdict.get("reconstructed_count")
     temporary = receipt_path.with_name(f".{receipt_path.name}.{os.getpid()}.tmp")
     try:
         temporary.write_text(json.dumps(receipt, sort_keys=True) + "\n", encoding="utf-8")
