@@ -59,7 +59,20 @@ except ImportError:  # packaged single-file layout: the seam ships beside this s
         AgentTurnBudget = None  # type: ignore[assignment]
         TurnContractError = ValueError  # type: ignore[assignment]
 
+try:  # issue #530: the authoritative run-phase store, read through the hook module
+    from .lifecycle_hook import read_phase_state_at as _read_phase_state_at
+except ImportError:  # packaged single-file layout: the hook ships beside this script
+    try:
+        from lifecycle_hook import read_phase_state_at as _read_phase_state_at  # type: ignore[no-redef]
+    except ImportError:  # unavailable: the phase-aware refusal degrades fail-open
+        _read_phase_state_at = None  # type: ignore[assignment]
+
 SCHEMA = 3
+# Issue #530: while the run phase is research the alignment dialogue is
+# mechanically closed — new asks are refused (plan redirects to the reopen
+# re-entry, record raises) so "alignment ended" is a fact of state, not of
+# prompt self-discipline.
+RESEARCH_RUN_PHASE = "research"
 # Turn-cap bound (#491): reaching it never exits alignment. It triggers the
 # explicit `alignment_incomplete` blocked disposition (user extension or waive
 # required); the exit itself is decided by the alignment score below.
@@ -343,6 +356,22 @@ class AlignmentGraphStore:
             )
         return self.status()
 
+    def _observed_run_phase(self) -> str | None:
+        """Read the run's authoritative phase from the phase store (fail-open)."""
+
+        if _read_phase_state_at is None:
+            return None
+        run_dir = self.database.parent.parent
+        try:
+            state = _read_phase_state_at(run_dir / "phase")
+        except OSError:
+            return None
+        if isinstance(state, Mapping):
+            phase = state.get("phase")
+            if isinstance(phase, str):
+                return phase
+        return None
+
     def plan(
         self,
         update: Mapping[str, Any] | None = None,
@@ -350,7 +379,28 @@ class AlignmentGraphStore:
         user_signal: Mapping[str, str] | None = None,
         previous_category: str | None = None,
         user_profile: str | None = None,
+        run_phase: str | None = None,
     ) -> dict[str, Any]:
+        # Issue #530: while the run phase is research the alignment dialogue is
+        # closed. New asks are refused BEFORE any merge, mutation, or turn
+        # consumption; the redirect names the reopen re-entry, so "alignment
+        # ended" is mechanical and reopening is only ever the explicit
+        # reopen-alignment protocol path.
+        resolved_run_phase = run_phase if run_phase is not None else self._observed_run_phase()
+        if resolved_run_phase == RESEARCH_RUN_PHASE:
+            with self._connect() as connection:
+                self._require_schema(connection)
+                row = connection.execute("SELECT turn FROM controller WHERE singleton=1").fetchone()
+            return {
+                "action": "reopen_alignment",
+                "reason": (
+                    "the run phase is research: alignment asks are closed; reopen alignment "
+                    "through the two-option re-entry protocol"
+                ),
+                "question": None,
+                "run_phase": resolved_run_phase,
+                "turn": int(row["turn"]) if row is not None else 0,
+            }
         # Issue #500: the user profile is a turn-context INPUT set by the
         # SKILL layer from conversation signals; the engine never infers it.
         if user_profile is not None and user_profile not in USER_PROFILES:
@@ -596,7 +646,17 @@ class AlignmentGraphStore:
         user_move: str | None = None,
         question_count: int | None = None,
         turn_chars: int | None = None,
+        run_phase: str | None = None,
     ) -> dict[str, Any]:
+        # Issue #530: recording an alignment outcome under the research phase
+        # is a protocol violation — there is no live ask to answer; the
+        # reopen re-entry protocol owns the way back into alignment.
+        resolved_run_phase = run_phase if run_phase is not None else self._observed_run_phase()
+        if resolved_run_phase == RESEARCH_RUN_PHASE:
+            raise AlignmentGraphError(
+                "alignment_record_refused_under_research_phase: the run phase is research; "
+                "realignment goes through the reopen re-entry protocol"
+            )
         node_id = _identifier(node_id, "node id")
         outcome = _enum(outcome, OUTCOMES, "outcome")
         for name, measured in (("question_count", question_count), ("turn_chars", turn_chars)):
@@ -2215,11 +2275,13 @@ def plan(
     project_id: str | None = None,
     user_signal: Mapping[str, str] | None = None,
     previous_category: str | None = None,
+    run_phase: str | None = None,
 ) -> dict[str, Any]:
     return AlignmentGraphStore(database_path(workspace, run_id, project_id)).plan(
         _load_update(update_file),
         user_signal=user_signal,
         previous_category=previous_category,
+        run_phase=run_phase,
     )
 
 
@@ -2234,9 +2296,10 @@ def record(
     new_axes: Sequence[Any] | None = None,
     traces: Sequence[Mapping[str, Any]] | None = None,
     user_move: str | None = None,
+    run_phase: str | None = None,
 ) -> dict[str, Any]:
     return AlignmentGraphStore(database_path(workspace, run_id, project_id)).record(
-        node_id, outcome, fingerprint, new_axes, traces=traces, user_move=user_move
+        node_id, outcome, fingerprint, new_axes, traces=traces, user_move=user_move, run_phase=run_phase
     )
 
 
