@@ -41,6 +41,16 @@ class NodeDependencyError(ValueError):
 _HEURISTIC_CONTRADICTION_WEIGHT = 0.6
 _HEURISTIC_FRONTIER_WEIGHT = 0.4
 _MINIMUM_EVIDENCE = 2
+# Issue #528: task-size profiles. ``standard`` preserves today's constants;
+# ``small`` and ``deep`` rescale the evidence floor, depth ceiling, and
+# transition budget to the slot scale of the task.
+_PROFILE_DEFAULTS: Mapping[str, Mapping[str, int]] = {
+    "small": {"minimum_evidence": 1, "max_depth": 3, "transition_budget": 16},
+    "standard": {"minimum_evidence": _MINIMUM_EVIDENCE, "max_depth": 5, "transition_budget": 64},
+    "deep": {"minimum_evidence": 3, "max_depth": 8, "transition_budget": 128},
+}
+# Sentinel for "derive this profiled field from the profile defaults".
+_PROFILE_UNSET = -1
 _SOURCE_QUALITY_CONFIDENCE = {"high": 1.0, "medium": 0.8, "low": 0.5}
 _ROOT_SOURCE_QUALITY = 1.0
 # Declared engagement depth per source (issue #494). Ranks mirror the
@@ -53,7 +63,7 @@ _DEEP_SOURCE_DEPTHS = frozenset({"full-source", "experiment"})
 
 @dataclass(frozen=True, slots=True)
 class RecursiveSearchConfig:
-    max_depth: int = 5
+    max_depth: int = _PROFILE_UNSET
     max_frontier: int = 12
     min_expected_value: float = 0.12
     depth_penalty: float = 0.06
@@ -62,7 +72,7 @@ class RecursiveSearchConfig:
     validation_failure_boost: float = 0.4
     max_residual_boost: float = 1.0
     max_stagnant_transitions: int = 3
-    transition_budget: int = 64
+    transition_budget: int = _PROFILE_UNSET
     novelty_stop_threshold: float = 0.0
     initial_marginal_novelty: float = 1.0
     confidence_damping_min: float = 0.05
@@ -72,8 +82,24 @@ class RecursiveSearchConfig:
     quality_weight_heuristic: float = 0.25
     quality_weight_association: float = 0.15
     low_confidence_threshold: float = 0.35
+    # Issue #528: profile-scaled fields. The three profiled fields default to
+    # the unset sentinel so the profile fills exactly the fields the caller
+    # did not pass; an explicit argument always wins over the profile.
+    minimum_evidence: int = _PROFILE_UNSET
+    profile: str = "standard"
 
     def __post_init__(self) -> None:
+        if self.profile not in _PROFILE_DEFAULTS:
+            raise ValueError(f"unknown profile: {self.profile!r}; expected one of {sorted(_PROFILE_DEFAULTS)}")
+        for name, value in _PROFILE_DEFAULTS[self.profile].items():
+            if getattr(self, name) == _PROFILE_UNSET:
+                object.__setattr__(self, name, value)
+        if (
+            isinstance(self.minimum_evidence, bool)
+            or not isinstance(self.minimum_evidence, int)
+            or self.minimum_evidence < 1
+        ):
+            raise ValueError("minimum_evidence must be a positive integer")
         if self.max_depth < 1 or self.max_frontier < 1:
             raise ValueError("max_depth and max_frontier must be positive")
         if (
@@ -768,9 +794,21 @@ def register_deliverable_quality_review(state: Mapping[str, Any], payload: Mappi
 
 
 def evaluate_research_stop(state: Mapping[str, Any]) -> dict[str, Any]:
-    """Close only when slot oracles pass; an empty frontier alone is not success."""
+    """Close only when slot oracles pass; an empty frontier alone is not success.
+
+    Issue #528: which named blockers attach to a slot scales with the slot's
+    ``priority``. P0 slots run the full gate set; P1 slots run the oracle,
+    evidence-floor, and coordinator-assessment gates (opting back into the
+    landscape gates via ``landscape_gates``); P2 slots run oracle + evidence
+    floor only. The #494/#495 producers stay unconditional — shallow-depth
+    and mechanism computations and the drill-down scheduler run exactly as
+    before; the subset selection only filters which produced blockers attach
+    to the slot's closure.
+    """
 
     result = _mutable_state(state)
+    raw_config = result.get("config")
+    cfg = RecursiveSearchConfig(**raw_config) if isinstance(raw_config, Mapping) else RecursiveSearchConfig()
     blockers: list[str] = []
     for slot_id, slot in result["decision_slots"].items():
         open_nodes = [
@@ -782,26 +820,32 @@ def evaluate_research_stop(state: Mapping[str, Any]) -> dict[str, Any]:
         landscape_required = bool(slot.get("landscape_required", True))
         shallow_refs = _shallow_source_refs(slot) if landscape_required else ()
         mechanism_missing = _missing_mechanism_refs(slot) if landscape_required else ()
+        selection_gates = _selection_gates_apply(slot) and landscape_required
+        coverage_gates = _selection_gates_apply(slot)
+        evidence_ok = _slot_has_minimum_evidence(slot, minimum_evidence=cfg.minimum_evidence)
+        oracle_ok = (not slot["validation_required"]) or bool(slot["validation_passed"])
         slot_blockers: list[str] = []
         if (
-            _slot_has_minimum_evidence(slot)
-            and not open_nodes
-            and not shallow_refs
-            and not mechanism_missing
-            and (not slot["validation_required"] or slot["validation_passed"])
+            evidence_ok
+            and oracle_ok
+            and (not selection_gates or (not shallow_refs and not mechanism_missing))
+            and (not coverage_gates or not open_nodes)
         ):
-            slot_blockers.append(f"{slot_id}: closure candidate requires coordinator assessment")
-        if not _slot_has_minimum_evidence(slot):
+            # The coordinator assessment is the top of the middle set: P1
+            # keeps it, P2 closes on the minimal set without it.
+            if str(slot.get("priority", "P1")) != "P2":
+                slot_blockers.append(f"{slot_id}: closure candidate requires coordinator assessment")
+        if not evidence_ok:
             slot_blockers.append(f"{slot_id}: independent evidence is insufficient")
         if slot["validation_required"] and not slot["validation_passed"]:
             slot_blockers.append(f"{slot_id}: validation oracle has not passed")
-        if shallow_refs:
+        if selection_gates and shallow_refs:
             slot_blockers.append(f"{slot_id}: shallow source depth blocks landscape closure: {', '.join(shallow_refs)}")
-        if mechanism_missing:
+        if selection_gates and mechanism_missing:
             slot_blockers.append(
                 f"{slot_id}: promoted sources without mechanism artifacts: {', '.join(mechanism_missing)}"
             )
-        if open_nodes:
+        if coverage_gates and open_nodes:
             slot_blockers.append(f"{slot_id}: {len(open_nodes)} frontier action(s) remain")
         slot["closure_blockers"] = slot_blockers
         blockers.extend(slot_blockers)
@@ -816,6 +860,21 @@ def evaluate_research_stop(state: Mapping[str, Any]) -> dict[str, Any]:
         result["stop_reason"] = "; ".join(blockers) or "no executable frontier remains"
     result["recursion_receipt"] = _recursion_receipt(result)
     return result
+
+
+def _selection_gates_apply(slot: Mapping[str, Any]) -> bool:
+    """Issue #528: the selection-grade gates — landscape source depth,
+    mechanism artifacts, and frontier coverage — attach to P0 slots and to P1
+    slots that explicitly opt in via ``landscape_gates``; P2 slots never
+    carry them. The producer computations stay unconditional for every
+    priority; unknown priorities fall back to the full P0 set."""
+
+    priority = str(slot.get("priority", "P1"))
+    if priority == "P2":
+        return False
+    if priority == "P1":
+        return bool(slot.get("landscape_gates", False))
+    return True
 
 
 def _slot_state(slot_id: str, slot: Mapping[str, Any]) -> dict[str, Any]:
@@ -849,6 +908,9 @@ def _slot_state(slot_id: str, slot: Mapping[str, Any]) -> dict[str, Any]:
         "search_comparison": {"provider_fanout": 0, "duplicates": 0, "captures": 0},
         "residual_risk": _priority_value(priority),
         "landscape_required": bool(slot.get("landscape_required", True)),
+        # Issue #528: a P1 slot opts back into the selection-grade landscape
+        # gates (source depth, mechanism artifacts, frontier coverage).
+        "landscape_gates": bool(slot.get("landscape_gates", False)),
         "source_depths": {},
         "mechanism_source_refs": [],
         "closure_blockers": [],
@@ -1154,7 +1216,7 @@ def _ensure_slot_frontier(
                 damping=cfg.confidence_damping_max,
             )
         )
-    elif not _slot_has_minimum_evidence(slot):
+    elif not _slot_has_minimum_evidence(slot, minimum_evidence=cfg.minimum_evidence):
         _reopen_completed_obligation(
             _add_node(
                 state,
@@ -1388,7 +1450,7 @@ def _is_mandatory(node: Mapping[str, Any], slot: Mapping[str, Any]) -> bool:
 def _refresh_slot_residual_risk(slot: dict[str, Any], cfg: RecursiveSearchConfig) -> None:
     """Update the boosting residual only from observable closure state."""
 
-    evidence_deficit = _slot_closure_deficit(slot)
+    evidence_deficit = _slot_closure_deficit(slot, minimum_evidence=cfg.minimum_evidence)
     validation_deficit = 1.0 if slot["validation_required"] and not slot["validation_passed"] else 0.0
     closure_deficit = max(evidence_deficit, validation_deficit)
     failure_boost = min(
@@ -1415,15 +1477,20 @@ def _branch_complexity(state: Mapping[str, Any], node: Mapping[str, Any]) -> flo
     return 1.0 + math.log2(max(1, sibling_count))
 
 
-def _slot_has_minimum_evidence(slot: Mapping[str, Any]) -> bool:
-    """Satisfied evidence excludes quarantined low-confidence findings."""
+def _slot_has_minimum_evidence(slot: Mapping[str, Any], *, minimum_evidence: int = _MINIMUM_EVIDENCE) -> bool:
+    """Satisfied evidence excludes quarantined low-confidence findings.
+
+    Issue #528: the floor comes from the resolved config so the task profile
+    scales it; the default keeps today's module constant for legacy callers.
+    """
+
     quarantined = set(slot.get("quarantined_finding_ids", ()))
     trusted_findings = len(set(slot["finding_ids"]) - quarantined)
     if quarantined:
         anchors = slot.get("trusted_anchor_fingerprints") or ()
     else:
         anchors = slot["anchor_fingerprints"]
-    return trusted_findings >= _MINIMUM_EVIDENCE and len(anchors) >= _MINIMUM_EVIDENCE
+    return trusted_findings >= minimum_evidence and len(anchors) >= minimum_evidence
 
 
 def _has_open_node(state: Mapping[str, Any], slot_id: str) -> bool:
@@ -1484,18 +1551,23 @@ def _slot_evidence_snapshot(slot: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _closure_deficit_from_counts(findings: int, anchors: int) -> float:
-    finding_deficit = max(0.0, (_MINIMUM_EVIDENCE - findings) / 2)
-    anchor_deficit = max(0.0, (_MINIMUM_EVIDENCE - anchors) / 2)
+def _closure_deficit_from_counts(
+    findings: int,
+    anchors: int,
+    *,
+    minimum_evidence: int = _MINIMUM_EVIDENCE,
+) -> float:
+    finding_deficit = max(0.0, (minimum_evidence - findings) / 2)
+    anchor_deficit = max(0.0, (minimum_evidence - anchors) / 2)
     return max(finding_deficit, anchor_deficit)
 
 
-def _slot_closure_deficit(slot: Mapping[str, Any]) -> float:
+def _slot_closure_deficit(slot: Mapping[str, Any], *, minimum_evidence: int = _MINIMUM_EVIDENCE) -> float:
     """Closure deficit counts trusted findings and trusted anchors only."""
     quarantined = set(slot.get("quarantined_finding_ids", ()))
     findings = len(set(slot["finding_ids"]) - quarantined)
     anchors = slot.get("trusted_anchor_fingerprints", ()) if quarantined else slot["anchor_fingerprints"]
-    return _closure_deficit_from_counts(findings, len(anchors))
+    return _closure_deficit_from_counts(findings, len(anchors), minimum_evidence=minimum_evidence)
 
 
 def _finding_anchor_fingerprints(payload: Mapping[str, Any]) -> frozenset[str]:
@@ -1573,9 +1645,13 @@ def _ingest_quality(
     quarantined_before = set(snapshot["quarantined"])
     trusted_before = len(set(snapshot["finding_ids"]) - quarantined_before)
     anchors_before = snapshot["trusted_anchors"] if quarantined_before else snapshot["anchors"]
-    deficit_before = _closure_deficit_from_counts(trusted_before, len(anchors_before))
+    deficit_before = _closure_deficit_from_counts(
+        trusted_before, len(anchors_before), minimum_evidence=cfg.minimum_evidence
+    )
     others_now = set(slot["finding_ids"]) - set(slot.get("quarantined_finding_ids", ())) - {finding_id}
-    deficit_after = _closure_deficit_from_counts(len(others_now), len(anchors_before))
+    deficit_after = _closure_deficit_from_counts(
+        len(others_now), len(anchors_before), minimum_evidence=cfg.minimum_evidence
+    )
     completeness = max(0.0, min(1.0, 1.0 - deficit_after / deficit_before)) if deficit_before > 0 else 0.0
 
     new_claims = len(_finding_claim_fingerprints(payload) - set(snapshot["claims"]))
@@ -1708,7 +1784,7 @@ def _slot_evidence_saturated(state: Mapping[str, Any], slot: Mapping[str, Any], 
 
     if slot.get("contradiction_refs"):
         return False
-    if not _slot_has_minimum_evidence(slot):
+    if not _slot_has_minimum_evidence(slot, minimum_evidence=cfg.minimum_evidence):
         return False
     comparison = slot.get("search_comparison") or {}
     captures = sum(int(batch.get("captures", 0)) for batch in (comparison.get("batches") or {}).values())
