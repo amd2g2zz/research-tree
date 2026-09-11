@@ -10,26 +10,81 @@
     "src/research_tree/alignment_turn_record.py",
     "src/research_tree/brief_refinery.py",
     "src/research_tree/claims.py",
-    "tests/test_brief_refinery.py"
+    "tests/test_brief_refinery.py",
+    "openspec/changes/brief-refinery/evidence/detect-changes-audit.json"
   ],
   "symbols": [
-    { "name": "BriefRefinery", "file": "src/research_tree/brief_refinery.py" },
-    { "name": "BriefRefineryStore", "file": "src/research_tree/brief_refinery.py" },
-    { "name": "RefineryObject", "file": "src/research_tree/brief_refinery.py" },
-    { "name": "ObjectType", "file": "src/research_tree/brief_refinery.py" },
-    { "name": "ObjectStatus", "file": "src/research_tree/brief_refinery.py" },
-    { "name": "RefineryError", "file": "src/research_tree/brief_refinery.py" },
-    { "name": "ExtractionSchemaError", "file": "src/research_tree/brief_refinery.py" },
-    { "name": "IllegalLifecycleTransition", "file": "src/research_tree/brief_refinery.py" },
-    { "name": "ConfirmationRequiredError", "file": "src/research_tree/brief_refinery.py" },
-    { "name": "RegistryDigestError", "file": "src/research_tree/brief_refinery.py" },
-    { "name": "LIFECYCLE_TRANSITIONS", "file": "src/research_tree/brief_refinery.py" },
-    { "name": "REGISTRY_SCHEMA_VERSION", "file": "src/research_tree/brief_refinery.py" },
-    { "name": "cluster_identity_groups", "file": "src/research_tree/claims.py" },
-    { "name": "cluster_provenance_components", "file": "src/research_tree/claims.py" },
-    { "name": "__all__", "file": "src/research_tree/claims.py" },
-    { "name": "registry_delta", "file": "src/research_tree/alignment_turn_record.py" },
-    { "name": "__all__", "file": "src/research_tree/alignment_turn_record.py" },
-    { "name": "__all__", "file": "src/research_tree/__init__.py" }
+    {
+      "name": "BriefRefinery",
+      "file": "src/research_tree/brief_refinery.py"
+    },
+    {
+      "name": "BriefRefineryStore",
+      "file": "src/research_tree/brief_refinery.py"
+    },
+    {
+      "name": "RefineryObject",
+      "file": "src/research_tree/brief_refinery.py"
+    },
+    {
+      "name": "ObjectType",
+      "file": "src/research_tree/brief_refinery.py"
+    },
+    {
+      "name": "ObjectStatus",
+      "file": "src/research_tree/brief_refinery.py"
+    },
+    {
+      "name": "RefineryError",
+      "file": "src/research_tree/brief_refinery.py"
+    },
+    {
+      "name": "ExtractionSchemaError",
+      "file": "src/research_tree/brief_refinery.py"
+    },
+    {
+      "name": "IllegalLifecycleTransition",
+      "file": "src/research_tree/brief_refinery.py"
+    },
+    {
+      "name": "ConfirmationRequiredError",
+      "file": "src/research_tree/brief_refinery.py"
+    },
+    {
+      "name": "RegistryDigestError",
+      "file": "src/research_tree/brief_refinery.py"
+    },
+    {
+      "name": "LIFECYCLE_TRANSITIONS",
+      "file": "src/research_tree/brief_refinery.py"
+    },
+    {
+      "name": "REGISTRY_SCHEMA_VERSION",
+      "file": "src/research_tree/brief_refinery.py"
+    },
+    {
+      "name": "cluster_identity_groups",
+      "file": "src/research_tree/claims.py"
+    },
+    {
+      "name": "cluster_provenance_components",
+      "file": "src/research_tree/claims.py"
+    },
+    {
+      "name": "__all__",
+      "file": "src/research_tree/claims.py"
+    },
+    {
+      "name": "registry_delta",
+      "file": "src/research_tree/alignment_turn_record.py"
+    },
+    {
+      "name": "__all__",
+      "file": "src/research_tree/alignment_turn_record.py"
+    },
+    {
+      "name": "__all__",
+      "file": "src/research_tree/__init__.py"
+    }
   ]
 }
