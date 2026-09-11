@@ -64,7 +64,9 @@ def seeded_graph(tmp_path: Path, *, turns: int = 3, traces: bool = False) -> tup
     for turn in range(1, turns + 1):
         outcome = "answered" if turn == 1 else ("changed" if turn == 2 else "unchanged")
         kwargs: dict[str, object] = {"user_move": RESPONSE_CLASS_GENERATION}
-        if traces and turn == 1:
+        if traces and turn == turns:
+            # The baseline synthesizes from the LATEST event: its trace is
+            # the one a reconstruction carries.
             kwargs["traces"] = [{"type": "option-set", "payload": {"options": ["postgres", "sqlite"]}}]
         graph.record("scope-backend", outcome, f"fp-{turn}", **kwargs)  # type: ignore[arg-type]
     return database, graph
