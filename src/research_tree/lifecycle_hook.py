@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -12,7 +13,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, BinaryIO, Iterable, Sequence
+from typing import Any, BinaryIO, Iterable, Mapping, Sequence
 
 try:
     from .origins import close_tag, open_tag
@@ -159,6 +160,181 @@ RESEARCH_PHASE = "research"
 RUN_PHASE_ENV = "RESEARCH_TREE_RUN_PHASE"
 RESEARCH_REENTRY_REFUSED_CODE = "research_reentry_refused"
 RESEARCH_REENTRY_ROUTES = frozenset({"reopen_alignment", "supplemental_evidence", "refused"})
+
+# Issue #530: cache-friendly grounding. Storage and injection are separate:
+# full state stays in the engine-written phase store; each transition emits
+# ONE append-only event statement (announced exactly once through this hook);
+# the only per-turn surface is a single-line, fixed-slot, fixed-key-order
+# snapshot with placeholder defaults — never a per-turn state block, never
+# YAML. Slots for stance tier / violation count / open topics are placeholders
+# owned by #526/#525; the phase slot and the digest binding are live here.
+RUN_PHASE_STORE_SCHEMA = 1
+PHASE_SNAPSHOT_DIGEST_CHARS = 12
+PHASE_STANCE_PLACEHOLDER = "S0"
+PHASE_VIOLATIONS_PLACEHOLDER = 0
+PHASE_TOPICS_PLACEHOLDER = 0
+
+
+def _canonical_json_bytes(value: Any) -> bytes:
+    """Mirror domain.canonical_json_bytes with stdlib only (standalone hook)."""
+
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+
+def _phase_store_directory(root: Path, run_id: str) -> Path:
+    """Mirror tree_state.run_phase_dir with stdlib only (run-dir convention)."""
+
+    return root / ".research-tree" / "projects" / f"alignment-{run_id}" / "runs" / run_id / "phase"
+
+
+def read_phase_state(root: Path, run_id: str) -> dict[str, Any] | None:
+    """Read one run's authoritative phase state from the workspace root."""
+
+    return read_phase_state_at(_phase_store_directory(root, run_id))
+
+
+def read_phase_state_at(directory: Path) -> dict[str, Any] | None:
+    """Read the digest-checked phase store at one phase directory, fail-open.
+
+    Mirrors ``tree_state.RunPhaseStore.current``: a missing, malformed, or
+    digest-broken store reads as None so no reader can ever be told a phase
+    the engine did not write. Self-contained (stdlib only) so the packaged
+    standalone hook and the alignment controller get the same authority as
+    the checkout runtime.
+    """
+
+    directory = Path(directory)
+    try:
+        payload = json.loads((directory / "state.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict) or payload.get("schema") != RUN_PHASE_STORE_SCHEMA:
+        return None
+    if payload.get("phase") not in RUN_PHASES:
+        return None
+    digest = payload.get("digest")
+    if not isinstance(digest, str):
+        return None
+    material = {key: value for key, value in payload.items() if key != "digest"}
+    if hashlib.sha256(_canonical_json_bytes(material)).hexdigest() != digest:
+        return None
+    return payload
+
+
+def build_phase_snapshot(state: Mapping[str, Any] | None) -> str:
+    """Render the tail snapshot: one line, fixed slots, fixed key order.
+
+    ``phase=<p> stance=<tier> viol=<n> topics=<n> digest=<12 hex|none>`` —
+    the smallest possible token diff against the previous line, digest-bound
+    to the store so prompt and store cannot silently diverge. Placeholder
+    defaults when no authority exists (or for slots owned by later issues).
+    """
+
+    if isinstance(state, Mapping) and isinstance(state.get("phase"), str) and state["phase"] in RUN_PHASES:
+        phase = state["phase"]
+        digest = state.get("digest")
+        digest_text = digest[:PHASE_SNAPSHOT_DIGEST_CHARS] if isinstance(digest, str) else "none"
+    else:
+        phase = "unknown"
+        digest_text = "none"
+    return (
+        f"phase={phase}"
+        f" stance={PHASE_STANCE_PLACEHOLDER}"
+        f" viol={PHASE_VIOLATIONS_PLACEHOLDER}"
+        f" topics={PHASE_TOPICS_PLACEHOLDER}"
+        f" digest={digest_text}"
+    )
+
+
+def _render_phase_statement(event: Mapping[str, Any]) -> str:
+    """Render one stored phase-transition event statement (single line)."""
+
+    previous = event.get("from") if isinstance(event.get("from"), str) else None
+    phase = event.get("to") if isinstance(event.get("to"), str) else None
+    reason = event.get("reason") if isinstance(event.get("reason"), str) else "unspecified"
+    return f"run-phase: {previous or 'start'} -> {phase or 'unknown'} ({reason})"
+
+
+def _pending_phase_events(root: Path, run_id: str) -> tuple[list[str], int]:
+    """Return the unannounced phase statements and the total event count.
+
+    Statements enter history by append, once: the announce cursor persists
+    how many statements this hook already injected, so a transition is stated
+    in its transition turn and never rebroadcast. Fail-open throughout.
+    """
+
+    directory = _phase_store_directory(root, run_id)
+    try:
+        lines = (directory / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return [], 0
+    events: list[dict[str, Any]] = []
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get("event") == "phase_transition":
+            events.append(event)
+    try:
+        cursor_payload = json.loads((directory / "announce.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cursor_payload = {}
+    announced = cursor_payload.get("announced") if isinstance(cursor_payload, dict) else None
+    if isinstance(announced, bool) or not isinstance(announced, int) or announced < 0:
+        announced = 0
+    pending = [_render_phase_statement(event) for event in events[announced:]]
+    return pending, len(events)
+
+
+def _mark_phase_events_announced(root: Path, run_id: str, count: int) -> None:
+    directory = _phase_store_directory(root, run_id)
+    payload = {"schema": RUN_PHASE_STORE_SCHEMA, "announced": count, "updated_at": _phase_now()}
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        target = directory / "announce.json"
+        temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+        try:
+            temporary.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+            os.replace(temporary, target)
+        finally:
+            temporary.unlink(missing_ok=True)
+    except OSError:
+        return
+
+
+def _phase_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _phase_grounding(root: Path, payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Assemble the turn's grounding: snapshot line + unannounced statements.
+
+    Returns None only when no run id is resolvable. With a run id the
+    placeholder snapshot always rides along (stable tail slot from the first
+    turn); statements ride exactly once, at their transition's next turn.
+    """
+
+    run_id = payload.get("run_id")
+    if run_id is None:
+        run_id = os.environ.get("RESEARCH_TREE_RUN_ID")
+    if not isinstance(run_id, str) or not PROJECT_IDENTIFIER_RE.fullmatch(run_id):
+        return None
+    state = read_phase_state(root, run_id)
+    pending, total = _pending_phase_events(root, run_id)
+    if total:
+        _mark_phase_events_announced(root, run_id, total)
+    return {"snapshot": build_phase_snapshot(state), "events": pending}
+
+
 RESEARCH_REENTRY_RULES: tuple[tuple[str, str, re.Pattern[str]], ...] = tuple(
     (path, rule, re.compile(pattern, re.IGNORECASE))
     for path, rule, pattern in (
@@ -587,18 +763,29 @@ def _cap_signal_records(root: Path) -> None:
 
 
 def _resolve_run_phase(explicit: str | None, *, root: Path, payload: dict[str, Any]) -> str | None:
-    """Resolve the active run phase, fail-open (issue #492).
+    """Resolve the active run phase, fail-open (issues #492, #530).
 
-    Precedence: explicit argument, then ``RESEARCH_TREE_RUN_PHASE``, then the
-    run manifest's optional ``phase`` key. An invalid explicit value is a
-    programmer error and raises; an invalid environment or manifest value is
-    ignored so a typo can never break the fail-open recording contract.
+    Precedence: explicit argument, then the run's authoritative phase store
+    (engine-written, digest-checked — production runs resolve here), then
+    ``RESEARCH_TREE_RUN_PHASE``, then the run manifest's optional ``phase``
+    key. An invalid explicit value is a programmer error and raises; an
+    invalid environment or manifest value is ignored so a typo can never
+    break the fail-open recording contract.
     """
 
     if explicit is not None:
         if explicit not in RUN_PHASES:
             raise LifecycleHookError(f"run phase must be one of: {', '.join(sorted(RUN_PHASES))}")
         return explicit
+    run_id = payload.get("run_id")
+    if run_id is None:
+        run_id = os.environ.get("RESEARCH_TREE_RUN_ID")
+    if isinstance(run_id, str) and PROJECT_IDENTIFIER_RE.fullmatch(run_id):
+        state = read_phase_state(root, run_id)
+        if state is not None:
+            phase = state.get("phase")
+            if phase in RUN_PHASES:
+                return phase  # type: ignore[no-any-return]
     environment = os.environ.get(RUN_PHASE_ENV)
     if environment in RUN_PHASES:
         return environment
@@ -659,6 +846,12 @@ def _observe_prompt_signal(
         record["alignment_turn_record"] = turn_record
     if user_move_policy is not None:
         record["user_move_policy"] = user_move_policy
+    # Issue #530: cache-friendly grounding rides the hook's tail-injection
+    # channel — one snapshot line every turn, one event statement per
+    # transition turn, never a per-turn state block.
+    grounding = _phase_grounding(root, payload)
+    if grounding is not None:
+        record["phase_grounding"] = grounding
     path = _write_record(root, record, root / SIGNAL_DIRECTORY)
     _cap_signal_records(root)
     result: dict[str, Any] = {
@@ -668,8 +861,9 @@ def _observe_prompt_signal(
         "signal": signal,
         "path": path.relative_to(root).as_posix(),
     }
-    if reentry is not None:
+    if resolved_phase is not None:
         result["run_phase"] = resolved_phase
+    if reentry is not None:
         result["reentry"] = reentry
     if turn_record is not None:
         result["alignment_turn_record"] = turn_record
@@ -686,6 +880,8 @@ def _observe_prompt_signal(
         feed_path = _feed_run_signal(root, payload, record, route="research_reentry")
         if feed_path is not None:
             result["run_reentry_path"] = feed_path
+    if grounding is not None:
+        result["phase_grounding"] = grounding
     return result
 
 
@@ -1014,12 +1210,7 @@ def labeled_host_response(host: str) -> str:
     """
 
     payload = host_response(host)
-    body = json.dumps(payload, separators=(",", ":"))
-    opening = open_tag(
-        "rt:event",
-        {"contract": "research-tree-hook", "schema_version": "1", "host": host},
-    )
-    return opening + body + close_tag("rt:event")
+    return labeled_host_response_payload(host, json.dumps(payload, separators=(",", ":")))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1040,13 +1231,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
+    result: dict[str, Any] | None = None
     try:
         payload = read_payload()
         for key in ("project_id", "run_id", "session_id"):
             value = getattr(arguments, key)
             if value is not None:
                 payload[key] = value
-        observe(
+        result = observe(
             payload,
             host=arguments.host,
             event=arguments.event,
@@ -1057,8 +1249,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Lifecycle observation must never block an agent session.
         if arguments.debug:
             print(f"research-tree hook debug: {exc}", file=sys.stderr)
-    print(labeled_host_response(arguments.host))
+    response = host_response(arguments.host)
+    if isinstance(result, dict):
+        grounding = result.get("phase_grounding")
+        if isinstance(grounding, dict):
+            # Issue #530: the tail-injection payload carries the snapshot line
+            # plus any first-announcement statements. The host adapter layer
+            # positions this payload at the system-reminder seam; it is the
+            # only per-turn state surface the hook ever emits.
+            response = {**response, "phase_grounding": grounding}
+    payload_json = json.dumps(response, separators=(",", ":"))
+    print(labeled_host_response_payload(arguments.host, payload_json))
     return 0
+
+
+def labeled_host_response_payload(host: str, payload_json: str) -> str:
+    opening = open_tag(
+        "rt:event",
+        {"contract": "research-tree-hook", "schema_version": "1", "host": host},
+    )
+    return opening + payload_json + close_tag("rt:event")
 
 
 class DebugTraceError(ValueError):

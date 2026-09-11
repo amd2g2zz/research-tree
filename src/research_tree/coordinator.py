@@ -76,6 +76,7 @@ from .strategy_projection import (
     validate_falsifiability,
     validate_strategy_projection_invalidation,
 )
+from .tree_state import CanonicalResearchTreeStateService, ResearchTreeStateError
 from .work_items import WORK_ITEM_KIND, CanonicalWorkItemCompiler
 
 FINDING_PACK_KIND = "finding-pack"
@@ -465,6 +466,19 @@ _TRANSITIONS: dict[tuple[str, str], tuple[str, str]] = {
     ("alignment", "supersede"): ("superseded", "coordinator"),
     ("autonomous_research", "cancel_requested"): ("superseded", "human_or_operator"),
     ("autonomous_research", "fatal_failure"): ("failed", "coordinator"),
+}
+
+# Issue #530: the workflow advance points that OWN a run-phase write. Each
+# entry maps the lifecycle event to the TREE_PHASES phase the component writes
+# at that transition (through the gated tree-state graph, so the #492 gate
+# finally executes on production paths). Reopen-alignment re-entry is owned by
+# ``ResearchRunCoordinator.reopen_alignment`` rather than a matrix edge — the
+# lifecycle matrix has no research -> alignment edge and its vocabulary stays
+# as-is.
+RUN_PHASE_OWNER_EVENTS: dict[str, tuple[str, str]] = {
+    "handoff_confirmed": ("research", "handoff_confirmed"),
+    "all_slots_closed": ("validation", "validation_started"),
+    "readiness_passed": ("delivery", "delivery_pending"),
 }
 
 
@@ -2641,7 +2655,7 @@ class ResearchRunCoordinator:
                 expected_revision=expected_revision,
                 requirements=transition_payload,
             )
-        return self._append_transition(
+        advanced = self._append_transition(
             run_id=run_id,
             current=current,
             event=event,
@@ -2651,6 +2665,51 @@ class ResearchRunCoordinator:
             idempotency_key=idempotency_key,
             payload=transition_payload,
         )
+        self._advance_run_phase(run_id, event)
+        return advanced
+
+    def reopen_alignment(self, run_id: str, *, reason: str) -> ArtifactRevision | None:
+        """Reopen alignment on the run's tree (issue #530, the reopen re-entry writer).
+
+        The mechanical owner of the ``research -> alignment`` (and ``compiled
+        -> alignment``) reopen edge from the #492 phase graph: the two-option
+        interruption protocol's path (a) moves the phase clock through the
+        gated tree-state transition, so "alignment ended" and "alignment
+        re-opened" are persisted facts, never prompt self-discipline. Returns
+        None when the run carries no tree or the phase is already alignment.
+        """
+
+        return self._write_run_phase(run_id, "alignment", reason)
+
+    def _advance_run_phase(self, run_id: str, event: str) -> None:
+        """Fire the owned run-phase write after a successful workflow advance."""
+
+        owned = RUN_PHASE_OWNER_EVENTS.get(event)
+        if owned is None:
+            return
+        phase, reason = owned
+        self._write_run_phase(run_id, phase, reason)
+
+    def _write_run_phase(self, run_id: str, phase: str, reason: str) -> ArtifactRevision | None:
+        """Advance the run's tree phase through the gate; fail-open on absence.
+
+        The phase gate itself stays fail-closed (``advance_phase`` raises on
+        an illegal transition); this wiring only absorbs the "no tree in this
+        run yet" case, where there is no clock to move.
+        """
+
+        service = CanonicalResearchTreeStateService(self.ledger)
+        tree_id = f"tree-{run_id}"
+        try:
+            return service.advance_phase(round_id=run_id, tree_id=tree_id, phase=phase, reason=reason)
+        except ResearchTreeStateError as error:
+            if "does not exist" in str(error):
+                return None
+            logger.warning(
+                "run_phase_write_rejected",
+                extra={"run_id": run_id, "phase": phase, "reason": reason, "error": str(error)},
+            )
+            return None
 
     def ingest_host_event(self, event: HostEvent | Mapping[str, Any]) -> ArtifactRevision:
         """Validate and atomically persist one non-authoritative host event."""

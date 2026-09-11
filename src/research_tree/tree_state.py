@@ -2,10 +2,22 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import re
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .domain import ArtifactRef, ArtifactRevision, RuntimeStoreError, thaw_json, validate_identifier
+from .domain import (
+    ArtifactRef,
+    ArtifactRevision,
+    RuntimeStoreError,
+    canonical_json_bytes,
+    thaw_json,
+    validate_identifier,
+)
 from .ledger import FINDING_PACK_KIND
 from .run_ledger import RunLedger
 
@@ -158,6 +170,53 @@ class CanonicalResearchTreeStateService:
         )
         return state, pending
 
+    def advance_phase(
+        self,
+        *,
+        round_id: str,
+        tree_id: str,
+        phase: str,
+        reason: str,
+        expected_revision: int | None = None,
+    ) -> ArtifactRevision | None:
+        """Advance the tree's run phase through the gated graph (issue #530).
+
+        The owned writer primitive for phase transitions: loads the latest
+        tree, no-ops (returns None) when the phase is unchanged, and otherwise
+        appends one tree transition whose payload carries the new ``phase`` —
+        so every production phase change passes through the #502/#492
+        transition gate and the state history records who moved the clock.
+        The run-level phase store is recorded to match (one event statement).
+        """
+
+        previous = self.latest(round_id=round_id, tree_id=tree_id)
+        previous_phase = tree_phase_of(previous.payload)
+        if previous_phase == phase:
+            return None
+        validate_phase_transition(previous_phase, phase)
+        state = thaw_json(previous.payload)
+        state["transition_index"] = int(previous.payload["transition_index"]) + 1
+        state["phase"] = phase
+        advanced = self.transition(
+            round_id=round_id,
+            previous=previous,
+            state=state,
+            consumed_findings=(),
+            expected_revision=(self._ledger.get_revision(round_id) if expected_revision is None else expected_revision),
+        )
+        store = RunPhaseStore(run_phase_dir(self._ledger.workspace, round_id))
+        try:
+            store.record_transition(
+                phase=phase,
+                reason=reason,
+                tree_transition_index=int(advanced.payload["transition_index"]),
+            )
+        except (OSError, ResearchTreeStateError):
+            # The tree transition is the authority and is already persisted;
+            # a store write failure must not roll the validated gate back.
+            pass
+        return advanced
+
 
 def validate_tree_state_payload(value: Mapping[str, Any]) -> None:
     required = {
@@ -248,6 +307,198 @@ def validate_phase_transition(previous_phase: str, next_phase: str) -> None:
         raise ResearchTreeStateError(
             f"illegal tree phase transition: {previous_phase} -> {next_phase}; allowed={sorted(allowed)}"
         )
+
+
+# Issue #530: the authoritative run-level phase store. Engine-written JSON
+# with a digest over the canonical serialization (the turn-records state
+# convention) plus an append-only event statement per transition — the store
+# the hook reads FIRST, so production phase resolution never guesses.
+RUN_PHASE_STORE_SCHEMA = 1
+RUN_PHASE_TRANSITION_EVENT = "phase_transition"
+RUN_PHASE_STATE_FILENAME = "state.json"
+RUN_PHASE_EVENTS_FILENAME = "events.jsonl"
+RUN_PHASE_ANNOUNCE_FILENAME = "announce.json"
+MAX_PHASE_REASON_LENGTH = 256
+
+
+def run_phase_dir(workspace: Path, run_id: str) -> Path:
+    """Resolve the run-scoped phase directory for one run.
+
+    Follows the alignment-graph run-directory convention (``alignment_graph
+    ._run_dir``): the phase record lives under the run's directory with the
+    fallback project id, so writers that carry no project id and readers
+    (hook, alignment controller) resolve the same path from workspace and
+    run id alone.
+    """
+
+    validate_identifier(run_id, "run_id")
+    root = Path(workspace).resolve()
+    return root / ".research-tree" / "projects" / f"alignment-{run_id}" / "runs" / run_id / "phase"
+
+
+def _phase_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _phase_state_digest(payload: Mapping[str, Any]) -> str:
+    material = {key: value for key, value in payload.items() if key != "digest"}
+    return hashlib.sha256(canonical_json_bytes(material)).hexdigest()
+
+
+def render_phase_event(event: Mapping[str, Any]) -> str:
+    """Render one phase-transition event statement (single line, fixed shape)."""
+
+    previous = event.get("from") if isinstance(event.get("from"), str) else None
+    phase = event.get("to") if isinstance(event.get("to"), str) else None
+    reason = event.get("reason") if isinstance(event.get("reason"), str) else "unspecified"
+    return f"run-phase: {previous or 'start'} -> {phase or 'unknown'} ({reason})"
+
+
+class RunPhaseStore:
+    """Engine-written run phase record: state JSON with digest + event log."""
+
+    def __init__(self, directory: Path) -> None:
+        self.directory = Path(directory)
+        self.state_path = self.directory / RUN_PHASE_STATE_FILENAME
+        self.events_path = self.directory / RUN_PHASE_EVENTS_FILENAME
+        self.announce_path = self.directory / RUN_PHASE_ANNOUNCE_FILENAME
+
+    # -- reads ---------------------------------------------------------------
+
+    def current(self) -> dict[str, Any] | None:
+        """Return the digest-verified phase state, or None when absent/broken.
+
+        Fail-open by design: the hook treats None as "no authority" and falls
+        back to its legacy guesses; a tampered store can never inject a phase.
+        """
+
+        try:
+            payload = json.loads(self.state_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(payload, dict) or payload.get("schema") != RUN_PHASE_STORE_SCHEMA:
+            return None
+        if payload.get("phase") not in TREE_PHASES:
+            return None
+        digest = payload.get("digest")
+        if not isinstance(digest, str) or digest != _phase_state_digest(payload):
+            return None
+        return payload
+
+    def events(self) -> tuple[dict[str, Any], ...]:
+        """Parse the append-only event statements (malformed lines skipped)."""
+
+        try:
+            lines = self.events_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return ()
+        events: list[dict[str, Any]] = []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict) and event.get("event") == RUN_PHASE_TRANSITION_EVENT:
+                events.append(event)
+        return tuple(events)
+
+    def announced_count(self) -> int:
+        try:
+            payload = json.loads(self.announce_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return 0
+        count = payload.get("announced") if isinstance(payload, dict) else None
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            return 0
+        return count
+
+    # -- writes ---------------------------------------------------------------
+
+    def record_transition(
+        self,
+        *,
+        phase: str,
+        reason: str,
+        tree_transition_index: int | None = None,
+        recorded_at: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Record one phase transition: state JSON + exactly one event line.
+
+        A same-phase call is a no-op (returns None): writers fire at owning
+        transitions, and re-firing must never emit a duplicate statement.
+        """
+
+        if phase not in TREE_PHASES:
+            raise ResearchTreeStateError(f"run phase must be one of {sorted(TREE_PHASES)}: {phase!r}")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > MAX_PHASE_REASON_LENGTH:
+            raise ResearchTreeStateError(
+                f"run phase reason must be a non-empty string of at most {MAX_PHASE_REASON_LENGTH} characters"
+            )
+        if tree_transition_index is not None and (
+            isinstance(tree_transition_index, bool)
+            or not isinstance(tree_transition_index, int)
+            or tree_transition_index < 0
+        ):
+            raise ResearchTreeStateError("tree_transition_index must be a nonnegative integer or None")
+        current = self.current()
+        if current is not None and current["phase"] == phase:
+            return None
+        previous_phase = current.get("phase") if current is not None else None
+        timestamp = recorded_at or _phase_now()
+        event = {
+            "schema": RUN_PHASE_STORE_SCHEMA,
+            "event": RUN_PHASE_TRANSITION_EVENT,
+            "from": previous_phase,
+            "to": phase,
+            "reason": reason,
+            "tree_transition_index": tree_transition_index,
+            "recorded_at": timestamp,
+        }
+        state = {
+            "schema": RUN_PHASE_STORE_SCHEMA,
+            "phase": phase,
+            "previous_phase": previous_phase,
+            "reason": reason,
+            "tree_transition_index": tree_transition_index,
+            "recorded_at": timestamp,
+        }
+        state["digest"] = _phase_state_digest(state)
+        self.directory.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(event, ensure_ascii=True, separators=(",", ":")) + "\n"
+        descriptor = os.open(self.events_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
+            handle.write(line)
+        self._atomic_write_state(state)
+        return state
+
+    def mark_announced(self, count: int) -> None:
+        """Persist the announce cursor so each statement is injected exactly once."""
+
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise ResearchTreeStateError("announce count must be a nonnegative integer")
+        payload = {
+            "schema": RUN_PHASE_STORE_SCHEMA,
+            "announced": count,
+            "updated_at": _phase_now(),
+        }
+        self.directory.mkdir(parents=True, exist_ok=True)
+        self._atomic_write(self.announce_path, payload)
+
+    # -- internals ---------------------------------------------------------------
+
+    def _atomic_write_state(self, payload: Mapping[str, Any]) -> None:
+        self._atomic_write(self.state_path, payload)
+
+    def _atomic_write(self, path: Path, payload: Mapping[str, Any]) -> None:
+        encoded = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True) + "\n"
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        try:
+            temporary.write_text(encoded, encoding="utf-8")
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def _validate_strategy_fingerprint(fingerprint: Any) -> None:

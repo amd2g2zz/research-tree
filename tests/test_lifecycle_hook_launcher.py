@@ -109,7 +109,18 @@ def test_launcher_records_through_the_checkout_source_tree(tmp_path: Path) -> No
         stdin=payload,
     )
 
-    _assert_single_response(completed, {"continue": True})
+    # Issue #530: the tail snapshot rides every prompt turn with a resolvable
+    # run — the placeholder line while no phase store exists, and no statements.
+    _assert_single_response(
+        completed,
+        {
+            "continue": True,
+            "phase_grounding": {
+                "snapshot": "phase=unknown stance=S0 viol=0 topics=0 digest=none",
+                "events": [],
+            },
+        },
+    )
     signals = list((checkout / ".research-tree-debug" / "signals").glob("*.json"))
     assert len(signals) == 1
     signal = json.loads(signals[0].read_text(encoding="utf-8"))
@@ -144,7 +155,17 @@ def test_launcher_records_through_an_installed_flat_copy(tmp_path: Path) -> None
         check=False,
     )
 
-    _assert_single_response(completed, {"continue": True})
+    # Issue #530: same tail snapshot contract through the installed flat copy.
+    _assert_single_response(
+        completed,
+        {
+            "continue": True,
+            "phase_grounding": {
+                "snapshot": "phase=unknown stance=S0 viol=0 topics=0 digest=none",
+                "events": [],
+            },
+        },
+    )
     signals = list((checkout / ".research-tree-debug" / "signals").glob("*.json"))
     assert len(signals) == 1
     signal = json.loads(signals[0].read_text(encoding="utf-8"))

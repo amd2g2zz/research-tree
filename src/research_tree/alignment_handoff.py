@@ -11,7 +11,14 @@ from .decision_map import BLUEPRINT_TARGET_KIND
 from .domain import ArtifactRef, ArtifactRevision, thaw_json, validate_identifier
 from .recursive_search import initialize_research_state
 from .run_ledger import RunLedger
-from .tree_state import RESEARCH_TREE_STATE_KIND, ResearchTreeStateError
+from .tree_state import (
+    DEFAULT_TREE_PHASE,
+    RESEARCH_TREE_STATE_KIND,
+    CanonicalResearchTreeStateService,
+    ResearchTreeStateError,
+    RunPhaseStore,
+    run_phase_dir,
+)
 
 ALIGNMENT_GRAPH_KIND = "alignment-graph"
 ALIGNMENT_HANDOFF_KIND = "alignment-handoff"
@@ -68,6 +75,10 @@ def initialize_research_from_alignment(
         baseline_findings=findings,
         execution_context=compiled["execution_context"],
     )
+    # Issue #530 writer 1: the confirmed handoff owns `compiled`. Write the
+    # birth phase explicitly instead of relying on the store-side default, so
+    # the phase clock starts with a hand that moved it.
+    state["phase"] = DEFAULT_TREE_PHASE
     created = ledger.append_artifact_batch(
         round_id,
         (
@@ -96,7 +107,51 @@ def initialize_research_from_alignment(
         ),
         expected_revision=expected_revision,
     )
+    _record_run_phase(ledger, round_id, created)
     return created[-1]
+
+
+def _record_run_phase(ledger: RunLedger, round_id: str, created: tuple[ArtifactRevision, ...]) -> None:
+    """Record the handoff-compile phase writes (issue #530, best-effort).
+
+    The tree payload phase is the authority and is already persisted; the
+    run-level store mirrors it for the hook. When the workflow already
+    confirmed the handoff (autonomous research is live), the birth is
+    immediately followed by the owned ``compiled -> research`` advance —
+    otherwise the coordinator's ``handoff_confirmed`` wiring moves it later.
+    """
+
+    tree = next((artifact for artifact in created if artifact.kind == RESEARCH_TREE_STATE_KIND), None)
+    if tree is None:
+        return
+    store = RunPhaseStore(run_phase_dir(ledger.workspace, round_id))
+    try:
+        current = store.current()
+        if current is None or current.get("phase") == "alignment":
+            store.record_transition(phase=DEFAULT_TREE_PHASE, reason="alignment_handoff_confirmed")
+        if _workflow_confirmed(ledger, round_id):
+            CanonicalResearchTreeStateService(ledger).advance_phase(
+                round_id=round_id,
+                tree_id=tree.id,
+                phase="research",
+                reason="handoff_confirmed",
+            )
+    except (OSError, ResearchTreeStateError):
+        # The gated tree state is persisted; a store hiccup must not fail the
+        # already-committed handoff batch.
+        return
+
+
+def _workflow_confirmed(ledger: RunLedger, round_id: str) -> bool:
+    """Whether the run's canonical lifecycle already reached autonomous research."""
+
+    from .coordinator import RESEARCH_RUN_STATE_KIND
+
+    candidates = [
+        artifact for artifact in ledger.load_run(round_id).artifacts if artifact.kind == RESEARCH_RUN_STATE_KIND
+    ]
+    latest = max(candidates, key=lambda artifact: artifact.revision, default=None)
+    return latest is not None and latest.payload.get("state") == "autonomous_research"
 
 
 def _next_revision(artifacts: tuple[ArtifactRevision, ...], artifact_id: str) -> int:
