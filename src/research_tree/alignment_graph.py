@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import sqlite3
@@ -67,6 +68,20 @@ except ImportError:  # packaged single-file layout: the hook ships beside this s
     except ImportError:  # unavailable: the phase-aware refusal degrades fail-open
         _read_phase_state_at = None  # type: ignore[assignment]
 
+try:  # issue #526 stance signals: read-only consumption of the #524/#525 queries
+    from .brief_refinery import BriefRefineryStore as _BriefRefineryStore
+    from .discipline import DisciplineViolationStore as _DisciplineViolationStore
+    from .discipline import sliding_window_rate as _sliding_window_rate
+except ImportError:  # packaged single-file layout: the signal stores ship beside this script
+    try:
+        from brief_refinery import BriefRefineryStore as _BriefRefineryStore  # type: ignore[no-redef]
+        from discipline import DisciplineViolationStore as _DisciplineViolationStore  # type: ignore[no-redef]
+        from discipline import sliding_window_rate as _sliding_window_rate  # type: ignore[no-redef]
+    except ImportError:  # unavailable: the computed stance degrades fail-open to the S1 default
+        _BriefRefineryStore = None  # type: ignore[assignment]
+        _DisciplineViolationStore = None  # type: ignore[assignment]
+        _sliding_window_rate = None  # type: ignore[assignment]
+
 SCHEMA = 3
 # Issue #530: while the run phase is research the alignment dialogue is
 # mechanically closed — new asks are refused (plan redirects to the reopen
@@ -103,6 +118,77 @@ ALIGNMENT_HIGH_IMPACT = 4
 # Dialogue turns granted when the user responds after an
 # `alignment_incomplete` blocked disposition (extension by engagement).
 ALIGNMENT_EXTENSION_TURNS = 3
+# --- Adaptive stance controller (#526) --------------------------------------------
+# One controller, three outputs (trust posture, turn shape, divergence
+# strategy), driven by four measured signals — clarity (the #491 alignment
+# score), vagueness (the #524 brief-registry open share), conflict (the #524
+# registry conflict pairs plus the #490 correction frequency), and the #525
+# agent-side violation rate. S1 trust-first is the default; S2 structures the
+# dialogue when the user turns out not to know what they want; S3 tightens on
+# conflict or agent error; recovered clarity steps the tier back down. A
+# user-side explicit override (declared by the SKILL layer) beats the
+# computed tier — the engine never infers the stance from user text.
+STANCE_TRUST_FIRST = "S1"
+STANCE_STRUCTURED = "S2"
+STANCE_STRICT = "S3"
+STANCES = frozenset({STANCE_TRUST_FIRST, STANCE_STRUCTURED, STANCE_STRICT})
+# Vagueness at or above this share of live registry objects reads as "the user
+# does not know what they want" and structures the dialogue (S2).
+STANCE_VAGUENESS_S2 = 0.5
+# Conflict pairs plus recorded corrections at or above this count, or an
+# agent violation rate at or above this share, reads as an error signal (S3);
+# the rate bar is the #525 discipline-reload step.
+STANCE_CONFLICT_S3 = 2
+STANCE_VIOLATION_RATE_S3 = 0.4
+# Clarity (the alignment score) at or above this reads as recovered
+# understanding and steps the computed tier back down one level (S3→S2, S2→S1).
+STANCE_CLARITY_RECOVERY = 85
+# Active divergence-axis concurrency bound (tier-crossing invariant): more
+# than this many open axes in S2/S3 forces the gather turn — an option set
+# over the open topics for one pointing choice.
+MAX_ACTIVE_AXES = 2
+
+
+def resolve_stance(
+    clarity: int,
+    vagueness: float,
+    conflict: int,
+    violation_rate: float,
+    *,
+    override: str | None = None,
+) -> str:
+    """Resolve the four measured signals to one stance tier (#526).
+
+    Deterministic with named thresholds: S3 on conflict or agent error, else
+    S2 on high vagueness, else the S1 default; clarity at or above the
+    recovery band steps the computed tier back down one level. ``override``
+    (the explicit user-side input) beats the computed tier and is validated
+    like every other stance value.
+    """
+    if override is not None and override not in STANCES:
+        raise AlignmentGraphError(f"stance override must be one of {sorted(STANCES)}, not {override!r}")
+    if isinstance(clarity, bool) or not isinstance(clarity, int) or not 0 <= clarity <= ALIGNMENT_SCORE_MAX:
+        raise AlignmentGraphError(f"clarity must be an integer 0..{ALIGNMENT_SCORE_MAX}, not {clarity!r}")
+    for name, value in (("vagueness", vagueness), ("violation_rate", violation_rate)):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not 0.0 <= value <= 1.0
+            or math.isnan(value)
+        ):
+            raise AlignmentGraphError(f"{name} must be a number 0.0..1.0, not {value!r}")
+    if isinstance(conflict, bool) or not isinstance(conflict, int) or conflict < 0:
+        raise AlignmentGraphError(f"conflict must be a nonnegative integer, not {conflict!r}")
+    tier = STANCE_TRUST_FIRST
+    if vagueness >= STANCE_VAGUENESS_S2:
+        tier = STANCE_STRUCTURED
+    if conflict >= STANCE_CONFLICT_S3 or violation_rate >= STANCE_VIOLATION_RATE_S3:
+        tier = STANCE_STRICT
+    if clarity >= STANCE_CLARITY_RECOVERY and tier != STANCE_TRUST_FIRST:
+        tier = STANCE_STRUCTURED if tier == STANCE_STRICT else STANCE_TRUST_FIRST
+    return tier if override is None else override
+
+
 AXIS_STATUSES = frozenset({"open", "converged"})
 DIALOGUE_MODES = frozenset({"handoff_ready", "divergent", "converging", "stalled"})
 IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -380,6 +466,7 @@ class AlignmentGraphStore:
         previous_category: str | None = None,
         user_profile: str | None = None,
         run_phase: str | None = None,
+        stance: str | None = None,
     ) -> dict[str, Any]:
         # Issue #530: while the run phase is research the alignment dialogue is
         # closed. New asks are refused BEFORE any merge, mutation, or turn
@@ -407,6 +494,10 @@ class AlignmentGraphStore:
             raise AlignmentGraphError(
                 f"user_profile must be one of {sorted(USER_PROFILES)} or None, not {user_profile!r}"
             )
+        # Issue #526: the stance is a turn-context INPUT the same way —
+        # validated before any merge so an unknown tier never mutates state.
+        if stance is not None and stance not in STANCES:
+            raise AlignmentGraphError(f"stance must be one of {sorted(STANCES)} or None, not {stance!r}")
         if update is not None:
             self.merge(update)
         with self._connect() as connection:
@@ -498,11 +589,20 @@ class AlignmentGraphStore:
             max_questions = turn_budget.max_questions if turn_budget is not None else DEFAULT_MAX_QUESTIONS_PER_TURN
             asked_this_turn = sum(1 for node in nodes if node["last_asked_turn"] == controller["turn"])
             question_budget = {"max_questions": max_questions, "asked_this_turn": asked_this_turn}
+            # Issue #526: the turn's stance — the declared input wins, else the
+            # tier is computed from the four measured signals — is emitted
+            # beside the contract terms and drives the tier-shaped emission.
+            resolved_stance, stance_signals = self._resolve_turn_stance(score, int(controller["turn"]), stance)
+            gather = _gather_duty(resolved_stance, state["divergence"]["axes"])
             if readiness["ready"] and exit_allowed:
                 decision: dict[str, Any] = {
                     "action": "await_human_confirmation",
                     "reason": "the alignment graph supports a strategy handoff",
                     "question": None,
+                    "score_summary": _score_summary(
+                        score,
+                        [axis["description"] for axis in state["divergence"]["axes"] if axis["status"] == "open"],
+                    ),
                 }
             elif not exit_allowed and controller["turn"] >= MAX_TURNS and not extended:
                 # Turn cap reached with the score still below the exit
@@ -515,6 +615,24 @@ class AlignmentGraphStore:
                     "alignment turn budget reached with the alignment score below the exit threshold; "
                     "the open points need your decision",
                 )
+            elif gather is not None:
+                # Issue #526 gather duty (S2+): open divergence directions over
+                # the concurrency bound force a gather turn — an option set
+                # over the open topics for one pointing choice. No ask is
+                # consumed; the turn is non-question (the #527 posture).
+                decision = {
+                    "action": "gather",
+                    "node_id": gather["node_id"],
+                    "gap_id": gather["node_id"],
+                    "question": None,
+                    "reason": (
+                        f"{gather['count']} open divergence directions exceed the concurrency bound of "
+                        f"{MAX_ACTIVE_AXES} in stance {resolved_stance}; compose a gather turn: an option "
+                        "set over the open topics for one pointing choice"
+                    ),
+                    "gather_options": gather["descriptions"],
+                    "question_budget": {**question_budget, "remaining": max(0, max_questions - asked_this_turn)},
+                }
             elif eligible and asked_this_turn < max_questions:
                 node = eligible[0]
                 connection.execute(
@@ -600,6 +718,9 @@ class AlignmentGraphStore:
             # Canonical loop step 1 (#489): emit the turn's contract terms
             # next to the decision — additive keys; the action output above is
             # unchanged and the terms persist via last_decision_json.
+            decision["stance"] = resolved_stance
+            if stance_signals is not None:
+                decision["stance_signals"] = stance_signals
             if ContractTerms is not None and nodes:
                 terms = _emit_contract_terms(
                     nodes,
@@ -611,6 +732,7 @@ class AlignmentGraphStore:
                     verdict,
                     user_profile=user_profile,
                     surveyed_gaps=_gaps_with_recorded_survey(connection),
+                    stance=resolved_stance,
                 )
                 if terms is not None:
                     decision["contract_terms"] = terms.to_dict()
@@ -634,6 +756,48 @@ class AlignmentGraphStore:
             "alignment_score": score,
             "alignment_exit_threshold": ALIGNMENT_SCORE_EXIT_THRESHOLD,
         }
+
+    def _resolve_turn_stance(
+        self, score: int, turn: int, declared: str | None
+    ) -> tuple[str, dict[str, float | int] | None]:
+        """The turn's stance: the declared input wins, else compute from the four signals (#526)."""
+
+        if declared is not None:
+            return declared, None
+        signals = self._observed_stance_signals(score, turn)
+        return resolve_stance(**signals), signals
+
+    def _observed_stance_signals(self, score: int, turn: int) -> dict[str, float | int]:
+        """The four measured stance signals, fail-open to clean defaults (#526).
+
+        clarity = the #491 alignment score; vagueness/conflict = the #524
+        brief-registry queries (conflict additionally counts the #490
+        correction frequency from the bounded feed scan); violation_rate =
+        the #525 sliding-window rate over the persisted violation stream.
+        Unavailable stores read as clean signals (S1) — observation must
+        never invent strictness.
+        """
+
+        run_root = self.database.parent.parent
+        vagueness = 0.0
+        conflict = 0
+        if _BriefRefineryStore is not None:
+            try:
+                registry = _BriefRefineryStore(run_root).load()
+                vagueness = registry.vagueness()
+                conflict = registry.conflicts()
+            except (OSError, ValueError):
+                pass
+        conflict += _correction_frequency_from_feed(run_root)
+        violation_rate = 0.0
+        if _DisciplineViolationStore is not None and _sliding_window_rate is not None:
+            try:
+                violation_rate = _sliding_window_rate(
+                    _DisciplineViolationStore(run_root).records(), turns_observed=turn
+                )
+            except (OSError, ValueError):
+                pass
+        return {"clarity": score, "vagueness": vagueness, "conflict": conflict, "violation_rate": violation_rate}
 
     def record(
         self,
@@ -679,6 +843,16 @@ class AlignmentGraphStore:
             if node is None:
                 raise AlignmentGraphError(f"unknown graph node: {node_id}")
             controller = connection.execute("SELECT * FROM controller WHERE singleton=1").fetchone()
+            # Issue #526 tier-crossing invariants, enforced against the
+            # outstanding plan's persisted stance (fail-open to the #527
+            # flag-not-block behavior when no stance was emitted):
+            #   S3 freezes divergence — new axes are refused outright;
+            #   S2/S3 make the one-question invariant a HARD record gate.
+            outstanding_stance = _controller_row_stance(controller)
+            if outstanding_stance == STANCE_STRICT and axes:
+                raise AlignmentGraphError(
+                    "stance_s3_axis_freeze: new divergence axes are frozen in stance S3; converge the open points first"
+                )
             verified: tuple[str, ...] = ()
             terms = _controller_row_terms(controller)
             if normalized_traces is not None and verify_traces is not None and terms is not None:
@@ -692,6 +866,13 @@ class AlignmentGraphStore:
             # feed the #525 discipline telemetry.
             turn_budget_violations = _verify_agent_turn_budget(terms, question_count, turn_chars)
             budget_checked = terms is not None and terms.agent_turn_budget is not None
+            if outstanding_stance in {STANCE_STRUCTURED, STANCE_STRICT} and any(
+                violation["dimension"] == "max_questions" for violation in turn_budget_violations
+            ):
+                raise AlignmentGraphError(
+                    f"stance_{outstanding_stance.lower()}_question_gate: at most one question per "
+                    f"interactive turn in stance {outstanding_stance}; split the turn and re-ask next turn"
+                )
             hashed = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
             changed = hashed != controller["last_fingerprint"]
             turn = int(controller["turn"]) + 1
@@ -936,6 +1117,7 @@ class AlignmentGraphStore:
             "graph_digest": details["graph_digest"],
             "alignment_score": score,
             "alignment_exit_threshold": ALIGNMENT_SCORE_EXIT_THRESHOLD,
+            "score_summary": _score_summary(score, details["blocked_nodes"]),
         }
 
     def compile_handoff(self) -> dict[str, Any]:
@@ -1649,6 +1831,9 @@ def _blocked_disposition(
         "question": None,
         "alignment_score": score,
         "alignment_exit_threshold": ALIGNMENT_SCORE_EXIT_THRESHOLD,
+        # Issue #526: the score enters the disposition user-visibly so the
+        # waive reads as a mutual "good enough" acknowledgment, not surrender.
+        "score_summary": _score_summary(score, [node["id"] for node in open_gaps]),
         "blocked_nodes": [
             {
                 "node_id": node["id"],
@@ -1756,6 +1941,28 @@ def _controller_row_terms(controller: sqlite3.Row) -> Any:
         return None
 
 
+def _controller_row_stance(controller: sqlite3.Row) -> str | None:
+    """The outstanding ask's stance, read from the persisted plan decision (#526)."""
+
+    raw = controller["last_decision_json"] if isinstance(controller, sqlite3.Row) else None
+    if not raw:
+        return None
+    try:
+        decision = json.loads(raw)
+    except ValueError:
+        return None
+    if isinstance(decision, Mapping) and decision.get("stance") in STANCES:
+        return str(decision["stance"])
+    return None
+
+
+def _score_summary(score: int, remaining: Sequence[str]) -> str:
+    """The user-visible score line (#526): understood percentage + named gaps."""
+
+    names = ", ".join(remaining) if remaining else "none"
+    return f"understood ~{score}%; remaining: {names}"
+
+
 def _verify_agent_turn_budget(
     terms: Any,
     question_count: int | None,
@@ -1781,6 +1988,39 @@ def _verify_agent_turn_budget(
     return violations
 
 
+def _alignment_feed_records(run_root: Path) -> list[Mapping[str, Any]]:
+    """The bounded newest-first scan of the #490 alignment_user_move feed.
+
+    One record per classified alignment-phase prompt, with a fixed-width UTC
+    timestamp prefix, so lexicographic order is chronological. Bounded scan;
+    unreadable records are skipped (fail-open).
+    """
+
+    try:
+        paths = sorted(
+            (item for item in (run_root / "events").iterdir() if item.is_file() and item.suffix == ".json"),
+            key=lambda item: item.name,
+            reverse=True,
+        )[:_USER_MOVE_FEED_SCAN]
+    except OSError:
+        return []
+    records: list[Mapping[str, Any]] = []
+    for path in paths:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(record, Mapping) and record.get("route") == USER_MOVE_FEED_ROUTE:
+            records.append(record)
+    return records
+
+
+def _correction_frequency_from_feed(run_root: Path) -> int:
+    """Counted correction moves in the bounded feed scan (#526 conflict signal)."""
+
+    return sum(1 for record in _alignment_feed_records(run_root) if record.get("category") == "correction")
+
+
 def _user_move_signal_from_feed(run_root: Path) -> tuple[Mapping[str, str] | None, str | None]:
     """Read the newest (and previous) #490 user-move feed record, fail-open.
 
@@ -1791,23 +2031,9 @@ def _user_move_signal_from_feed(run_root: Path) -> tuple[Mapping[str, str] | Non
     problem degrades to no signal (rank-order emission).
     """
 
-    try:
-        paths = sorted(
-            (item for item in (run_root / "events").iterdir() if item.is_file() and item.suffix == ".json"),
-            key=lambda item: item.name,
-            reverse=True,
-        )[:_USER_MOVE_FEED_SCAN]
-    except OSError:
-        return None, None
     signal: dict[str, str] | None = None
     previous: str | None = None
-    for path in paths:
-        try:
-            record = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if not isinstance(record, Mapping) or record.get("route") != USER_MOVE_FEED_ROUTE:
-            continue
+    for record in _alignment_feed_records(run_root):
         category = record.get("category")
         confidence = record.get("confidence")
         rule = record.get("rule")
@@ -1886,27 +2112,86 @@ def _agent_turn_budget(previous_terms: Any) -> Any:
     )
 
 
-def _gap_required_traces(node: Mapping[str, Any], *, reopened: bool, cap: Any) -> tuple[str, ...]:
-    """Required traces from gap shape + response-production class (#489).
+def _gap_required_traces(
+    node: Mapping[str, Any], *, reopened: bool, cap: Any, stance: str = STANCE_TRUST_FIRST
+) -> tuple[str, ...]:
+    """Required traces from gap shape, measured signals, and stance (#489/#526).
 
     A misunderstood-intent gap (disputed target, or a correction-driven
     reopen) requires the turn to restate the corrected understanding
     (``guess-statement``). A proposal-shaped gap requires the possibility
     space be surveyed before an open question (``possibility-survey``), or
     the option set be shown when the user's next move is a pointing response
-    (``option-set`` under a discrimination cap). All names are frozen
-    registry entries; alternatives are resolved by the cap class, never by
-    OR-semantics in the terms.
+    (``option-set`` under a discrimination cap). Issue #526 makes the
+    proportionality assessment signal-triggered instead of shape-triggered:
+    it requires a magnitude signal (a high-impact assertion or a recorded
+    over/under judgment) — ordinary proposals carry it only in S3, where the
+    challenges surface as explicit dialogue moves (plus ``counterargument``).
+    All names are frozen registry entries; alternatives are resolved by the
+    cap class, never by OR-semantics in the terms.
     """
 
     if node["status"] == "disputed" or reopened:
+        if stance == STANCE_STRICT:
+            return ("guess-statement", "proportionality_assessment", "counterargument")
         return ("guess-statement",)
-    # Issue #498: a proposal-shaped gap always also requires the
-    # complexity-constraint proportionality assessment — the necessity check
-    # the engine verifies structurally (layer 1 of the ladder).
-    if cap is not None and cap.response_class == RESPONSE_CLASS_DISCRIMINATION:
-        return ("option-set", "proportionality_assessment")
-    return ("possibility-survey", "proportionality_assessment")
+    shaped = (
+        "option-set"
+        if cap is not None and cap.response_class == RESPONSE_CLASS_DISCRIMINATION
+        else "possibility-survey"
+    )
+    if stance == STANCE_STRICT:
+        return (shaped, "proportionality_assessment", "counterargument")
+    if _magnitude_signal(node):
+        return (shaped, "proportionality_assessment")
+    return (shaped,)
+
+
+def _magnitude_signal(node: Mapping[str, Any]) -> bool:
+    """A measured over/under magnitude judgment (#498/#526).
+
+    True on a high-impact assertion (``impact`` at or above
+    ``ALIGNMENT_HIGH_IMPACT`` — the same bar as the high-impact disagreement
+    rule) or when the node carries a recorded #498 proportionality assessment
+    whose direction names a magnitude conflict (``over``/``under``).
+    """
+
+    try:
+        impact = int(node.get("impact") or 0)
+    except (TypeError, ValueError):
+        impact = 0
+    if impact >= ALIGNMENT_HIGH_IMPACT:
+        return True
+    attributes = node.get("attributes")
+    return (
+        isinstance(attributes, Mapping)
+        and isinstance(attributes.get("proportionality_assessment"), Mapping)
+        and attributes["proportionality_assessment"].get("direction") in ("over", "under")
+    )
+
+
+def _gather_duty(stance: str, axes: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
+    """The S2+ gather duty: open axes over the concurrency bound force a gather (#526).
+
+    Returns the gather-turn inputs — the node to ground the turn on, the open
+    axis descriptions as the option-set material, and the count — or None
+    when the stance is S1 (record axes, do not chase them) or the open axes
+    are within ``MAX_ACTIVE_AXES``.
+    """
+
+    if stance not in {STANCE_STRUCTURED, STANCE_STRICT}:
+        return None
+    open_axes = sorted(
+        (axis for axis in axes if axis["status"] == "open"),
+        key=lambda axis: (axis["stagnant_turns"], axis["axis_id"]),
+    )
+    if len(open_axes) <= MAX_ACTIVE_AXES:
+        return None
+    return {
+        "node_id": open_axes[0]["node_id"],
+        "descriptions": [axis["description"] for axis in open_axes],
+        "count": len(open_axes),
+    }
 
 
 def _fallback_target(nodes: Sequence[Mapping[str, Any]], active_axes_by_node: Mapping[str, Any]) -> str | None:
@@ -1953,6 +2238,7 @@ def _emit_contract_terms(
     *,
     user_profile: str | None = None,
     surveyed_gaps: frozenset[str] | None = None,
+    stance: str = STANCE_TRUST_FIRST,
 ) -> Any:
     """Build the turn's ContractTerms from the graph state and the #490 verdict."""
 
@@ -1964,6 +2250,9 @@ def _emit_contract_terms(
         taboos |= set(verdict.taboo_additions)
         taboos -= set(verdict.taboo_removals)
     interactive = _is_interactive_turn(decision)
+    # Issue #526: the gather turn (S2+ axis overflow) shows the open topics as
+    # an option set for one pointing choice — a focused, capped, non-question turn.
+    gather_turn = str(decision.get("action")) == "gather"
     if interactive and "node_id" in decision:
         target: str | None = str(decision["node_id"])
     elif verdict is not None and verdict.gap_target is not None:
@@ -1993,18 +2282,33 @@ def _emit_contract_terms(
         for name in previous_terms.deferred_traces if previous_terms is not None else ():
             if name not in wishlist:
                 wishlist.append(name)
-    novice_active = user_profile == "novice" and interactive and CostCap is not None
-    if novice_active:
+    # Issue #526: the S2 structured posture reuses the #520 novice shape —
+    # strictness is not interrogation, the agent owns the structure
+    # (show-then-point), so the cap drops to the discrimination floor and the
+    # possibility space is mapped before anything open-ended. The gather turn
+    # outranks the posture: its whole shape is the option set over the open
+    # topics, required ahead of the carried queue so the duty never defers.
+    novice_active = (
+        (user_profile == "novice" or stance == STANCE_STRUCTURED)
+        and interactive
+        and not gather_turn
+        and CostCap is not None
+    )
+    if gather_turn and interactive and CostCap is not None:
+        cap = CostCap(response_class=RESPONSE_CLASS_DISCRIMINATION, max_sentences=1)
+        if "option-set" not in wishlist:
+            wishlist.insert(0, "option-set")
+    elif novice_active:
         # Issue #500 interview posture, as emission policy (not a menu): a
         # novice points rather than composes, so the cap drops to the
         # discrimination floor, the turn must show options (show-then-point),
         # and the possibility space must be mapped (survey on record) before
         # anything open-ended is asked of them.
         cap = CostCap(response_class=RESPONSE_CLASS_DISCRIMINATION, max_sentences=1)
-    if interactive:
+    if interactive and not gather_turn:
         node = next((item for item in nodes if item["id"] == target), None)
         if node is not None:
-            gap_traces = _gap_required_traces(node, reopened=(directive == "reopen"), cap=cap)
+            gap_traces = _gap_required_traces(node, reopened=(directive == "reopen"), cap=cap, stance=stance)
             # The misunderstood-intent floor outranks the novice posture:
             # echo-guess or mirror first, ask second (alignment-craft.md).
             misunderstood = gap_traces[:1] if gap_traces and gap_traces[0] == "guess-statement" else ()

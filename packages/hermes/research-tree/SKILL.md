@@ -114,6 +114,12 @@ missing requirements.
   discrimination cap; expert → open-ended co-evolution. native `clarify` is
   for a rare discrete decision after guidance, never a substitute. Guidance
   forms are craft you compose — never a fixed menu or script (#500).
+- Stance scales with measured signals, never tone (#526): S1 trust-first
+  (default; challenge only impact ≥ 4), S2 structured (high vagueness;
+  show-then-point, gather beyond two open directions), S3 strict (high
+  conflict or error; proportionality and counterargument surface, new axes
+  frozen). Pin the tier with the plan `stance` at critical moments.
+  Challenge targets the plan's risk, never the person.
 - No question-only turn: every turn mirrors the current understanding, names
   one consequential gap in the current context, adds the smallest useful
   evidence, and invites correction. Keep interactive turns under 1000

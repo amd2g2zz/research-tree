@@ -11,20 +11,20 @@ user-invocable: true
 ## Purpose
 
 Run technical research as a joint epistemic process. The requester is
-authoritative about preferences, outcomes, and authority, but not about
+authoritative about preferences, outcomes, and authority, but not
 technical feasibility. The agent contributes reconnaissance, counterevidence,
 and structure, and is equally provisional. User feedback, agent
 self-correction, and external evidence update one Living Brief. Produce two
 co-primary deliverables: a cited, evidence-bearing Technical Research Package
 able to drive implementation, and a professional Human Research Report (the
-Human Brief artifact) deep enough to support a human decision. Create OpenSpec
+Human Brief) deep enough to support a human decision. Create OpenSpec
 artifacts only when explicitly requested.
 
 ## Goal model
 
-- The confirmed StrategyProjection is the primary goal. Its decision_targets
+- The confirmed StrategyProjection is the primary goal: its decision_targets
   and success_oracles define what the run may claim and when it may complete.
-- Decision Slots are secondary: each slot carries a required `serves` link
+- Decision Slots are secondary: each carries a required `serves` link
   (target_id plus oracle_ids) into a confirmed target and oracle. No
   confirmed projection means no dispatch.
 - Truth is artifact-decided: Finding Packs, goal-contribution assessments,
@@ -38,24 +38,24 @@ Use this ordered state machine on every host:
 `verified_load -> bounded_reconnaissance -> alignment_question -> explicit_handoff -> autonomous_dispatch`
 
 Deep technical research requesting evidence and a decision-ready deliverable
-triggers this contract. Ordinary explanation, small edits, one-shot answers,
+triggers it. Ordinary explanation, small edits, one-shot answers,
 and unrelated requests do not; negative triggers must not start
 reconnaissance or dispatch. Before `explicit_handoff`, do not dispatch,
 delegate, call external research, or write a final research artifact. Missing
 or stale loader receipts, misalignment, unavailable resources, or an implicit
-handoff return a bounded blocked disposition naming the failed phase and the
-next safe action. Silence, "okay", or "continue" is not alignment evidence.
+handoff return a bounded blocked disposition naming the failed phase and next
+safe action. Silence, "okay", or "continue" is not alignment evidence.
 
 ## Load bundled resources
 
 - Resolve every relative path against the skill directory the host supplies.
   The installed package is read-only; keep run state in the writable
-  workspace and persist a checkpoint before returning each response.
+  workspace; persist a checkpoint before returning each response.
 - Read `references/research-quality-playbook.md` before alignment or
   research: it carries the quality bars these protocols enforce.
 - Read `references/alignment-controller.md` and initialize its run state
-  before the first alignment question; run its `plan` immediately before
-  every pre-handoff question and `record` after each response. Two unchanged
+  before the first alignment question; run its `plan` before
+  every pre-handoff question and `record` after each response; two unchanged
   fingerprints select reconnaissance instead of a repeated question.
 - Use `assets/brief-template.md`, `assets/research-strategy-template.md`,
   `assets/technical-research-package-template.md`, and
@@ -74,10 +74,10 @@ When operating in a `research-tree` source checkout, run every bundled Python
 script through the locked project environment: `uv run --frozen python ...`.
 Discover the checkout containing `pyproject.toml` and `uv.lock` before
 invoking the script, and use `uv run --project <checkout> --frozen python ...`
-when the current working directory is elsewhere.
-Never substitute the system `python` executable. If no `uv` project can be found, report an actionable
-environment blocker instead of producing a parser-level error from an
-incompatible Python.
+when the working directory is elsewhere.
+Never substitute the system `python` executable; if no `uv` project can be
+found, report an actionable environment blocker instead of a parser-level
+error from an incompatible Python.
 
 ## Claude Code runtime adapter
 
@@ -200,28 +200,33 @@ missing requirements.
 
 - Inspect supplied material and the repository before asking anything
   detailed, and run bounded reconnaissance so each turn adds knowledge the
-  requester did not have. Never answer an exploratory request with only a
+  requester lacks. Never answer an exploratory request with only a
   questionnaire, option table, plan, or research tree.
 - The controller emits each turn's contract terms (`target_gap`,
-  `required_traces`, `cost_cap`, `taboos`); compose freely
-  (`references/alignment-craft.md` is the palette), the engine verifies
-  required traces at record time; the turn record closes the loop. A named
-  missing trace means produce it; never re-ask a `taboos` node.
-- Own the conversation shape like an interviewer, not an interrogator.
-  Declare fluency per turn (`novice`/`expert` in the plan call): novice →
-  show-then-point — options with one-line examples, a possibility survey
-  before anything open-ended, pointing questions; expert → open-ended
-  co-evolution. Guidance forms are craft you compose — never a fixed menu
-  or script (#500).
+  `required_traces`, `cost_cap`, `taboos`) and the stance tier; compose
+  freely (`references/alignment-craft.md` is the palette), the engine
+  verifies required traces at record time; the turn record closes the loop.
+  A named missing trace means produce it; never re-ask a `taboos` node.
+- Stance scales with measured signals, never tone (#526): S1 trust-first
+  (default; challenge only impact ≥ 4), S2 structured (high vagueness;
+  show-then-point, gather beyond two open directions), S3 strict (high
+  conflict or error; proportionality and counterargument surface, new axes
+  frozen). Pin the tier with the plan `stance` at critical moments.
+  Challenge targets the plan's risk, never the person.
+- Own the conversation shape like an interviewer, not an interrogator;
+  declare fluency per turn (`novice`/`expert` in the plan call): novice →
+  show-then-point (options with one-line examples, a possibility survey
+  before anything open-ended, pointing questions); expert → open-ended
+  co-evolution. Guidance forms are craft you compose — never a menu (#500).
 - No question-only turn: every turn mirrors the current understanding, names
   the consequential gap, adds the smallest useful evidence, and invites
   correction; keep interactive turns under 1000 characters, split into short
-  rounds. On confusion or missing vocabulary, run
-  a teaching reconnaissance cycle over the smallest useful sources: explain
-  plainly, show one implication, then compose the next turn.
+  rounds. On confusion or missing vocabulary, run a
+  teaching reconnaissance cycle: explain plainly, show one implication,
+  recompose.
 - Co-evolve cognition before strategy handoff: expose your reading,
   assumptions, strongest counterargument, and consequence if wrong; invite
-  challenge; state what changed on both sides. Record-or-block: ground this
+  challenge; state what changed on both sides. Record-or-block: ground the
   turn in the persisted alignment-turn record, `record` the response (traces,
   user move), and append the exchange's record to `turn-records.jsonl` in the
   run's `alignment/` workspace; hooks refresh and validate it. A missing or
@@ -243,11 +248,11 @@ missing requirements.
 - Long-horizon research is cost-tolerant: never invent a monetary budget and
   never use API or token spend as a reason to narrow or stop. Operational
   guardrails (time slices, tool-call batches, concurrency, storage, safety,
-  host limits) end a batch with a resumable checkpoint, never a final stop.
+  host limits) end a batch with a resumable checkpoint, not a final stop.
 - Dispose feasibility explicitly: plausible, conditional, infeasible, or
   indeterminate. State infeasibility with the conflicting constraints, the
-  relevant bound, and the nearest feasible reframings. Never silently
-  substitute your preferred feasible alternative, and never declare
+  bound, and the nearest feasible reframings. Never silently
+  substitute your preferred alternative, and never declare
   impossibility from intuition: run the smallest feasibility spike that
   could change the disposition.
 
@@ -265,10 +270,10 @@ goal, and everything downstream validates against it.
    the falsifiability review (`validate_falsifiability`) accepts it: every
    success oracle names evidence standards and every target reference
    resolves. Before display, dispatch a fresh-context subagent that reads
-   only the original conversation and the projection draft, restates its own
+   only the original conversation and the projection draft, restates its
    understanding of outcome, scope, authority, and each success oracle, and
-   records any discrepancy with the draft. Register that restatement as the
-   alignment verification, naming the subagent's session identity as the
+   records any discrepancy; register that restatement as the
+   alignment verification, naming the subagent's session as the
    verifier and your session as the context — a verification issued by your
    own session is rejected (`independent_verification_required`).
    Display is inspection, not acceptance.
@@ -291,10 +296,9 @@ missing capability, or an oracle that cannot be honestly evaluated);
 continuation state persisted after every meaningful batch; the completion
 oracle; and the failure policy (retry or replan recoverable failures, persist
 a blocker with evidence, never silently downgrade the goal). The envelope
-closes at compilation: once the strategy is compiled it is frozen, and a
-strategy-material change requires user realignment — re-display the
-projection, collect a new confirmation that binds the recomputed authority
-fingerprint, and recompile — before it takes effect; a silent internal
+closes at compilation: a compiled strategy is frozen; a strategy-material
+change requires user realignment — re-display the projection, collect a new
+confirmation, and recompile — before it takes effect; a silent internal
 successor revision is rejected. During research, a user interruption
 resolves to exactly one re-entry path — reopen alignment (re-align,
 reconfirm, recompile) or record the input as supplemental evidence and stay
@@ -316,17 +320,15 @@ The requester is authoritative about goals, never about truth.
 - Interruption (new ask, new information, correction): use `apply_correction`
   with a `CorrectionEvent` (kind exactly `correction` or `reopen`)
   when the checkout runtime is available; otherwise persist the equivalent
-  intent in workspace artifacts. Reordering only not-yet-dispatched work
-  inside one round takes the lighter `record_same_round_replan` path instead.
+  intent in workspace artifacts. Reordering only not-yet-dispatched work in one
+  round takes the lighter `record_same_round_replan` path.
 - Contradicted delivery (by requester or new evidence): `apply_contradiction`
   with the finding refs and reason when the checkout runtime is available;
   otherwise persist the equivalent intent in workspace artifacts. Present the
-  re-entry offer it produces instead of an improvised apology.
+  re-entry offer it produces, not an improvised apology.
 - After presenting both deliverables, collect exactly one of the
-  `ACCEPTANCE_DECISIONS` (accepted, rejected, needs_deeper_research,
-  needs_intent_correction, partially_accepted) via `DeliveryAcceptance` bound
-  to the displayed digest. Silence or "okay" is not acceptance. User-visible
-  status messages echo `research-tree status`
+  `ACCEPTANCE_DECISIONS` via `DeliveryAcceptance` bound to the displayed digest. Silence or "okay" is not acceptance. Status
+  messages echo `research-tree status`
   when the checkout runtime is available; otherwise persist the equivalent
   intent in workspace artifacts and answer from the persisted checkpoint.
 
@@ -341,13 +343,12 @@ The requester is authoritative about goals, never about truth.
   or capability reason is a conformance failure.
 - A worker may report a blocker only after searching available sources and
   tools, inspecting local references or the repository, and trying safe
-  alternatives; record the missing capability and evidence. "I don't know"
-  by itself is not a blocker.
+  alternatives; record the missing capability and evidence. "I don't know" alone is not a blocker.
 - Run the plan-to-execute loop: ingest a verified pack, then record its
   goal-contribution verdict (`assess_goal_contribution`). ADVANCES and
   PARTIAL count toward the slot; NO_CONTRIBUTION and CONTRADICTS leave the
-  tree's consumed set untouched, trigger a same-round replan with the
-  guidance defect named, and the second consecutive NO_CONTRIBUTION
+  consumed set untouched, trigger a same-round replan naming the guidance
+  defect, and the second consecutive NO_CONTRIBUTION
   escalates to a method-switch consultation. Insight Digest signals
   uncovered, thin, contested, and qualified are successor-work triggers, not
   report-writing cues; only a converging slot advances to Decision Ledger
@@ -368,25 +369,25 @@ The requester is authoritative about goals, never about truth.
   option table, diagnosis, or proposed fix list: return evidence-bearing
   progress in the same round (inspected sources, repository facts, a safe
   experiment, or a scoped feasibility result). "Recommendations only" means
-  do not edit the target system; it never means skip the research.
+  do not edit the target system, never skip the research.
 - Deliver both artifacts or none: the Technical Research Package
   (repository-grounded, cited, honest evidence levels, ordered work with
   validation and rollback) and the Human Brief (decision-oriented language,
-  what changed in each side's model, what was actually built or executed,
+  what changed on each side, what was actually built or executed,
   what remains uncertain, next milestone). They must agree on scope,
   decisions, uncertainty, and evidence. An interim note is not the final
   report: while the Living Brief is still exploring or reopened, label the
   response interim and continue.
-- Completion is gated per oracle: the coordinator registers a verdict via
+- Completion is gated per oracle: register a verdict via
   `write_goal_satisfaction` for every success oracle (satisfied or partial
-  cites evidence that resolves to run artifacts; waived carries a waiver
+  cites evidence resolving to run artifacts; waived carries a waiver
   reason; unmet is explicit and never covers an oracle). While an oracle is
   uncovered the run cannot complete, and the blocker names
   `resolve:goal_satisfaction:<oracle_id>`. Independently, before delivery
   acceptance dispatch a fresh-context subagent that reads only the Finding
   Packs and the confirmed oracles — never your summary — and records a
-  per-oracle verdict with references to the packs it read; a delivery review
-  issued by your own session is rejected (`independent_review_required`).
+  per-oracle verdict referencing the packs it read; a review issued by your
+  own session is rejected (`independent_review_required`).
   Do not report completion while either gate is blocked. Dissatisfaction,
   correction, or a depth objection reopens the Living Brief for a new
   evidence-bearing batch.
