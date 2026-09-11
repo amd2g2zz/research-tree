@@ -27,12 +27,15 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Sequence
 
 __all__ = [
+    "DEFAULT_MAX_CHARS_PER_TURN",
+    "DEFAULT_MAX_QUESTIONS_PER_TURN",
     "DEFAULT_TRACE_REGISTRY",
     "INITIAL_TRACE_TYPES",
     "RESPONSE_CLASSES",
     "RESPONSE_CLASS_DISCRIMINATION",
     "RESPONSE_CLASS_GENERATION",
     "SCHEMA_VERSION",
+    "AgentTurnBudget",
     "ContractTerms",
     "ContractTermsError",
     "CostCap",
@@ -46,6 +49,15 @@ __all__ = [
 ]
 
 SCHEMA_VERSION = 1
+
+# Issue #527 — the agent turn budget, the dual of the user-side cost_cap:
+# where ``CostCap`` bounds the requester's response production, the
+# ``AgentTurnBudget`` bounds the agent's own output per interactive turn.
+# ``max_questions = 1`` is the one-question-per-turn invariant behind the
+# #514 shape gate's flag; ``max_chars`` is tier-settable (#526) — these
+# constants are the engine floor the terms are emitted with.
+DEFAULT_MAX_QUESTIONS_PER_TURN = 1
+DEFAULT_MAX_CHARS_PER_TURN = 1200
 
 RESPONSE_CLASS_DISCRIMINATION = "discrimination"
 RESPONSE_CLASS_GENERATION = "generation"
@@ -117,6 +129,36 @@ class CostCap:
         if not isinstance(value, Mapping) or set(value) != {"response_class", "max_sentences"}:
             raise ContractTermsError("cost_cap must contain exactly response_class and max_sentences")
         return cls(response_class=value["response_class"], max_sentences=value["max_sentences"])
+
+
+@dataclass(frozen=True, slots=True)
+class AgentTurnBudget:
+    """Agent output ceiling for one turn (issue #527) — the dual of CostCap.
+
+    At most ``max_questions`` questions per interactive turn and at most
+    ``max_chars`` characters of composed output. Carried in the emitted
+    ``ContractTerms`` next to the user-side ``cost_cap`` and verified at
+    record time as a flag-not-block violation stream (#525 counts it);
+    exceeding it splits the turn, never truncates or blocks it.
+    """
+
+    max_questions: int
+    max_chars: int
+
+    def __post_init__(self) -> None:
+        for name in ("max_questions", "max_chars"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ContractTermsError(f"agent_turn_budget {name} must be a positive integer: {value!r}")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"max_questions": self.max_questions, "max_chars": self.max_chars}
+
+    @classmethod
+    def from_dict(cls, value: Any) -> "AgentTurnBudget":
+        if not isinstance(value, Mapping) or set(value) != {"max_questions", "max_chars"}:
+            raise ContractTermsError("agent_turn_budget must contain exactly max_questions and max_chars")
+        return cls(max_questions=value["max_questions"], max_chars=value["max_chars"])
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,9 +281,11 @@ INITIAL_TRACE_TYPES: tuple[str, ...] = DEFAULT_TRACE_REGISTRY.names()
 class ContractTerms:
     """Structured contract terms the engine emits for the next turn.
 
-    Exactly the four terms of the canonical contract-emission loop plus a
-    schema version. ``required_traces`` may be empty (a turn with no
-    structural gate); every declared name must be registered.
+    The four canonical terms plus a schema version, and the #527 agent-side
+    additions: ``agent_turn_budget`` (the dual of ``cost_cap``) and the
+    required-trace deferral queue. ``required_traces`` may be empty (a turn
+    with no structural gate); every declared name must be registered. The
+    new fields are additive: legacy terms without them keep parsing.
     """
 
     target_gap: str
@@ -249,6 +293,8 @@ class ContractTerms:
     cost_cap: CostCap
     taboos: tuple[str, ...] = ()
     schema_version: int = SCHEMA_VERSION
+    agent_turn_budget: AgentTurnBudget | None = None
+    deferred_traces: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if isinstance(self.schema_version, bool) or self.schema_version != SCHEMA_VERSION:
@@ -257,6 +303,8 @@ class ContractTerms:
             raise ContractTermsError(f"target_gap must be an alignment-graph node id: {self.target_gap!r}")
         if not isinstance(self.cost_cap, CostCap):
             raise ContractTermsError(f"cost_cap must be a CostCap: {self.cost_cap!r}")
+        if self.agent_turn_budget is not None and not isinstance(self.agent_turn_budget, AgentTurnBudget):
+            raise ContractTermsError(f"agent_turn_budget must be an AgentTurnBudget: {self.agent_turn_budget!r}")
         traces = tuple(self.required_traces)
         if any(not isinstance(item, str) or not item for item in traces):
             raise ContractTermsError("required_traces must be non-empty strings")
@@ -266,6 +314,18 @@ class ContractTerms:
             if name not in DEFAULT_TRACE_REGISTRY:
                 raise ContractTermsError(f"required_traces references unregistered trace type: {name}")
         object.__setattr__(self, "required_traces", traces)
+        deferred = tuple(self.deferred_traces)
+        if any(not isinstance(item, str) or not item for item in deferred):
+            raise ContractTermsError("deferred_traces must be non-empty strings")
+        if len(set(deferred)) != len(deferred):
+            raise ContractTermsError(f"deferred_traces must be unique: duplicate in {list(deferred)}")
+        for name in deferred:
+            if name not in DEFAULT_TRACE_REGISTRY:
+                raise ContractTermsError(f"deferred_traces references unregistered trace type: {name}")
+        overlap = set(deferred) & set(traces)
+        if overlap:
+            raise ContractTermsError(f"deferred_traces must be disjoint from required_traces: {sorted(overlap)}")
+        object.__setattr__(self, "deferred_traces", deferred)
         taboos = tuple(self.taboos)
         if any(not isinstance(item, str) or NODE_ID_RE.fullmatch(item) is None for item in taboos):
             raise ContractTermsError(f"taboos entries must be alignment-graph node ids: {list(taboos)}")
@@ -280,15 +340,18 @@ class ContractTerms:
             "required_traces": list(self.required_traces),
             "cost_cap": self.cost_cap.to_dict(),
             "taboos": list(self.taboos),
+            "agent_turn_budget": (self.agent_turn_budget.to_dict() if self.agent_turn_budget is not None else None),
+            "deferred_traces": list(self.deferred_traces),
         }
 
     @classmethod
     def from_dict(cls, value: Any) -> "ContractTerms":
-        expected = {"schema_version", "target_gap", "required_traces", "cost_cap", "taboos"}
+        core = {"schema_version", "target_gap", "required_traces", "cost_cap", "taboos"}
+        optional = {"agent_turn_budget", "deferred_traces"}
         if not isinstance(value, Mapping):
             raise ContractTermsError("contract terms must be a mapping")
-        missing = expected - set(value)
-        unknown = set(value) - expected
+        missing = core - set(value)
+        unknown = set(value) - core - optional
         if missing or unknown:
             raise ContractTermsError(
                 f"contract terms field mismatch; missing: {sorted(missing)}, unknown: {sorted(unknown)}"
@@ -297,12 +360,18 @@ class ContractTerms:
         taboos = value["taboos"]
         if not isinstance(required, (list, tuple)) or not isinstance(taboos, (list, tuple)):
             raise ContractTermsError("required_traces and taboos must be lists")
+        budget_value = value.get("agent_turn_budget")
+        deferred = value.get("deferred_traces", ())
+        if not isinstance(deferred, (list, tuple)):
+            raise ContractTermsError("deferred_traces must be a list")
         return cls(
             target_gap=value["target_gap"],
             required_traces=tuple(required),
             cost_cap=CostCap.from_dict(value["cost_cap"]),
             taboos=tuple(taboos),
             schema_version=value["schema_version"],
+            agent_turn_budget=None if budget_value is None else AgentTurnBudget.from_dict(budget_value),
+            deferred_traces=tuple(deferred),
         )
 
 

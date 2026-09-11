@@ -20,9 +20,12 @@ log = logging.getLogger(__name__)
 try:  # the two-layer contract seam (#504); the graph imports the contract, never the reverse (#489)
     from .decision_frame import resolve_user_response_policy
     from .turn_contract import (
+        DEFAULT_MAX_CHARS_PER_TURN,
+        DEFAULT_MAX_QUESTIONS_PER_TURN,
         RESPONSE_CLASS_DISCRIMINATION,
         RESPONSE_CLASS_GENERATION,
         RESPONSE_CLASSES,
+        AgentTurnBudget,
         ContractTerms,
         CostCap,
         TurnContractError,
@@ -32,9 +35,12 @@ except ImportError:  # packaged single-file layout: the seam ships beside this s
     try:
         from decision_frame import resolve_user_response_policy  # type: ignore[no-redef]
         from turn_contract import (  # type: ignore[no-redef]
+            DEFAULT_MAX_CHARS_PER_TURN,
+            DEFAULT_MAX_QUESTIONS_PER_TURN,
             RESPONSE_CLASS_DISCRIMINATION,
             RESPONSE_CLASS_GENERATION,
             RESPONSE_CLASSES,
+            AgentTurnBudget,
             ContractTerms,
             CostCap,
             TurnContractError,
@@ -46,8 +52,11 @@ except ImportError:  # packaged single-file layout: the seam ships beside this s
         RESPONSE_CLASS_DISCRIMINATION = "discrimination"  # type: ignore[assignment]
         RESPONSE_CLASS_GENERATION = "generation"  # type: ignore[assignment]
         RESPONSE_CLASSES = ("discrimination", "generation")  # type: ignore[assignment]
+        DEFAULT_MAX_QUESTIONS_PER_TURN = 1  # type: ignore[assignment]
+        DEFAULT_MAX_CHARS_PER_TURN = 1200  # type: ignore[assignment]
         ContractTerms = None  # type: ignore[assignment]
         CostCap = None  # type: ignore[assignment]
+        AgentTurnBudget = None  # type: ignore[assignment]
         TurnContractError = ValueError  # type: ignore[assignment]
 
 SCHEMA = 3
@@ -430,6 +439,15 @@ class AlignmentGraphStore:
                     forced = next((node for node in nodes if node["id"] == verdict.gap_target), None)
                     if forced is not None:
                         eligible = [forced] + [node for node in eligible if node["id"] != forced["id"]]
+            # Per-turn question budget (#527, the agent-side dual of the
+            # cost_cap): every ask consumes the allowance, and the spent
+            # count reads the persisted graph state (nodes asked this turn),
+            # so no schema change. record() advances the turn, which resets
+            # it; per-node MAX_ASKS_PER_NODE is unchanged.
+            turn_budget = _agent_turn_budget(previous_terms)
+            max_questions = turn_budget.max_questions if turn_budget is not None else DEFAULT_MAX_QUESTIONS_PER_TURN
+            asked_this_turn = sum(1 for node in nodes if node["last_asked_turn"] == controller["turn"])
+            question_budget = {"max_questions": max_questions, "asked_this_turn": asked_this_turn}
             if readiness["ready"] and exit_allowed:
                 decision: dict[str, Any] = {
                     "action": "await_human_confirmation",
@@ -447,7 +465,7 @@ class AlignmentGraphStore:
                     "alignment turn budget reached with the alignment score below the exit threshold; "
                     "the open points need your decision",
                 )
-            elif eligible:
+            elif eligible and asked_this_turn < max_questions:
                 node = eligible[0]
                 connection.execute(
                     "UPDATE nodes SET ask_count=ask_count+1, last_asked_turn=? WHERE node_id=?",
@@ -474,6 +492,35 @@ class AlignmentGraphStore:
                         "question": f"Ask one open-ended question about: {node['statement']}",
                         "reason": "highest-impact unresolved point that only the requester can settle",
                     }
+                decision["question_budget"] = {
+                    **question_budget,
+                    "asked_this_turn": asked_this_turn + 1,
+                    "remaining": max(0, max_questions - asked_this_turn - 1),
+                }
+            elif eligible:
+                # The per-turn question budget is spent (#527): until
+                # record() resets it, the engine emits a NON-QUESTION
+                # decision — the composer's mirror/teach/gather postures
+                # (prompt-layer craft vocabulary) — keeping the dialogue gap
+                # target so the turn stays contract-grounded. The action
+                # reuses the existing non-question vocabulary.
+                node = eligible[0]
+                axis_group = active_axes.get(node["id"])
+                decision = {
+                    "action": "reconnaissance",
+                    "node_id": node["id"],
+                    "gap_id": node["id"],
+                    "question": None,
+                    "reason": (
+                        "the per-turn question budget is spent; compose a non-question turn "
+                        "(mirror/teach/gather) grounded in the graph until the next turn resets it"
+                    ),
+                }
+                if axis_group:
+                    axis = axis_group[0]
+                    decision["axis_id"] = axis["axis_id"]
+                    decision["axis"] = axis["description"]
+                decision["question_budget"] = {**question_budget, "remaining": 0}
             elif escalation:
                 # Ask budget spent on a high-impact requester-only point with
                 # no dialogue move left (#491): name it for the user's decision
@@ -547,9 +594,14 @@ class AlignmentGraphStore:
         *,
         traces: Sequence[Mapping[str, Any]] | None = None,
         user_move: str | None = None,
+        question_count: int | None = None,
+        turn_chars: int | None = None,
     ) -> dict[str, Any]:
         node_id = _identifier(node_id, "node id")
         outcome = _enum(outcome, OUTCOMES, "outcome")
+        for name, measured in (("question_count", question_count), ("turn_chars", turn_chars)):
+            if measured is not None and (isinstance(measured, bool) or not isinstance(measured, int) or measured < 0):
+                raise AlignmentGraphError(f"{name} must be a nonnegative integer or None, not {measured!r}")
         axes = _normalize_axes(new_axes)
         normalized_traces: list[dict[str, Any]] | None = None
         if traces is not None:
@@ -568,13 +620,18 @@ class AlignmentGraphStore:
                 raise AlignmentGraphError(f"unknown graph node: {node_id}")
             controller = connection.execute("SELECT * FROM controller WHERE singleton=1").fetchone()
             verified: tuple[str, ...] = ()
-            if normalized_traces is not None and verify_traces is not None:
+            terms = _controller_row_terms(controller)
+            if normalized_traces is not None and verify_traces is not None and terms is not None:
                 # Canonical loop step 3 (#489): verify the recorded traces
                 # against the last plan's emitted terms BEFORE any state
                 # mutation; a missing required trace fails naming the term.
-                terms = _controller_row_terms(controller)
-                if terms is not None:
-                    verified = verify_traces(terms, normalized_traces)
+                verified = verify_traces(terms, normalized_traces)
+            # Issue #527: record-time agent-turn-budget verification — the
+            # dual of the user-side cost_cap. Flag-not-block: an over-budget
+            # turn stays valid continuity grounding; the named violations
+            # feed the #525 discipline telemetry.
+            turn_budget_violations = _verify_agent_turn_budget(terms, question_count, turn_chars)
+            budget_checked = terms is not None and terms.agent_turn_budget is not None
             hashed = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
             changed = hashed != controller["last_fingerprint"]
             turn = int(controller["turn"]) + 1
@@ -653,6 +710,8 @@ class AlignmentGraphStore:
                 event_details["traces"] = normalized_traces
             if typed_user_move is not None:
                 event_details["user_move"] = typed_user_move
+            if budget_checked:
+                event_details["turn_budget_violations"] = turn_budget_violations
             state = self._commit_event(connection, "response_recorded", event_details)
         dialogue_mode = state["divergence"]["mode"]
         # record() must not advise the escape plan() would refuse (#491): a
@@ -668,6 +727,8 @@ class AlignmentGraphStore:
         }
         if normalized_traces is not None:
             result["verified_traces"] = verified
+        if budget_checked:
+            result["turn_budget_violations"] = turn_budget_violations
         return result
 
     @staticmethod
@@ -1635,6 +1696,31 @@ def _controller_row_terms(controller: sqlite3.Row) -> Any:
         return None
 
 
+def _verify_agent_turn_budget(
+    terms: Any,
+    question_count: int | None,
+    turn_chars: int | None,
+) -> list[dict[str, int]]:
+    """Record-time agent-turn-budget check (#527): flag-not-block.
+
+    A recorded turn exceeding ``max_questions`` or ``max_chars`` is a named
+    violation; the turn remains valid as continuity grounding (#514 ruling)
+    and each entry names the dimension, the limit, and the observed value so
+    the #525 discipline telemetry can count it. Empty when no budget was
+    carried or nothing was exceeded.
+    """
+
+    budget = getattr(terms, "agent_turn_budget", None) if terms is not None else None
+    if budget is None:
+        return []
+    violations: list[dict[str, int]] = []
+    if question_count is not None and question_count > budget.max_questions:
+        violations.append({"dimension": "max_questions", "limit": budget.max_questions, "observed": question_count})
+    if turn_chars is not None and turn_chars > budget.max_chars:
+        violations.append({"dimension": "max_chars", "limit": budget.max_chars, "observed": turn_chars})
+    return violations
+
+
 def _user_move_signal_from_feed(run_root: Path) -> tuple[Mapping[str, str] | None, str | None]:
     """Read the newest (and previous) #490 user-move feed record, fail-open.
 
@@ -1715,6 +1801,31 @@ def _base_cost_cap(action: str) -> Any:
     return CostCap(response_class=RESPONSE_CLASS_GENERATION, max_sentences=None)
 
 
+# Issue #527 required-trace queueing: at most this many required traces are
+# emitted per turn (priority order); the remainder is deferred in the terms
+# and re-emitted as required by the next turn's emission.
+MAX_REQUIRED_TRACES_PER_TURN = 2
+
+
+def _agent_turn_budget(previous_terms: Any) -> Any:
+    """The agent output ceiling emitted with the terms (#527).
+
+    The dual of the user-side cost cap: one question per interactive turn
+    and a per-turn character bound (tier-settable by #526 — these are the
+    engine-floor defaults). A budget carried by the previous terms is kept,
+    the same carry rule as the cap.
+    """
+
+    if AgentTurnBudget is None:
+        return None
+    if previous_terms is not None and previous_terms.agent_turn_budget is not None:
+        return previous_terms.agent_turn_budget
+    return AgentTurnBudget(
+        max_questions=DEFAULT_MAX_QUESTIONS_PER_TURN,
+        max_chars=DEFAULT_MAX_CHARS_PER_TURN,
+    )
+
+
 def _gap_required_traces(node: Mapping[str, Any], *, reopened: bool, cap: Any) -> tuple[str, ...]:
     """Required traces from gap shape + response-production class (#489).
 
@@ -1760,6 +1871,17 @@ def _fallback_target(nodes: Sequence[Mapping[str, Any]], active_axes_by_node: Ma
     return None
 
 
+def _is_interactive_turn(decision: Mapping[str, Any]) -> bool:
+    """A composer turn grounded in a dialogue gap (issue #527).
+
+    The ask itself, or the question-budget non-question turn (which carries
+    ``gap_id`` without a question). Exit and blocked decisions are not
+    interactive: their terms never gain a trace gate.
+    """
+
+    return str(decision.get("action")) == "ask_one" or "gap_id" in decision
+
+
 def _emit_contract_terms(
     nodes: Sequence[Mapping[str, Any]],
     decision: Mapping[str, Any],
@@ -1781,7 +1903,8 @@ def _emit_contract_terms(
     if verdict is not None:
         taboos |= set(verdict.taboo_additions)
         taboos -= set(verdict.taboo_removals)
-    if decision["action"] == "ask_one" and "node_id" in decision:
+    interactive = _is_interactive_turn(decision)
+    if interactive and "node_id" in decision:
         target: str | None = str(decision["node_id"])
     elif verdict is not None and verdict.gap_target is not None:
         target = verdict.gap_target
@@ -1797,27 +1920,58 @@ def _emit_contract_terms(
         cap = previous_terms.cost_cap
     else:
         cap = _base_cost_cap(str(decision["action"]))
-    required: tuple[str, ...] = ()
-    if decision["action"] == "ask_one":
-        node = next((item for item in nodes if item["id"] == target), None)
-        if node is not None:
-            required = _gap_required_traces(node, reopened=(directive == "reopen"), cap=cap)
-    if user_profile == "novice" and decision["action"] == "ask_one" and CostCap is not None:
+    # Issue #527 required-trace queueing: a priority-ordered wishlist —
+    # carried deferrals first (oldest obligation first), then the gap-shape
+    # and #500 novice-posture requirements — of which at most
+    # MAX_REQUIRED_TRACES_PER_TURN are required this turn; the remainder is
+    # deferred in the emitted terms and re-emitted as required next turn.
+    # Nothing is silently dropped: non-interactive turns carry the queue
+    # forward untouched instead of gating (the requester's exit confirmation
+    # must not fail on composition traces).
+    wishlist: list[str] = []
+    if interactive:
+        for name in previous_terms.deferred_traces if previous_terms is not None else ():
+            if name not in wishlist:
+                wishlist.append(name)
+    novice_active = user_profile == "novice" and interactive and CostCap is not None
+    if novice_active:
         # Issue #500 interview posture, as emission policy (not a menu): a
         # novice points rather than composes, so the cap drops to the
         # discrimination floor, the turn must show options (show-then-point),
         # and the possibility space must be mapped (survey on record) before
         # anything open-ended is asked of them.
         cap = CostCap(response_class=RESPONSE_CLASS_DISCRIMINATION, max_sentences=1)
-        surveyed = target in (surveyed_gaps or frozenset())
-        required = tuple(
-            name for name in ("possibility-survey", "option-set") if not (name == "possibility-survey" and surveyed)
-        )
+    if interactive:
+        node = next((item for item in nodes if item["id"] == target), None)
+        if node is not None:
+            gap_traces = _gap_required_traces(node, reopened=(directive == "reopen"), cap=cap)
+            # The misunderstood-intent floor outranks the novice posture:
+            # echo-guess or mirror first, ask second (alignment-craft.md).
+            misunderstood = gap_traces[:1] if gap_traces and gap_traces[0] == "guess-statement" else ()
+            for name in misunderstood:
+                if name not in wishlist:
+                    wishlist.append(name)
+            if novice_active:
+                surveyed = target in (surveyed_gaps or frozenset())
+                for name in ("possibility-survey", "option-set"):
+                    if name == "possibility-survey" and surveyed:
+                        continue
+                    if name not in wishlist:
+                        wishlist.append(name)
+            for name in gap_traces[len(misunderstood) :]:
+                if name not in wishlist:
+                    wishlist.append(name)
+    required = tuple(wishlist[:MAX_REQUIRED_TRACES_PER_TURN])
+    deferred = tuple(wishlist[MAX_REQUIRED_TRACES_PER_TURN:])
+    if not interactive and previous_terms is not None:
+        deferred = tuple(previous_terms.deferred_traces)
     return ContractTerms(
         target_gap=target,
         required_traces=required,
         cost_cap=cap,
         taboos=tuple(sorted(taboos)),
+        agent_turn_budget=_agent_turn_budget(previous_terms),
+        deferred_traces=deferred,
     )
 
 
