@@ -7,6 +7,7 @@ import json
 import os
 import re
 import secrets
+import sqlite3
 import sys
 import time
 from datetime import datetime, timezone
@@ -69,6 +70,18 @@ except ImportError:
     except ImportError:
         _UserResponsePolicyError = None  # type: ignore[assignment]
         _resolve_user_response_policy = None  # type: ignore[assignment]
+
+try:
+    # Issue #525: discipline telemetry consumes what #527/#514 already emit
+    # and maintains the per-run violation stream. The module is checkout
+    # runtime code the standalone skill-packaged hook does not ship; absence
+    # degrades to no telemetry (no measurements, no false violations).
+    from . import discipline as _discipline
+except ImportError:
+    try:
+        import discipline as _discipline  # type: ignore[no-redef]
+    except ImportError:
+        _discipline = None  # type: ignore[assignment]
 
 MAX_INPUT_BYTES = 64 * 1024
 MAX_IDENTIFIER_LENGTH = 256
@@ -217,6 +230,23 @@ RESEARCH_REENTRY_RULES: tuple[tuple[str, str, re.Pattern[str]], ...] = tuple(
 # are fed (#489 consumes the verdict as its emission input basis).
 ALIGNMENT_USER_MOVE_ROUTE = "alignment_user_move"
 MAX_RUN_SIGNAL_SCAN = 50
+
+# Issue #525: the discipline seam consumes, never measures. The alignment
+# event log already carries #527's structured `turn_budget_violations` in
+# each `response_recorded` event's details and the turn-record file carries
+# #514's `turn_shape` verdicts; both normalize onto the canonical violation
+# vocabulary. `source` names the emitter so the stream stays attributable.
+DISCIPLINE_SOURCE_BUDGET = "agent_turn_budget"
+DISCIPLINE_SOURCE_SHAPE = "turn_shape"
+DISCIPLINE_SOURCE_RECORD = "turn_record"
+DISCIPLINE_DIMENSION_MAP = {
+    "max_questions": "questions",
+    "max_chars": "chars",
+    "length": "chars",
+    "question_count": "questions",
+}
+# #514 emits shape violations as "name>cap: measured" strings.
+TURN_SHAPE_VIOLATION_RE = re.compile(r"([a-z_]+)>(\d+):\s*(\d+)\Z")
 
 
 def resolve_research_reentry(prompt: str) -> dict[str, str]:
@@ -503,6 +533,12 @@ def observe(
         )
         if turn_record is not None:
             record["alignment_turn_record"] = turn_record
+    if event in {"PostToolUse", "Stop"}:
+        # Issue #525: discipline telemetry — append emitted violations to the
+        # per-run stream and resolve the graduated response ladder. Fail-open.
+        discipline = _observe_discipline(root, payload)
+        if discipline is not None:
+            record["discipline"] = discipline
     path = _write_record(root, record, run_root / "events")
     if debug:
         try:
@@ -523,6 +559,7 @@ def observe(
         "path": path.relative_to(root).as_posix(),
         **({"skill_load": record["skill_load"]} if "skill_load" in record else {}),
         **({"alignment_turn_record": record["alignment_turn_record"]} if "alignment_turn_record" in record else {}),
+        **({"discipline": record["discipline"]} if "discipline" in record else {}),
     }
 
 
@@ -802,6 +839,163 @@ def _observe_user_move_policy(
     except (ValueError, _UserResponsePolicyError):
         return None
     return verdict.to_dict()
+
+
+def _budget_violations_from_events(run_root: Path, violations: list[dict[str, Any]]) -> int | None:
+    """Read #527 ``turn_budget_violations`` from the alignment event log.
+
+    The event log is the stream #527 already emits: each ``response_recorded``
+    event's details carry the structured entries when the persisted terms
+    carried a budget. The 1-based position of the event in the log is the
+    turn axis. Read-only URI mode; fail-open, returning the observed event
+    count (the run's turn axis) or None when the log is unreadable.
+    """
+    database = run_root.joinpath("alignment", "alignment.db")
+    if not database.is_file():
+        return None
+    try:
+        connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True, timeout=0.5)
+    except sqlite3.Error:
+        return None
+    try:
+        rows = connection.execute(
+            "SELECT details_json FROM events WHERE event_type='response_recorded' ORDER BY sequence"
+        ).fetchall()
+    except sqlite3.Error:
+        return None
+    finally:
+        connection.close()
+    for turn_index, row in enumerate(rows, start=1):
+        try:
+            details = json.loads(row[0])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(details, dict):
+            continue
+        for entry in details.get("turn_budget_violations") or []:
+            if not isinstance(entry, dict):
+                continue
+            limit = entry.get("limit")
+            observed = entry.get("observed")
+            if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+                continue
+            if isinstance(observed, bool) or not isinstance(observed, int) or observed < 0:
+                continue
+            violations.append(
+                {
+                    "turn_index": turn_index,
+                    "dimension": DISCIPLINE_DIMENSION_MAP.get(str(entry.get("dimension")), "other"),
+                    "measured": observed,
+                    "cap": limit,
+                    "source": DISCIPLINE_SOURCE_BUDGET,
+                }
+            )
+    return len(rows)
+
+
+def _turn_record_read_confirmed_invalid(store: Any) -> bool:
+    """Confirm a record-file read failure once.
+
+    A single failed read can be a mid-append race against the workflow's
+    writer; a second consecutive failure is a genuinely schema-violating
+    record file. Keeps the #497 record-compliance violation free of false
+    positives.
+    """
+    try:
+        store.records()
+    except (OSError, ValueError):
+        return True
+    return False
+
+
+def _shape_violations_from_records(
+    run_root: Path,
+    violations: list[dict[str, Any]],
+    turns_observed: int | None,
+) -> None:
+    """Read #514 ``turn_shape`` verdicts from the turn-record file.
+
+    Each violated verdict's named violations normalize onto the canonical
+    vocabulary; a record file that fails its own schema twice in a row is
+    itself the #497 record-compliance violation (the store refuses to write
+    such turns, so the hook is the observer of last resort). Fail-open.
+    """
+    if _AlignmentTurnRecordStore is None:
+        return
+    store = _AlignmentTurnRecordStore(run_root)
+    if not store.records_path.is_file():
+        return
+    try:
+        records = store.records()
+    except (OSError, ValueError):
+        violations.append(
+            {
+                "turn_index": turns_observed or 0,
+                "dimension": "record",
+                "measured": 0,
+                "cap": 1,
+                "source": DISCIPLINE_SOURCE_RECORD,
+            }
+        )
+        return
+    for record in records:
+        shape = record.turn_shape
+        if not isinstance(shape, dict) or shape.get("verdict") != "violated":
+            continue
+        for text in shape.get("violations") or ():
+            match = TURN_SHAPE_VIOLATION_RE.fullmatch(text) if isinstance(text, str) else None
+            if match is None:
+                continue
+            violations.append(
+                {
+                    "turn_index": record.turn_index,
+                    "dimension": DISCIPLINE_DIMENSION_MAP.get(match.group(1), "other"),
+                    "measured": int(match.group(3)),
+                    "cap": int(match.group(2)),
+                    "source": DISCIPLINE_SOURCE_SHAPE,
+                }
+            )
+
+
+def _collect_discipline_violations(run_root: Path) -> tuple[list[dict[str, Any]], int | None]:
+    """Collect emitted violations from the run's event streams (issue #525).
+
+    Consumes what #527 (alignment event log) and #514/#497 (turn-record
+    file) already emit — no measurement logic is duplicated. Returns the
+    raw violations plus the observed turn axis for the sliding window.
+    """
+    violations: list[dict[str, Any]] = []
+    turns_observed = _budget_violations_from_events(run_root, violations)
+    _shape_violations_from_records(run_root, violations, turns_observed)
+    return violations, turns_observed
+
+
+def _observe_discipline(root: Path, payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Maintain the violation stream and resolve the response ladder (#525).
+
+    On PostToolUse/Stop the hook appends unseen emitted violations to the
+    per-run stream and attaches the ``discipline`` receipt section (rate,
+    recent violations, response marker). Fail-open like every lifecycle
+    observation: returns None when the discipline module is unavailable
+    (standalone execution), when there is no active run, or when any
+    read/write fails. Never raises into the observe path.
+    """
+    if _discipline is None:
+        return None
+    active = _active_run(root, payload)
+    if active is None:
+        return None
+    run_root, _project_id, _run_id = active
+    try:
+        collected, turns_observed = _collect_discipline_violations(run_root)
+        store = _discipline.DisciplineViolationStore(run_root)
+        store.append(collected)
+        records = store.records()
+        if not records:
+            return None
+        return _discipline.build_discipline_section(records, turns_observed=turns_observed)
+    except (OSError, ValueError):
+        return None
 
 
 def host_response(host: str) -> dict[str, Any]:

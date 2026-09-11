@@ -109,9 +109,7 @@ def test_the_violation_stream_appends_and_persists(tmp_path: Path) -> None:
     # A fresh store reads the persisted records back.
     assert DisciplineViolationStore(run_root).records() == tuple(appended)
     # Re-appending the same emitted violations is idempotent; new ones append.
-    store.append(
-        [_violation(1), _violation(3, dimension="record", measured=0, cap=1, source="turn_record")]
-    )
+    store.append([_violation(1), _violation(3, dimension="record", measured=0, cap=1, source="turn_record")])
     assert len(store.records()) == 3
 
 
@@ -183,7 +181,9 @@ def test_fail_open_without_records(tmp_path: Path) -> None:
 # --- Scenario: telemetry without the module degrades to no measurements ------
 
 
-def test_telemetry_without_the_module_degrades_to_no_measurements(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_telemetry_without_the_module_degrades_to_no_measurements(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     root = project(tmp_path)
     run_root = project_run(root)
     monkeypatch.setattr(lifecycle_hook, "_discipline", None)
