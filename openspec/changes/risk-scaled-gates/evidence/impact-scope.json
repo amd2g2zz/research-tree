@@ -1,0 +1,29 @@
+{
+  "schema": "impact-scope-v1",
+  "change": "risk-scaled-gates",
+  "issue": 528,
+  "files": [
+    "openspec/changes/risk-scaled-gates/design.md",
+    "openspec/changes/risk-scaled-gates/evidence/detect-changes-output.txt",
+    "openspec/changes/risk-scaled-gates/evidence/impact-scope.json",
+    "openspec/changes/risk-scaled-gates/proposal.md",
+    "openspec/changes/risk-scaled-gates/specs/risk-scaled-gates/spec.md",
+    "openspec/changes/risk-scaled-gates/tasks.md",
+    "src/research_tree/recursive_search.py",
+    "tests/test_risk_scaled_gates.py"
+  ],
+  "symbols": [
+    {"name": "RecursiveSearchConfig", "file": "src/research_tree/recursive_search.py"},
+    {"name": "RecursiveSearchConfig.__post_init__", "file": "src/research_tree/recursive_search.py"},
+    {"name": "evaluate_research_stop", "file": "src/research_tree/recursive_search.py"},
+    {"name": "_selection_gates_apply", "file": "src/research_tree/recursive_search.py"},
+    {"name": "_slot_state", "file": "src/research_tree/recursive_search.py"},
+    {"name": "_slot_has_minimum_evidence", "file": "src/research_tree/recursive_search.py"},
+    {"name": "_closure_deficit_from_counts", "file": "src/research_tree/recursive_search.py"},
+    {"name": "_slot_closure_deficit", "file": "src/research_tree/recursive_search.py"},
+    {"name": "_ensure_slot_frontier", "file": "src/research_tree/recursive_search.py"},
+    {"name": "_refresh_slot_residual_risk", "file": "src/research_tree/recursive_search.py"},
+    {"name": "_ingest_quality", "file": "src/research_tree/recursive_search.py"},
+    {"name": "_slot_evidence_saturated", "file": "src/research_tree/recursive_search.py"}
+  ]
+}

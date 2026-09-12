@@ -17,21 +17,53 @@ from .evidence_delta import (
     baseline_from_finding_packs,
     measure_realized_delta,
 )
+from .independent_review import validate_deliverable_quality_review_payload
 from .run_ledger import RunLedger
+from .search_portfolio import (
+    BATCH_SOURCE_DEPTH_LEVELS,
+    InvalidSearchPortfolioError,
+    _mechanism_record,
+)
 from .tree_state import CanonicalResearchTreeStateService
 
 _WORKER_VALIDATION_STATUSES = frozenset({"passed", "failed", "inconclusive"})
 _WORKER_VALIDATION_NODE_MARKER = "worker_validation_continuation"
+# Issue #531: a node dependency is open only while it could still run.
+# completed/deferred/duplicate nodes resolve their edges; a duplicate lost
+# to an equivalent winner, so waiting on it would deadlock the DAG.
+_NODE_OPEN_STATUSES = frozenset({"frontier", "running"})
+
+
+class NodeDependencyError(ValueError):
+    """Raised when node ``depends_on`` edges violate DAG invariants at ingest."""
+
+
 _HEURISTIC_CONTRADICTION_WEIGHT = 0.6
 _HEURISTIC_FRONTIER_WEIGHT = 0.4
 _MINIMUM_EVIDENCE = 2
+# Issue #528: task-size profiles. ``standard`` preserves today's constants;
+# ``small`` and ``deep`` rescale the evidence floor, depth ceiling, and
+# transition budget to the slot scale of the task.
+_PROFILE_DEFAULTS: Mapping[str, Mapping[str, int]] = {
+    "small": {"minimum_evidence": 1, "max_depth": 3, "transition_budget": 16},
+    "standard": {"minimum_evidence": _MINIMUM_EVIDENCE, "max_depth": 5, "transition_budget": 64},
+    "deep": {"minimum_evidence": 3, "max_depth": 8, "transition_budget": 128},
+}
+# Sentinel for "derive this profiled field from the profile defaults".
+_PROFILE_UNSET = -1
 _SOURCE_QUALITY_CONFIDENCE = {"high": 1.0, "medium": 0.8, "low": 0.5}
 _ROOT_SOURCE_QUALITY = 1.0
+# Declared engagement depth per source (issue #494). Ranks mirror the
+# BATCH_SOURCE_DEPTH_LEVELS ordering used by the batch assessment.
+_SOURCE_DEPTH_RANK = {"none": 0, "snippet": 1, "summary": 2, "full-source": 3, "experiment": 4}
+assert set(_SOURCE_DEPTH_RANK) == set(BATCH_SOURCE_DEPTH_LEVELS)
+_SHALLOW_SOURCE_DEPTHS = frozenset({"none", "snippet", "summary"})
+_DEEP_SOURCE_DEPTHS = frozenset({"full-source", "experiment"})
 
 
 @dataclass(frozen=True, slots=True)
 class RecursiveSearchConfig:
-    max_depth: int = 5
+    max_depth: int = _PROFILE_UNSET
     max_frontier: int = 12
     min_expected_value: float = 0.12
     depth_penalty: float = 0.06
@@ -40,7 +72,7 @@ class RecursiveSearchConfig:
     validation_failure_boost: float = 0.4
     max_residual_boost: float = 1.0
     max_stagnant_transitions: int = 3
-    transition_budget: int = 64
+    transition_budget: int = _PROFILE_UNSET
     novelty_stop_threshold: float = 0.0
     initial_marginal_novelty: float = 1.0
     confidence_damping_min: float = 0.05
@@ -50,8 +82,24 @@ class RecursiveSearchConfig:
     quality_weight_heuristic: float = 0.25
     quality_weight_association: float = 0.15
     low_confidence_threshold: float = 0.35
+    # Issue #528: profile-scaled fields. The three profiled fields default to
+    # the unset sentinel so the profile fills exactly the fields the caller
+    # did not pass; an explicit argument always wins over the profile.
+    minimum_evidence: int = _PROFILE_UNSET
+    profile: str = "standard"
 
     def __post_init__(self) -> None:
+        if self.profile not in _PROFILE_DEFAULTS:
+            raise ValueError(f"unknown profile: {self.profile!r}; expected one of {sorted(_PROFILE_DEFAULTS)}")
+        for name, value in _PROFILE_DEFAULTS[self.profile].items():
+            if getattr(self, name) == _PROFILE_UNSET:
+                object.__setattr__(self, name, value)
+        if (
+            isinstance(self.minimum_evidence, bool)
+            or not isinstance(self.minimum_evidence, int)
+            or self.minimum_evidence < 1
+        ):
+            raise ValueError("minimum_evidence must be a positive integer")
         if self.max_depth < 1 or self.max_frontier < 1:
             raise ValueError("max_depth and max_frontier must be positive")
         if (
@@ -131,6 +179,7 @@ def initialize_research_state(
         "delta_history": [],
         "penalty_history": [],
         "cross_validation": {},
+        "discarded_evidence": [],
         "stop_reason": None,
     }
     by_slot: dict[str, list[Any]] = {slot_id: [] for slot_id in slots}
@@ -152,6 +201,7 @@ def initialize_research_state(
             ingest = _grow_from_finding(state, root, finding, baseline_event=True, evidence_snapshot=snapshot)
             _apply_ingest_trust(state, slot, finding, ingest)
         _ensure_slot_frontier(state, root, slot, trigger_ref="baseline:closure-gap")
+        _ensure_mechanism_drilldown(state, root, slot, trigger_ref="baseline:closure-gap")
     return evaluate_research_stop(prune_research_state(score_research_frontier(state)))
 
 
@@ -159,9 +209,15 @@ def apply_research_results(
     state: Mapping[str, Any],
     finding_packs: Sequence[Any],
 ) -> dict[str, Any]:
-    """Apply one evidence batch and recursively create successor actions."""
+    """Apply one evidence batch and recursively create successor actions.
+
+    Issue #531: the merge validates the node-level ``depends_on`` DAG —
+    unknown, self-referential, or cyclic edges are rejected before and after
+    the batch is applied, so an invalid graph never reaches dispatch.
+    """
 
     result = _mutable_state(state)
+    _validate_node_dependency_graph(result)
     baseline = EvidenceBaseline.from_dict(result["evidence_baseline"])
     consumed = set(result["consumed_finding_ids"])
     fresh = [finding for finding in finding_packs if _finding_id(finding) not in consumed]
@@ -212,6 +268,13 @@ def apply_research_results(
             slot,
             trigger_ref=f"finding:{_finding_id(finding)}:closure-gap",
         )
+        _ensure_mechanism_drilldown(
+            result,
+            parent,
+            slot,
+            trigger_ref=f"finding:{_finding_id(finding)}",
+        )
+    _validate_node_dependency_graph(result)
     return evaluate_research_stop(prune_research_state(score_research_frontier(result)))
 
 
@@ -300,22 +363,170 @@ def prune_research_state(state: Mapping[str, Any]) -> dict[str, Any]:
         node["status"] = "deferred"
         node["terminal_reason"] = "frontier capacity guardrail reached"
     result["frontier_node_ids"] = [node["id"] for node in selected]
+    # Issue #495: pruned work stays queryable. Every node the pruner set
+    # aside is registered with its terminal reason, oracle, and evidence
+    # need so the deliverable-quality recovery loop can revive it.
+    for node in result["nodes"].values():
+        if node["status"] in {"deferred", "duplicate"} and node.get("terminal_reason"):
+            _record_discarded_evidence(result, node)
     return result
 
 
+def _record_discarded_evidence(result: dict[str, Any], node: Mapping[str, Any]) -> None:
+    """Append one pruned-node entry to the discarded-evidence registry."""
+
+    registry = result.setdefault("discarded_evidence", [])
+    if any(entry["node_id"] == node["id"] for entry in registry):
+        return
+    registry.append(
+        {
+            "node_id": node["id"],
+            "terminal_reason": node.get("terminal_reason"),
+            "decision_oracle": node.get("oracle", ""),
+            "evidence_needed": node.get("evidence_needed", ""),
+            "decision_slot_id": node["decision_slot_id"],
+            "depth": node.get("depth", 0),
+            "selection_value": node.get("selection_value", 0.0),
+        }
+    )
+
+
 def select_research_actions(state: Mapping[str, Any], *, max_parallelism: int) -> tuple[Mapping[str, Any], ...]:
+    """Cut the dispatch batch from the dependency-ready set (issue #531).
+
+    The compiled graph is the scheduler: only frontier nodes whose
+    ``depends_on`` edges are all resolved may dispatch, and slot-dependent
+    root nodes wait for their upstream slot to close. The cut honors the
+    selection-value order of ``frontier_node_ids``; a ready set smaller than
+    ``max_parallelism`` yields fewer actions — unready nodes are never
+    backfilled.
+    """
+
     if max_parallelism < 1:
         raise ValueError("max_parallelism must be positive")
-    return tuple(
-        {
-            **state["nodes"][node_id],
-            "decision_oracle": state["decision_slots"][state["nodes"][node_id]["decision_slot_id"]][
-                "validation_oracle"
-            ],
-            "execution_context": thaw_json(state["execution_context"]),
-        }
-        for node_id in state["frontier_node_ids"][:max_parallelism]
-    )
+    resolved = _resolved_node_ids(state)
+    actions: list[Mapping[str, Any]] = []
+    for node_id in state["frontier_node_ids"]:
+        if len(actions) >= max_parallelism:
+            break
+        node = state["nodes"][node_id]
+        if node.get("status", "frontier") != "frontier":
+            continue
+        if not _node_is_ready(state, node, resolved):
+            continue
+        context = thaw_json(state["execution_context"])
+        dependency_context = _dependency_context(state, node)
+        if dependency_context is not None:
+            context = {**context, "dependency_context": dependency_context}
+        actions.append(
+            {
+                **node,
+                "decision_oracle": state["decision_slots"][node["decision_slot_id"]]["validation_oracle"],
+                "execution_context": context,
+            }
+        )
+    return tuple(actions)
+
+
+def _resolved_node_ids(state: Mapping[str, Any]) -> set[str]:
+    """Node ids whose edges are satisfied: closed, deferred, or duplicated."""
+
+    return {
+        node_id
+        for node_id, node in state["nodes"].items()
+        if str(node.get("status", "frontier")) not in _NODE_OPEN_STATUSES
+    }
+
+
+def _node_is_ready(state: Mapping[str, Any], node: Mapping[str, Any], resolved: set[str]) -> bool:
+    """A node dispatches when its dependencies closed and its slot is unblocked.
+
+    Node-level edges resolve against ``resolved``. A root node additionally
+    waits for its slot's compiled ``depends_on`` slots to close, so a
+    downstream slot's roots stay out of the ready set until the upstream
+    slot closed (issue #531, slot-level propagation).
+    """
+
+    if any(str(dependency) not in resolved for dependency in node.get("depends_on", ()) or ()):
+        return False
+    if node.get("parent_id") is None:
+        slot = state["decision_slots"][node["decision_slot_id"]]
+        for upstream_id in slot.get("depends_on", ()) or ():
+            upstream = state["decision_slots"].get(str(upstream_id))
+            if upstream is None or upstream.get("status") != "closed":
+                return False
+    return True
+
+
+def _dependency_context(state: Mapping[str, Any], node: Mapping[str, Any]) -> list[dict[str, Any]] | None:
+    """What this dispatch stands on: dependency conclusions, digest-first.
+
+    Node dependencies always; for a root node, the closed upstream slots'
+    root conclusions. ``None`` for dependency-free nodes — their context is
+    byte-identical to the pre-#531 shape.
+    """
+
+    entries: list[dict[str, Any]] = []
+    for dependency_id in node.get("depends_on", ()) or ():
+        dependency = state["nodes"].get(str(dependency_id))
+        if dependency is not None:
+            entries.append(_dependency_entry("node", dependency))
+    if node.get("parent_id") is None:
+        slot = state["decision_slots"][node["decision_slot_id"]]
+        for upstream_id in slot.get("depends_on", ()) or ():
+            upstream_root = state["nodes"].get(f"root:{upstream_id}")
+            if upstream_root is not None:
+                entries.append(_dependency_entry("slot", upstream_root))
+    return entries or None
+
+
+def _dependency_entry(kind: str, dependency: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "node_id": dependency["id"],
+        "decision_slot_id": dependency["decision_slot_id"],
+        "question": dependency["question"],
+        "status": dependency["status"],
+        "conclusion_digest": _conclusion_digest(dependency),
+    }
+
+
+def _conclusion_digest(node: Mapping[str, Any]) -> str:
+    basis = f"{node['id']}:{node.get('status', '')}:{node.get('terminal_reason') or ''}"
+    return hashlib.sha256(basis.encode("utf-8")).hexdigest()[:16]
+
+
+def _validate_node_dependency_graph(state: Mapping[str, Any]) -> None:
+    """Reject unknown, self-referential, or cyclic node ``depends_on`` edges.
+
+    The node-level analogue of decision_map's compile-time slot check,
+    reusing the stable topological sweep from work_items so the merged graph
+    is provably acyclic before anything dispatches on it (issue #531).
+    """
+
+    nodes = state["nodes"]
+    dependencies: dict[str, set[str]] = {}
+    for node_id, node in nodes.items():
+        raw = node.get("depends_on", ()) if isinstance(node, Mapping) else ()
+        if isinstance(raw, (str, bytes)) or not isinstance(raw, Sequence):
+            raise NodeDependencyError(f"node {node_id} depends_on must be a sequence of node ids")
+        edges = {str(item) for item in raw}
+        if node_id in edges:
+            raise NodeDependencyError(f"node {node_id} cannot depend on itself")
+        unknown = edges - set(nodes)
+        if unknown:
+            raise NodeDependencyError(f"node {node_id} depends on unknown nodes: {sorted(unknown)}")
+        dependencies[node_id] = edges
+    while dependencies:
+        ready = sorted(node_id for node_id, edges in dependencies.items() if not edges)
+        if not ready:
+            raise NodeDependencyError(
+                "node depends_on must be acyclic; cycle among: " + ", ".join(sorted(dependencies))
+            )
+        for node_id in ready:
+            dependencies.pop(node_id)
+        for edges in dependencies.values():
+            edges.difference_update(ready)
 
 
 class CanonicalRecursiveResearchCoordinator:
@@ -468,15 +679,136 @@ def finalize_research_delivery(
     }
     for manifest in result["deliverables"].values():
         manifest["status"] = "observed"
-    result["status"] = "delivery_pending"
-    result["stop_reason"] = "report manifests observed; coordinator must verify delivery and acceptance"
+    # Issue #495: manifests only *observe* the drafts. Delivery stays gated on
+    # a passing, digest-bound deliverable-quality review of exactly these
+    # bytes — a report merely existing is no longer delivery-pending.
+    gate = result.get("deliverable_quality_gate")
+    current = {kind: manifest.get("sha256") for kind, manifest in result["deliverables"].items()}
+    if isinstance(gate, Mapping) and gate.get("status") == "passed" and gate.get("manifest_digests") == current:
+        result["status"] = "delivery_pending"
+        result["stop_reason"] = "report manifests observed; coordinator must verify delivery and acceptance"
+    else:
+        result["status"] = "blocked"
+        result["stop_reason"] = (
+            "deliverable-quality gate has not passed; coordinator must register a passing "
+            "deliverable-quality review bound to the current draft deliverables"
+        )
+    return result
+
+
+def _quality_gate_digests(result: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        kind: manifest.get("sha256")
+        for kind, manifest in result["deliverables"].items()
+        if isinstance(manifest, Mapping)
+    }
+
+
+def register_deliverable_quality_review(state: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Record one fresh-context deliverable-quality review (issue #495).
+
+    A passing review — bound to the current manifest digests — lifts the tree
+    to ``delivery_pending``. A failing review reopens every named gap as
+    mandatory remediation work on its target slot (reviving a discarded node
+    when the gap names one) and returns the tree to ``searching``.
+    """
+
+    result = _mutable_state(state)
+    normalized = validate_deliverable_quality_review_payload(payload)
+    if any(not result["deliverables"].get(kind, {}).get("sha256") for kind in normalized["manifest_digests"]):
+        raise ValueError("deliverable quality review requires registered draft deliverables")
+    if normalized["manifest_digests"] != _quality_gate_digests(result):
+        raise ValueError("deliverable quality review is stale: manifest digests do not match current deliverables")
+    gaps = normalized["named_gaps"]
+    for gap in gaps:
+        if gap["target_slot_id"] not in result["decision_slots"]:
+            raise ValueError(f"named gap targets unknown decision slot: {gap['target_slot_id']}")
+    if not gaps:
+        result["deliverable_quality_gate"] = {
+            "status": "passed",
+            "review_id": normalized["id"],
+            "manifest_digests": dict(normalized["manifest_digests"]),
+            "remediation_node_ids": [],
+        }
+        result["status"] = "delivery_pending"
+        result["stop_reason"] = "deliverable quality gate passed; coordinator must verify delivery and acceptance"
+        return result
+    remediation_ids: list[str] = []
+    for gap in gaps:
+        slot = result["decision_slots"][gap["target_slot_id"]]
+        node: dict[str, Any] | None = None
+        if gap.get("revive_node_id") is not None:
+            candidate = result["nodes"].get(gap["revive_node_id"])
+            if candidate is None:
+                raise ValueError(f"named gap references unknown node: {gap['revive_node_id']}")
+            if not any(entry["node_id"] == gap["revive_node_id"] for entry in result.get("discarded_evidence", ())):
+                raise ValueError(f"revive_node_id is not recorded in discarded_evidence: {gap['revive_node_id']}")
+            node = candidate
+            node["status"] = "frontier"
+            node["terminal_reason"] = None
+            node["mandatory"] = True
+            node["question"] = f"Remediate quality gap: {gap['description']}"
+            node["oracle"] = gap["oracle"]
+        else:
+            digest = hashlib.sha256(
+                f"{gap['target_slot_id']}:remediation:{gap['description']}".encode("utf-8")
+            ).hexdigest()[:16]
+            node_id = f"node:{gap['target_slot_id']}:{digest}"
+            existing = result["nodes"].get(node_id)
+            if existing is None:
+                node = _node(
+                    node_id=node_id,
+                    parent_id=None,
+                    slot_id=gap["target_slot_id"],
+                    question=f"Remediate quality gap: {gap['description']}",
+                    action_kind="remediation",
+                    trigger_ref="deliverable-quality-review",
+                    evidence_needed="Evidence that closes the named deliverable-quality gap.",
+                    oracle=gap["oracle"],
+                    depth=0,
+                    estimated_cost=1.0,
+                    mandatory=True,
+                )
+                result["nodes"][node_id] = node
+            else:
+                node = existing
+                node["status"] = "frontier"
+                node["terminal_reason"] = None
+                node["mandatory"] = True
+        slot["status"] = "researching"
+        if slot["validation_required"]:
+            slot["validation_passed"] = False
+            slot["validation_status"] = "pending"
+        if node["id"] not in result["frontier_node_ids"]:
+            result["frontier_node_ids"].append(node["id"])
+        remediation_ids.append(node["id"])
+    result["deliverable_quality_gate"] = {
+        "status": "failed",
+        "review_id": normalized["id"],
+        "manifest_digests": dict(normalized["manifest_digests"]),
+        "remediation_node_ids": remediation_ids,
+    }
+    result["status"] = "searching"
+    result["stop_reason"] = f"deliverable quality gate failed: {len(gaps)} named gap(s) reopened as remediation work"
     return result
 
 
 def evaluate_research_stop(state: Mapping[str, Any]) -> dict[str, Any]:
-    """Close only when slot oracles pass; an empty frontier alone is not success."""
+    """Close only when slot oracles pass; an empty frontier alone is not success.
+
+    Issue #528: which named blockers attach to a slot scales with the slot's
+    ``priority``. P0 slots run the full gate set; P1 slots run the oracle,
+    evidence-floor, and coordinator-assessment gates (opting back into the
+    landscape gates via ``landscape_gates``); P2 slots run oracle + evidence
+    floor only. The #494/#495 producers stay unconditional — shallow-depth
+    and mechanism computations and the drill-down scheduler run exactly as
+    before; the subset selection only filters which produced blockers attach
+    to the slot's closure.
+    """
 
     result = _mutable_state(state)
+    raw_config = result.get("config")
+    cfg = RecursiveSearchConfig(**raw_config) if isinstance(raw_config, Mapping) else RecursiveSearchConfig()
     blockers: list[str] = []
     for slot_id, slot in result["decision_slots"].items():
         open_nodes = [
@@ -485,18 +817,38 @@ def evaluate_research_stop(state: Mapping[str, Any]) -> dict[str, Any]:
             if node["decision_slot_id"] == slot_id and node["status"] == "frontier"
         ]
         slot["status"] = "researching"
+        landscape_required = bool(slot.get("landscape_required", True))
+        shallow_refs = _shallow_source_refs(slot) if landscape_required else ()
+        mechanism_missing = _missing_mechanism_refs(slot) if landscape_required else ()
+        selection_gates = _selection_gates_apply(slot) and landscape_required
+        coverage_gates = _selection_gates_apply(slot)
+        evidence_ok = _slot_has_minimum_evidence(slot, minimum_evidence=cfg.minimum_evidence)
+        oracle_ok = (not slot["validation_required"]) or bool(slot["validation_passed"])
+        slot_blockers: list[str] = []
         if (
-            _slot_has_minimum_evidence(slot)
-            and not open_nodes
-            and (not slot["validation_required"] or slot["validation_passed"])
+            evidence_ok
+            and oracle_ok
+            and (not selection_gates or (not shallow_refs and not mechanism_missing))
+            and (not coverage_gates or not open_nodes)
         ):
-            blockers.append(f"{slot_id}: closure candidate requires coordinator assessment")
-        if not _slot_has_minimum_evidence(slot):
-            blockers.append(f"{slot_id}: independent evidence is insufficient")
+            # The coordinator assessment is the top of the middle set: P1
+            # keeps it, P2 closes on the minimal set without it.
+            if str(slot.get("priority", "P1")) != "P2":
+                slot_blockers.append(f"{slot_id}: closure candidate requires coordinator assessment")
+        if not evidence_ok:
+            slot_blockers.append(f"{slot_id}: independent evidence is insufficient")
         if slot["validation_required"] and not slot["validation_passed"]:
-            blockers.append(f"{slot_id}: validation oracle has not passed")
-        if open_nodes:
-            blockers.append(f"{slot_id}: {len(open_nodes)} frontier action(s) remain")
+            slot_blockers.append(f"{slot_id}: validation oracle has not passed")
+        if selection_gates and shallow_refs:
+            slot_blockers.append(f"{slot_id}: shallow source depth blocks landscape closure: {', '.join(shallow_refs)}")
+        if selection_gates and mechanism_missing:
+            slot_blockers.append(
+                f"{slot_id}: promoted sources without mechanism artifacts: {', '.join(mechanism_missing)}"
+            )
+        if coverage_gates and open_nodes:
+            slot_blockers.append(f"{slot_id}: {len(open_nodes)} frontier action(s) remain")
+        slot["closure_blockers"] = slot_blockers
+        blockers.extend(slot_blockers)
     if result["decision_slots"] and all(slot["status"] == "closed" for slot in result["decision_slots"].values()):
         result["status"] = "delivery_pending"
         result["stop_reason"] = "coordinator must assess slot closure and delivery obligations"
@@ -508,6 +860,21 @@ def evaluate_research_stop(state: Mapping[str, Any]) -> dict[str, Any]:
         result["stop_reason"] = "; ".join(blockers) or "no executable frontier remains"
     result["recursion_receipt"] = _recursion_receipt(result)
     return result
+
+
+def _selection_gates_apply(slot: Mapping[str, Any]) -> bool:
+    """Issue #528: the selection-grade gates — landscape source depth,
+    mechanism artifacts, and frontier coverage — attach to P0 slots and to P1
+    slots that explicitly opt in via ``landscape_gates``; P2 slots never
+    carry them. The producer computations stay unconditional for every
+    priority; unknown priorities fall back to the full P0 set."""
+
+    priority = str(slot.get("priority", "P1"))
+    if priority == "P2":
+        return False
+    if priority == "P1":
+        return bool(slot.get("landscape_gates", False))
+    return True
 
 
 def _slot_state(slot_id: str, slot: Mapping[str, Any]) -> dict[str, Any]:
@@ -522,6 +889,9 @@ def _slot_state(slot_id: str, slot: Mapping[str, Any]) -> dict[str, Any]:
         "priority": priority,
         "uncertainty": _uncertainty_value(slot.get("uncertainty", "medium")),
         "status": "researching",
+        # Issue #531: the compiled slot-level DAG propagates into execution —
+        # downstream slot roots stay unready until these slots close.
+        "depends_on": _slot_dependencies(slot),
         "finding_ids": [],
         "anchor_fingerprints": [],
         "validation_required": priority == "P0" or bool(validation),
@@ -537,7 +907,23 @@ def _slot_state(slot_id: str, slot: Mapping[str, Any]) -> dict[str, Any]:
         "trusted_anchor_fingerprints": [],
         "search_comparison": {"provider_fanout": 0, "duplicates": 0, "captures": 0},
         "residual_risk": _priority_value(priority),
+        "landscape_required": bool(slot.get("landscape_required", True)),
+        # Issue #528: a P1 slot opts back into the selection-grade landscape
+        # gates (source depth, mechanism artifacts, frontier coverage).
+        "landscape_gates": bool(slot.get("landscape_gates", False)),
+        "source_depths": {},
+        "mechanism_source_refs": [],
+        "closure_blockers": [],
     }
+
+
+def _slot_dependencies(slot: Mapping[str, Any]) -> list[str]:
+    """The slot's compiled upstream dependencies, deduplicated and stable."""
+
+    raw = slot.get("depends_on", ())
+    if isinstance(raw, (str, bytes)) or not isinstance(raw, Sequence):
+        return []
+    return sorted({str(item) for item in raw})
 
 
 def _report_manifest(
@@ -743,6 +1129,7 @@ def _add_node(
     mandatory: bool = False,
     identity_namespace: str = "question",
     metadata: Mapping[str, Any] | None = None,
+    depends_on: Sequence[str] = (),
     confidence: float | None = None,
     damping: float | None = None,
     quality: float | None = None,
@@ -771,6 +1158,7 @@ def _add_node(
         estimated_cost=estimated_cost,
         mandatory=mandatory,
         identity_namespace=namespace,
+        depends_on=depends_on,
     )
     if metadata:
         node.update(copy.deepcopy(dict(metadata)))
@@ -828,7 +1216,7 @@ def _ensure_slot_frontier(
                 damping=cfg.confidence_damping_max,
             )
         )
-    elif not _slot_has_minimum_evidence(slot):
+    elif not _slot_has_minimum_evidence(slot, minimum_evidence=cfg.minimum_evidence):
         _reopen_completed_obligation(
             _add_node(
                 state,
@@ -865,10 +1253,77 @@ def _ensure_slot_frontier(
         )
 
 
+def _shallow_source_refs(slot: Mapping[str, Any]) -> tuple[str, ...]:
+    """Sources declared at none/snippet/summary engagement depth (issue #494)."""
+
+    depths = slot.get("source_depths") or {}
+    return tuple(sorted(ref for ref, depth in depths.items() if depth in _SHALLOW_SOURCE_DEPTHS))
+
+
+def _missing_mechanism_refs(slot: Mapping[str, Any]) -> tuple[str, ...]:
+    """Sources engaged at promoted depth without a valid mechanism record."""
+
+    depths = slot.get("source_depths") or {}
+    covered = set(slot.get("mechanism_source_refs") or ())
+    return tuple(sorted(ref for ref, depth in depths.items() if depth in _DEEP_SOURCE_DEPTHS and ref not in covered))
+
+
+def _ensure_mechanism_drilldown(
+    state: dict[str, Any],
+    parent: Mapping[str, Any],
+    slot: dict[str, Any],
+    *,
+    trigger_ref: str,
+) -> None:
+    """Schedule the deeper follow-up batch for shallow or mechanism-missing sources.
+
+    Issue #494: shallow source engagement must not merely downgrade a score —
+    it blocks landscape closure and triggers a mandatory deeper action on the
+    same source. One identity-deduplicated node per named source.
+    """
+
+    if not slot.get("landscape_required", True):
+        return
+    targets = sorted(set(_shallow_source_refs(slot)) | set(_missing_mechanism_refs(slot)))
+    if not targets:
+        return
+    cfg = RecursiveSearchConfig(**state["config"])
+    for ref in targets:
+        _reopen_completed_obligation(
+            _add_node(
+                state,
+                parent=parent,
+                slot=slot,
+                question=(
+                    f"Drill into {ref}: engage the source at full-source depth and record its "
+                    "mechanism with evidence beyond the README."
+                ),
+                action_kind="deep_dive",
+                trigger_ref=f"{trigger_ref}:mechanism-drilldown",
+                evidence_needed=(
+                    "Full-source or experiment engagement with the named source plus a mechanism "
+                    "record citing inspected code, a design doc, or an experiment."
+                ),
+                oracle=(
+                    "The named source is engaged at full-source or experiment depth and its "
+                    "mechanism record cites evidence beyond the README."
+                ),
+                estimated_cost=1.0,
+                mandatory=True,
+                confidence=_closure_growth_confidence(state, parent),
+                damping=cfg.confidence_damping_max,
+            )
+        )
+
+
 def _node(**values: Any) -> dict[str, Any]:
     return {
         "id": values["node_id"],
         "parent_id": values["parent_id"],
+        # Issue #531: scheduling edges. parent_id keeps lineage; depends_on
+        # carries dispatch gating. Additive and optional — legacy trees
+        # without the key read identically.
+        "depends_on": list(values.get("depends_on") or ()),
         "decision_slot_id": values["slot_id"],
         "question": values["question"],
         "action_kind": values["action_kind"],
@@ -907,6 +1362,52 @@ def _update_slot_evidence(slot: dict[str, Any], finding: Any) -> None:
             if isinstance(item, Mapping)
         }
     )
+    _absorb_source_depths(slot, payload)
+    _absorb_mechanism_record(slot, payload)
+
+
+def _absorb_source_depths(slot: dict[str, Any], payload: Mapping[str, Any]) -> None:
+    """Record the deepest declared engagement per cited source (issue #494).
+
+    A source is drilled once it has been engaged at full-source/experiment
+    depth; re-declaring it shallowly later cannot un-drill it, while a source
+    whose best engagement is still snippet/summary stays a closure blocker.
+    """
+
+    declared = payload.get("sources")
+    if not isinstance(declared, (list, tuple)) or isinstance(declared, (str, bytes)):
+        return
+    depths = slot.setdefault("source_depths", {})
+    for item in declared:
+        if not isinstance(item, Mapping):
+            continue
+        ref = str(item.get("ref", "")).strip()
+        depth = str(item.get("depth", "")).strip()
+        if not ref or depth not in _SOURCE_DEPTH_RANK:
+            continue
+        prior = depths.get(ref)
+        if prior is None or _SOURCE_DEPTH_RANK[depth] > _SOURCE_DEPTH_RANK[prior]:
+            depths[ref] = depth
+
+
+def _absorb_mechanism_record(slot: dict[str, Any], payload: Mapping[str, Any]) -> None:
+    """Mark a source mechanism-covered when its record satisfies the contract.
+
+    Absorption is lenient by design (issue #494): a malformed or README-only
+    record does not reject the evidence batch — the source simply stays
+    mechanism-missing and the drill-down loop asks for the real artifact.
+    """
+
+    raw = payload.get("mechanism")
+    if not isinstance(raw, Mapping):
+        return
+    try:
+        record = _mechanism_record(raw)
+    except InvalidSearchPortfolioError:
+        return
+    covered = slot.setdefault("mechanism_source_refs", [])
+    if record.source_ref not in covered:
+        covered.append(record.source_ref)
 
 
 def _resolve_parent(state: Mapping[str, Any], payload: Mapping[str, Any], slot_id: str) -> dict[str, Any] | None:
@@ -949,7 +1450,7 @@ def _is_mandatory(node: Mapping[str, Any], slot: Mapping[str, Any]) -> bool:
 def _refresh_slot_residual_risk(slot: dict[str, Any], cfg: RecursiveSearchConfig) -> None:
     """Update the boosting residual only from observable closure state."""
 
-    evidence_deficit = _slot_closure_deficit(slot)
+    evidence_deficit = _slot_closure_deficit(slot, minimum_evidence=cfg.minimum_evidence)
     validation_deficit = 1.0 if slot["validation_required"] and not slot["validation_passed"] else 0.0
     closure_deficit = max(evidence_deficit, validation_deficit)
     failure_boost = min(
@@ -976,15 +1477,20 @@ def _branch_complexity(state: Mapping[str, Any], node: Mapping[str, Any]) -> flo
     return 1.0 + math.log2(max(1, sibling_count))
 
 
-def _slot_has_minimum_evidence(slot: Mapping[str, Any]) -> bool:
-    """Satisfied evidence excludes quarantined low-confidence findings."""
+def _slot_has_minimum_evidence(slot: Mapping[str, Any], *, minimum_evidence: int = _MINIMUM_EVIDENCE) -> bool:
+    """Satisfied evidence excludes quarantined low-confidence findings.
+
+    Issue #528: the floor comes from the resolved config so the task profile
+    scales it; the default keeps today's module constant for legacy callers.
+    """
+
     quarantined = set(slot.get("quarantined_finding_ids", ()))
     trusted_findings = len(set(slot["finding_ids"]) - quarantined)
     if quarantined:
         anchors = slot.get("trusted_anchor_fingerprints") or ()
     else:
         anchors = slot["anchor_fingerprints"]
-    return trusted_findings >= _MINIMUM_EVIDENCE and len(anchors) >= _MINIMUM_EVIDENCE
+    return trusted_findings >= minimum_evidence and len(anchors) >= minimum_evidence
 
 
 def _has_open_node(state: Mapping[str, Any], slot_id: str) -> bool:
@@ -1045,18 +1551,23 @@ def _slot_evidence_snapshot(slot: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _closure_deficit_from_counts(findings: int, anchors: int) -> float:
-    finding_deficit = max(0.0, (_MINIMUM_EVIDENCE - findings) / 2)
-    anchor_deficit = max(0.0, (_MINIMUM_EVIDENCE - anchors) / 2)
+def _closure_deficit_from_counts(
+    findings: int,
+    anchors: int,
+    *,
+    minimum_evidence: int = _MINIMUM_EVIDENCE,
+) -> float:
+    finding_deficit = max(0.0, (minimum_evidence - findings) / 2)
+    anchor_deficit = max(0.0, (minimum_evidence - anchors) / 2)
     return max(finding_deficit, anchor_deficit)
 
 
-def _slot_closure_deficit(slot: Mapping[str, Any]) -> float:
+def _slot_closure_deficit(slot: Mapping[str, Any], *, minimum_evidence: int = _MINIMUM_EVIDENCE) -> float:
     """Closure deficit counts trusted findings and trusted anchors only."""
     quarantined = set(slot.get("quarantined_finding_ids", ()))
     findings = len(set(slot["finding_ids"]) - quarantined)
     anchors = slot.get("trusted_anchor_fingerprints", ()) if quarantined else slot["anchor_fingerprints"]
-    return _closure_deficit_from_counts(findings, len(anchors))
+    return _closure_deficit_from_counts(findings, len(anchors), minimum_evidence=minimum_evidence)
 
 
 def _finding_anchor_fingerprints(payload: Mapping[str, Any]) -> frozenset[str]:
@@ -1134,9 +1645,13 @@ def _ingest_quality(
     quarantined_before = set(snapshot["quarantined"])
     trusted_before = len(set(snapshot["finding_ids"]) - quarantined_before)
     anchors_before = snapshot["trusted_anchors"] if quarantined_before else snapshot["anchors"]
-    deficit_before = _closure_deficit_from_counts(trusted_before, len(anchors_before))
+    deficit_before = _closure_deficit_from_counts(
+        trusted_before, len(anchors_before), minimum_evidence=cfg.minimum_evidence
+    )
     others_now = set(slot["finding_ids"]) - set(slot.get("quarantined_finding_ids", ())) - {finding_id}
-    deficit_after = _closure_deficit_from_counts(len(others_now), len(anchors_before))
+    deficit_after = _closure_deficit_from_counts(
+        len(others_now), len(anchors_before), minimum_evidence=cfg.minimum_evidence
+    )
     completeness = max(0.0, min(1.0, 1.0 - deficit_after / deficit_before)) if deficit_before > 0 else 0.0
 
     new_claims = len(_finding_claim_fingerprints(payload) - set(snapshot["claims"]))
@@ -1269,11 +1784,16 @@ def _slot_evidence_saturated(state: Mapping[str, Any], slot: Mapping[str, Any], 
 
     if slot.get("contradiction_refs"):
         return False
-    if not _slot_has_minimum_evidence(slot):
+    if not _slot_has_minimum_evidence(slot, minimum_evidence=cfg.minimum_evidence):
         return False
     comparison = slot.get("search_comparison") or {}
     captures = sum(int(batch.get("captures", 0)) for batch in (comparison.get("batches") or {}).values())
     if captures > 0 and int(comparison.get("coverage_met", 0)) < 1:
+        return False
+    # Issue #495: coverage must be *measured*, not skipped. A landscape slot
+    # with no recorded batch comparison cannot saturate on novelty alone —
+    # novelty 0 without a measurement is process exhaustion, not coverage.
+    if not captures and slot.get("landscape_required", True):
         return False
     marginal = float(slot.get("marginal_novelty", cfg.initial_marginal_novelty))
     return marginal <= cfg.novelty_stop_threshold

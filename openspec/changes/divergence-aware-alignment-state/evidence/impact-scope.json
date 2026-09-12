@@ -1,0 +1,40 @@
+{
+  "schema": "impact-scope-v1",
+  "change": "divergence-aware-alignment-state",
+  "issue": 496,
+  "files": [
+    "openspec/changes/divergence-aware-alignment-state/design.md",
+    "openspec/changes/divergence-aware-alignment-state/proposal.md",
+    "openspec/changes/divergence-aware-alignment-state/specs/alignment-dialogue-state/spec.md",
+    "openspec/changes/divergence-aware-alignment-state/tasks.md",
+    "packages/claude-code/research-tree/skills/research-tree/scripts/alignment_controller.py",
+    "packages/codex/research-tree/scripts/alignment_controller.py",
+    "packages/hermes/research-tree/scripts/alignment_controller.py",
+    "src/research_tree/alignment_graph.py",
+    "tests/test_alignment_controller.py",
+    "tests/test_alignment_divergence.py"
+  ],
+  "symbols": [
+    {"name": "SCHEMA", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "MAX_STAGNANT_TURNS", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "AXIS_STATUSES", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "DIALOGUE_MODES", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "_axis_id", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "_normalize_axes", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "_dialogue_mode", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "AlignmentGraphStore.record", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "AlignmentGraphStore.plan", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "AlignmentGraphStore._open_axis", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "AlignmentGraphStore._update_node_axes", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "AlignmentGraphStore._create_schema", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "AlignmentGraphStore._materialize", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "AlignmentGraphStore._restore_state", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "AlignmentGraphStore.rebuild_materialized", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "AlignmentGraphStore._upsert_node", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "record", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "_parser", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "main", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "_schema_document", "file": "src/research_tree/alignment_graph.py"},
+    {"name": "test_controller_local_gap_stagnation_keeps_exploring_other_gaps", "file": "tests/test_alignment_controller.py"}
+  ]
+}

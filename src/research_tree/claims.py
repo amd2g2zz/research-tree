@@ -143,6 +143,41 @@ class ProvenanceDescriptor:
         )
 
 
+def cluster_identity_groups(
+    members: Iterable[tuple[Any, Iterable[str]]],
+) -> tuple[tuple[Any, frozenset[str]], ...]:
+    """Cluster ``(member, identity keys)`` items that share any identity key.
+
+    The generic union-find surface behind provenance clustering (issue #524
+    extends it to the brief-refinery's user-input objects): items whose key
+    sets intersect land in one component, transitively, so equivalence
+    closures merge without a second clustering implementation. Returns one
+    ``(label, merged identities)`` pair per connected component in
+    first-seen order; the first member seen for the component names it and
+    no member is preferred over another. A member occurrence with no
+    non-empty string keys is a caller error (fail-closed), and repeated
+    members are legal — each occurrence clusters only through its own keys.
+    """
+
+    components: list[tuple[set[str], Any]] = []
+    for member, keys in members:
+        identities = set(keys)
+        if not identities or any(not isinstance(key, str) or not key.strip() for key in identities):
+            raise ClaimValidationError("cluster identity keys must be non-empty strings")
+        matches = [index for index, (known, _label) in enumerate(components) if known & identities]
+        if not matches:
+            components.append((identities, member))
+            continue
+        first = matches[0]
+        merged_identities, label = components[first]
+        merged_identities.update(identities)
+        for index in reversed(matches[1:]):
+            extra_identities, _extra_label = components.pop(index)
+            merged_identities.update(extra_identities)
+        components[first] = (merged_identities, label)
+    return tuple((label, frozenset(identities)) for identities, label in components)
+
+
 def cluster_provenance_components(
     provenances: Iterable[ProvenanceDescriptor],
 ) -> tuple[tuple[str, frozenset[str]], ...]:
@@ -157,21 +192,7 @@ def cluster_provenance_components(
     stable audit output and does not choose a preferred source.
     """
 
-    components: list[tuple[set[str], str]] = []
-    for provenance in provenances:
-        identities = set(provenance.identities)
-        matches = [index for index, (known, _label) in enumerate(components) if known & identities]
-        if not matches:
-            components.append((identities, provenance.cluster_id))
-            continue
-        first = matches[0]
-        merged_identities, label = components[first]
-        merged_identities.update(identities)
-        for index in reversed(matches[1:]):
-            extra_identities, _extra_label = components.pop(index)
-            merged_identities.update(extra_identities)
-        components[first] = (merged_identities, label)
-    return tuple((label, frozenset(identities)) for identities, label in components)
+    return cluster_identity_groups((provenance.cluster_id, provenance.identities) for provenance in provenances)
 
 
 @dataclass(frozen=True, slots=True)
@@ -365,4 +386,5 @@ __all__ = [
     "ClaimState",
     "ClaimValidationError",
     "ProvenanceDescriptor",
+    "cluster_identity_groups",
 ]

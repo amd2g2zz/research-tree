@@ -107,10 +107,19 @@ missing requirements.
   detailed, and run bounded reconnaissance so each turn adds knowledge the
   requester did not have. Never answer an exploratory request with only a
   questionnaire, option table, plan, or research tree.
-- Ask one open-ended, guided prompt at a time, answered in their own words.
-  Do not use multiple-choice menus as the default discovery mechanism; when
-  the active Hermes toolset exposes native `clarify`, use it only for a rare
-  discrete decision after open-ended guidance, never as a substitute.
+- Own the conversation shape like an interviewer, not an interrogator.
+  Declare the requester's fluency per turn (`novice`/`expert` in the plan
+  call): novice → show-then-point — options with one-line examples, a
+  possibility survey before anything open-ended, pointing questions under a
+  discrimination cap; expert → open-ended co-evolution. native `clarify` is
+  for a rare discrete decision after guidance, never a substitute. Guidance
+  forms are craft you compose — never a fixed menu or script (#500).
+- Stance scales with measured signals, never tone (#526): S1 trust-first
+  (default; challenge only impact ≥ 4), S2 structured (high vagueness;
+  show-then-point, gather beyond two open directions), S3 strict (high
+  conflict or error; proportionality and counterargument surface, new axes
+  frozen). Pin the tier with the plan `stance` at critical moments.
+  Challenge targets the plan's risk, never the person.
 - No question-only turn: every turn mirrors the current understanding, names
   one consequential gap in the current context, adds the smallest useful
   evidence, and invites correction. Keep interactive turns under 1000
@@ -120,10 +129,14 @@ missing requirements.
   plainly, show one implication, then ask one guided question.
 - Co-evolve cognition before strategy handoff: expose your reading,
   assumptions, strongest counterargument, and consequence if wrong; invite
-  challenge; state what changed on both sides. Persist an alignment-turn
-  record (mirror, gap, evidence, delta, decision effect) after each
-  meaningful exchange. If no field changed, run reconnaissance instead of
-  repeating the question. Intent understanding remains active throughout the round.
+  challenge; state what changed on both sides. Record-or-block: ground this
+  turn in the persisted alignment-turn record, then append this exchange's
+  record (mirror, gap, delta, user move, contract terms, traces) to
+  `turn-records.jsonl` before responding; hooks refresh and validate it. A
+  missing or stale record blocks the next turn (fail-closed); a turn with
+  no persisted delta violates the protocol — run reconnaissance, never
+  answer your own question.
+  Intent understanding remains active throughout the round.
 
 ### Claims, feasibility, and cost
 
@@ -184,9 +197,15 @@ authority); hard stop triggers (insufficient authority or safety boundary, a
 missing capability, or an oracle that cannot be honestly evaluated);
 continuation state persisted after every meaningful batch; the completion
 oracle; and the failure policy (retry or replan recoverable failures, persist
-a blocker with evidence, never silently downgrade the goal). If evidence
-invalidates the strategy, create a successor revision internally and continue
-without another approval.
+a blocker with evidence, never silently downgrade the goal). The envelope
+closes at compilation: once the strategy is compiled it is frozen, and a
+strategy-material change requires user realignment — re-display the
+projection, collect a new confirmation that binds the recomputed authority
+fingerprint, and recompile — before it takes effect; a silent internal
+successor revision is rejected. During research, a user interruption
+resolves to exactly one re-entry path — reopen alignment (re-align,
+reconfirm, recompile) or record the input as supplemental evidence and stay
+in research — plus a plain status echo; conversational drift is refused.
 
 ### Assistance and correction protocol
 

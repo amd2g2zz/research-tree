@@ -88,7 +88,42 @@ def test_executor_accepts_adapter_outcomes_without_persisting_coordinator_state(
 
     assert len(result.assessments) == 1
     assert result.assessments[0].provenance_independence == "independent"
-    assert result.assessments[0].disposition == "stop"
+    # Issue #494: a captured batch without mechanism artifacts fails promotion
+    # (stop) and must drill into the uncovered sources instead. Both outcomes
+    # declare the same default capture ref, so one ref is uncovered.
+    assert result.assessments[0].disposition == "deepen"
+    assert result.assessments[0].next_actions == ("require-source-mechanism",)
+    assert result.assessments[0].missing_mechanism_refs == ("capture-1",)
+
+    covered = SearchPortfolioExecutor(methods).execute(
+        value,
+        (
+            PortfolioBatch(
+                "batch-1",
+                "portfolio-1",
+                (
+                    execution_outcome(),
+                    execution_outcome(
+                        outcome_id="outcome-2",
+                        method_id="repository-inspection",
+                        provider_id="provider-b",
+                    ),
+                ),
+            ),
+        ),
+        mechanism_records=(
+            {
+                "mechanism_id": "mechanism-1",
+                "source_ref": "capture-1",
+                "approach": "A bounded retry queue with exponential backoff.",
+                "how_it_works": "Failed captures re-enter a durable queue whose delay doubles per attempt.",
+                "evidence_refs": ("capture-1-code",),
+                "evidence_kinds": ("code-inspected",),
+            },
+        ),
+    )
+    assert covered.assessments[0].disposition == "stop"
+    assert covered.assessments[0].missing_mechanism_refs == ()
 
 
 def test_executor_run_invokes_only_registered_method_boundaries() -> None:

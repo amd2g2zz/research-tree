@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import sqlite3
@@ -17,10 +18,179 @@ from typing import Any, Iterable, Mapping, Sequence
 
 log = logging.getLogger(__name__)
 
-SCHEMA = 2
+try:  # the two-layer contract seam (#504); the graph imports the contract, never the reverse (#489)
+    from .decision_frame import resolve_user_response_policy
+    from .turn_contract import (
+        DEFAULT_MAX_CHARS_PER_TURN,
+        DEFAULT_MAX_QUESTIONS_PER_TURN,
+        RESPONSE_CLASS_DISCRIMINATION,
+        RESPONSE_CLASS_GENERATION,
+        RESPONSE_CLASSES,
+        AgentTurnBudget,
+        ContractTerms,
+        CostCap,
+        TurnContractError,
+        verify_traces,
+    )
+except ImportError:  # packaged single-file layout: the seam ships beside this script (#470)
+    try:
+        from decision_frame import resolve_user_response_policy  # type: ignore[no-redef]
+        from turn_contract import (  # type: ignore[no-redef]
+            DEFAULT_MAX_CHARS_PER_TURN,
+            DEFAULT_MAX_QUESTIONS_PER_TURN,
+            RESPONSE_CLASS_DISCRIMINATION,
+            RESPONSE_CLASS_GENERATION,
+            RESPONSE_CLASSES,
+            AgentTurnBudget,
+            ContractTerms,
+            CostCap,
+            TurnContractError,
+            verify_traces,
+        )
+    except ImportError:  # seam unavailable: contract emission degrades fail-open (#489)
+        resolve_user_response_policy = None  # type: ignore[assignment]
+        verify_traces = None  # type: ignore[assignment]
+        RESPONSE_CLASS_DISCRIMINATION = "discrimination"  # type: ignore[assignment]
+        RESPONSE_CLASS_GENERATION = "generation"  # type: ignore[assignment]
+        RESPONSE_CLASSES = ("discrimination", "generation")  # type: ignore[assignment]
+        DEFAULT_MAX_QUESTIONS_PER_TURN = 1  # type: ignore[assignment]
+        DEFAULT_MAX_CHARS_PER_TURN = 1200  # type: ignore[assignment]
+        ContractTerms = None  # type: ignore[assignment]
+        CostCap = None  # type: ignore[assignment]
+        AgentTurnBudget = None  # type: ignore[assignment]
+        TurnContractError = ValueError  # type: ignore[assignment]
+
+try:  # issue #530: the authoritative run-phase store, read through the hook module
+    from .lifecycle_hook import read_phase_state_at as _read_phase_state_at
+except ImportError:  # packaged single-file layout: the hook ships beside this script
+    try:
+        from lifecycle_hook import read_phase_state_at as _read_phase_state_at  # type: ignore[no-redef]
+    except ImportError:  # unavailable: the phase-aware refusal degrades fail-open
+        _read_phase_state_at = None  # type: ignore[assignment]
+
+try:  # issue #526 stance signals: read-only consumption of the #524/#525 queries
+    from .brief_refinery import BriefRefineryStore as _BriefRefineryStore
+    from .discipline import DisciplineViolationStore as _DisciplineViolationStore
+    from .discipline import sliding_window_rate as _sliding_window_rate
+except ImportError:  # packaged single-file layout: the signal stores ship beside this script
+    try:
+        from brief_refinery import BriefRefineryStore as _BriefRefineryStore  # type: ignore[no-redef]
+        from discipline import DisciplineViolationStore as _DisciplineViolationStore  # type: ignore[no-redef]
+        from discipline import sliding_window_rate as _sliding_window_rate  # type: ignore[no-redef]
+    except ImportError:  # unavailable: the computed stance degrades fail-open to the S1 default
+        _BriefRefineryStore = None  # type: ignore[assignment]
+        _DisciplineViolationStore = None  # type: ignore[assignment]
+        _sliding_window_rate = None  # type: ignore[assignment]
+
+SCHEMA = 3
+# Issue #530: while the run phase is research the alignment dialogue is
+# mechanically closed — new asks are refused (plan redirects to the reopen
+# re-entry, record raises) so "alignment ended" is a fact of state, not of
+# prompt self-discipline.
+RESEARCH_RUN_PHASE = "research"
+# Turn-cap bound (#491): reaching it never exits alignment. It triggers the
+# explicit `alignment_incomplete` blocked disposition (user extension or waive
+# required); the exit itself is decided by the alignment score below.
 MAX_TURNS = 6
+# Issue #500: profile vocabulary the SKILL layer may declare per turn. The
+# engine never infers the profile — it only gates the structural posture.
+USER_PROFILES = frozenset({"novice", "expert"})
+# Per-node/per-axis stall threshold (#496): a requester-only point that stayed
+# quiet this many turns with no active divergence axis is *locally stalled*.
+# This is no longer a global escape hatch — see MAX_TURNS for the (separately
+# governed) total-turn bound and plan() for the stall decision.
 MAX_STAGNANT_TURNS = 2
 MAX_ASKS_PER_NODE = 2
+# --- Alignment exit policy (#491) -------------------------------------------------
+# Alignment exits by a deterministic score over graph state, never by a silent
+# strategy switch. The score starts at ALIGNMENT_SCORE_MAX and subtracts
+# penalties for alignment residue (weights in score points below); offering
+# and accepting the handoff requires reaching ALIGNMENT_SCORE_EXIT_THRESHOLD
+# or a recorded explicit user waive (AlignmentGraphStore.waive).
+ALIGNMENT_SCORE_MAX = 100
+ALIGNMENT_SCORE_EXIT_THRESHOLD = ALIGNMENT_SCORE_MAX
+ALIGNMENT_SCORE_OPEN_GAP_WEIGHT = 20  # per impact point (1-5) of an open requester-only gap
+ALIGNMENT_SCORE_EXHAUSTED_ASK_WEIGHT = 10  # per open requester-only gap whose MAX_ASKS_PER_NODE budget is spent
+ALIGNMENT_SCORE_OPEN_AXIS_WEIGHT = 10  # per open divergence axis (#496), on any node
+# Impact at or above this counts as "high-impact" (same bar as the
+# high-impact disagreement rule in _alignment_readiness).
+ALIGNMENT_HIGH_IMPACT = 4
+# Dialogue turns granted when the user responds after an
+# `alignment_incomplete` blocked disposition (extension by engagement).
+ALIGNMENT_EXTENSION_TURNS = 3
+# --- Adaptive stance controller (#526) --------------------------------------------
+# One controller, three outputs (trust posture, turn shape, divergence
+# strategy), driven by four measured signals — clarity (the #491 alignment
+# score), vagueness (the #524 brief-registry open share), conflict (the #524
+# registry conflict pairs plus the #490 correction frequency), and the #525
+# agent-side violation rate. S1 trust-first is the default; S2 structures the
+# dialogue when the user turns out not to know what they want; S3 tightens on
+# conflict or agent error; recovered clarity steps the tier back down. A
+# user-side explicit override (declared by the SKILL layer) beats the
+# computed tier — the engine never infers the stance from user text.
+STANCE_TRUST_FIRST = "S1"
+STANCE_STRUCTURED = "S2"
+STANCE_STRICT = "S3"
+STANCES = frozenset({STANCE_TRUST_FIRST, STANCE_STRUCTURED, STANCE_STRICT})
+# Vagueness at or above this share of live registry objects reads as "the user
+# does not know what they want" and structures the dialogue (S2).
+STANCE_VAGUENESS_S2 = 0.5
+# Conflict pairs plus recorded corrections at or above this count, or an
+# agent violation rate at or above this share, reads as an error signal (S3);
+# the rate bar is the #525 discipline-reload step.
+STANCE_CONFLICT_S3 = 2
+STANCE_VIOLATION_RATE_S3 = 0.4
+# Clarity (the alignment score) at or above this reads as recovered
+# understanding and steps the computed tier back down one level (S3→S2, S2→S1).
+STANCE_CLARITY_RECOVERY = 85
+# Active divergence-axis concurrency bound (tier-crossing invariant): more
+# than this many open axes in S2/S3 forces the gather turn — an option set
+# over the open topics for one pointing choice.
+MAX_ACTIVE_AXES = 2
+
+
+def resolve_stance(
+    clarity: int,
+    vagueness: float,
+    conflict: int,
+    violation_rate: float,
+    *,
+    override: str | None = None,
+) -> str:
+    """Resolve the four measured signals to one stance tier (#526).
+
+    Deterministic with named thresholds: S3 on conflict or agent error, else
+    S2 on high vagueness, else the S1 default; clarity at or above the
+    recovery band steps the computed tier back down one level. ``override``
+    (the explicit user-side input) beats the computed tier and is validated
+    like every other stance value.
+    """
+    if override is not None and override not in STANCES:
+        raise AlignmentGraphError(f"stance override must be one of {sorted(STANCES)}, not {override!r}")
+    if isinstance(clarity, bool) or not isinstance(clarity, int) or not 0 <= clarity <= ALIGNMENT_SCORE_MAX:
+        raise AlignmentGraphError(f"clarity must be an integer 0..{ALIGNMENT_SCORE_MAX}, not {clarity!r}")
+    for name, value in (("vagueness", vagueness), ("violation_rate", violation_rate)):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not 0.0 <= value <= 1.0
+            or math.isnan(value)
+        ):
+            raise AlignmentGraphError(f"{name} must be a number 0.0..1.0, not {value!r}")
+    if isinstance(conflict, bool) or not isinstance(conflict, int) or conflict < 0:
+        raise AlignmentGraphError(f"conflict must be a nonnegative integer, not {conflict!r}")
+    tier = STANCE_TRUST_FIRST
+    if vagueness >= STANCE_VAGUENESS_S2:
+        tier = STANCE_STRUCTURED
+    if conflict >= STANCE_CONFLICT_S3 or violation_rate >= STANCE_VIOLATION_RATE_S3:
+        tier = STANCE_STRICT
+    if clarity >= STANCE_CLARITY_RECOVERY and tier != STANCE_TRUST_FIRST:
+        tier = STANCE_STRUCTURED if tier == STANCE_STRICT else STANCE_TRUST_FIRST
+    return tier if override is None else override
+
+
+AXIS_STATUSES = frozenset({"open", "converged"})
+DIALOGUE_MODES = frozenset({"handoff_ready", "divergent", "converging", "stalled"})
 IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 NODE_TYPES = frozenset(
     {
@@ -130,6 +300,36 @@ def _text(value: Any, label: str) -> str:
 
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+
+
+def _axis_id(node_id: str, description: str) -> str:
+    """Deterministic axis id so re-declaring a direction touches, not forks."""
+
+    return "axis-" + hashlib.sha256(_json([node_id, description]).encode("utf-8")).hexdigest()[:12]
+
+
+def _normalize_axes(value: Any) -> list[dict[str, Any]]:
+    """Validate caller-declared divergence axes (#496): strings or {id?, description}."""
+
+    if value is None:
+        return []
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise AlignmentGraphError("new axes must be a list")
+    axes: list[dict[str, Any]] = []
+    for raw in value:
+        if isinstance(raw, Mapping):
+            unknown = set(raw) - {"id", "description"}
+            if unknown:
+                raise AlignmentGraphError("divergence axis has unknown fields: " + ", ".join(sorted(unknown)))
+            axis_id = None if raw.get("id") is None else _identifier(raw["id"], "axis id")
+            description = _text(raw.get("description"), "axis description")
+        elif isinstance(raw, str):
+            axis_id = None
+            description = _text(raw, "axis description")
+        else:
+            raise AlignmentGraphError("each divergence axis must be a string or an object")
+        axes.append({"id": axis_id, "description": description})
+    return axes
 
 
 def _digest(value: Any) -> str:
@@ -242,7 +442,62 @@ class AlignmentGraphStore:
             )
         return self.status()
 
-    def plan(self, update: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    def _observed_run_phase(self) -> str | None:
+        """Read the run's authoritative phase from the phase store (fail-open)."""
+
+        if _read_phase_state_at is None:
+            return None
+        run_dir = self.database.parent.parent
+        try:
+            state = _read_phase_state_at(run_dir / "phase")
+        except OSError:
+            return None
+        if isinstance(state, Mapping):
+            phase = state.get("phase")
+            if isinstance(phase, str):
+                return phase
+        return None
+
+    def plan(
+        self,
+        update: Mapping[str, Any] | None = None,
+        *,
+        user_signal: Mapping[str, str] | None = None,
+        previous_category: str | None = None,
+        user_profile: str | None = None,
+        run_phase: str | None = None,
+        stance: str | None = None,
+    ) -> dict[str, Any]:
+        # Issue #530: while the run phase is research the alignment dialogue is
+        # closed. New asks are refused BEFORE any merge, mutation, or turn
+        # consumption; the redirect names the reopen re-entry, so "alignment
+        # ended" is mechanical and reopening is only ever the explicit
+        # reopen-alignment protocol path.
+        resolved_run_phase = run_phase if run_phase is not None else self._observed_run_phase()
+        if resolved_run_phase == RESEARCH_RUN_PHASE:
+            with self._connect() as connection:
+                self._require_schema(connection)
+                row = connection.execute("SELECT turn FROM controller WHERE singleton=1").fetchone()
+            return {
+                "action": "reopen_alignment",
+                "reason": (
+                    "the run phase is research: alignment asks are closed; reopen alignment "
+                    "through the two-option re-entry protocol"
+                ),
+                "question": None,
+                "run_phase": resolved_run_phase,
+                "turn": int(row["turn"]) if row is not None else 0,
+            }
+        # Issue #500: the user profile is a turn-context INPUT set by the
+        # SKILL layer from conversation signals; the engine never infers it.
+        if user_profile is not None and user_profile not in USER_PROFILES:
+            raise AlignmentGraphError(
+                f"user_profile must be one of {sorted(USER_PROFILES)} or None, not {user_profile!r}"
+            )
+        # Issue #526: the stance is a turn-context INPUT the same way —
+        # validated before any merge so an unknown tier never mutates state.
+        if stance is not None and stance not in STANCES:
+            raise AlignmentGraphError(f"stance must be one of {sorted(STANCES)} or None, not {stance!r}")
         if update is not None:
             self.merge(update)
         with self._connect() as connection:
@@ -251,54 +506,238 @@ class AlignmentGraphStore:
             nodes = state["graph"]["nodes"]
             readiness = _alignment_readiness(nodes, state["graph"]["edges"])
             controller = state["controller"]
+            stagnation = state["divergence"]["node_stagnation"]
+            active_axes: dict[str, list[dict[str, Any]]] = {}
+            for axis in state["divergence"]["axes"]:
+                if axis["status"] == "open" and axis["stagnant_turns"] < MAX_STAGNANT_TURNS:
+                    active_axes.setdefault(axis["node_id"], []).append(axis)
+            for axis_group in active_axes.values():
+                axis_group.sort(key=lambda axis: (axis["stagnant_turns"], -axis["opened_turn"], axis["axis_id"]))
+            # Divergence-aware eligibility (#496): MAX_ASKS_PER_NODE bounds
+            # re-asking one dimension; an active axis is a NEW dimension on the
+            # node and carries its own ask allowance. A locally stalled node
+            # (stagnation at the threshold, no active axis) is skipped — it is
+            # a stall, not a reason to abandon the dialogue elsewhere. A node
+            # whose latest recorded response was ``answered`` is a taboos
+            # exclusion too (#489): re-asking needs a new axis, not repetition.
+            last_outcomes = _last_response_outcomes(connection)
             eligible = [
                 node
                 for node in nodes
-                if node["human_only"]
-                and node["status"] in {"candidate", "disputed"}
-                and node["ask_count"] < MAX_ASKS_PER_NODE
-                and node["last_asked_turn"] != controller["turn"]
+                if node["last_asked_turn"] != controller["turn"]
+                and (node["id"] in active_axes or last_outcomes.get(node["id"]) != "answered")
+                and (
+                    (
+                        node["human_only"]
+                        and node["status"] in {"candidate", "disputed"}
+                        and (node["ask_count"] < MAX_ASKS_PER_NODE or node["id"] in active_axes)
+                        and (stagnation.get(node["id"], 0) < MAX_STAGNANT_TURNS or node["id"] in active_axes)
+                    )
+                    # An active divergence axis is a user-raised direction
+                    # nobody explored yet (#491 score gate): it is askable on
+                    # any node, settled or not, so a below-threshold score has
+                    # a dialogue move to make before any user decision.
+                    or node["id"] in active_axes
+                )
             ]
-            eligible.sort(key=lambda node: (-node["impact"], node["ask_count"], node["id"]))
-            if readiness["ready"]:
+            eligible.sort(
+                key=lambda node: (0 if node["id"] in active_axes else 1, -node["impact"], node["ask_count"], node["id"])
+            )
+            score = _alignment_score(nodes, state["divergence"]["axes"])
+            exit_allowed = (
+                score >= ALIGNMENT_SCORE_EXIT_THRESHOLD or _active_waive(connection, state["graph_digest"]) is not None
+            )
+            extension_deadline = _extension_deadline(connection)
+            extended = extension_deadline is not None and controller["turn"] <= extension_deadline
+            escalation = _escalation_nodes(nodes)
+            # Contract emission (#489): resolve the observed user move into
+            # the #490 policy verdict BEFORE the ask is selected, so the gap
+            # directive steers the candidate order itself. The signal comes
+            # from the caller or, fail-open, from the run's persisted
+            # alignment_user_move feed records.
+            previous_terms = _previous_contract_terms(controller)
+            signal = user_signal
+            resolved_previous = previous_category
+            if signal is None and resolve_user_response_policy is not None:
+                feed_signal, feed_previous = _user_move_signal_from_feed(self.database.parent.parent)
+                signal = feed_signal
+                if resolved_previous is None:
+                    resolved_previous = feed_previous
+            verdict = None
+            if signal is not None and resolve_user_response_policy is not None:
+                try:
+                    verdict = resolve_user_response_policy(
+                        signal,
+                        previous_terms,
+                        previous_category=resolved_previous,
+                        candidates=[node["id"] for node in eligible],
+                    )
+                except ValueError:
+                    verdict = None  # untrusted signal input: rank-order emission (fail-open)
+            if verdict is not None:
+                eligible = [node for node in eligible if node["id"] not in set(verdict.taboo_additions)]
+                if verdict.gap_target is not None:
+                    forced = next((node for node in nodes if node["id"] == verdict.gap_target), None)
+                    if forced is not None:
+                        eligible = [forced] + [node for node in eligible if node["id"] != forced["id"]]
+            # Per-turn question budget (#527, the agent-side dual of the
+            # cost_cap): every ask consumes the allowance, and the spent
+            # count reads the persisted graph state (nodes asked this turn),
+            # so no schema change. record() advances the turn, which resets
+            # it; per-node MAX_ASKS_PER_NODE is unchanged.
+            turn_budget = _agent_turn_budget(previous_terms)
+            max_questions = turn_budget.max_questions if turn_budget is not None else DEFAULT_MAX_QUESTIONS_PER_TURN
+            asked_this_turn = sum(1 for node in nodes if node["last_asked_turn"] == controller["turn"])
+            question_budget = {"max_questions": max_questions, "asked_this_turn": asked_this_turn}
+            # Issue #526: the turn's stance — the declared input wins, else the
+            # tier is computed from the four measured signals — is emitted
+            # beside the contract terms and drives the tier-shaped emission.
+            resolved_stance, stance_signals = self._resolve_turn_stance(score, int(controller["turn"]), stance)
+            gather = _gather_duty(resolved_stance, state["divergence"]["axes"])
+            if readiness["ready"] and exit_allowed:
                 decision: dict[str, Any] = {
                     "action": "await_human_confirmation",
                     "reason": "the alignment graph supports a strategy handoff",
                     "question": None,
+                    "score_summary": _score_summary(
+                        score,
+                        [axis["description"] for axis in state["divergence"]["axes"] if axis["status"] == "open"],
+                    ),
                 }
-            elif controller["stagnant_turns"] >= MAX_STAGNANT_TURNS:
+            elif not exit_allowed and controller["turn"] >= MAX_TURNS and not extended:
+                # Turn cap reached with the score still below the exit
+                # threshold (#491): the open points are the user's decision —
+                # never a silent strategy switch to reconnaissance.
+                decision = _blocked_disposition(
+                    nodes,
+                    state["divergence"]["axes"],
+                    score,
+                    "alignment turn budget reached with the alignment score below the exit threshold; "
+                    "the open points need your decision",
+                )
+            elif gather is not None:
+                # Issue #526 gather duty (S2+): open divergence directions over
+                # the concurrency bound force a gather turn — an option set
+                # over the open topics for one pointing choice. No ask is
+                # consumed; the turn is non-question (the #527 posture).
                 decision = {
-                    "action": "reconnaissance",
-                    "reason": "two consecutive turns produced no graph change",
+                    "action": "gather",
+                    "node_id": gather["node_id"],
+                    "gap_id": gather["node_id"],
                     "question": None,
+                    "reason": (
+                        f"{gather['count']} open divergence directions exceed the concurrency bound of "
+                        f"{MAX_ACTIVE_AXES} in stance {resolved_stance}; compose a gather turn: an option "
+                        "set over the open topics for one pointing choice"
+                    ),
+                    "gather_options": gather["descriptions"],
+                    "question_budget": {**question_budget, "remaining": max(0, max_questions - asked_this_turn)},
                 }
-            elif controller["turn"] >= MAX_TURNS:
-                decision = {
-                    "action": "reconnaissance",
-                    "reason": "alignment dialogue limit reached; resolve remaining nodes with evidence",
-                    "question": None,
-                }
-            elif eligible:
+            elif eligible and asked_this_turn < max_questions:
                 node = eligible[0]
                 connection.execute(
                     "UPDATE nodes SET ask_count=ask_count+1, last_asked_turn=? WHERE node_id=?",
                     (controller["turn"], node["id"]),
                 )
                 connection.execute("UPDATE controller SET pending_node_id=? WHERE singleton=1", (node["id"],))
-                decision = {
-                    "action": "ask_one",
-                    "node_id": node["id"],
-                    "gap_id": node["id"],
-                    "question": f"Ask one open-ended question about: {node['statement']}",
-                    "reason": "highest-impact unresolved point that only the requester can settle",
+                axis_group = active_axes.get(node["id"])
+                if axis_group:
+                    axis = axis_group[0]
+                    decision = {
+                        "action": "ask_one",
+                        "node_id": node["id"],
+                        "gap_id": node["id"],
+                        "axis_id": axis["axis_id"],
+                        "axis": axis["description"],
+                        "question": f"Explore the opened divergence axis: {axis['description']}",
+                        "reason": "the user's answer opened an unexplored direction on this point; continue in dialogue",
+                    }
+                else:
+                    decision = {
+                        "action": "ask_one",
+                        "node_id": node["id"],
+                        "gap_id": node["id"],
+                        "question": f"Ask one open-ended question about: {node['statement']}",
+                        "reason": "highest-impact unresolved point that only the requester can settle",
+                    }
+                decision["question_budget"] = {
+                    **question_budget,
+                    "asked_this_turn": asked_this_turn + 1,
+                    "remaining": max(0, max_questions - asked_this_turn - 1),
                 }
-            else:
-                reason = "; ".join(readiness["reasons"][:3])
+            elif eligible:
+                # The per-turn question budget is spent (#527): until
+                # record() resets it, the engine emits a NON-QUESTION
+                # decision — the composer's mirror/teach/gather postures
+                # (prompt-layer craft vocabulary) — keeping the dialogue gap
+                # target so the turn stays contract-grounded. The action
+                # reuses the existing non-question vocabulary.
+                node = eligible[0]
+                axis_group = active_axes.get(node["id"])
                 decision = {
                     "action": "reconnaissance",
-                    "reason": reason or "remaining uncertainty is agent-verifiable",
+                    "node_id": node["id"],
+                    "gap_id": node["id"],
+                    "question": None,
+                    "reason": (
+                        "the per-turn question budget is spent; compose a non-question turn "
+                        "(mirror/teach/gather) grounded in the graph until the next turn resets it"
+                    ),
+                }
+                if axis_group:
+                    axis = axis_group[0]
+                    decision["axis_id"] = axis["axis_id"]
+                    decision["axis"] = axis["description"]
+                decision["question_budget"] = {**question_budget, "remaining": 0}
+            elif escalation:
+                # Ask budget spent on a high-impact requester-only point with
+                # no dialogue move left (#491): name it for the user's decision
+                # instead of abandoning it to reconnaissance.
+                decision = _blocked_disposition(
+                    nodes,
+                    state["divergence"]["axes"],
+                    score,
+                    "the ask budget is spent on a high-impact requester-only point without convergence; "
+                    "it needs your decision",
+                )
+            else:
+                requester_nodes = [
+                    node for node in nodes if node["human_only"] and node["status"] in {"candidate", "disputed"}
+                ]
+                if requester_nodes and all(
+                    stagnation.get(node["id"], 0) >= MAX_STAGNANT_TURNS for node in requester_nodes
+                ):
+                    reason = "no open divergence axis remains and every requester-only question is locally stalled"
+                else:
+                    reason = "; ".join(readiness["reasons"][:3]) or "remaining uncertainty is agent-verifiable"
+                decision = {
+                    "action": "reconnaissance",
+                    "reason": reason,
                     "question": None,
                 }
+            # Canonical loop step 1 (#489): emit the turn's contract terms
+            # next to the decision — additive keys; the action output above is
+            # unchanged and the terms persist via last_decision_json.
+            decision["stance"] = resolved_stance
+            if stance_signals is not None:
+                decision["stance_signals"] = stance_signals
+            if ContractTerms is not None and nodes:
+                terms = _emit_contract_terms(
+                    nodes,
+                    decision,
+                    active_axes,
+                    stagnation,
+                    last_outcomes,
+                    previous_terms,
+                    verdict,
+                    user_profile=user_profile,
+                    surveyed_gaps=_gaps_with_recorded_survey(connection),
+                    stance=resolved_stance,
+                )
+                if terms is not None:
+                    decision["contract_terms"] = terms.to_dict()
+            if verdict is not None:
+                decision["user_move_policy"] = verdict.to_dict()
             connection.execute(
                 """
                 UPDATE controller
@@ -314,22 +753,132 @@ class AlignmentGraphStore:
             "stagnant_turns": state["controller"]["stagnant_turns"],
             "alignment_digest": state["graph_digest"],
             "readiness": readiness,
+            "alignment_score": score,
+            "alignment_exit_threshold": ALIGNMENT_SCORE_EXIT_THRESHOLD,
         }
 
-    def record(self, node_id: str, outcome: str, fingerprint: str) -> dict[str, Any]:
+    def _resolve_turn_stance(
+        self, score: int, turn: int, declared: str | None
+    ) -> tuple[str, dict[str, float | int] | None]:
+        """The turn's stance: the declared input wins, else compute from the four signals (#526)."""
+
+        if declared is not None:
+            return declared, None
+        signals = self._observed_stance_signals(score, turn)
+        return resolve_stance(**signals), signals
+
+    def _observed_stance_signals(self, score: int, turn: int) -> dict[str, float | int]:
+        """The four measured stance signals, fail-open to clean defaults (#526).
+
+        clarity = the #491 alignment score; vagueness/conflict = the #524
+        brief-registry queries (conflict additionally counts the #490
+        correction frequency from the bounded feed scan); violation_rate =
+        the #525 sliding-window rate over the persisted violation stream.
+        Unavailable stores read as clean signals (S1) — observation must
+        never invent strictness.
+        """
+
+        run_root = self.database.parent.parent
+        vagueness = 0.0
+        conflict = 0
+        if _BriefRefineryStore is not None:
+            try:
+                registry = _BriefRefineryStore(run_root).load()
+                vagueness = registry.vagueness()
+                conflict = registry.conflicts()
+            except (OSError, ValueError):
+                pass
+        conflict += _correction_frequency_from_feed(run_root)
+        violation_rate = 0.0
+        if _DisciplineViolationStore is not None and _sliding_window_rate is not None:
+            try:
+                violation_rate = _sliding_window_rate(
+                    _DisciplineViolationStore(run_root).records(), turns_observed=turn
+                )
+            except (OSError, ValueError):
+                pass
+        return {"clarity": score, "vagueness": vagueness, "conflict": conflict, "violation_rate": violation_rate}
+
+    def record(
+        self,
+        node_id: str,
+        outcome: str,
+        fingerprint: str,
+        new_axes: Sequence[Any] | None = None,
+        *,
+        traces: Sequence[Mapping[str, Any]] | None = None,
+        user_move: str | None = None,
+        question_count: int | None = None,
+        turn_chars: int | None = None,
+        run_phase: str | None = None,
+    ) -> dict[str, Any]:
+        # Issue #530: recording an alignment outcome under the research phase
+        # is a protocol violation — there is no live ask to answer; the
+        # reopen re-entry protocol owns the way back into alignment.
+        resolved_run_phase = run_phase if run_phase is not None else self._observed_run_phase()
+        if resolved_run_phase == RESEARCH_RUN_PHASE:
+            raise AlignmentGraphError(
+                "alignment_record_refused_under_research_phase: the run phase is research; "
+                "realignment goes through the reopen re-entry protocol"
+            )
         node_id = _identifier(node_id, "node id")
         outcome = _enum(outcome, OUTCOMES, "outcome")
+        for name, measured in (("question_count", question_count), ("turn_chars", turn_chars)):
+            if measured is not None and (isinstance(measured, bool) or not isinstance(measured, int) or measured < 0):
+                raise AlignmentGraphError(f"{name} must be a nonnegative integer or None, not {measured!r}")
+        axes = _normalize_axes(new_axes)
+        normalized_traces: list[dict[str, Any]] | None = None
+        if traces is not None:
+            normalized_traces = [dict(trace) for trace in traces]
+        typed_user_move: str | None = None
+        if user_move is not None:
+            if user_move not in RESPONSE_CLASSES:
+                raise AlignmentGraphError(
+                    f"user_move must be one of the turn_contract response classes {RESPONSE_CLASSES}: {user_move!r}"
+                )
+            typed_user_move = user_move
         with self._connect() as connection:
             self._require_schema(connection)
             node = connection.execute("SELECT * FROM nodes WHERE node_id=?", (node_id,)).fetchone()
             if node is None:
                 raise AlignmentGraphError(f"unknown graph node: {node_id}")
             controller = connection.execute("SELECT * FROM controller WHERE singleton=1").fetchone()
+            # Issue #526 tier-crossing invariants, enforced against the
+            # outstanding plan's persisted stance (fail-open to the #527
+            # flag-not-block behavior when no stance was emitted):
+            #   S3 freezes divergence — new axes are refused outright;
+            #   S2/S3 make the one-question invariant a HARD record gate.
+            outstanding_stance = _controller_row_stance(controller)
+            if outstanding_stance == STANCE_STRICT and axes:
+                raise AlignmentGraphError(
+                    "stance_s3_axis_freeze: new divergence axes are frozen in stance S3; converge the open points first"
+                )
+            verified: tuple[str, ...] = ()
+            terms = _controller_row_terms(controller)
+            if normalized_traces is not None and verify_traces is not None and terms is not None:
+                # Canonical loop step 3 (#489): verify the recorded traces
+                # against the last plan's emitted terms BEFORE any state
+                # mutation; a missing required trace fails naming the term.
+                verified = verify_traces(terms, normalized_traces)
+            # Issue #527: record-time agent-turn-budget verification — the
+            # dual of the user-side cost_cap. Flag-not-block: an over-budget
+            # turn stays valid continuity grounding; the named violations
+            # feed the #525 discipline telemetry.
+            turn_budget_violations = _verify_agent_turn_budget(terms, question_count, turn_chars)
+            budget_checked = terms is not None and terms.agent_turn_budget is not None
+            if outstanding_stance in {STANCE_STRUCTURED, STANCE_STRICT} and any(
+                violation["dimension"] == "max_questions" for violation in turn_budget_violations
+            ):
+                raise AlignmentGraphError(
+                    f"stance_{outstanding_stance.lower()}_question_gate: at most one question per "
+                    f"interactive turn in stance {outstanding_stance}; split the turn and re-ask next turn"
+                )
             hashed = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
             changed = hashed != controller["last_fingerprint"]
             turn = int(controller["turn"]) + 1
-            stagnant = int(controller["stagnant_turns"])
+            stagnant = int(node["stagnant_turns"])
             status = node["status"]
+            quiet = not changed
             if outcome == "answered":
                 try:
                     from .speech_acts import AuthorityTransitionError, SpeechAct
@@ -367,37 +916,118 @@ class AlignmentGraphStore:
             elif outcome == "reopened":
                 status = "candidate"
                 stagnant = 0
-            elif not changed:
+            elif quiet:
                 stagnant += 1
+            self._update_node_axes(connection, node_id, outcome, quiet, bool(axes), turn)
+            opened_axes: list[str] = []
+            if axes:
+                # A user-implied new direction is the opposite of a stall: the
+                # node's local convergence resets and each axis opens fresh.
+                stagnant = 0
+                for axis in axes:
+                    opened_axes.append(self._open_axis(connection, node_id, axis, turn))
             connection.execute(
-                "UPDATE nodes SET status=?, updated_at=? WHERE node_id=?",
-                (status, _now(), node_id),
+                "UPDATE nodes SET status=?, stagnant_turns=?, updated_at=? WHERE node_id=?",
+                (status, stagnant, _now(), node_id),
             )
+            global_stagnant = connection.execute("SELECT COALESCE(MAX(stagnant_turns), 0) FROM nodes").fetchone()[0]
             connection.execute(
                 """
                 UPDATE controller
                 SET turn=?, stagnant_turns=?, last_fingerprint=?, pending_node_id=NULL
                 WHERE singleton=1
                 """,
-                (turn, stagnant, hashed),
+                (turn, global_stagnant, hashed),
             )
             handoff_invalidated = self._invalidate_handoff_if_confirmed(connection)
-            state = self._commit_event(
-                connection,
-                "response_recorded",
-                {
-                    "node_id": node_id,
-                    "outcome": outcome,
-                    "state_changed": changed,
-                    "handoff_invalidated": handoff_invalidated,
-                },
-            )
-        return {
+            event_details: dict[str, Any] = {
+                "node_id": node_id,
+                "outcome": outcome,
+                "state_changed": changed,
+                "opened_axes": opened_axes,
+                "handoff_invalidated": handoff_invalidated,
+            }
+            if normalized_traces is not None:
+                event_details["traces"] = normalized_traces
+            if typed_user_move is not None:
+                event_details["user_move"] = typed_user_move
+            if budget_checked:
+                event_details["turn_budget_violations"] = turn_budget_violations
+            state = self._commit_event(connection, "response_recorded", event_details)
+        dialogue_mode = state["divergence"]["mode"]
+        # record() must not advise the escape plan() would refuse (#491): a
+        # stalled dialogue with an exhausted high-impact gap escalates instead.
+        stalled_next = "alignment_incomplete" if _escalation_nodes(state["graph"]["nodes"]) else "reconnaissance"
+        result = {
             "turn": state["controller"]["turn"],
-            "stagnant_turns": state["controller"]["stagnant_turns"],
+            "stagnant_turns": stagnant,
             "state_changed": changed,
-            "next_action": "reconnaissance" if stagnant >= MAX_STAGNANT_TURNS else "plan",
+            "opened_axes": opened_axes,
+            "dialogue_mode": dialogue_mode,
+            "next_action": stalled_next if dialogue_mode == "stalled" else "plan",
         }
+        if normalized_traces is not None:
+            result["verified_traces"] = verified
+        if budget_checked:
+            result["turn_budget_violations"] = turn_budget_violations
+        return result
+
+    @staticmethod
+    def _open_axis(connection: sqlite3.Connection, node_id: str, axis: Mapping[str, Any], turn: int) -> str:
+        axis_id = axis["id"] or _axis_id(node_id, axis["description"])
+        existing = connection.execute("SELECT * FROM divergence_axes WHERE axis_id=?", (axis_id,)).fetchone()
+        if existing is not None:
+            if existing["node_id"] != node_id:
+                raise AlignmentGraphError(
+                    f"divergence axis {axis_id} belongs to node {existing['node_id']}, not {node_id}"
+                )
+            connection.execute(
+                "UPDATE divergence_axes SET status='open', stagnant_turns=0, last_turn=?, updated_at=? WHERE axis_id=?",
+                (turn, _now(), axis_id),
+            )
+            return axis_id
+        now = _now()
+        connection.execute(
+            """
+            INSERT INTO divergence_axes(
+                axis_id, node_id, description, status, opened_turn, last_turn, stagnant_turns, created_at, updated_at
+            ) VALUES(?, ?, ?, 'open', ?, ?, 0, ?, ?)
+            """,
+            (axis_id, node_id, axis["description"], turn, turn, now, now),
+        )
+        return axis_id
+
+    @staticmethod
+    def _update_node_axes(
+        connection: sqlite3.Connection, node_id: str, outcome: str, quiet: bool, axes_declared: bool, turn: int
+    ) -> None:
+        """Advance the open axes hanging on the recorded node (#496 lifecycle)."""
+
+        now = _now()
+        for row in connection.execute(
+            "SELECT * FROM divergence_axes WHERE node_id=? ORDER BY axis_id", (node_id,)
+        ).fetchall():
+            axis_id = row["axis_id"]
+            if outcome == "answered" and row["status"] == "open":
+                connection.execute(
+                    "UPDATE divergence_axes SET status='converged', stagnant_turns=0, updated_at=? WHERE axis_id=?",
+                    (now, axis_id),
+                )
+            elif outcome == "reopened" and row["status"] == "converged":
+                connection.execute(
+                    "UPDATE divergence_axes SET status='open', stagnant_turns=0, updated_at=? WHERE axis_id=?",
+                    (now, axis_id),
+                )
+            elif quiet and not axes_declared and row["status"] == "open":
+                connection.execute(
+                    "UPDATE divergence_axes SET stagnant_turns=stagnant_turns+1, last_turn=?, updated_at=? WHERE axis_id=?",
+                    (turn, now, axis_id),
+                )
+            elif row["status"] == "open":
+                connection.execute(
+                    "UPDATE divergence_axes SET stagnant_turns=0, last_turn=?, updated_at=? WHERE axis_id=?",
+                    (turn, now, axis_id),
+                )
 
     def confirm(self, confirmation: str, expected_digest: str | None = None) -> dict[str, Any]:
         text = " ".join(confirmation.split())
@@ -411,6 +1041,14 @@ class AlignmentGraphStore:
             readiness = _alignment_readiness(state["graph"]["nodes"], state["graph"]["edges"])
             if not readiness["ready"]:
                 raise AlignmentGraphError("alignment graph is not ready: " + "; ".join(readiness["reasons"]))
+            score = _alignment_score(state["graph"]["nodes"], state["divergence"]["axes"])
+            if score < ALIGNMENT_SCORE_EXIT_THRESHOLD and _active_waive(connection, state["graph_digest"]) is None:
+                # User pressure cannot bypass the score gate (#491); only a
+                # recorded explicit waive unlocks a below-threshold exit.
+                raise AlignmentGraphError(
+                    f"alignment score {score} is below the exit threshold {ALIGNMENT_SCORE_EXIT_THRESHOLD}; "
+                    "alignment is incomplete: resolve the open points or record an explicit waive"
+                )
             last_decision = state["controller"].get("last_decision") or {}
             if last_decision.get("action") != "await_human_confirmation":
                 raise AlignmentGraphError("cannot confirm before the handoff draft is shown")
@@ -442,6 +1080,44 @@ class AlignmentGraphStore:
             "status": state["controller"]["status"],
             "phase": state["controller"]["phase"],
             "handoff": state["controller"]["handoff"],
+        }
+
+    def waive(self, reason: str) -> dict[str, Any]:
+        """Record an explicit user waive of the alignment-exit gate (#491).
+
+        The waive is the user's recorded decision to proceed despite an
+        alignment score below ``ALIGNMENT_SCORE_EXIT_THRESHOLD`` (or a turn
+        cap with open gaps). It is bound to the graph digest at waive time:
+        any later graph change expires it and the gate re-engages. Generic
+        acknowledgements are rejected, same bar as handoff confirmation.
+        """
+        text = " ".join(str(reason).split())
+        if not text:
+            raise AlignmentGraphError("waive reason must be nonempty")
+        if text.casefold() in {"ok", "okay", "yes", "continue", "go ahead", "可以", "继续"}:
+            raise AlignmentGraphError("generic acknowledgement is not an alignment waive")
+        with self._connect() as connection:
+            self._require_schema(connection)
+            state = self._materialize(connection)
+            nodes = state["graph"]["nodes"]
+            score = _alignment_score(nodes, state["divergence"]["axes"])
+            details = {
+                "reason": text,
+                "reason_digest": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                "graph_digest": state["graph_digest"],
+                "alignment_score": score,
+                "alignment_exit_threshold": ALIGNMENT_SCORE_EXIT_THRESHOLD,
+                "blocked_nodes": sorted(
+                    node["id"] for node in nodes if node["human_only"] and node["status"] in {"candidate", "disputed"}
+                ),
+            }
+            self._commit_event(connection, "alignment_waived", details)
+        return {
+            "waived": True,
+            "graph_digest": details["graph_digest"],
+            "alignment_score": score,
+            "alignment_exit_threshold": ALIGNMENT_SCORE_EXIT_THRESHOLD,
+            "score_summary": _score_summary(score, details["blocked_nodes"]),
         }
 
     def compile_handoff(self) -> dict[str, Any]:
@@ -603,6 +1279,7 @@ class AlignmentGraphStore:
             if event is None:
                 raise AlignmentGraphError("alignment event log is empty")
             state = json.loads(event["state_json"])
+            connection.execute("DELETE FROM divergence_axes")
             connection.execute("DELETE FROM edges")
             connection.execute("DELETE FROM nodes")
             self._restore_state(connection, state)
@@ -613,7 +1290,7 @@ class AlignmentGraphStore:
         connection.executescript(
             """
             CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-            INSERT INTO metadata(key, value) VALUES('schema', '2');
+            INSERT INTO metadata(key, value) VALUES('schema', '3');
             CREATE TABLE controller(
                 singleton INTEGER PRIMARY KEY CHECK(singleton=1),
                 run_id TEXT NOT NULL,
@@ -643,6 +1320,18 @@ class AlignmentGraphStore:
                 attributes_json TEXT NOT NULL,
                 ask_count INTEGER NOT NULL DEFAULT 0,
                 last_asked_turn INTEGER,
+                stagnant_turns INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE divergence_axes(
+                axis_id TEXT PRIMARY KEY,
+                node_id TEXT NOT NULL REFERENCES nodes(node_id),
+                description TEXT NOT NULL,
+                status TEXT NOT NULL,
+                opened_turn INTEGER NOT NULL,
+                last_turn INTEGER NOT NULL,
+                stagnant_turns INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -685,14 +1374,14 @@ class AlignmentGraphStore:
     def _upsert_node(connection: sqlite3.Connection, node: Mapping[str, Any]) -> None:
         now = _now()
         prior = connection.execute(
-            "SELECT ask_count, last_asked_turn, created_at FROM nodes WHERE node_id=?", (node["id"],)
+            "SELECT ask_count, last_asked_turn, stagnant_turns, created_at FROM nodes WHERE node_id=?", (node["id"],)
         ).fetchone()
         connection.execute(
             """
             INSERT INTO nodes(
                 node_id,node_type,statement,status,impact,human_only,confidence,
-                source,oracle,attributes_json,ask_count,last_asked_turn,created_at,updated_at
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                source,oracle,attributes_json,ask_count,last_asked_turn,stagnant_turns,created_at,updated_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(node_id) DO UPDATE SET
                 node_type=excluded.node_type, statement=excluded.statement,
                 status=excluded.status, impact=excluded.impact,
@@ -713,6 +1402,7 @@ class AlignmentGraphStore:
                 _json(node["attributes"]),
                 int(prior["ask_count"]) if prior else 0,
                 prior["last_asked_turn"] if prior else None,
+                int(prior["stagnant_turns"]) if prior else 0,
                 prior["created_at"] if prior else now,
                 now,
             ),
@@ -832,7 +1522,25 @@ class AlignmentGraphStore:
             for row in connection.execute("SELECT * FROM edges ORDER BY edge_id")
         ]
         graph = {"nodes": nodes, "edges": edges}
-        return {
+        divergence_axes = [
+            {
+                "axis_id": row["axis_id"],
+                "node_id": row["node_id"],
+                "description": row["description"],
+                "status": row["status"],
+                "opened_turn": row["opened_turn"],
+                "last_turn": row["last_turn"],
+                "stagnant_turns": row["stagnant_turns"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in connection.execute("SELECT * FROM divergence_axes ORDER BY node_id, axis_id")
+        ]
+        node_stagnation = {
+            row["node_id"]: int(row["stagnant_turns"])
+            for row in connection.execute("SELECT node_id, stagnant_turns FROM nodes")
+        }
+        state = {
             "schema": SCHEMA,
             "controller": {
                 "run_id": controller["run_id"],
@@ -852,8 +1560,16 @@ class AlignmentGraphStore:
                 "updated_at": controller["updated_at"],
             },
             "graph": graph,
+            # Divergence-aware dialogue state (#496). Kept OUTSIDE `graph` so
+            # graph_digest keeps meaning graph content only.
+            "divergence": {
+                "axes": divergence_axes,
+                "node_stagnation": node_stagnation,
+            },
             "graph_digest": _digest(graph),
         }
+        state["divergence"]["mode"] = _dialogue_mode(state)
+        return state
 
     def _restore_state(self, connection: sqlite3.Connection, state: Mapping[str, Any]) -> None:
         controller = state["controller"]
@@ -882,14 +1598,44 @@ class AlignmentGraphStore:
         for node in state["graph"]["nodes"]:
             self._upsert_node(connection, node)
             connection.execute(
-                "UPDATE nodes SET ask_count=?,last_asked_turn=?,created_at=?,updated_at=? WHERE node_id=?",
-                (node["ask_count"], node["last_asked_turn"], node["created_at"], node["updated_at"], node["id"]),
+                "UPDATE nodes SET ask_count=?,last_asked_turn=?,stagnant_turns=?,created_at=?,updated_at=? WHERE node_id=?",
+                (
+                    node["ask_count"],
+                    node["last_asked_turn"],
+                    int(state["divergence"]["node_stagnation"].get(node["id"], 0)),
+                    node["created_at"],
+                    node["updated_at"],
+                    node["id"],
+                ),
             )
         for edge in state["graph"]["edges"]:
             self._upsert_edge(connection, edge)
             connection.execute(
                 "UPDATE edges SET created_at=?,updated_at=? WHERE edge_id=?",
                 (edge["created_at"], edge["updated_at"], edge["id"]),
+            )
+        for axis in state["divergence"]["axes"]:
+            connection.execute(
+                """
+                INSERT INTO divergence_axes(
+                    axis_id,node_id,description,status,opened_turn,last_turn,stagnant_turns,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(axis_id) DO UPDATE SET
+                    node_id=excluded.node_id,description=excluded.description,status=excluded.status,
+                    opened_turn=excluded.opened_turn,last_turn=excluded.last_turn,
+                    stagnant_turns=excluded.stagnant_turns,updated_at=excluded.updated_at
+                """,
+                (
+                    axis["axis_id"],
+                    axis["node_id"],
+                    axis["description"],
+                    axis["status"],
+                    axis["opened_turn"],
+                    axis["last_turn"],
+                    axis["stagnant_turns"],
+                    axis["created_at"],
+                    axis["updated_at"],
+                ),
             )
 
 
@@ -993,6 +1739,657 @@ def _normalize_update(value: Mapping[str, Any]) -> tuple[list[dict[str, Any]], l
             }
         )
     return nodes, edges
+
+
+def _dialogue_mode(state: Mapping[str, Any]) -> str:
+    """Classify the dialogue from per-node/per-axis state (#496).
+
+    ``handoff_ready`` — the graph supports a strategy handoff; ``divergent`` —
+    at least one active divergence axis (stay in dialogue with an exploratory
+    move); ``converging`` — some requester-only point is still below the stall
+    threshold; ``stalled`` — nothing new and no active axis anywhere
+    (agent-side reconnaissance is acceptable).
+    """
+
+    if _alignment_readiness(state["graph"]["nodes"], state["graph"]["edges"])["ready"]:
+        return "handoff_ready"
+    for axis in state["divergence"]["axes"]:
+        if axis["status"] == "open" and axis["stagnant_turns"] < MAX_STAGNANT_TURNS:
+            return "divergent"
+    stagnation = state["divergence"]["node_stagnation"]
+    for node in state["graph"]["nodes"]:
+        if (
+            node["human_only"]
+            and node["status"] in {"candidate", "disputed"}
+            and stagnation.get(node["id"], 0) < MAX_STAGNANT_TURNS
+        ):
+            return "converging"
+    return "stalled"
+
+
+def _alignment_score(nodes: Sequence[Mapping[str, Any]], axes: Sequence[Mapping[str, Any]]) -> int:
+    """Deterministic alignment-exit score over graph state (#491).
+
+    Returns an integer 0..``ALIGNMENT_SCORE_MAX``: full convergence (no open
+    requester-only gap, no spent ask budget on an open gap, no open divergence
+    axis) scores the maximum and exits without user intervention; every piece
+    of residue subtracts its weight, so exiting is gated by alignment quality,
+    not by the turn counter. Exact integer arithmetic keeps the score stable
+    across reopens and event-log rebuilds.
+    """
+
+    penalty = 0
+    for node in nodes:
+        if node["human_only"] and node["status"] in {"candidate", "disputed"}:
+            penalty += ALIGNMENT_SCORE_OPEN_GAP_WEIGHT * int(node["impact"])
+            if node["ask_count"] >= MAX_ASKS_PER_NODE:
+                penalty += ALIGNMENT_SCORE_EXHAUSTED_ASK_WEIGHT
+    penalty += ALIGNMENT_SCORE_OPEN_AXIS_WEIGHT * sum(1 for axis in axes if axis["status"] == "open")
+    return max(0, ALIGNMENT_SCORE_MAX - penalty)
+
+
+def _escalation_nodes(nodes: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Open requester-only gaps whose ask budget is spent at high impact (#491).
+
+    These are named in the blocked disposition for the user's decision instead
+    of being abandoned to reconnaissance. An active divergence axis on the
+    node keeps the node askable first (#496 extra allowance composes); stalled
+    gaps that never exhausted their ask budget keep the #496 stall behavior.
+    """
+
+    return sorted(
+        (
+            node
+            for node in nodes
+            if node["human_only"]
+            and node["status"] in {"candidate", "disputed"}
+            and node["ask_count"] >= MAX_ASKS_PER_NODE
+            and node["impact"] >= ALIGNMENT_HIGH_IMPACT
+        ),
+        key=lambda node: (-node["impact"], node["id"]),
+    )
+
+
+def _blocked_disposition(
+    nodes: Sequence[Mapping[str, Any]], axes: Sequence[Mapping[str, Any]], score: int, reason: str
+) -> dict[str, Any]:
+    """Build the ``alignment_incomplete`` blocked disposition (#491).
+
+    The disposition names every open requester-only gap (impact-descending,
+    with its spent-ask flag), the open divergence axes, and the score versus
+    the exit threshold, and states the two resolutions: extend the dialogue or
+    record an explicit waive.
+    """
+
+    open_gaps = sorted(
+        (node for node in nodes if node["human_only"] and node["status"] in {"candidate", "disputed"}),
+        key=lambda node: (-node["impact"], node["id"]),
+    )
+    return {
+        "action": "alignment_incomplete",
+        "reason": reason,
+        "question": None,
+        "alignment_score": score,
+        "alignment_exit_threshold": ALIGNMENT_SCORE_EXIT_THRESHOLD,
+        # Issue #526: the score enters the disposition user-visibly so the
+        # waive reads as a mutual "good enough" acknowledgment, not surrender.
+        "score_summary": _score_summary(score, [node["id"] for node in open_gaps]),
+        "blocked_nodes": [
+            {
+                "node_id": node["id"],
+                "impact": node["impact"],
+                "asks_exhausted": node["ask_count"] >= MAX_ASKS_PER_NODE,
+            }
+            for node in open_gaps
+        ],
+        "exhausted_ask_nodes": [node["id"] for node in open_gaps if node["ask_count"] >= MAX_ASKS_PER_NODE],
+        "open_axes": [axis["description"] for axis in axes if axis["status"] == "open"],
+        "requires": "extend the dialogue by answering, or record an explicit waive",
+    }
+
+
+# --- Contract emission (#489): the canonical two-layer loop ----------------
+#
+# ADR-008 canonical loop step 1 and 3: each turn the engine emits structured
+# contract terms (target_gap / required_traces / cost_cap / taboos) alongside
+# the existing decision, and after the turn verifies the recorded traces
+# against the emitted terms. The enumerated space is contract terms and trace
+# types (turn_contract registry) — never behaviors; the prompt layer composes
+# the turn freely from the craft material (references/alignment-craft.md).
+# target_gap ranking reuses the #496 divergence-aware eligibility, taboos
+# carry MAX_ASKS_PER_NODE / stall exclusions (#491/#496 migrate into the
+# term), and the #490 policy (resolve_user_response_policy) applies the
+# observed user move — its persisted alignment_user_move feed records are the
+# default transport, kept literal here so the graph does not import the hook.
+
+USER_MOVE_FEED_ROUTE = "alignment_user_move"
+_USER_MOVE_FEED_SCAN = 64
+_OPEN_GAP_STATUSES = frozenset({"candidate", "disputed"})
+
+
+def _last_response_outcomes(connection: sqlite3.Connection) -> dict[str, str]:
+    """Latest recorded outcome per node, from the append-only event log."""
+
+    outcomes: dict[str, str] = {}
+    for row in connection.execute(
+        "SELECT details_json FROM events WHERE event_type='response_recorded' ORDER BY sequence"
+    ):
+        details = json.loads(row["details_json"])
+        node_id = details.get("node_id")
+        outcome = details.get("outcome")
+        if isinstance(node_id, str) and isinstance(outcome, str):
+            outcomes[node_id] = outcome
+    return outcomes
+
+
+def _gaps_with_recorded_survey(connection: sqlite3.Connection) -> frozenset[str]:
+    """Gap ids with a recorded possibility-survey trace (issue #500).
+
+    Read from the append-only ``response_recorded`` event log — a survey
+    counts once recorded against the gap, whatever later turns did.
+    """
+
+    surveyed: set[str] = set()
+    for row in connection.execute(
+        "SELECT details_json FROM events WHERE event_type='response_recorded' ORDER BY sequence"
+    ):
+        details = json.loads(row["details_json"])
+        if not isinstance(details, Mapping):
+            continue
+        traces = details.get("traces")
+        if not isinstance(traces, Sequence):
+            continue
+        if any(isinstance(t, Mapping) and t.get("type") == "possibility-survey" for t in traces):
+            node_id = details.get("node_id")
+            if isinstance(node_id, str):
+                surveyed.add(node_id)
+    return frozenset(surveyed)
+
+
+def _contract_terms_of_decision(decision: Any) -> Any:
+    """Parse a decision's emitted contract terms, when still parseable."""
+
+    if ContractTerms is None or not isinstance(decision, Mapping):
+        return None
+    value = decision.get("contract_terms")
+    if not isinstance(value, Mapping):
+        return None
+    try:
+        return ContractTerms.from_dict(value)
+    except TurnContractError:
+        return None
+
+
+def _previous_contract_terms(controller: Mapping[str, Any]) -> Any:
+    """The outstanding ask: the last plan's emitted terms, when still parseable."""
+
+    decision = controller.get("last_decision") if isinstance(controller, Mapping) else None
+    return _contract_terms_of_decision(decision)
+
+
+def _controller_row_terms(controller: sqlite3.Row) -> Any:
+    """The last plan's emitted terms read from the persisted controller row."""
+
+    if ContractTerms is None:
+        return None
+    raw = controller["last_decision_json"]
+    if not raw:
+        return None
+    try:
+        return _contract_terms_of_decision(json.loads(raw))
+    except ValueError:
+        return None
+
+
+def _controller_row_stance(controller: sqlite3.Row) -> str | None:
+    """The outstanding ask's stance, read from the persisted plan decision (#526)."""
+
+    raw = controller["last_decision_json"] if isinstance(controller, sqlite3.Row) else None
+    if not raw:
+        return None
+    try:
+        decision = json.loads(raw)
+    except ValueError:
+        return None
+    if isinstance(decision, Mapping) and decision.get("stance") in STANCES:
+        return str(decision["stance"])
+    return None
+
+
+def _score_summary(score: int, remaining: Sequence[str]) -> str:
+    """The user-visible score line (#526): understood percentage + named gaps."""
+
+    names = ", ".join(remaining) if remaining else "none"
+    return f"understood ~{score}%; remaining: {names}"
+
+
+def _verify_agent_turn_budget(
+    terms: Any,
+    question_count: int | None,
+    turn_chars: int | None,
+) -> list[dict[str, int]]:
+    """Record-time agent-turn-budget check (#527): flag-not-block.
+
+    A recorded turn exceeding ``max_questions`` or ``max_chars`` is a named
+    violation; the turn remains valid as continuity grounding (#514 ruling)
+    and each entry names the dimension, the limit, and the observed value so
+    the #525 discipline telemetry can count it. Empty when no budget was
+    carried or nothing was exceeded.
+    """
+
+    budget = getattr(terms, "agent_turn_budget", None) if terms is not None else None
+    if budget is None:
+        return []
+    violations: list[dict[str, int]] = []
+    if question_count is not None and question_count > budget.max_questions:
+        violations.append({"dimension": "max_questions", "limit": budget.max_questions, "observed": question_count})
+    if turn_chars is not None and turn_chars > budget.max_chars:
+        violations.append({"dimension": "max_chars", "limit": budget.max_chars, "observed": turn_chars})
+    return violations
+
+
+def _alignment_feed_records(run_root: Path) -> list[Mapping[str, Any]]:
+    """The bounded newest-first scan of the #490 alignment_user_move feed.
+
+    One record per classified alignment-phase prompt, with a fixed-width UTC
+    timestamp prefix, so lexicographic order is chronological. Bounded scan;
+    unreadable records are skipped (fail-open).
+    """
+
+    try:
+        paths = sorted(
+            (item for item in (run_root / "events").iterdir() if item.is_file() and item.suffix == ".json"),
+            key=lambda item: item.name,
+            reverse=True,
+        )[:_USER_MOVE_FEED_SCAN]
+    except OSError:
+        return []
+    records: list[Mapping[str, Any]] = []
+    for path in paths:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(record, Mapping) and record.get("route") == USER_MOVE_FEED_ROUTE:
+            records.append(record)
+    return records
+
+
+def _correction_frequency_from_feed(run_root: Path) -> int:
+    """Counted correction moves in the bounded feed scan (#526 conflict signal)."""
+
+    return sum(1 for record in _alignment_feed_records(run_root) if record.get("category") == "correction")
+
+
+def _user_move_signal_from_feed(run_root: Path) -> tuple[Mapping[str, str] | None, str | None]:
+    """Read the newest (and previous) #490 user-move feed record, fail-open.
+
+    The hook persists one ``alignment_user_move`` record per classified
+    alignment-phase prompt, with a fixed-width UTC timestamp prefix, so
+    lexicographic order is chronological. Newest = the prompt the agent is
+    answering; previous = the repeated-correction input. Bounded scan; any
+    problem degrades to no signal (rank-order emission).
+    """
+
+    signal: dict[str, str] | None = None
+    previous: str | None = None
+    for record in _alignment_feed_records(run_root):
+        category = record.get("category")
+        confidence = record.get("confidence")
+        rule = record.get("rule")
+        if not (isinstance(category, str) and isinstance(confidence, str) and isinstance(rule, str)):
+            continue
+        if signal is None:
+            signal = {"category": category, "confidence": confidence, "rule": rule}
+        else:
+            previous = category
+            break
+    return signal, previous
+
+
+def _emission_taboos(
+    nodes: Sequence[Mapping[str, Any]],
+    active_axis_nodes: set[str],
+    stagnation: Mapping[str, int],
+    last_outcomes: Mapping[str, str],
+) -> tuple[str, ...]:
+    """Nodes the composer must not re-ask this turn (#489 taboos term).
+
+    Already-answered nodes (their latest recorded response was ``answered``),
+    open requester-only gaps whose MAX_ASKS_PER_NODE budget is spent, and
+    locally stalled gaps (#496 stagnation at the threshold) — unless an
+    active divergence axis re-opens the node.
+    """
+
+    taboos: set[str] = set()
+    for node in nodes:
+        if not node["human_only"]:
+            continue
+        node_id = node["id"]
+        if node_id in active_axis_nodes:
+            continue
+        if last_outcomes.get(node_id) == "answered":
+            taboos.add(node_id)
+        if node["status"] in _OPEN_GAP_STATUSES and (
+            node["ask_count"] >= MAX_ASKS_PER_NODE or stagnation.get(node_id, 0) >= MAX_STAGNANT_TURNS
+        ):
+            taboos.add(node_id)
+    return tuple(sorted(taboos))
+
+
+def _base_cost_cap(action: str) -> Any:
+    """The asking-shape cap: open-ended elicitation is generation; a confirm is one sentence."""
+
+    if CostCap is None:
+        return None
+    if action == "await_human_confirmation":
+        return CostCap(response_class=RESPONSE_CLASS_DISCRIMINATION, max_sentences=1)
+    return CostCap(response_class=RESPONSE_CLASS_GENERATION, max_sentences=None)
+
+
+# Issue #527 required-trace queueing: at most this many required traces are
+# emitted per turn (priority order); the remainder is deferred in the terms
+# and re-emitted as required by the next turn's emission.
+MAX_REQUIRED_TRACES_PER_TURN = 2
+
+
+def _agent_turn_budget(previous_terms: Any) -> Any:
+    """The agent output ceiling emitted with the terms (#527).
+
+    The dual of the user-side cost cap: one question per interactive turn
+    and a per-turn character bound (tier-settable by #526 — these are the
+    engine-floor defaults). A budget carried by the previous terms is kept,
+    the same carry rule as the cap.
+    """
+
+    if AgentTurnBudget is None:
+        return None
+    if previous_terms is not None and previous_terms.agent_turn_budget is not None:
+        return previous_terms.agent_turn_budget
+    return AgentTurnBudget(
+        max_questions=DEFAULT_MAX_QUESTIONS_PER_TURN,
+        max_chars=DEFAULT_MAX_CHARS_PER_TURN,
+    )
+
+
+def _gap_required_traces(
+    node: Mapping[str, Any], *, reopened: bool, cap: Any, stance: str = STANCE_TRUST_FIRST
+) -> tuple[str, ...]:
+    """Required traces from gap shape, measured signals, and stance (#489/#526).
+
+    A misunderstood-intent gap (disputed target, or a correction-driven
+    reopen) requires the turn to restate the corrected understanding
+    (``guess-statement``). A proposal-shaped gap requires the possibility
+    space be surveyed before an open question (``possibility-survey``), or
+    the option set be shown when the user's next move is a pointing response
+    (``option-set`` under a discrimination cap). Issue #526 makes the
+    proportionality assessment signal-triggered instead of shape-triggered:
+    it requires a magnitude signal (a high-impact assertion or a recorded
+    over/under judgment) — ordinary proposals carry it only in S3, where the
+    challenges surface as explicit dialogue moves (plus ``counterargument``).
+    All names are frozen registry entries; alternatives are resolved by the
+    cap class, never by OR-semantics in the terms.
+    """
+
+    if node["status"] == "disputed" or reopened:
+        if stance == STANCE_STRICT:
+            return ("guess-statement", "proportionality_assessment", "counterargument")
+        return ("guess-statement",)
+    shaped = (
+        "option-set"
+        if cap is not None and cap.response_class == RESPONSE_CLASS_DISCRIMINATION
+        else "possibility-survey"
+    )
+    if stance == STANCE_STRICT:
+        return (shaped, "proportionality_assessment", "counterargument")
+    if _magnitude_signal(node):
+        return (shaped, "proportionality_assessment")
+    return (shaped,)
+
+
+def _magnitude_signal(node: Mapping[str, Any]) -> bool:
+    """A measured over/under magnitude judgment (#498/#526).
+
+    True on a high-impact assertion (``impact`` at or above
+    ``ALIGNMENT_HIGH_IMPACT`` — the same bar as the high-impact disagreement
+    rule) or when the node carries a recorded #498 proportionality assessment
+    whose direction names a magnitude conflict (``over``/``under``).
+    """
+
+    try:
+        impact = int(node.get("impact") or 0)
+    except (TypeError, ValueError):
+        impact = 0
+    if impact >= ALIGNMENT_HIGH_IMPACT:
+        return True
+    attributes = node.get("attributes")
+    return (
+        isinstance(attributes, Mapping)
+        and isinstance(attributes.get("proportionality_assessment"), Mapping)
+        and attributes["proportionality_assessment"].get("direction") in ("over", "under")
+    )
+
+
+def _gather_duty(stance: str, axes: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
+    """The S2+ gather duty: open axes over the concurrency bound force a gather (#526).
+
+    Returns the gather-turn inputs — the node to ground the turn on, the open
+    axis descriptions as the option-set material, and the count — or None
+    when the stance is S1 (record axes, do not chase them) or the open axes
+    are within ``MAX_ACTIVE_AXES``.
+    """
+
+    if stance not in {STANCE_STRUCTURED, STANCE_STRICT}:
+        return None
+    open_axes = sorted(
+        (axis for axis in axes if axis["status"] == "open"),
+        key=lambda axis: (axis["stagnant_turns"], axis["axis_id"]),
+    )
+    if len(open_axes) <= MAX_ACTIVE_AXES:
+        return None
+    return {
+        "node_id": open_axes[0]["node_id"],
+        "descriptions": [axis["description"] for axis in open_axes],
+        "count": len(open_axes),
+    }
+
+
+def _fallback_target(nodes: Sequence[Mapping[str, Any]], active_axes_by_node: Mapping[str, Any]) -> str | None:
+    """Turn center for non-asking decisions: top open gap, else axis node, else strategy."""
+
+    open_gaps = sorted(
+        (node for node in nodes if node["human_only"] and node["status"] in _OPEN_GAP_STATUSES),
+        key=lambda node: (-node["impact"], node["id"]),
+    )
+    if open_gaps:
+        return str(open_gaps[0]["id"])
+    if active_axes_by_node:
+        return min(active_axes_by_node)
+    strategies = sorted(
+        (node for node in nodes if node["type"] == "strategy" and node["status"] in ACCEPTED_STATUSES),
+        key=lambda node: node["id"],
+    )
+    if strategies:
+        return str(strategies[0]["id"])
+    if nodes:
+        return str(sorted(nodes, key=lambda node: (-node["impact"], node["id"]))[0]["id"])
+    return None
+
+
+def _is_interactive_turn(decision: Mapping[str, Any]) -> bool:
+    """A composer turn grounded in a dialogue gap (issue #527).
+
+    The ask itself, or the question-budget non-question turn (which carries
+    ``gap_id`` without a question). Exit and blocked decisions are not
+    interactive: their terms never gain a trace gate.
+    """
+
+    return str(decision.get("action")) == "ask_one" or "gap_id" in decision
+
+
+def _emit_contract_terms(
+    nodes: Sequence[Mapping[str, Any]],
+    decision: Mapping[str, Any],
+    active_axes_by_node: Mapping[str, Any],
+    stagnation: Mapping[str, int],
+    last_outcomes: Mapping[str, str],
+    previous_terms: Any,
+    verdict: Any,
+    *,
+    user_profile: str | None = None,
+    surveyed_gaps: frozenset[str] | None = None,
+    stance: str = STANCE_TRUST_FIRST,
+) -> Any:
+    """Build the turn's ContractTerms from the graph state and the #490 verdict."""
+
+    if ContractTerms is None or not nodes:
+        return None
+    directive = verdict.gap_directive if verdict is not None else "keep"
+    taboos = set(_emission_taboos(nodes, set(active_axes_by_node), stagnation, last_outcomes))
+    if verdict is not None:
+        taboos |= set(verdict.taboo_additions)
+        taboos -= set(verdict.taboo_removals)
+    interactive = _is_interactive_turn(decision)
+    # Issue #526: the gather turn (S2+ axis overflow) shows the open topics as
+    # an option set for one pointing choice — a focused, capped, non-question turn.
+    gather_turn = str(decision.get("action")) == "gather"
+    if interactive and "node_id" in decision:
+        target: str | None = str(decision["node_id"])
+    elif verdict is not None and verdict.gap_target is not None:
+        target = verdict.gap_target
+    else:
+        target = _fallback_target(nodes, active_axes_by_node)
+    if target is None:
+        return None
+    taboos.discard(target)
+    if verdict is not None and verdict.cost_cap is not None:
+        cap = verdict.cost_cap
+    elif previous_terms is not None:
+        # A move that leaves the cap alone keeps the emitted ceiling (#490).
+        cap = previous_terms.cost_cap
+    else:
+        cap = _base_cost_cap(str(decision["action"]))
+    # Issue #527 required-trace queueing: a priority-ordered wishlist —
+    # carried deferrals first (oldest obligation first), then the gap-shape
+    # and #500 novice-posture requirements — of which at most
+    # MAX_REQUIRED_TRACES_PER_TURN are required this turn; the remainder is
+    # deferred in the emitted terms and re-emitted as required next turn.
+    # Nothing is silently dropped: non-interactive turns carry the queue
+    # forward untouched instead of gating (the requester's exit confirmation
+    # must not fail on composition traces).
+    wishlist: list[str] = []
+    if interactive:
+        for name in previous_terms.deferred_traces if previous_terms is not None else ():
+            if name not in wishlist:
+                wishlist.append(name)
+    # Issue #526: the S2 structured posture reuses the #520 novice shape —
+    # strictness is not interrogation, the agent owns the structure
+    # (show-then-point), so the cap drops to the discrimination floor and the
+    # possibility space is mapped before anything open-ended. The gather turn
+    # outranks the posture: its whole shape is the option set over the open
+    # topics, required ahead of the carried queue so the duty never defers.
+    novice_active = (
+        (user_profile == "novice" or stance == STANCE_STRUCTURED)
+        and interactive
+        and not gather_turn
+        and CostCap is not None
+    )
+    if gather_turn and interactive and CostCap is not None:
+        cap = CostCap(response_class=RESPONSE_CLASS_DISCRIMINATION, max_sentences=1)
+        if "option-set" not in wishlist:
+            wishlist.insert(0, "option-set")
+    elif novice_active:
+        # Issue #500 interview posture, as emission policy (not a menu): a
+        # novice points rather than composes, so the cap drops to the
+        # discrimination floor, the turn must show options (show-then-point),
+        # and the possibility space must be mapped (survey on record) before
+        # anything open-ended is asked of them.
+        cap = CostCap(response_class=RESPONSE_CLASS_DISCRIMINATION, max_sentences=1)
+    if interactive and not gather_turn:
+        node = next((item for item in nodes if item["id"] == target), None)
+        if node is not None:
+            gap_traces = _gap_required_traces(node, reopened=(directive == "reopen"), cap=cap, stance=stance)
+            # The misunderstood-intent floor outranks the novice posture:
+            # echo-guess or mirror first, ask second (alignment-craft.md).
+            misunderstood = gap_traces[:1] if gap_traces and gap_traces[0] == "guess-statement" else ()
+            for name in misunderstood:
+                if name not in wishlist:
+                    wishlist.append(name)
+            if novice_active:
+                surveyed = target in (surveyed_gaps or frozenset())
+                for name in ("possibility-survey", "option-set"):
+                    if name == "possibility-survey" and surveyed:
+                        continue
+                    if name not in wishlist:
+                        wishlist.append(name)
+            for name in gap_traces[len(misunderstood) :]:
+                if name not in wishlist:
+                    wishlist.append(name)
+    required = tuple(wishlist[:MAX_REQUIRED_TRACES_PER_TURN])
+    deferred = tuple(wishlist[MAX_REQUIRED_TRACES_PER_TURN:])
+    if not interactive and previous_terms is not None:
+        deferred = tuple(previous_terms.deferred_traces)
+    return ContractTerms(
+        target_gap=target,
+        required_traces=required,
+        cost_cap=cap,
+        taboos=tuple(sorted(taboos)),
+        agent_turn_budget=_agent_turn_budget(previous_terms),
+        deferred_traces=deferred,
+    )
+
+
+def _active_waive(connection: sqlite3.Connection, graph_digest: str) -> dict[str, Any] | None:
+    """Latest recorded waive still bound to the current graph content (#491).
+
+    A waive is accepted only while its ``graph_digest`` equals the current
+    one: any graph change (merge or a state-changing record) expires it and
+    the exit gate re-engages.
+    """
+
+    for row in connection.execute(
+        "SELECT details_json FROM events WHERE event_type='alignment_waived' ORDER BY sequence DESC"
+    ):
+        details = json.loads(row["details_json"])
+        if details.get("graph_digest") == graph_digest:
+            return details
+    return None
+
+
+def _extension_deadline(connection: sqlite3.Connection) -> int | None:
+    """Turn bound granted by user engagement after the latest blocked disposition (#491).
+
+    The first user response recorded after the newest ``alignment_incomplete``
+    plan decision grants ``ALIGNMENT_EXTENSION_TURNS`` further dialogue turns
+    from that response's turn; past the deadline the blocked disposition
+    returns and a fresh user response is required to extend again. Derived
+    from the append-only event log, so no schema change is needed.
+    """
+
+    newer_responses = 0
+    block_found = False
+    for row in connection.execute("SELECT event_type, details_json FROM events ORDER BY sequence DESC"):
+        if row["event_type"] == "response_recorded":
+            newer_responses += 1
+        elif (
+            row["event_type"] == "plan_selected"
+            and json.loads(row["details_json"]).get("action") == "alignment_incomplete"
+        ):
+            block_found = True
+            break
+    if not block_found or newer_responses == 0:
+        return None
+    total_responses = connection.execute("SELECT COUNT(*) FROM events WHERE event_type='response_recorded'").fetchone()[
+        0
+    ]
+    first_response = connection.execute(
+        "SELECT state_json FROM events WHERE event_type='response_recorded' ORDER BY sequence ASC LIMIT 1 OFFSET ?",
+        (total_responses - newer_responses,),
+    ).fetchone()
+    if first_response is None:
+        return None
+    first_response_turn = int(json.loads(first_response["state_json"])["controller"]["turn"])
+    return first_response_turn + ALIGNMENT_EXTENSION_TURNS
 
 
 def _alignment_readiness(nodes: Sequence[Mapping[str, Any]], edges: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -1174,14 +2571,40 @@ def init(workspace: Path, run_id: str, *, project_id: str | None = None) -> dict
     return AlignmentGraphStore(database_path(workspace, run_id, project_id)).initialize(run_id)
 
 
-def plan(workspace: Path, run_id: str, update_file: Path, *, project_id: str | None = None) -> dict[str, Any]:
-    return AlignmentGraphStore(database_path(workspace, run_id, project_id)).plan(_load_update(update_file))
+def plan(
+    workspace: Path,
+    run_id: str,
+    update_file: Path,
+    *,
+    project_id: str | None = None,
+    user_signal: Mapping[str, str] | None = None,
+    previous_category: str | None = None,
+    run_phase: str | None = None,
+) -> dict[str, Any]:
+    return AlignmentGraphStore(database_path(workspace, run_id, project_id)).plan(
+        _load_update(update_file),
+        user_signal=user_signal,
+        previous_category=previous_category,
+        run_phase=run_phase,
+    )
 
 
 def record(
-    workspace: Path, run_id: str, node_id: str, outcome: str, fingerprint: str, *, project_id: str | None = None
+    workspace: Path,
+    run_id: str,
+    node_id: str,
+    outcome: str,
+    fingerprint: str,
+    *,
+    project_id: str | None = None,
+    new_axes: Sequence[Any] | None = None,
+    traces: Sequence[Mapping[str, Any]] | None = None,
+    user_move: str | None = None,
+    run_phase: str | None = None,
 ) -> dict[str, Any]:
-    return AlignmentGraphStore(database_path(workspace, run_id, project_id)).record(node_id, outcome, fingerprint)
+    return AlignmentGraphStore(database_path(workspace, run_id, project_id)).record(
+        node_id, outcome, fingerprint, new_axes, traces=traces, user_move=user_move, run_phase=run_phase
+    )
 
 
 def confirm(
@@ -1193,6 +2616,10 @@ def confirm(
     project_id: str | None = None,
 ) -> dict[str, Any]:
     return AlignmentGraphStore(database_path(workspace, run_id, project_id)).confirm(confirmation, expected_digest)
+
+
+def waive(workspace: Path, run_id: str, reason: str, *, project_id: str | None = None) -> dict[str, Any]:
+    return AlignmentGraphStore(database_path(workspace, run_id, project_id)).waive(reason)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -1210,10 +2637,20 @@ def _parser() -> argparse.ArgumentParser:
     recording.add_argument("--node-id", "--gap-id", dest="node_id", required=True)
     recording.add_argument("--outcome", choices=tuple(sorted(OUTCOMES)), required=True)
     recording.add_argument("--fingerprint", required=True)
+    recording.add_argument(
+        "--axis",
+        action="append",
+        default=None,
+        metavar="DESCRIPTION",
+        help="declare a divergence axis opened by the user's answer (repeatable, #496)",
+    )
     confirmation = commands.add_parser("confirm")
     confirmation.add_argument("--run-id", required=True)
     confirmation.add_argument("--confirmation", required=True)
     confirmation.add_argument("--expected-digest", required=True)
+    waiving = commands.add_parser("waive", help="record an explicit user waive of the alignment-exit gate (#491)")
+    waiving.add_argument("--run-id", required=True)
+    waiving.add_argument("--reason", required=True)
     compilation = commands.add_parser("compile")
     compilation.add_argument("--run-id", required=True)
     compilation.add_argument(
@@ -1256,9 +2693,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             graph_file = args.graph_file if args.graph_file.is_absolute() else workspace / args.graph_file
             result = store.plan(_load_update(graph_file))
         elif args.command == "record":
-            result = store.record(args.node_id, args.outcome, args.fingerprint)
+            result = store.record(args.node_id, args.outcome, args.fingerprint, args.axis)
         elif args.command == "confirm":
             result = store.confirm(args.confirmation, args.expected_digest)
+        elif args.command == "waive":
+            result = store.waive(args.reason)
         elif args.command == "compile":
             result = store.compile_handoff()
             output = args.output or (store.database.parent / "handoff.json")
@@ -1317,6 +2756,11 @@ def _schema_document() -> dict[str, Any]:
             ],
             "relations": sorted(EDGE_RELATIONS),
             "statuses": sorted(EDGE_STATUSES),
+        },
+        "divergence_axis_declaration": {
+            "required": ["description"],
+            "allowed_fields": ["id", "description"],
+            "statuses": sorted(AXIS_STATUSES),
         },
         "example_update": {
             "nodes": [

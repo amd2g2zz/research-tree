@@ -75,7 +75,11 @@ BATCH_SOURCE_DEPTH_LEVELS = frozenset({"none", "snippet", "summary", "full-sourc
 BATCH_PROVENANCE_LEVELS = frozenset({"none", "single-boundary", "independent"})
 BATCH_DECISION_RISK_LEVELS = frozenset({"unknown", "low", "medium", "high", "critical"})
 BATCH_COVERAGE_ASSESSMENT_KIND = "batch-coverage-assessment"
-BATCH_COVERAGE_ASSESSMENT_SCHEMA_VERSION = 1
+BATCH_COVERAGE_ASSESSMENT_SCHEMA_VERSION = 2
+MECHANISM_EVIDENCE_KINDS = frozenset({"readme", "code-inspected", "design-doc", "experiment"})
+BEYOND_README_EVIDENCE_KINDS = frozenset({"code-inspected", "design-doc", "experiment"})
+SOURCE_MECHANISM_KIND = "source-mechanism"
+SOURCE_MECHANISM_SCHEMA_VERSION = 1
 METHOD_EXECUTION_OUTCOME_KIND = "method-execution-outcome"
 METHOD_EXECUTION_OUTCOME_SCHEMA_VERSION = 1
 PORTFOLIO_BATCH_KIND = "portfolio-batch"
@@ -1122,6 +1126,105 @@ class PortfolioBatch:
 
 
 @dataclass(frozen=True, slots=True)
+class SourceMechanism:
+    """A mechanism record for one promoted source (issue #494).
+
+    States what the approach *is* and *how it works*, with evidence beyond the
+    README: at least one ``code-inspected``, ``design-doc``, or ``experiment``
+    reference is required, so a writeup that only restates a README cannot
+    satisfy the record contract and fails promotion.
+    """
+
+    mechanism_id: str
+    source_ref: str
+    approach: str
+    how_it_works: str
+    evidence_refs: tuple[str, ...]
+    evidence_kinds: tuple[str, ...]
+    schema_version: int = SOURCE_MECHANISM_SCHEMA_VERSION
+    kind: str = SOURCE_MECHANISM_KIND
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "mechanism_id", _identifier(self.mechanism_id, "mechanism_id"))
+        object.__setattr__(self, "source_ref", _text(self.source_ref, "mechanism source_ref"))
+        object.__setattr__(self, "approach", _text(self.approach, "mechanism approach"))
+        object.__setattr__(self, "how_it_works", _text(self.how_it_works, "mechanism how_it_works"))
+        object.__setattr__(self, "evidence_refs", _execution_refs(self.evidence_refs, "mechanism evidence_refs"))
+        object.__setattr__(self, "evidence_kinds", _execution_texts(self.evidence_kinds, "mechanism evidence_kinds"))
+        unknown_kinds = sorted(set(self.evidence_kinds) - MECHANISM_EVIDENCE_KINDS)
+        if unknown_kinds:
+            raise InvalidSearchPortfolioError(f"mechanism evidence kinds are unsupported: {unknown_kinds}")
+        if not set(self.evidence_kinds) & BEYOND_README_EVIDENCE_KINDS:
+            raise InvalidSearchPortfolioError(
+                "mechanism evidence must go beyond the README: cite inspected code, a design doc, or an experiment"
+            )
+        object.__setattr__(
+            self,
+            "schema_version",
+            _schema_version(self.schema_version, SOURCE_MECHANISM_SCHEMA_VERSION, "SourceMechanism"),
+        )
+        if self.kind != SOURCE_MECHANISM_KIND:
+            raise InvalidSearchPortfolioError("SourceMechanism kind is invalid")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "kind": self.kind,
+            "mechanism_id": self.mechanism_id,
+            "source_ref": self.source_ref,
+            "approach": self.approach,
+            "how_it_works": self.how_it_works,
+            "evidence_refs": list(self.evidence_refs),
+            "evidence_kinds": list(self.evidence_kinds),
+        }
+
+    def canonical_json_bytes(self) -> bytes:
+        return canonical_json_bytes(self.to_dict())
+
+    @classmethod
+    def from_dict(cls, value: Any) -> "SourceMechanism":
+        data = _exact_mapping(
+            value,
+            {
+                "schema_version",
+                "kind",
+                "mechanism_id",
+                "source_ref",
+                "approach",
+                "how_it_works",
+                "evidence_refs",
+                "evidence_kinds",
+            },
+            "SourceMechanism",
+        )
+        return cls(
+            mechanism_id=data["mechanism_id"],
+            source_ref=data["source_ref"],
+            approach=data["approach"],
+            how_it_works=data["how_it_works"],
+            evidence_refs=_sequence(data["evidence_refs"], "mechanism evidence_refs"),
+            evidence_kinds=_sequence(data["evidence_kinds"], "mechanism evidence_kinds"),
+            schema_version=data["schema_version"],
+            kind=data["kind"],
+        )
+
+
+def _mechanism_record(value: SourceMechanism | Mapping[str, Any]) -> SourceMechanism:
+    """Accept a SourceMechanism, a full envelope mapping, or a bare record mapping."""
+
+    if isinstance(value, SourceMechanism):
+        return value
+    if not isinstance(value, Mapping):
+        raise InvalidSearchPortfolioError("mechanism record must be a SourceMechanism or a mapping")
+    if "kind" not in value and "schema_version" not in value:
+        try:
+            return SourceMechanism(**value)
+        except TypeError as error:
+            raise InvalidSearchPortfolioError(f"invalid mechanism record: {error}") from error
+    return SourceMechanism.from_dict(value)
+
+
+@dataclass(frozen=True, slots=True)
 class BatchCoverageAssessment:
     """Typed coverage, quality, contradiction, and decision-risk result for one batch."""
 
@@ -1152,6 +1255,8 @@ class BatchCoverageAssessment:
     alternate_method_ids: tuple[str, ...] = ()
     decision_slot_id: str | None = None
     attempt_id: str | None = None
+    mechanism_records: tuple[SourceMechanism, ...] = ()
+    missing_mechanism_refs: tuple[str, ...] = ()
     schema_version: int = BATCH_COVERAGE_ASSESSMENT_SCHEMA_VERSION
     kind: str = BATCH_COVERAGE_ASSESSMENT_KIND
 
@@ -1226,6 +1331,11 @@ class BatchCoverageAssessment:
         ):
             object.__setattr__(self, field_name, _execution_refs(getattr(self, field_name), field_name))
         object.__setattr__(self, "next_actions", _execution_texts(self.next_actions, "next_actions"))
+        if any(not isinstance(item, SourceMechanism) for item in self.mechanism_records):
+            raise InvalidSearchPortfolioError("mechanism_records must contain SourceMechanism values")
+        object.__setattr__(
+            self, "missing_mechanism_refs", _execution_refs(self.missing_mechanism_refs, "missing_mechanism_refs")
+        )
         if not isinstance(self.alternate_method_available, bool):
             raise InvalidSearchPortfolioError("alternate_method_available must be bool")
         if self.authority_disposition not in {"inside_confirmed_authority", "requires_requester_reopen"}:
@@ -1300,6 +1410,8 @@ class BatchCoverageAssessment:
             "alternate_method_ids": list(self.alternate_method_ids),
             "decision_slot_id": self.decision_slot_id,
             "attempt_id": self.attempt_id,
+            "mechanism_records": [item.to_dict() for item in self.mechanism_records],
+            "missing_mechanism_refs": list(self.missing_mechanism_refs),
         }
 
     def canonical_json_bytes(self) -> bytes:
@@ -1307,7 +1419,7 @@ class BatchCoverageAssessment:
 
     @classmethod
     def from_dict(cls, value: Any) -> "BatchCoverageAssessment":
-        required = {
+        base_required = {
             "schema_version",
             "kind",
             "assessment_id",
@@ -1338,7 +1450,18 @@ class BatchCoverageAssessment:
             "decision_slot_id",
             "attempt_id",
         }
-        data = _exact_mapping(value, required, "BatchCoverageAssessment")
+        mechanism_required = {"mechanism_records", "missing_mechanism_refs"}
+        version = value.get("schema_version") if isinstance(value, Mapping) else None
+        data = _exact_mapping(
+            value,
+            base_required | mechanism_required if version != 1 else base_required,
+            "BatchCoverageAssessment",
+        )
+        if isinstance(data["schema_version"], bool) or data["schema_version"] not in (
+            1,
+            BATCH_COVERAGE_ASSESSMENT_SCHEMA_VERSION,
+        ):
+            raise InvalidSearchPortfolioError("unsupported BatchCoverageAssessment schema_version")
         return cls(
             assessment_id=data["assessment_id"],
             portfolio_id=data["portfolio_id"],
@@ -1367,7 +1490,15 @@ class BatchCoverageAssessment:
             alternate_method_ids=_sequence(data["alternate_method_ids"], "alternate_method_ids"),
             decision_slot_id=data["decision_slot_id"],
             attempt_id=data["attempt_id"],
-            schema_version=data["schema_version"],
+            mechanism_records=tuple(
+                _mechanism_record(item) for item in _sequence(data["mechanism_records"], "mechanism_records")
+            )
+            if version != 1
+            else (),
+            missing_mechanism_refs=_sequence(data["missing_mechanism_refs"], "missing_mechanism_refs")
+            if version != 1
+            else (),
+            schema_version=BATCH_COVERAGE_ASSESSMENT_SCHEMA_VERSION,
             kind=data["kind"],
         )
 
@@ -1416,12 +1547,16 @@ def assess_acquisition_batch(
     disposition: str | None = None,
     next_actions: Sequence[str] = (),
     claim_assessments: Sequence[ClaimAssessment] = (),
+    mechanism_records: Sequence[SourceMechanism | Mapping[str, Any]] = (),
 ) -> BatchCoverageAssessment:
     """Assess one dependency-ready batch without persisting coordinator state."""
     normalized_outcomes = tuple(_outcome_value(item) for item in _sequence(outcomes, "outcomes"))
     normalized_claim_assessments = tuple(claim_assessments)
     if any(not isinstance(item, ClaimAssessment) for item in normalized_claim_assessments):
         raise InvalidSearchPortfolioError("claim_assessments must contain ClaimAssessment values")
+    normalized_mechanism_records = tuple(
+        _mechanism_record(item) for item in _sequence(mechanism_records, "mechanism_records")
+    )
     if normalized_outcomes:
         if any(item.portfolio_id != portfolio_id or item.batch_id != batch_id for item in normalized_outcomes):
             raise InvalidSearchPortfolioError("outcome portfolio and batch identities must match the assessment")
@@ -1542,6 +1677,14 @@ def assess_acquisition_batch(
     if disposition == "pivot":
         superseded_strategy_revision = superseded_strategy_revision or "superseded-strategy"
         successor_strategy_revision = successor_strategy_revision or "successor-strategy"
+    covered_mechanism_refs = {record.source_ref for record in normalized_mechanism_records}
+    missing_mechanism_refs = tuple(sorted(set(capture_refs) - covered_mechanism_refs))
+    if disposition == "stop" and missing_mechanism_refs:
+        # Promotion gate (issue #494): a batch that would submit captured
+        # sources for closure without mechanism artifacts fails promotion and
+        # must drill into the uncovered sources instead.
+        disposition = "deepen"
+        next_actions = ("require-source-mechanism",)
     return BatchCoverageAssessment(
         assessment_id=assessment_id,
         portfolio_id=portfolio_id,
@@ -1570,6 +1713,8 @@ def assess_acquisition_batch(
         alternate_method_ids=alternate_method_ids,
         decision_slot_id=decision_slot_id,
         attempt_id=attempt_id,
+        mechanism_records=normalized_mechanism_records,
+        missing_mechanism_refs=missing_mechanism_refs,
     )
 
 
@@ -1665,6 +1810,7 @@ class SearchPortfolioExecutor:
         batch_id: str = "batch-1",
         captures: Sequence[Any] = (),
         intent_terms: Sequence[str] = (),
+        mechanism_records: Sequence[SourceMechanism | Mapping[str, Any]] = (),
     ) -> PortfolioExecution:
         if not isinstance(adapters, Mapping):
             raise InvalidSearchPortfolioError("adapters must be a mapping")
@@ -1718,12 +1864,14 @@ class SearchPortfolioExecutor:
             )
             measured = apply_cross_comparison(comparison, batch.outcomes)
             batch = PortfolioBatch(batch_id, portfolio.portfolio_id, measured)
-        return self.execute(portfolio, (batch,))
+        return self.execute(portfolio, (batch,), mechanism_records=mechanism_records)
 
     def execute(
         self,
         portfolio: SearchPortfolio,
         batches: Sequence[PortfolioBatch | Mapping[str, Any]],
+        *,
+        mechanism_records: Sequence[SourceMechanism | Mapping[str, Any]] = (),
     ) -> PortfolioExecution:
         if not isinstance(portfolio, SearchPortfolio):
             raise InvalidSearchPortfolioError("portfolio must be a SearchPortfolio")
@@ -1776,6 +1924,7 @@ class SearchPortfolioExecutor:
                     outcomes=batch.outcomes,
                     alternate_method_available=bool(candidates),
                     alternate_method_ids=tuple(item.method_id for item in candidates),
+                    mechanism_records=mechanism_records,
                 )
             )
         available = tuple(item for item in self._registry.registrations if item.availability != "unavailable")
@@ -1803,6 +1952,7 @@ __all__ = [
     "BATCH_PROVENANCE_LEVELS",
     "BATCH_SOURCE_DEPTH_LEVELS",
     "BATCH_SOURCE_QUALITY_LEVELS",
+    "BEYOND_README_EVIDENCE_KINDS",
     "BatchCoverageAssessment",
     "DECISION_IMPACTS",
     "DEGRADATION_REASONS",
@@ -1813,6 +1963,7 @@ __all__ = [
     "METHOD_EXECUTION_OUTCOME_KIND",
     "METHOD_EXECUTION_OUTCOME_SCHEMA_VERSION",
     "MATERIAL_HUMAN_DECISION_DIMENSIONS",
+    "MECHANISM_EVIDENCE_KINDS",
     "MethodRegistration",
     "MethodExecutionOutcome",
     "MethodRegistry",
@@ -1836,10 +1987,13 @@ __all__ = [
     "SEARCH_PORTFOLIO_KIND",
     "SEARCH_PORTFOLIO_SCHEMA_VERSION",
     "SELECTION_REASONS",
+    "SOURCE_MECHANISM_KIND",
+    "SOURCE_MECHANISM_SCHEMA_VERSION",
     "SUBQUESTION_KINDS",
     "SearchPortfolio",
     "SearchPortfolioError",
     "SearchPortfolioExecutor",
+    "SourceMechanism",
     "Subquestion",
     "derive_search_portfolio",
     "assess_acquisition_batch",

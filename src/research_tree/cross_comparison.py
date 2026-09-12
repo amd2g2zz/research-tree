@@ -10,6 +10,7 @@ into the batch outcomes' ``novelty``, ``coverage``, ``source_quality``, and
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, replace
 from typing import Any, Mapping, Sequence
 
@@ -17,7 +18,7 @@ from .claims import ProvenanceDescriptor, cluster_provenance_components
 from .domain import canonical_json_bytes
 
 CROSS_COMPARISON_KIND = "batch-cross-comparison"
-CROSS_COMPARISON_SCHEMA_VERSION = 1
+CROSS_COMPARISON_SCHEMA_VERSION = 2
 SOURCE_KIND_QUALITY = {"snippet": "low", "summary": "medium", "full-source": "high", "experiment": "high"}
 SNIPPET_MAX_BYTES = 2048
 FULL_SOURCE_MIN_BYTES = 32768
@@ -61,6 +62,7 @@ class CaptureRecord:
     matched_terms: tuple[str, ...] = ()
     source_kind: str = "snippet"
     size_bytes: int = 0
+    mechanism_summary: str | None = None
 
     @property
     def provenance(self) -> ProvenanceDescriptor | None:
@@ -73,6 +75,15 @@ class CaptureRecord:
         declared = SOURCE_KIND_QUALITY.get(self.source_kind)
         return declared or _quality_from_size(self.size_bytes)
 
+    @property
+    def mechanism_key(self) -> str | None:
+        """Stable identity of the declared mechanism (None when undeclared)."""
+
+        if self.mechanism_summary is None:
+            return None
+        normalized = " ".join(self.mechanism_summary.lower().split())
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "capture_ref": self.capture_ref,
@@ -84,6 +95,7 @@ class CaptureRecord:
             "matched_terms": list(self.matched_terms),
             "source_kind": self.source_kind,
             "size_bytes": self.size_bytes,
+            "mechanism_summary": self.mechanism_summary,
         }
 
     @classmethod
@@ -98,6 +110,9 @@ class CaptureRecord:
             fingerprint = _text(fingerprint, "content_fingerprint")
         if upstream is None and fingerprint is None:
             raise CrossComparisonError("capture record requires a resolved upstream identity")
+        mechanism_summary = value.get("mechanism_summary")
+        if mechanism_summary is not None:
+            mechanism_summary = _text(mechanism_summary, "mechanism_summary")
         matched = tuple(_text(item, "matched term").lower() for item in value.get("matched_terms", ()))
         size = value.get("size_bytes", 0)
         if isinstance(size, bool) or not isinstance(size, int) or size < 0:
@@ -112,6 +127,7 @@ class CaptureRecord:
             matched_terms=matched,
             source_kind=_text(value.get("source_kind", "snippet"), "source_kind"),
             size_bytes=size,
+            mechanism_summary=mechanism_summary,
         )
 
 
@@ -154,6 +170,31 @@ class DuplicateCapture:
 
 
 @dataclass(frozen=True, slots=True)
+class MechanismCluster:
+    """One mechanism-level cluster (issue #494).
+
+    Captures whose declared mechanism summaries are equivalent collapse into
+    one cluster regardless of upstream identity, so N same-mechanism
+    different-URL projects count as one distinct implementation.
+    """
+
+    mechanism_key: str
+    mechanism_summary: str
+    capture_refs: tuple[str, ...]
+    provider_ids: tuple[str, ...]
+    origin_capture_ref: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "mechanism_key": self.mechanism_key,
+            "mechanism_summary": self.mechanism_summary,
+            "capture_refs": list(self.capture_refs),
+            "provider_ids": list(self.provider_ids),
+            "origin_capture_ref": self.origin_capture_ref,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class OutcomeMeasurement:
     """Measured outcome fields for one method/provider boundary."""
 
@@ -186,6 +227,10 @@ class BatchCrossComparison:
     measured_outcomes: tuple[OutcomeMeasurement, ...]
     dedup_ratio: float
     provider_fanout: int
+    mechanism_clusters: tuple[MechanismCluster, ...] = ()
+    mechanism_duplicates: tuple[DuplicateCapture, ...] = ()
+    undeclared_mechanism_capture_refs: tuple[str, ...] = ()
+    distinct_implementations: int = 0
     schema_version: int = CROSS_COMPARISON_SCHEMA_VERSION
     kind: str = CROSS_COMPARISON_KIND
 
@@ -202,6 +247,10 @@ class BatchCrossComparison:
             "measured_outcomes": [item.to_dict() for item in self.measured_outcomes],
             "dedup_ratio": self.dedup_ratio,
             "provider_fanout": self.provider_fanout,
+            "mechanism_clusters": [item.to_dict() for item in self.mechanism_clusters],
+            "mechanism_duplicates": [item.to_dict() for item in self.mechanism_duplicates],
+            "undeclared_mechanism_capture_refs": list(self.undeclared_mechanism_capture_refs),
+            "distinct_implementations": self.distinct_implementations,
         }
 
     def canonical_json_bytes(self) -> bytes:
@@ -209,7 +258,7 @@ class BatchCrossComparison:
 
     @classmethod
     def from_dict(cls, value: Any) -> "BatchCrossComparison":
-        required = {
+        base_required = {
             "schema_version",
             "kind",
             "comparison_id",
@@ -222,10 +271,23 @@ class BatchCrossComparison:
             "dedup_ratio",
             "provider_fanout",
         }
+        mechanism_required = {
+            "mechanism_clusters",
+            "mechanism_duplicates",
+            "undeclared_mechanism_capture_refs",
+            "distinct_implementations",
+        }
+        version = value.get("schema_version") if isinstance(value, Mapping) else None
+        required = base_required | mechanism_required if version != 1 else base_required
         if not isinstance(value, Mapping) or set(value) != required:
             raise CrossComparisonError("cross comparison payload has unexpected keys")
         if value["kind"] != CROSS_COMPARISON_KIND:
             raise CrossComparisonError("cross comparison kind is invalid")
+        if isinstance(value["schema_version"], bool) or value["schema_version"] not in (
+            1,
+            CROSS_COMPARISON_SCHEMA_VERSION,
+        ):
+            raise CrossComparisonError("unsupported cross comparison schema_version")
         groups = tuple(
             UpstreamIdentityGroup(
                 identity=_text(item.get("identity"), "identity"),
@@ -258,6 +320,42 @@ class BatchCrossComparison:
         relevance_raw = value["provider_relevance"]
         if not isinstance(relevance_raw, Mapping):
             raise CrossComparisonError("provider_relevance must be a mapping")
+        mechanism_clusters = (
+            tuple(
+                MechanismCluster(
+                    mechanism_key=_text(item.get("mechanism_key"), "mechanism_key"),
+                    mechanism_summary=_text(item.get("mechanism_summary"), "mechanism_summary"),
+                    capture_refs=tuple(_identifier(ref, "capture_ref") for ref in item.get("capture_refs", ())),
+                    provider_ids=tuple(_identifier(pid, "provider_id") for pid in item.get("provider_ids", ())),
+                    origin_capture_ref=_identifier(item.get("origin_capture_ref"), "origin_capture_ref"),
+                )
+                for item in value["mechanism_clusters"]
+            )
+            if version != 1
+            else ()
+        )
+        mechanism_duplicates = (
+            tuple(
+                DuplicateCapture(
+                    capture_ref=_identifier(item.get("capture_ref"), "capture_ref"),
+                    provider_id=_identifier(item.get("provider_id"), "provider_id"),
+                    outcome_id=_identifier(item.get("outcome_id"), "outcome_id"),
+                    origin_capture_ref=_identifier(item.get("origin_capture_ref"), "origin_capture_ref"),
+                    origin_provider_id=_identifier(item.get("origin_provider_id"), "origin_provider_id"),
+                )
+                for item in value["mechanism_duplicates"]
+            )
+            if version != 1
+            else ()
+        )
+        undeclared_refs = (
+            tuple(_identifier(ref, "capture_ref") for ref in value["undeclared_mechanism_capture_refs"])
+            if version != 1
+            else ()
+        )
+        distinct = int(value["distinct_implementations"]) if version != 1 else 0
+        if isinstance(distinct, bool) or distinct < 0 or distinct != len(mechanism_clusters):
+            raise CrossComparisonError("distinct_implementations must equal the mechanism cluster count")
         return cls(
             comparison_id=_identifier(value["comparison_id"], "comparison_id"),
             portfolio_id=_identifier(value["portfolio_id"], "portfolio_id"),
@@ -268,6 +366,11 @@ class BatchCrossComparison:
             measured_outcomes=measured,
             dedup_ratio=float(value["dedup_ratio"]),
             provider_fanout=int(value["provider_fanout"]),
+            mechanism_clusters=mechanism_clusters,
+            mechanism_duplicates=mechanism_duplicates,
+            undeclared_mechanism_capture_refs=undeclared_refs,
+            distinct_implementations=distinct,
+            schema_version=CROSS_COMPARISON_SCHEMA_VERSION,
         )
 
 
@@ -301,6 +404,11 @@ def compare_portfolio_batch(
     :mod:`research_tree.claims`: captures whose resolved identities overlap
     collapse into one upstream identity group, the first capture names the
     group, and later captures are duplicates tagged with the origin provider.
+    On top of that provenance layer, captures that declare a
+    ``mechanism_summary`` are clustered by mechanism equivalence regardless of
+    upstream identity (issue #494): provenance-distinct captures with an
+    equivalent mechanism are tagged as mechanism duplicates, and
+    ``distinct_implementations`` counts mechanism clusters, not raw sources.
     Relevance is scored per provider against the intent terms; novelty,
     coverage, source quality, and content-conflict contradictions are
     measured per outcome.
@@ -353,9 +461,19 @@ def compare_portfolio_batch(
         provider: round(sum(values) / len(values), 6) for provider, values in relevance_by_provider.items()
     }
 
+    mechanism_clusters, mechanism_duplicate_captures, undeclared_refs = _cluster_mechanisms(records, duplicates)
     measured = tuple(
         item
-        for item in (_measure_outcome(outcome, records, grouped, terms) for outcome in normalized_outcomes)
+        for item in (
+            _measure_outcome(
+                outcome,
+                records,
+                grouped,
+                terms,
+                mechanism_duplicate_refs=frozenset(item.capture_ref for item in mechanism_duplicate_captures),
+            )
+            for outcome in normalized_outcomes
+        )
         if item is not None
     )
     total = len(records)
@@ -369,7 +487,68 @@ def compare_portfolio_batch(
         measured_outcomes=measured,
         dedup_ratio=round(len(duplicates) / total, 6) if total else 0.0,
         provider_fanout=len({record.provider_id for record in records}),
+        mechanism_clusters=mechanism_clusters,
+        mechanism_duplicates=mechanism_duplicate_captures,
+        undeclared_mechanism_capture_refs=undeclared_refs,
+        distinct_implementations=len(mechanism_clusters),
     )
+
+
+def _cluster_mechanisms(
+    records: Sequence[CaptureRecord],
+    duplicates: Sequence[DuplicateCapture],
+) -> tuple[tuple[MechanismCluster, ...], tuple[DuplicateCapture, ...], tuple[str, ...]]:
+    """Cluster declared mechanism summaries and tag mechanism-level duplicates.
+
+    Captures with equivalent normalized summaries collapse into one cluster
+    regardless of upstream identity. A capture that is already a provenance
+    duplicate is not re-tagged (one honest duplicate tag per capture);
+    provenance-distinct captures with an equivalent mechanism are tagged
+    against the cluster's first capture. Captures without a declared summary
+    are reported as undeclared and never inflate the implementation count.
+    """
+
+    order: list[str] = []
+    members: dict[str, list[CaptureRecord]] = {}
+    summaries: dict[str, str] = {}
+    for record in records:
+        key = record.mechanism_key
+        if key is None:
+            continue
+        if key not in members:
+            members[key] = []
+            order.append(key)
+            summaries[key] = " ".join((record.mechanism_summary or "").lower().split())
+        members[key].append(record)
+    provenance_duplicate_refs = {item.capture_ref for item in duplicates}
+    clusters: list[MechanismCluster] = []
+    mechanism_duplicates: list[DuplicateCapture] = []
+    for key in order:
+        cluster_members = members[key]
+        origin = cluster_members[0]
+        clusters.append(
+            MechanismCluster(
+                mechanism_key=key,
+                mechanism_summary=summaries[key],
+                capture_refs=tuple(record.capture_ref for record in cluster_members),
+                provider_ids=tuple(dict.fromkeys(record.provider_id for record in cluster_members)),
+                origin_capture_ref=origin.capture_ref,
+            )
+        )
+        for duplicate in cluster_members[1:]:
+            if duplicate.capture_ref in provenance_duplicate_refs:
+                continue
+            mechanism_duplicates.append(
+                DuplicateCapture(
+                    capture_ref=duplicate.capture_ref,
+                    provider_id=duplicate.provider_id,
+                    outcome_id=duplicate.outcome_id,
+                    origin_capture_ref=origin.capture_ref,
+                    origin_provider_id=origin.provider_id,
+                )
+            )
+    undeclared = tuple(sorted(record.capture_ref for record in records if record.mechanism_key is None))
+    return tuple(clusters), tuple(mechanism_duplicates), undeclared
 
 
 def _cluster_captures(records: Sequence[CaptureRecord]) -> list[tuple[str, list[CaptureRecord]]]:
@@ -404,6 +583,8 @@ def _measure_outcome(
     records: Sequence[CaptureRecord],
     grouped: Sequence[tuple[str, Sequence[CaptureRecord]]],
     terms: Sequence[str],
+    *,
+    mechanism_duplicate_refs: frozenset[str] = frozenset(),
 ) -> Any:
     from .search_portfolio import _metric_max
 
@@ -417,7 +598,9 @@ def _measure_outcome(
         member_refs = {record.capture_ref for record in members}
         if not member_refs & owned_refs:
             continue
-        if members[0].capture_ref in owned_refs:
+        # A mechanism-duplicate capture does not count as a new unique
+        # identity for its outcome (issue #494): same mechanism, different URL.
+        if members[0].capture_ref in owned_refs and members[0].capture_ref not in mechanism_duplicate_refs:
             unique_identities += 1
         fingerprints = {record.content_fingerprint for record in members if record.content_fingerprint}
         if len(fingerprints) > 1:
@@ -485,6 +668,7 @@ __all__ = [
     "CaptureRecord",
     "CrossComparisonError",
     "DuplicateCapture",
+    "MechanismCluster",
     "OutcomeMeasurement",
     "UpstreamIdentityGroup",
     "apply_cross_comparison",

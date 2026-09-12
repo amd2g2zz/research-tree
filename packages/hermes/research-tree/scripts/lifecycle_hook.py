@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import secrets
+import sqlite3
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, BinaryIO, Iterable, Sequence
+from typing import Any, BinaryIO, Iterable, Mapping, Sequence
 
 try:
     from .origins import close_tag, open_tag
@@ -25,6 +27,62 @@ except ImportError:  # Standalone skill-packaged execution — issue #453.
     import skill_activation as _skill_activation
 
     build_loader_receipt = _skill_activation.build_loader_receipt
+
+try:
+    # Issue #497: refresh/validate the alignment turn-record file. The module
+    # is part of the checkout runtime; standalone skill-packaged execution
+    # does not ship it, and the hook stays fail-open without it.
+    from .alignment_turn_record import (
+        AlignmentTurnRecordStore as _AlignmentTurnRecordStore,
+    )
+    from .alignment_turn_record import (
+        refresh_validation as _refresh_turn_record_validation,
+    )
+except ImportError:
+    try:
+        from alignment_turn_record import (  # type: ignore[no-redef]
+            AlignmentTurnRecordStore as _AlignmentTurnRecordStore,
+        )
+        from alignment_turn_record import (
+            refresh_validation as _refresh_turn_record_validation,
+        )
+    except ImportError:
+        _AlignmentTurnRecordStore = None  # type: ignore[assignment]
+        _refresh_turn_record_validation = None  # type: ignore[assignment]
+
+try:
+    # Issue #490: the user-response policy table over contract terms. Like
+    # the turn-record module, this is checkout-runtime code the packaged
+    # standalone hook does not ship; absence degrades to no verdict.
+    from .decision_frame import (
+        DecisionFrameValidationError as _UserResponsePolicyError,
+    )
+    from .decision_frame import (
+        resolve_user_response_policy as _resolve_user_response_policy,
+    )
+except ImportError:
+    try:
+        from decision_frame import (  # type: ignore[no-redef]
+            DecisionFrameValidationError as _UserResponsePolicyError,
+        )
+        from decision_frame import (
+            resolve_user_response_policy as _resolve_user_response_policy,
+        )
+    except ImportError:
+        _UserResponsePolicyError = None  # type: ignore[assignment]
+        _resolve_user_response_policy = None  # type: ignore[assignment]
+
+try:
+    # Issue #525: discipline telemetry consumes what #527/#514 already emit
+    # and maintains the per-run violation stream. The module is checkout
+    # runtime code the standalone skill-packaged hook does not ship; absence
+    # degrades to no telemetry (no measurements, no false violations).
+    from . import discipline as _discipline
+except ImportError:
+    try:
+        import discipline as _discipline  # type: ignore[no-redef]
+    except ImportError:
+        _discipline = None  # type: ignore[assignment]
 
 MAX_INPUT_BYTES = 64 * 1024
 MAX_IDENTIFIER_LENGTH = 256
@@ -88,6 +146,301 @@ CONTINUATION_SEMANTICS_RE = re.compile(
     r")\b|照常|继续",
     re.IGNORECASE,
 )
+
+# Issue #492: run-phase discriminator and the two-option research re-entry
+# protocol. During the research phase the runtime accepts exactly two protocol
+# paths — reopen alignment (re-align to user confirmation, recompile) or
+# supplemental evidence (record and stay in research) — plus status echo as
+# the only acceptable status interaction; everything else is refused, so no
+# third ambiguous path (and no chatty conversational drift) can reopen the
+# loop. The hook is a fail-open observer: it names the verdict on the record
+# surface, it never blocks the host session.
+RUN_PHASES = frozenset({"intake", "alignment", "compiled", "research", "validation", "delivery"})
+RESEARCH_PHASE = "research"
+RUN_PHASE_ENV = "RESEARCH_TREE_RUN_PHASE"
+RESEARCH_REENTRY_REFUSED_CODE = "research_reentry_refused"
+RESEARCH_REENTRY_ROUTES = frozenset({"reopen_alignment", "supplemental_evidence", "refused"})
+
+# Issue #530: cache-friendly grounding. Storage and injection are separate:
+# full state stays in the engine-written phase store; each transition emits
+# ONE append-only event statement (announced exactly once through this hook);
+# the only per-turn surface is a single-line, fixed-slot, fixed-key-order
+# snapshot with placeholder defaults — never a per-turn state block, never
+# YAML. Slots for stance tier / violation count / open topics are placeholders
+# owned by #526/#525; the phase slot and the digest binding are live here.
+RUN_PHASE_STORE_SCHEMA = 1
+PHASE_SNAPSHOT_DIGEST_CHARS = 12
+PHASE_STANCE_PLACEHOLDER = "S0"
+PHASE_VIOLATIONS_PLACEHOLDER = 0
+PHASE_TOPICS_PLACEHOLDER = 0
+
+
+def _canonical_json_bytes(value: Any) -> bytes:
+    """Mirror domain.canonical_json_bytes with stdlib only (standalone hook)."""
+
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+
+def _phase_store_directory(root: Path, run_id: str) -> Path:
+    """Mirror tree_state.run_phase_dir with stdlib only (run-dir convention)."""
+
+    return root / ".research-tree" / "projects" / f"alignment-{run_id}" / "runs" / run_id / "phase"
+
+
+def read_phase_state(root: Path, run_id: str) -> dict[str, Any] | None:
+    """Read one run's authoritative phase state from the workspace root."""
+
+    return read_phase_state_at(_phase_store_directory(root, run_id))
+
+
+def read_phase_state_at(directory: Path) -> dict[str, Any] | None:
+    """Read the digest-checked phase store at one phase directory, fail-open.
+
+    Mirrors ``tree_state.RunPhaseStore.current``: a missing, malformed, or
+    digest-broken store reads as None so no reader can ever be told a phase
+    the engine did not write. Self-contained (stdlib only) so the packaged
+    standalone hook and the alignment controller get the same authority as
+    the checkout runtime.
+    """
+
+    directory = Path(directory)
+    try:
+        payload = json.loads((directory / "state.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict) or payload.get("schema") != RUN_PHASE_STORE_SCHEMA:
+        return None
+    if payload.get("phase") not in RUN_PHASES:
+        return None
+    digest = payload.get("digest")
+    if not isinstance(digest, str):
+        return None
+    material = {key: value for key, value in payload.items() if key != "digest"}
+    if hashlib.sha256(_canonical_json_bytes(material)).hexdigest() != digest:
+        return None
+    return payload
+
+
+def build_phase_snapshot(state: Mapping[str, Any] | None) -> str:
+    """Render the tail snapshot: one line, fixed slots, fixed key order.
+
+    ``phase=<p> stance=<tier> viol=<n> topics=<n> digest=<12 hex|none>`` —
+    the smallest possible token diff against the previous line, digest-bound
+    to the store so prompt and store cannot silently diverge. Placeholder
+    defaults when no authority exists (or for slots owned by later issues).
+    """
+
+    if isinstance(state, Mapping) and isinstance(state.get("phase"), str) and state["phase"] in RUN_PHASES:
+        phase = state["phase"]
+        digest = state.get("digest")
+        digest_text = digest[:PHASE_SNAPSHOT_DIGEST_CHARS] if isinstance(digest, str) else "none"
+    else:
+        phase = "unknown"
+        digest_text = "none"
+    return (
+        f"phase={phase}"
+        f" stance={PHASE_STANCE_PLACEHOLDER}"
+        f" viol={PHASE_VIOLATIONS_PLACEHOLDER}"
+        f" topics={PHASE_TOPICS_PLACEHOLDER}"
+        f" digest={digest_text}"
+    )
+
+
+def _render_phase_statement(event: Mapping[str, Any]) -> str:
+    """Render one stored phase-transition event statement (single line)."""
+
+    previous = event.get("from") if isinstance(event.get("from"), str) else None
+    phase = event.get("to") if isinstance(event.get("to"), str) else None
+    reason = event.get("reason") if isinstance(event.get("reason"), str) else "unspecified"
+    return f"run-phase: {previous or 'start'} -> {phase or 'unknown'} ({reason})"
+
+
+def _pending_phase_events(root: Path, run_id: str) -> tuple[list[str], int]:
+    """Return the unannounced phase statements and the total event count.
+
+    Statements enter history by append, once: the announce cursor persists
+    how many statements this hook already injected, so a transition is stated
+    in its transition turn and never rebroadcast. Fail-open throughout.
+    """
+
+    directory = _phase_store_directory(root, run_id)
+    try:
+        lines = (directory / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return [], 0
+    events: list[dict[str, Any]] = []
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get("event") == "phase_transition":
+            events.append(event)
+    try:
+        cursor_payload = json.loads((directory / "announce.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cursor_payload = {}
+    announced = cursor_payload.get("announced") if isinstance(cursor_payload, dict) else None
+    if isinstance(announced, bool) or not isinstance(announced, int) or announced < 0:
+        announced = 0
+    pending = [_render_phase_statement(event) for event in events[announced:]]
+    return pending, len(events)
+
+
+def _mark_phase_events_announced(root: Path, run_id: str, count: int) -> None:
+    directory = _phase_store_directory(root, run_id)
+    payload = {"schema": RUN_PHASE_STORE_SCHEMA, "announced": count, "updated_at": _phase_now()}
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        target = directory / "announce.json"
+        temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+        try:
+            temporary.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+            os.replace(temporary, target)
+        finally:
+            temporary.unlink(missing_ok=True)
+    except OSError:
+        return
+
+
+def _phase_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _phase_grounding(root: Path, payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Assemble the turn's grounding: snapshot line + unannounced statements.
+
+    Returns None only when no run id is resolvable. With a run id the
+    placeholder snapshot always rides along (stable tail slot from the first
+    turn); statements ride exactly once, at their transition's next turn.
+    """
+
+    run_id = payload.get("run_id")
+    if run_id is None:
+        run_id = os.environ.get("RESEARCH_TREE_RUN_ID")
+    if not isinstance(run_id, str) or not PROJECT_IDENTIFIER_RE.fullmatch(run_id):
+        return None
+    state = read_phase_state(root, run_id)
+    pending, total = _pending_phase_events(root, run_id)
+    if total:
+        _mark_phase_events_announced(root, run_id, total)
+    return {"snapshot": build_phase_snapshot(state), "events": pending}
+
+
+RESEARCH_REENTRY_RULES: tuple[tuple[str, str, re.Pattern[str]], ...] = tuple(
+    (path, rule, re.compile(pattern, re.IGNORECASE))
+    for path, rule, pattern in (
+        # Path (a): reopen alignment — re-align to user confirmation, recompile.
+        ("reopen_alignment", "realign", r"\bre-?align\w*\b|\breopen\s+alignment\b|重新对齐|重开对齐"),
+        (
+            "reopen_alignment",
+            "strategy_change",
+            r"\b(?:change|switch|revise|update|adjust|revisit|rework|redo|rethink)\s+"
+            r"(?:the\s+|our\s+|my\s+)?(?:strategy|direction|scope|goals?|plan|projection|approach|"
+            r"decision\s+targets?)\b",
+        ),
+        (
+            "reopen_alignment",
+            "new_direction",
+            r"\b(?:new|changed|different|wrong)\s+(?:strategy|direction|scope|goals?)\b"
+            r"|\bback\s+to\s+(?:the\s+)?(?:drawing\s+board|alignment)\b",
+        ),
+        ("reopen_alignment", "recompile", r"\bre-?compile\b|\bcompile\s+again\b|重新编译"),
+        (
+            "reopen_alignment",
+            "chinese_strategy_change",
+            r"改变?(?:策略|方向|范围|目标|计划)|调整(?:策略|方向|范围|目标)",
+        ),
+        # Path (b): supplemental evidence — record the input and stay in research.
+        (
+            "supplemental_evidence",
+            "new_material",
+            r"\b(?:new|additional|extra|more|updated?)\s+"
+            r"(?:evidence|sources?|data|information|info|findings?|references?|materials?|links?|"
+            r"papers?|articles?|documents?|files?|artifacts?|context)\b",
+        ),
+        (
+            "supplemental_evidence",
+            "provide_material",
+            r"\b(?:here(?:'s| is)|attached|uploaded|adding|sharing|supplement(?:ing|al|ary)?)\b"
+            r"[^\n]{0,80}?\b(?:evidence|source|data|paper|article|link|file|document|report|reference|"
+            r"material|study)\b",
+        ),
+        ("supplemental_evidence", "fyi", r"\bfyi\b|\bfor\s+(?:your|the)\s+information\b"),
+        ("supplemental_evidence", "record_evidence", r"\brecord\s+(?:this|it|that|as)\b[^\n]{0,40}\bevidence\b"),
+        (
+            "supplemental_evidence",
+            "chinese_material",
+            r"补充(?:一份)?(?:证据|材料|资料|来源)|新(?:证据|来源|资料|材料)|供参考",
+        ),
+        # Status echo — the only acceptable status interaction during research.
+        (
+            "status_echo",
+            "direct_status",
+            r"^\s*(?:status|progress)\s*[?.!]*$"
+            r"|^\s*(?:any\s+)?(?:status|progress)\s+(?:check|update|report|echo)\s*[?.!]*$",
+        ),
+        (
+            "status_echo",
+            "status_question",
+            r"\b(?:what(?:'s| is)|how(?:'s| is| are)|where\s+are)\b[^\n]{0,40}\b(?:status|progress|going|we)\b"
+            r"|\b(?:current|latest)\s+(?:status|progress|state)\b|\bhow\s+far\s+(?:along|have\s+you\s+gotten)\b",
+        ),
+        ("status_echo", "chinese_status", r"状态|进度|到哪(?:儿|里)了|怎么样了"),
+    )
+)
+
+# Issue #490: run-scoped feed route for the typed user response. During the
+# alignment phase every classified prompt feeds an ``alignment_user_move``
+# record carrying the user move typed into the turn_contract seam response
+# classes plus the policy verdict over contract terms, so the alignment
+# turn-record ``user_move`` field and contract-term selection at the seam
+# are fed (#489 consumes the verdict as its emission input basis).
+ALIGNMENT_USER_MOVE_ROUTE = "alignment_user_move"
+MAX_RUN_SIGNAL_SCAN = 50
+
+# Issue #525: the discipline seam consumes, never measures. The alignment
+# event log already carries #527's structured `turn_budget_violations` in
+# each `response_recorded` event's details and the turn-record file carries
+# #514's `turn_shape` verdicts; both normalize onto the canonical violation
+# vocabulary. `source` names the emitter so the stream stays attributable.
+DISCIPLINE_SOURCE_BUDGET = "agent_turn_budget"
+DISCIPLINE_SOURCE_SHAPE = "turn_shape"
+DISCIPLINE_SOURCE_RECORD = "turn_record"
+DISCIPLINE_DIMENSION_MAP = {
+    "max_questions": "questions",
+    "max_chars": "chars",
+    "length": "chars",
+    "question_count": "questions",
+}
+# #514 emits shape violations as "name>cap: measured" strings.
+TURN_SHAPE_VIOLATION_RE = re.compile(r"([a-z_]+)>(\d+):\s*(\d+)\Z")
+
+
+def resolve_research_reentry(prompt: str) -> dict[str, str]:
+    """Resolve a research-phase prompt to exactly one re-entry protocol path.
+
+    Rule order is reopen alignment, then supplemental evidence, then status
+    echo; a prompt matching no rule is refused with
+    ``research_reentry_refused`` — a bare interruption that picks no path and
+    chatty conversational drift are both refusals, never a third path.
+    """
+
+    text = prompt.strip() if isinstance(prompt, str) else ""
+    for path, rule, pattern in RESEARCH_REENTRY_RULES:
+        if pattern.search(text):
+            return {"path": path, "rule": rule}
+    return {"path": "refused", "code": RESEARCH_REENTRY_REFUSED_CODE, "rule": "default"}
+
+
 PROMPT_SIGNAL_RULES: tuple[tuple[str, str, re.Pattern[str], str], ...] = tuple(
     (category, rule, re.compile(pattern, re.IGNORECASE), confidence)
     for category, rule, pattern, confidence in (
@@ -255,6 +608,7 @@ def observe(
     project_root: Path | None = None,
     process_cwd: Path | None = None,
     debug: bool = False,
+    run_phase: str | None = None,
 ) -> dict[str, Any]:
     """Persist sanitized lifecycle metadata without affecting host behavior."""
     if not isinstance(payload, dict):
@@ -264,7 +618,13 @@ def observe(
     if event == "UserPromptSubmit":
         # Prompt signals are opportunistic: they need a checkout to record in,
         # but never an active run, and they never block the host session.
-        return _observe_prompt_signal(payload, host=host, project_root=project_root, process_cwd=process_cwd)
+        return _observe_prompt_signal(
+            payload,
+            host=host,
+            project_root=project_root,
+            process_cwd=process_cwd,
+            run_phase=run_phase,
+        )
 
     if event == "Stop" and payload.get("stop_hook_active") is True:
         return {"status": "skipped_reentrant_stop", "host": host, "event": event}
@@ -339,6 +699,22 @@ def observe(
         raise LifecycleHookError("project run is not initialized")
     record["project_id"] = project_id
     record["run_id"] = run_id
+    if event == "PostToolUse":
+        # Issue #497: refresh/validate the turn-record file after tool use so
+        # the record the next alignment turn must ground in stays verifiable.
+        turn_record = _observe_alignment_turn_record(
+            root,
+            payload,
+            run_phase=_resolve_run_phase(None, root=root, payload=payload),
+        )
+        if turn_record is not None:
+            record["alignment_turn_record"] = turn_record
+    if event in {"PostToolUse", "Stop"}:
+        # Issue #525: discipline telemetry — append emitted violations to the
+        # per-run stream and resolve the graduated response ladder. Fail-open.
+        discipline = _observe_discipline(root, payload)
+        if discipline is not None:
+            record["discipline"] = discipline
     path = _write_record(root, record, run_root / "events")
     if debug:
         try:
@@ -358,6 +734,8 @@ def observe(
         "event": event,
         "path": path.relative_to(root).as_posix(),
         **({"skill_load": record["skill_load"]} if "skill_load" in record else {}),
+        **({"alignment_turn_record": record["alignment_turn_record"]} if "alignment_turn_record" in record else {}),
+        **({"discipline": record["discipline"]} if "discipline" in record else {}),
     }
 
 
@@ -384,12 +762,51 @@ def _cap_signal_records(root: Path) -> None:
             return
 
 
+def _resolve_run_phase(explicit: str | None, *, root: Path, payload: dict[str, Any]) -> str | None:
+    """Resolve the active run phase, fail-open (issues #492, #530).
+
+    Precedence: explicit argument, then the run's authoritative phase store
+    (engine-written, digest-checked — production runs resolve here), then
+    ``RESEARCH_TREE_RUN_PHASE``, then the run manifest's optional ``phase``
+    key. An invalid explicit value is a programmer error and raises; an
+    invalid environment or manifest value is ignored so a typo can never
+    break the fail-open recording contract.
+    """
+
+    if explicit is not None:
+        if explicit not in RUN_PHASES:
+            raise LifecycleHookError(f"run phase must be one of: {', '.join(sorted(RUN_PHASES))}")
+        return explicit
+    run_id = payload.get("run_id")
+    if run_id is None:
+        run_id = os.environ.get("RESEARCH_TREE_RUN_ID")
+    if isinstance(run_id, str) and PROJECT_IDENTIFIER_RE.fullmatch(run_id):
+        state = read_phase_state(root, run_id)
+        if state is not None:
+            phase = state.get("phase")
+            if phase in RUN_PHASES:
+                return phase  # type: ignore[no-any-return]
+    environment = os.environ.get(RUN_PHASE_ENV)
+    if environment in RUN_PHASES:
+        return environment
+    try:
+        active = _active_run(root, payload)
+        if active is None:
+            return None
+        manifest = json.loads((active[0] / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, LifecycleHookError):
+        return None
+    phase = manifest.get("phase") if isinstance(manifest, dict) else None
+    return phase if phase in RUN_PHASES else None
+
+
 def _observe_prompt_signal(
     payload: dict[str, Any],
     *,
     host: str,
     project_root: Path | None,
     process_cwd: Path | None,
+    run_phase: str | None = None,
 ) -> dict[str, Any]:
     """Record one opportunistic UserPromptSubmit signal (append-only, sanitized)."""
     prompt = payload.get("prompt")
@@ -397,6 +814,15 @@ def _observe_prompt_signal(
         return {"status": "skipped_empty_prompt", "host": host, "event": "UserPromptSubmit"}
     root, workspace = validate_workspace(payload, project_root=project_root, process_cwd=process_cwd)
     signal = classify_prompt_signal(prompt)
+    resolved_phase = _resolve_run_phase(run_phase, root=root, payload=payload)
+    # During research every prompt resolves through the two-option protocol.
+    reentry = resolve_research_reentry(prompt) if resolved_phase == RESEARCH_PHASE else None
+    # Issue #497: refresh/validate the alignment turn-record file so compaction
+    # or long sessions cannot silently orphan it.
+    turn_record = _observe_alignment_turn_record(root, payload, run_phase=resolved_phase)
+    # Issue #490: classify the persisted user-response class into contract-term
+    # adjustments and a typed user move (alignment phase only, fail-open).
+    user_move_policy = _observe_user_move_policy(root, payload, signal=signal, run_phase=resolved_phase)
     record: dict[str, Any] = {
         "schema": 1,
         "source": "research-tree-lifecycle-hook",
@@ -413,6 +839,19 @@ def _observe_prompt_signal(
         value = _optional_identifier(payload, key)
         if value is not None:
             record[key] = value
+    if reentry is not None:
+        record["run_phase"] = resolved_phase
+        record["reentry"] = reentry
+    if turn_record is not None:
+        record["alignment_turn_record"] = turn_record
+    if user_move_policy is not None:
+        record["user_move_policy"] = user_move_policy
+    # Issue #530: cache-friendly grounding rides the hook's tail-injection
+    # channel — one snapshot line every turn, one event statement per
+    # transition turn, never a per-turn state block.
+    grounding = _phase_grounding(root, payload)
+    if grounding is not None:
+        record["phase_grounding"] = grounding
     path = _write_record(root, record, root / SIGNAL_DIRECTORY)
     _cap_signal_records(root)
     result: dict[str, Any] = {
@@ -422,25 +861,33 @@ def _observe_prompt_signal(
         "signal": signal,
         "path": path.relative_to(root).as_posix(),
     }
+    if resolved_phase is not None:
+        result["run_phase"] = resolved_phase
+    if reentry is not None:
+        result["reentry"] = reentry
+    if turn_record is not None:
+        result["alignment_turn_record"] = turn_record
+    if user_move_policy is not None:
+        result["user_move_policy"] = user_move_policy
+        feed_path = _feed_run_signal(root, payload, record, route=ALIGNMENT_USER_MOVE_ROUTE)
+        if feed_path is not None:
+            result["run_user_move_path"] = feed_path
     if signal["category"] == "correction" and signal["confidence"] == "high":
-        feed_path = _feed_correction_signal(root, payload, record)
+        feed_path = _feed_run_signal(root, payload, record, route="apply_correction")
         if feed_path is not None:
             result["run_signal_path"] = feed_path
+    if reentry is not None and reentry["path"] in RESEARCH_REENTRY_ROUTES:
+        feed_path = _feed_run_signal(root, payload, record, route="research_reentry")
+        if feed_path is not None:
+            result["run_reentry_path"] = feed_path
+    if grounding is not None:
+        result["phase_grounding"] = grounding
     return result
 
 
-def _feed_correction_signal(root: Path, payload: dict[str, Any], record: dict[str, Any]) -> str | None:
-    """Append a high-confidence correction to the run-scoped events surface.
+def _active_run(root: Path, payload: dict[str, Any]) -> tuple[Path, str, str] | None:
+    """Resolve the active run root for run-scoped signal routing (fail-open)."""
 
-    The hook cannot call ``apply_correction`` directly: a valid CorrectionEvent
-    requires run/task/domain identifiers, artifact digests and the ledger
-    revision that only the workflow has. The signal record (marked
-    ``route: "apply_correction"``) is therefore appended to the run's events
-    directory for operator and agent inspection; the automated alignment
-    consumer that would route it through apply_correction is planned v2 work,
-    so today nothing reads these records automatically. Fail-open: returns
-    None on any problem.
-    """
     try:
         project_id = payload.get("project_id")
         run_id = payload.get("run_id")
@@ -454,13 +901,296 @@ def _feed_correction_signal(root: Path, payload: dict[str, Any], record: dict[st
         run_root = root / ".research-tree" / "projects" / project_id / "runs" / run_id
         if not (run_root / "manifest.json").is_file():
             return None
+        return run_root, project_id, run_id
+    except (LifecycleHookError, OSError):
+        return None
+
+
+def _feed_run_signal(
+    root: Path,
+    payload: dict[str, Any],
+    record: dict[str, Any],
+    *,
+    route: str,
+) -> str | None:
+    """Append a routed copy of a signal record to the run-scoped events surface.
+
+    The hook cannot call into the workflow directly: a valid downstream action
+    requires run/task identifiers and ledger revisions that only the workflow
+    has. The routed record (marked with ``route``) is appended to the run's
+    events directory for operator and agent inspection. Fail-open: returns
+    None on any problem.
+    """
+    try:
+        active = _active_run(root, payload)
+        if active is None:
+            return None
+        run_root, project_id, run_id = active
         feed = dict(record)
         feed["project_id"] = project_id
         feed["run_id"] = run_id
-        feed["route"] = "apply_correction"
+        feed["route"] = route
         path = _write_record(root, feed, run_root / "events")
         return path.relative_to(root).as_posix()
     except (LifecycleHookError, OSError):
+        return None
+
+
+def _observe_alignment_turn_record(
+    root: Path,
+    payload: dict[str, Any],
+    *,
+    run_phase: str | None,
+) -> dict[str, Any] | None:
+    """Refresh and validate the run's alignment turn-record file (issue #497).
+
+    Compaction and long sessions must not silently orphan the record file:
+    the hook re-validates it and surfaces the verdict on the record surface.
+    Fail-open, like every lifecycle observation: returns None when there is
+    no active run, when the runtime cannot reach the record module
+    (standalone execution), or when the run is outside the turn-record
+    protocol (no record file and not in the alignment phase). Never raises
+    into the observe path, and never creates workspace directories.
+    """
+    if _refresh_turn_record_validation is None:
+        return None
+    active = _active_run(root, payload)
+    if active is None:
+        return None
+    run_root, _project_id, _run_id = active
+    records_path = run_root / "alignment" / "turn-records.jsonl"
+    if run_phase != "alignment" and not records_path.is_file():
+        return None
+    try:
+        return _refresh_turn_record_validation(run_root)
+    except (OSError, ValueError):
+        return None
+
+
+def _previous_run_signal_category(run_root: Path) -> str | None:
+    """Newest prior ``alignment_user_move`` signal category for this run (#490).
+
+    The fed records in the run's events directory are run-scoped and carry
+    the classifying category, so the newest one is the previous prompt's
+    signal. File names carry a fixed-width UTC timestamp prefix, so
+    lexicographic order is chronological. Bounded, fail-open scan.
+    """
+    try:
+        directory = run_root / "events"
+        records = sorted(
+            (item for item in directory.iterdir() if item.is_file() and item.suffix == ".json"),
+            key=lambda item: item.name,
+            reverse=True,
+        )[:MAX_RUN_SIGNAL_SCAN]
+    except OSError:
+        return None
+    for path in records:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(record, dict) and record.get("route") == ALIGNMENT_USER_MOVE_ROUTE:
+            category = record.get("category")
+            if isinstance(category, str) and category:
+                return category
+    return None
+
+
+def _observe_user_move_policy(
+    root: Path,
+    payload: dict[str, Any],
+    *,
+    signal: dict[str, str],
+    run_phase: str | None,
+) -> dict[str, Any] | None:
+    """Resolve the user-response policy verdict for an alignment-phase prompt (#490).
+
+    The classified prompt signal becomes an input to contract-term selection:
+    the verdict (the user move typed into the turn_contract seam response
+    classes plus the cost_cap/taboo/gap adjustments) is computed against the
+    latest persisted turn record's contract terms — the ask the user is
+    responding to — and surfaced on the record/result for the run-scoped feed.
+    Fail-open like every lifecycle observation: returns None outside the
+    alignment phase (during research the two-option re-entry protocol
+    governs), without an active run, when the runtime modules are unreachable
+    (standalone execution), or when the record store is unreadable. Never
+    raises into the observe path, and never writes turn records itself.
+    """
+    if _resolve_user_response_policy is None or _AlignmentTurnRecordStore is None:
+        return None
+    if run_phase != "alignment":
+        return None
+    active = _active_run(root, payload)
+    if active is None:
+        return None
+    run_root, _project_id, _run_id = active
+    try:
+        latest = _AlignmentTurnRecordStore(run_root).latest()
+    except (OSError, ValueError):
+        return None
+    terms = latest.contract_terms if latest is not None else None
+    previous = _previous_run_signal_category(run_root)
+    try:
+        verdict = _resolve_user_response_policy(signal, terms, previous_category=previous)
+    except (ValueError, _UserResponsePolicyError):
+        return None
+    return verdict.to_dict()
+
+
+def _budget_violations_from_events(run_root: Path, violations: list[dict[str, Any]]) -> int | None:
+    """Read #527 ``turn_budget_violations`` from the alignment event log.
+
+    The event log is the stream #527 already emits: each ``response_recorded``
+    event's details carry the structured entries when the persisted terms
+    carried a budget. The 1-based position of the event in the log is the
+    turn axis. Read-only URI mode; fail-open, returning the observed event
+    count (the run's turn axis) or None when the log is unreadable.
+    """
+    database = run_root.joinpath("alignment", "alignment.db")
+    if not database.is_file():
+        return None
+    try:
+        connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True, timeout=0.5)
+    except sqlite3.Error:
+        return None
+    try:
+        rows = connection.execute(
+            "SELECT details_json FROM events WHERE event_type='response_recorded' ORDER BY sequence"
+        ).fetchall()
+    except sqlite3.Error:
+        return None
+    finally:
+        connection.close()
+    for turn_index, row in enumerate(rows, start=1):
+        try:
+            details = json.loads(row[0])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(details, dict):
+            continue
+        for entry in details.get("turn_budget_violations") or []:
+            if not isinstance(entry, dict):
+                continue
+            limit = entry.get("limit")
+            observed = entry.get("observed")
+            if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+                continue
+            if isinstance(observed, bool) or not isinstance(observed, int) or observed < 0:
+                continue
+            violations.append(
+                {
+                    "turn_index": turn_index,
+                    "dimension": DISCIPLINE_DIMENSION_MAP.get(str(entry.get("dimension")), "other"),
+                    "measured": observed,
+                    "cap": limit,
+                    "source": DISCIPLINE_SOURCE_BUDGET,
+                }
+            )
+    return len(rows)
+
+
+def _turn_record_read_confirmed_invalid(store: Any) -> bool:
+    """Confirm a record-file read failure once.
+
+    A single failed read can be a mid-append race against the workflow's
+    writer; a second consecutive failure is a genuinely schema-violating
+    record file. Keeps the #497 record-compliance violation free of false
+    positives.
+    """
+    try:
+        store.records()
+    except (OSError, ValueError):
+        return True
+    return False
+
+
+def _shape_violations_from_records(
+    run_root: Path,
+    violations: list[dict[str, Any]],
+    turns_observed: int | None,
+) -> None:
+    """Read #514 ``turn_shape`` verdicts from the turn-record file.
+
+    Each violated verdict's named violations normalize onto the canonical
+    vocabulary; a record file that fails its own schema twice in a row is
+    itself the #497 record-compliance violation (the store refuses to write
+    such turns, so the hook is the observer of last resort). Fail-open.
+    """
+    if _AlignmentTurnRecordStore is None:
+        return
+    store = _AlignmentTurnRecordStore(run_root)
+    if not store.records_path.is_file():
+        return
+    try:
+        records = store.records()
+    except (OSError, ValueError):
+        violations.append(
+            {
+                "turn_index": turns_observed or 0,
+                "dimension": "record",
+                "measured": 0,
+                "cap": 1,
+                "source": DISCIPLINE_SOURCE_RECORD,
+            }
+        )
+        return
+    for record in records:
+        shape = record.turn_shape
+        if not isinstance(shape, dict) or shape.get("verdict") != "violated":
+            continue
+        for text in shape.get("violations") or ():
+            match = TURN_SHAPE_VIOLATION_RE.fullmatch(text) if isinstance(text, str) else None
+            if match is None:
+                continue
+            violations.append(
+                {
+                    "turn_index": record.turn_index,
+                    "dimension": DISCIPLINE_DIMENSION_MAP.get(match.group(1), "other"),
+                    "measured": int(match.group(3)),
+                    "cap": int(match.group(2)),
+                    "source": DISCIPLINE_SOURCE_SHAPE,
+                }
+            )
+
+
+def _collect_discipline_violations(run_root: Path) -> tuple[list[dict[str, Any]], int | None]:
+    """Collect emitted violations from the run's event streams (issue #525).
+
+    Consumes what #527 (alignment event log) and #514/#497 (turn-record
+    file) already emit — no measurement logic is duplicated. Returns the
+    raw violations plus the observed turn axis for the sliding window.
+    """
+    violations: list[dict[str, Any]] = []
+    turns_observed = _budget_violations_from_events(run_root, violations)
+    _shape_violations_from_records(run_root, violations, turns_observed)
+    return violations, turns_observed
+
+
+def _observe_discipline(root: Path, payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Maintain the violation stream and resolve the response ladder (#525).
+
+    On PostToolUse/Stop the hook appends unseen emitted violations to the
+    per-run stream and attaches the ``discipline`` receipt section (rate,
+    recent violations, response marker). Fail-open like every lifecycle
+    observation: returns None when the discipline module is unavailable
+    (standalone execution), when there is no active run, or when any
+    read/write fails. Never raises into the observe path.
+    """
+    if _discipline is None:
+        return None
+    active = _active_run(root, payload)
+    if active is None:
+        return None
+    run_root, _project_id, _run_id = active
+    try:
+        collected, turns_observed = _collect_discipline_violations(run_root)
+        store = _discipline.DisciplineViolationStore(run_root)
+        store.append(collected)
+        records = store.records()
+        if not records:
+            return None
+        return _discipline.build_discipline_section(records, turns_observed=turns_observed)
+    except (OSError, ValueError):
         return None
 
 
@@ -480,12 +1210,7 @@ def labeled_host_response(host: str) -> str:
     """
 
     payload = host_response(host)
-    body = json.dumps(payload, separators=(",", ":"))
-    opening = open_tag(
-        "rt:event",
-        {"contract": "research-tree-hook", "schema_version": "1", "host": host},
-    )
-    return opening + body + close_tag("rt:event")
+    return labeled_host_response_payload(host, json.dumps(payload, separators=(",", ":")))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -506,13 +1231,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
+    result: dict[str, Any] | None = None
     try:
         payload = read_payload()
         for key in ("project_id", "run_id", "session_id"):
             value = getattr(arguments, key)
             if value is not None:
                 payload[key] = value
-        observe(
+        result = observe(
             payload,
             host=arguments.host,
             event=arguments.event,
@@ -523,8 +1249,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Lifecycle observation must never block an agent session.
         if arguments.debug:
             print(f"research-tree hook debug: {exc}", file=sys.stderr)
-    print(labeled_host_response(arguments.host))
+    response = host_response(arguments.host)
+    if isinstance(result, dict):
+        grounding = result.get("phase_grounding")
+        if isinstance(grounding, dict):
+            # Issue #530: the tail-injection payload carries the snapshot line
+            # plus any first-announcement statements. The host adapter layer
+            # positions this payload at the system-reminder seam; it is the
+            # only per-turn state surface the hook ever emits.
+            response = {**response, "phase_grounding": grounding}
+    payload_json = json.dumps(response, separators=(",", ":"))
+    print(labeled_host_response_payload(arguments.host, payload_json))
     return 0
+
+
+def labeled_host_response_payload(host: str, payload_json: str) -> str:
+    opening = open_tag(
+        "rt:event",
+        {"contract": "research-tree-hook", "schema_version": "1", "host": host},
+    )
+    return opening + payload_json + close_tag("rt:event")
 
 
 class DebugTraceError(ValueError):
