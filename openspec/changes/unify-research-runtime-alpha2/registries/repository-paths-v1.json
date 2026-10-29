@@ -56,6 +56,9 @@
     { "path": ".history/", "asset_class": "cache", "owner": "maintainers", "mutability": "disposable", "tracked": false, "distributed": false, "cleanup_safety": "safe_ignore", "canonical_command": null, "lifecycle": "local" },
     { "path": "htmlcov/", "asset_class": "cache", "owner": "quality", "mutability": "disposable", "tracked": false, "distributed": false, "cleanup_safety": "safe_ignore", "canonical_command": "uv run pytest -q", "lifecycle": "local" },
     { "path": "__pycache__/", "asset_class": "cache", "owner": "runtime", "mutability": "disposable", "tracked": false, "distributed": false, "cleanup_safety": "safe_ignore", "canonical_command": "uv run pytest -q", "lifecycle": "local" },
-    { "path": "*.egg-info/", "asset_class": "cache", "owner": "maintainers", "mutability": "disposable", "tracked": false, "distributed": false, "cleanup_safety": "safe_ignore", "canonical_command": "uv build", "lifecycle": "local" }
+    { "path": "*.egg-info/", "asset_class": "cache", "owner": "maintainers", "mutability": "disposable", "tracked": false, "distributed": false, "cleanup_safety": "safe_ignore", "canonical_command": "uv build", "lifecycle": "local" },
+    { "path": "rt-core/", "asset_class": "authoring_source", "owner": "rt-engine", "mutability": "source", "tracked": true, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": "pnpm -C rt-core check && pnpm -C rt-core test", "lifecycle": "active" },
+    { "path": "rt-core/node_modules/", "asset_class": "cache", "owner": "rt-engine", "mutability": "disposable", "tracked": false, "distributed": false, "cleanup_safety": "safe_ignore", "canonical_command": "pnpm -C rt-core install", "lifecycle": "local" },
+    { "path": "rt-core/pnpm-lock.yaml", "asset_class": "cache", "owner": "rt-engine", "mutability": "disposable", "tracked": false, "distributed": false, "cleanup_safety": "safe_ignore", "canonical_command": "pnpm -C rt-core install", "lifecycle": "local" }
   ]
 }

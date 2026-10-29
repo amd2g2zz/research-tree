@@ -1,0 +1,23 @@
+{
+  "name": "rt-core",
+  "version": "0.2.0-alpha.1",
+  "private": true,
+  "description": "research-tree v2 engine core — event log, object-graph projection, ledger (TypeScript)",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.4.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
