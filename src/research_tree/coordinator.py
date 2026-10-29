@@ -49,6 +49,7 @@ from .feedback import (
     CorrectionBinding,
     CorrectionEvent,
 )
+from .graph_store import GraphStore
 from .host_attempts import HostAttemptError, outcome_from_mapping, worker_finished_eligible
 from .host_events import HostEvent, HostEventError, HostEventSequenceError
 from .independent_review import (
@@ -149,6 +150,10 @@ class CoordinatorConflictError(CoordinatorError):
 
 class CoordinatorEventConflictError(CoordinatorConflictError):
     """Raised when one event id is reused with a changed payload."""
+
+
+class GraphProjectionError(CoordinatorError):
+    """The Kùzu projection diverged from the event log; resync_graph() repairs it."""
 
 
 def _projection_entry_ids(entries: Any) -> set[str]:
@@ -593,12 +598,48 @@ class ResearchRunCoordinator:
         *,
         actor_id: str = "coordinator",
         policy: AdaptiveResearchPolicy | None = None,
+        graph_store: GraphStore | None = None,
     ) -> None:
         if not isinstance(ledger, RunLedger):
             raise CoordinatorConflictError("ResearchRunCoordinator requires a RunLedger")
         self.ledger = ledger
         self.actor_id = validate_identifier(actor_id, "actor_id")
         self.policy = policy
+        if graph_store is not None and not isinstance(graph_store, GraphStore):
+            raise CoordinatorConflictError("graph_store must be a GraphStore instance")
+        self.graph_store = graph_store
+
+    def append_graph_event(
+        self,
+        event_type: str,
+        payload: Mapping[str, Any],
+        *,
+        run_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Append a graph fact: event log first (authority), then the projection.
+
+        Projection failure is fail-closed — the log keeps the event and
+        :meth:`resync_graph` rebuilds the projection from the log alone.
+        """
+        record = self.ledger.append_graph_event(event_type, payload, run_id=run_id)
+        if self.graph_store is not None:
+            try:
+                self.graph_store.apply_event(record)
+            except Exception as error:  # noqa: BLE001 - projection faults must not read as log faults
+                raise GraphProjectionError(
+                    "graph projection diverged from the event log; resync_graph() required"
+                ) from error
+        return record
+
+    def graph_events(self, since_seq: int = 0) -> tuple[dict[str, Any], ...]:
+        """Read the workspace graph event stream (global seq order)."""
+        return self.ledger.graph_events(since_seq)
+
+    def resync_graph(self) -> dict[str, Any]:
+        """Rebuild the attached projection from the event log alone (self-heal)."""
+        if self.graph_store is None:
+            raise CoordinatorConflictError("no graph store attached to this coordinator")
+        return self.graph_store.rebuild(self.ledger.graph_events())
 
     def _load(self, reference: ArtifactRef, kind: str) -> ArtifactRevision:
         try:

@@ -6,8 +6,9 @@ import hashlib
 import json
 import secrets
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 from .content_store import ContentAddressedStore, ContentObject
 from .domain import (
@@ -21,6 +22,7 @@ from .domain import (
     thaw_json,
     validate_identifier,
 )
+from .graph_events import GENESIS_HASH, validate_graph_event
 
 
 class LedgerError(Exception):
@@ -38,7 +40,7 @@ class LedgerIntegrityError(LedgerError, DataIntegrityError):
 class RunLedger:
     """Own canonical run lineage in a workspace-scoped SQLite database."""
 
-    SCHEMA_VERSION = 7
+    SCHEMA_VERSION = 8
 
     def __init__(self, workspace: str | Path) -> None:
         self.workspace = Path(workspace).resolve()
@@ -176,6 +178,15 @@ class RunLedger:
                     principal_salt TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     FOREIGN KEY (run_id) REFERENCES runs(run_id)
+                );
+                CREATE TABLE IF NOT EXISTS graph_events (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT,
+                    event_type TEXT NOT NULL,
+                    payload_json BLOB NOT NULL,
+                    prev_hash TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL
                 );
                 """
             )
@@ -1302,6 +1313,107 @@ class RunLedger:
             except sqlite3.IntegrityError as error:
                 raise LedgerIntegrityError("event append violated a ledger constraint") from error
         return event
+
+    def append_graph_event(
+        self,
+        event_type: str,
+        payload: Mapping[str, Any],
+        *,
+        run_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Append one hash-chained graph event (the Kùzu projection's replay source).
+
+        The workspace-global ``graph_events`` table is append-only with a dense
+        ``seq``; ``content_hash`` chains over ``prev_hash`` + the canonical record
+        so ``verify_graph_chain`` can detect both payload mutation and row loss.
+        """
+        self.initialize()
+        normalized = validate_graph_event(event_type, payload)
+        if run_id is not None:
+            run_id = validate_identifier(run_id, "run_id")
+        created_at = datetime.now(timezone.utc).isoformat()
+        with self._connect() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                tail = connection.execute("SELECT content_hash FROM graph_events ORDER BY seq DESC LIMIT 1").fetchone()
+                prev_hash = tail[0] if tail is not None else GENESIS_HASH
+                chain_record = {
+                    "run_id": run_id,
+                    "event_type": event_type,
+                    "payload": normalized,
+                    "prev_hash": prev_hash,
+                    "created_at": created_at,
+                }
+                content_hash = hashlib.sha256(canonical_json_bytes(chain_record)).hexdigest()
+                cursor = connection.execute(
+                    "INSERT INTO graph_events(run_id, event_type, payload_json, prev_hash, "
+                    "content_hash, created_at) VALUES(?, ?, ?, ?, ?, ?)",
+                    (
+                        run_id,
+                        event_type,
+                        canonical_json_bytes(normalized),
+                        prev_hash,
+                        content_hash,
+                        created_at,
+                    ),
+                )
+                seq = cursor.lastrowid
+                self._before_commit()
+            except sqlite3.IntegrityError as error:
+                raise LedgerIntegrityError("graph event append violated a ledger constraint") from error
+        return {"seq": seq, **chain_record, "content_hash": content_hash}
+
+    def graph_events(self, since_seq: int = 0) -> tuple[dict[str, Any], ...]:
+        """Read graph events after ``since_seq`` in global seq order."""
+        self.initialize()
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT seq, run_id, event_type, payload_json, prev_hash, content_hash, created_at "
+                "FROM graph_events WHERE seq > ? ORDER BY seq",
+                (since_seq,),
+            ).fetchall()
+        return tuple(self._graph_event_from_row(row) for row in rows)
+
+    def verify_graph_chain(self) -> None:
+        """Fail-closed integrity check: dense seqs + unbroken hash chain."""
+        self.initialize()
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT seq, run_id, event_type, payload_json, prev_hash, content_hash, created_at "
+                "FROM graph_events ORDER BY seq"
+            ).fetchall()
+        previous = GENESIS_HASH
+        expected_seq = 1
+        for row in rows:
+            seq = row[0]
+            if seq != expected_seq:
+                raise LedgerIntegrityError(f"graph event seq gap: expected {expected_seq}, found {seq}")
+            record = {
+                "run_id": row[1],
+                "event_type": row[2],
+                "payload": json.loads(row[3]),
+                "prev_hash": row[4],
+                "created_at": row[6],
+            }
+            recomputed = hashlib.sha256(canonical_json_bytes(record)).hexdigest()
+            if row[4] != previous:
+                raise LedgerIntegrityError(f"graph event chain break at seq {seq}")
+            if recomputed != row[5]:
+                raise LedgerIntegrityError(f"graph event hash mismatch at seq {seq}")
+            previous = row[5]
+            expected_seq = seq + 1
+
+    @staticmethod
+    def _graph_event_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "seq": row[0],
+            "run_id": row[1],
+            "event_type": row[2],
+            "payload": json.loads(row[3]),
+            "prev_hash": row[4],
+            "content_hash": row[5],
+            "created_at": row[6],
+        }
 
     def load_run(self, run_id: str) -> RoundSnapshot:
         self.initialize()
