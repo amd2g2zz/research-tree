@@ -1,0 +1,9 @@
+packages:
+  - .
+
+allowBuilds:
+  better-sqlite3: true
+  kuzu: set this to true or false
+
+onlyBuiltDependencies:
+  - better-sqlite3

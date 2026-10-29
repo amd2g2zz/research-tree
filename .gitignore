@@ -141,3 +141,5 @@ pytestdebug.log
 *~
 .#*
 \#*#
+rt-core/node_modules/
+rt-core/pnpm-lock.yaml

@@ -53,3 +53,34 @@ jobs:
         run: >-
           uv run --frozen python scripts/check_delivery_workflow.py check-pr
           --event "$GITHUB_EVENT_PATH"
+
+  rt-core-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request head
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # pinned
+
+      - name: Install node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # pinned
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: rt-core/pnpm-lock.yaml
+
+      - name: Install dependencies
+        # lockfile is intentionally untracked (kept out of the review-line budget);
+        # install resolves from package.json ranges
+        run: pnpm -C rt-core install
+
+      - name: Typecheck (tsc --noEmit, strict)
+        run: pnpm -C rt-core check
+
+      - name: Test (vitest)
+        run: pnpm -C rt-core test
