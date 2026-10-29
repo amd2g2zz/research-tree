@@ -73,8 +73,6 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # pinned
         with:
           node-version: 24
-          cache: pnpm
-          cache-dependency-path: rt-core/pnpm-lock.yaml
 
       - name: Install dependencies
         # lockfile is intentionally untracked (kept out of the review-line budget);
