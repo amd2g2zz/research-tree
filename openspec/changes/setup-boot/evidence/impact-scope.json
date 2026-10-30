@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"setup-boot","files":["openspec/changes/setup-boot/design.md","openspec/changes/setup-boot/evidence/impact-scope.json","openspec/changes/setup-boot/proposal.md","openspec/changes/setup-boot/specs/setup/spec.md","openspec/changes/setup-boot/tasks.md","rt-core/src/setup/setup.ts","rt-core/test/setup.test.ts"]}
