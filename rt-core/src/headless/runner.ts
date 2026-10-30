@@ -51,6 +51,8 @@ export interface RunHeadlessOptions {
   ledger: import("../store/ledger.js").LedgerStore;
   machine: ProductStateMachine;
   versions: import("../versions/store.js").VersionStore;
+  /** optional projection for coverage checks (never required for the walk) */
+  graph?: import("../store/ports.js").GraphProjection;
   script: HeadlessScript;
   /** JSON Lines sink (stdout in CLI wiring) */
   emit: (line: Record<string, unknown>) => void;
