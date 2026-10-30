@@ -44,7 +44,6 @@ from .project_workspace import (
     resume_project_run,
 )
 from .run_ledger import LedgerConflictError, LedgerError, RunLedger
-from .skill_setup import SkillSetupError, install_skill, plan_heterogeneous_install, skill_status
 from .strategy_projection import (
     STRATEGY_PROJECTION_KIND,
     StrategyProjection,
@@ -55,7 +54,7 @@ from .strategy_projection import (
 from .tree_state import RESEARCH_TREE_STATE_KIND
 
 LIFECYCLE_SCHEMA_VERSION = 1
-HOSTS = ("codex", "claude", "hermes")
+HOSTS = ("pi",)
 LIFECYCLE_REQUEST_KIND = "lifecycle-request"
 LIFECYCLE_RESUME_KIND = "lifecycle-resume"
 log = logging.getLogger(__name__)
@@ -78,15 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
-    install = commands.add_parser("install", help="install one or more host skill packages")
-    _add_host_selection(install)
-    _add_install_location(install)
-    install.add_argument("--mode", choices=("link", "copy"), default="link")
-    install.add_argument("--dry-run", action="store_true")
-
-    doctor = commands.add_parser("doctor", help="check install state and lifecycle readiness")
-    _add_host_selection(doctor)
-    _add_install_location(doctor)
+    doctor = commands.add_parser("doctor", help="check lifecycle readiness for the pi-only install")
     doctor.add_argument("--workspace", type=Path, default=Path.cwd())
     _add_run_identity(doctor, required=False)
 
@@ -185,20 +176,13 @@ def _internal_parser() -> argparse.ArgumentParser:
     return internal
 
 
-def _add_host_selection(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--host", choices=(*HOSTS, "all"), action="append", required=True)
-
-
 def _add_single_host(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--host", choices=HOSTS, required=True)
+    # pi-only (issue #585): retained on run identity for ledger compatibility
+    parser.add_argument("--host", choices=HOSTS, default="pi")
 
 
-def _add_install_location(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--source", required=True, type=Path, help="checkout containing generated host packages")
-    parser.add_argument("--scope", choices=("user", "project"), default="user")
-    parser.add_argument("--home", type=Path, default=Path.home())
-    parser.add_argument("--project-root", type=Path, default=Path.cwd())
-    parser.add_argument("--codex-home", type=Path)
+def _host_from_arguments(arguments: argparse.Namespace) -> str:
+    return getattr(arguments, "host", "pi") or "pi"
 
 
 def _add_workspace(parser: argparse.ArgumentParser) -> None:
@@ -220,10 +204,6 @@ def _read_json_object(path: Path) -> Mapping[str, Any]:
     return value
 
 
-def _selected_hosts(raw_hosts: Sequence[str]) -> tuple[str, ...]:
-    return HOSTS if "all" in raw_hosts else tuple(dict.fromkeys(raw_hosts))
-
-
 def _stable_payload(
     command: str,
     *,
@@ -243,15 +223,6 @@ def _stable_payload(
         "completion_authority": "human_and_canonical_coordinator",
         "result": dict(result or {}),
     }
-
-
-def _installation_readiness(installations: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    failures = [
-        "skill_installation_not_current:" + str(item["host"])
-        for item in installations
-        if item.get("status") != "current"
-    ]
-    return {"ready": not failures, "failure_reasons": failures}
 
 
 def _run_identity(arguments: argparse.Namespace, revision: int) -> dict[str, Any]:
@@ -354,134 +325,12 @@ def _runtime_readiness(
     return {"ready": ready, "failure_reasons": failures}, result
 
 
-def _user_facing_installation(item: Mapping[str, Any]) -> dict[str, Any]:
-    """Issue #292 gate 4: keep the operator surface user-readable.
-
-    The ``skill_setup`` API retains digest verification and hook bookkeeping
-    internally; the lifecycle CLI echoes only the operator-facing fields so
-    ordinary users never see internal schema detail (payload digests, hook
-    config paths, activation placeholders, or the packaged-file manifest).
-    """
-
-    fields = ("host", "scope", "mode", "target", "action", "status", "reason", "discovery")
-    return {field: item[field] for field in fields if item.get(field) is not None}
-
-
-def _install(arguments: argparse.Namespace) -> dict[str, Any]:
-    """Issue #386: dispatch through plan_heterogeneous_install per entry action.
-
-    Replaces the retired ``install_skill`` + ``skill_status`` path so the
-    ``plan_heterogeneous_install`` planner has at least one upstream
-    caller (issue #328 acceptance).  Per-entry dispatch:
-        install  → install_skill([host], ...) then mark status="current"
-        current  → no-op confirmation (status="current")
-        skipped  → preserve required_config snippet, no install_skill call
-        conflict → SkillSetupError failure envelope
-    """
-
-    hosts = _selected_hosts(arguments.host)
-    plan = plan_heterogeneous_install(
-        hosts=hosts,
-        source=arguments.source,
-        scope=arguments.scope,
-        home=arguments.home,
-        project_root=arguments.project_root,
-        codex_home=arguments.codex_home,
-        dry_run=arguments.dry_run,
-    )
-
-    installations: list[dict[str, Any]] = []
-    skipped_required_config: list[dict[str, Any]] = []
-    for entry in plan["entries"]:
-        action = entry["action"]
-        host = entry["host"]
-        if action == "install":
-            sub = install_skill(
-                (host,),
-                source=arguments.source,
-                scope=arguments.scope,
-                mode=arguments.mode,
-                home=arguments.home,
-                project_root=arguments.project_root,
-                codex_home=arguments.codex_home,
-                dry_run=arguments.dry_run,
-            )
-            for installed in sub.get("installations", []):
-                installations.append(
-                    {
-                        **_user_facing_installation(installed),
-                        "status": "current" if not arguments.dry_run else "planned",
-                        "current": not arguments.dry_run,
-                    }
-                )
-        elif action == "current":
-            installations.append(
-                {
-                    **_user_facing_installation(entry),
-                    "status": "current",
-                    "current": True,
-                }
-            )
-        elif action == "skipped":
-            skipped_required_config.append(
-                {
-                    "host": host,
-                    "required_config": entry.get("required_config"),
-                    "reason": entry.get("reason"),
-                }
-            )
-        elif action == "conflict":
-            raise SkillSetupError(f"install_conflict: {host}={entry.get('reason', 'conflict')}")
-        else:  # pragma: no cover - defensive
-            raise SkillSetupError(f"install_unknown_action: {host}={action}")
-
-    # Issue #386: skipped hosts are not ready (no native target) — surface them in readiness.
-    readiness = _heterogeneous_readiness(installations, skipped_required_config)
-    plan_payload = {
-        "scope": plan.get("scope"),
-        "mode": plan.get("mode"),
-        "dry_run": plan.get("dry_run"),
-        "aggregate_ready": plan.get("aggregate_ready"),
-        "snippet_required": plan.get("snippet_required"),
-        "snippet": plan.get("snippet"),
-        "installations": installations,
-        "skipped_required_config": skipped_required_config,
-    }
-    status = "installed" if plan.get("aggregate_ready") else "partial"
-    return _stable_payload("install", status=status, readiness=readiness, result=plan_payload)
-
-
-def _heterogeneous_readiness(
-    installations: Sequence[Mapping[str, Any]],
-    skipped: Sequence[Mapping[str, Any]],
-) -> dict[str, Any]:
-    """Issue #386: readiness combines installation status + skipped hosts.
-
-    Skipped hosts have no native target and cannot become current without an
-    external config snippet; treat them as a readiness failure so callers can
-    see that the install was partial, not silent.
-    """
-
-    failures = [
-        "skill_installation_not_current:" + str(item["host"])
-        for item in installations
-        if item.get("status") != "current"
-    ]
-    failures.extend("skill_installation_skipped:" + str(item["host"]) for item in skipped)
-    return {"ready": not failures, "failure_reasons": failures}
-
-
 def _doctor(arguments: argparse.Namespace) -> dict[str, Any]:
-    result = skill_status(
-        _selected_hosts(arguments.host),
-        source=arguments.source,
-        scope=arguments.scope,
-        home=arguments.home,
-        project_root=arguments.project_root,
-        codex_home=arguments.codex_home,
-    )
-    readiness = _installation_readiness(result["installations"])
+    """pi-only doctor: lifecycle/runtime readiness, no installation surface
+    (issue #585 — the skill-distribution machinery is retired)."""
+    readiness = {"ready": True, "failure_reasons": []}
     run: dict[str, Any] = {}
+    result: dict[str, Any] = {}
     if arguments.project_id is not None or arguments.run_id is not None:
         if not arguments.project_id or not arguments.run_id:
             raise CliInputError("project_id_and_run_id_required_together")
@@ -495,8 +344,8 @@ def _doctor(arguments: argparse.Namespace) -> dict[str, Any]:
         }
         lifecycle_readiness, lifecycle_result = _runtime_readiness(workspace, arguments, ledger)
         readiness = {
-            "ready": readiness["ready"] and lifecycle_readiness["ready"],
-            "failure_reasons": [*readiness["failure_reasons"], *lifecycle_readiness["failure_reasons"]],
+            "ready": lifecycle_readiness["ready"],
+            "failure_reasons": lifecycle_readiness["failure_reasons"],
         }
         result = {**result, "lifecycle": lifecycle_result}
     provider_readiness = {
@@ -506,17 +355,9 @@ def _doctor(arguments: argparse.Namespace) -> dict[str, Any]:
         "state": "unknown",
         "note": "live provider readiness requires an explicit probe; not evaluated here",
     }
-    # Issue #325: 4-section doctor split — installation / host_capability / run_readiness / completion_verification
     result = {
         **result,
-        "installations": [_user_facing_installation(item) for item in result["installations"]],
-        "installation": {
-            "hosts": {
-                host: {"state": "unknown", "reason": "doctor probes on demand"}
-                for host in _selected_hosts(arguments.host)
-            },
-            "state": "ready" if readiness["ready"] else "attention_required",
-        },
+        "host": "pi",
         "host_capability": provider_readiness,
         "run_readiness": {"ready": readiness["ready"], "reasons": readiness["failure_reasons"]},
         "completion_verification": {"state": "unknown", "note": "verify with --run-id for canonical status"},
@@ -1291,10 +1132,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         arguments = build_parser().parse_args(raw_arguments)
     try:
-        if arguments.command == "install":
-            payload = _install(arguments)
-            _emit(payload)
-            return 0 if payload["readiness"]["ready"] else 4
         if arguments.command == "doctor":
             payload = _doctor(arguments)
             _emit(payload)
@@ -1334,7 +1171,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         RuntimeStoreError,
         LedgerError,
         ProjectWorkspaceError,
-        SkillSetupError,
         OSError,
     ) as error:
         exit_code, payload = _failure(error, getattr(arguments, "run_id", None))

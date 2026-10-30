@@ -32,9 +32,6 @@ jobs:
       - name: Validate OpenSpec execution governance
         run: uv run --frozen python scripts/check_openspec_governance.py
 
-      - name: Verify generated package parity
-        run: uv run --frozen python scripts/build_skill_packages.py --check
-
       - name: Lint repository (extended rule set)
         run: uv run --frozen ruff check .
 

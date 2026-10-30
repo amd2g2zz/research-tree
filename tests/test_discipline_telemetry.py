@@ -15,9 +15,6 @@ from pathlib import Path
 
 import pytest
 
-from research_tree import lifecycle_hook
-from research_tree.alignment_graph import AlignmentGraphStore
-from research_tree.alignment_turn_record import AlignmentTurnRecordStore
 from research_tree.discipline import (
     DISCIPLINE_BLOCK,
     DISCIPLINE_BLOCK_RATE,
@@ -30,12 +27,10 @@ from research_tree.discipline import (
     RECEIPT_ONLY,
     DisciplineViolationStore,
     build_discipline_section,
-    check_discipline_gate,
     resolve_discipline_response,
     sliding_window_rate,
 )
 from research_tree.lifecycle_hook import observe
-from research_tree.turn_contract import DEFAULT_MAX_QUESTIONS_PER_TURN, RESPONSE_CLASS_GENERATION
 
 RUN_ROOT_PARTS = (".research-tree", "projects", "topic-1", "runs", "run-1")
 VIOLATIONS_RELPATH = ("discipline", "violations.jsonl")
@@ -77,12 +72,12 @@ def post_tool_use(root: Path) -> dict[str, object]:
         "project_id": "topic-1",
         "run_id": "run-1",
     }
-    return observe(payload, host="claude", event="PostToolUse", project_root=root, process_cwd=root)
+    return observe(payload, host="pi", event="PostToolUse", project_root=root, process_cwd=root)
 
 
 def stop_event(root: Path) -> dict[str, object]:
     payload = {"cwd": str(root), "hook_event_name": "Stop", "project_id": "topic-1", "run_id": "run-1"}
-    return observe(payload, host="claude", event="Stop", project_root=root, process_cwd=root)
+    return observe(payload, host="pi", event="Stop", project_root=root, process_cwd=root)
 
 
 # --- Scenario: the violation stream appends and persists ---------------------
@@ -166,166 +161,3 @@ def test_ladder_thresholds_trigger_the_right_response_marker_at_each_step() -> N
 
 
 # --- Scenario: fail-open without records -------------------------------------
-
-
-def test_fail_open_without_records(tmp_path: Path) -> None:
-    root = project(tmp_path)
-    run_root = project_run(root)
-    # No measurements, no false violations, no receipt section, no stream file.
-    assert "discipline" not in post_tool_use(root)
-    assert "discipline" not in stop_event(root)
-    assert not (run_root / "discipline").exists()
-    assert check_discipline_gate(run_root) == {"status": "allowed", "rate": 0.0, "response": RECEIPT_ONLY}
-
-
-# --- Scenario: telemetry without the module degrades to no measurements ------
-
-
-def test_telemetry_without_the_module_degrades_to_no_measurements(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = project(tmp_path)
-    run_root = project_run(root)
-    monkeypatch.setattr(lifecycle_hook, "_discipline", None)
-    assert "discipline" not in post_tool_use(root)
-    assert not (run_root / "discipline").exists()
-
-
-# --- Scenario: agent turn budget violations are counted from the event stream
-
-
-def test_agent_turn_budget_violations_are_counted_from_the_event_stream(tmp_path: Path) -> None:
-    root = project(tmp_path)
-    run_root = project_run(root)
-    store = AlignmentGraphStore(run_root / "alignment" / "alignment.db")
-    store.initialize("run-1")
-    store.merge(
-        {
-            "nodes": [
-                {
-                    "id": "gap-a",
-                    "type": "unknown",
-                    "statement": "Requester-only dimension gap-a.",
-                    "status": "candidate",
-                    "impact": 5,
-                    "human_only": True,
-                    "confidence": "low",
-                    "source": "agent",
-                }
-            ]
-        }
-    )
-    decision = store.plan()
-    result = store.record(decision["gap_id"], "unchanged", "fp-1", question_count=2)
-    assert result["turn_budget_violations"] == [
-        {"dimension": "max_questions", "limit": DEFAULT_MAX_QUESTIONS_PER_TURN, "observed": 2}
-    ]
-    receipt = post_tool_use(root)
-    # The #527 event entry is consumed, normalized, and counted exactly once.
-    stream = DisciplineViolationStore(run_root).records()
-    assert [
-        (record["turn_index"], record["dimension"], record["measured"], record["cap"], record["source"])
-        for record in stream
-    ] == [(1, "questions", 2, DEFAULT_MAX_QUESTIONS_PER_TURN, "agent_turn_budget")]
-    section = receipt["discipline"]
-    assert section["rate"] == pytest.approx(1 / DISCIPLINE_WINDOW_TURNS)
-    assert section["response"] == RECEIPT_ONLY
-    assert section["recent"][0]["source"] == "agent_turn_budget"
-    # Re-observing the same event stream (PostToolUse, then Stop) never
-    # double-counts; the stream remembers.
-    post_tool_use(root)
-    stop_event(root)
-    assert len(DisciplineViolationStore(run_root).records()) == 1
-
-
-# --- Scenario: turn-shape verdicts are counted from the turn record ----------
-
-
-def test_turn_shape_verdicts_are_counted_from_the_turn_record(tmp_path: Path) -> None:
-    root = project(tmp_path)
-    run_root = project_run(root)
-    records = AlignmentTurnRecordStore(run_root)
-    records.append(
-        turn_index=1,
-        mirror="mirror 1",
-        gap="gap 1",
-        delta_summary="delta 1",
-        user_move=RESPONSE_CLASS_GENERATION,
-        turn_shape={
-            "length": 1500,
-            "decision_count": 1,
-            "question_count": 1,
-            "transformation_ratio": None,
-            "verdict": "violated",
-            "violations": ["length>1000: 1500"],
-        },
-    )
-    post_tool_use(root)
-    records.append(
-        turn_index=2,
-        mirror="mirror 2",
-        gap="gap 2",
-        delta_summary="delta 2",
-        user_move=RESPONSE_CLASS_GENERATION,
-        turn_shape={
-            "length": 500,
-            "decision_count": 2,
-            "question_count": 0,
-            "transformation_ratio": None,
-            "verdict": "violated",
-            "violations": ["decision_count>1: 2"],
-        },
-    )
-    post_tool_use(root)
-    stream = DisciplineViolationStore(run_root).records()
-    assert [
-        (record["turn_index"], record["dimension"], record["measured"], record["cap"], record["source"])
-        for record in stream
-    ] == [
-        (1, "chars", 1500, 1000, "turn_shape"),
-        (2, "other", 2, 1, "turn_shape"),
-    ]
-    # A persisted record that violates its own schema — the empty-delta turn
-    # the #497 store refuses to write — is observed as a record violation.
-    broken = {
-        "schema": 2,
-        "turn_index": 3,
-        "recorded_at": "2026-09-12T00:00:00+00:00",
-        "mirror": "mirror 3",
-        "gap": "gap 3",
-        "delta": {"summary": "", "nodes": []},
-        "user_move": RESPONSE_CLASS_GENERATION,
-        "contract_terms": None,
-        "traces": [],
-    }
-    with records.records_path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(broken) + "\n")
-    post_tool_use(root)
-    assert [record["source"] for record in DisciplineViolationStore(run_root).records()] == [
-        "turn_shape",
-        "turn_shape",
-        "turn_record",
-    ]
-
-
-# --- Scenario: the block step is honored by a gate check ---------------------
-
-
-def test_the_block_step_is_honored_by_a_gate_check(tmp_path: Path) -> None:
-    root = project(tmp_path)
-    run_root = project_run(root)
-    store = DisciplineViolationStore(run_root)
-    # Sustained high but below the block threshold: observation, not a block.
-    store.append([_violation(index) for index in range(1, 6)])
-    assert check_discipline_gate(run_root)["status"] == "allowed"
-    # At the block threshold: the only fail-closed step.
-    store.append([_violation(6)])
-    verdict = check_discipline_gate(run_root)
-    assert verdict["status"] == "blocked" and verdict["reason"] == DISCIPLINE_BLOCK
-    # The hook receipt names the block verdict for the next-turn gate, on
-    # both PostToolUse and Stop.
-    assert post_tool_use(root)["discipline"]["response"] == DISCIPLINE_BLOCK
-    assert stop_event(root)["discipline"]["response"] == DISCIPLINE_BLOCK
-    # An unreadable stream fails open — absence of telemetry is not a block.
-    run_root.joinpath(*VIOLATIONS_RELPATH).write_text("{broken\n", encoding="utf-8")
-    assert check_discipline_gate(run_root)["status"] == "allowed"

@@ -5,13 +5,21 @@ import re
 import subprocess
 import sys
 import tomllib
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from test_host_event_protocol import _coordinator, _event
+from strategy_support import confirm_strategy
 
 from research_tree import cli
-from research_tree.coordinator import CompletionBlockedError, IllegalTransitionError
+from research_tree.coordinator import (
+    CompletionBlockedError,
+    IllegalTransitionError,
+    ResearchRunCoordinator,
+)
+from research_tree.domain import ArtifactRef
+from research_tree.host_events import HostEvent
+from research_tree.run_ledger import RunLedger
 
 ROOT = Path(__file__).resolve().parents[1]
 RETIRED_COMMANDS = (
@@ -35,7 +43,6 @@ def test_retired_cli_commands_are_unparseable_without_creating_a_store(
     command: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     store = tmp_path / "retired-store"
-
     with pytest.raises(SystemExit) as exit_status:
         cli.main([command, "--store", str(store)])
 
@@ -261,7 +268,7 @@ def test_stable_lifecycle_creates_a_durable_request_without_completion_authority
         "--workspace",
         str(workspace),
         "--host",
-        "codex",
+        "pi",
         "--project-id",
         "project-cli",
         "--run-id",
@@ -291,7 +298,7 @@ def test_stable_lifecycle_creates_a_durable_request_without_completion_authority
                 "--workspace",
                 str(workspace),
                 "--host",
-                "codex",
+                "pi",
                 "--project-id",
                 "project-cli",
                 "--run-id",
@@ -311,7 +318,7 @@ def test_stable_lifecycle_creates_a_durable_request_without_completion_authority
                 "--workspace",
                 str(workspace),
                 "--host",
-                "codex",
+                "pi",
                 "--project-id",
                 "project-cli",
                 "--run-id",
@@ -330,48 +337,6 @@ def test_stable_lifecycle_creates_a_durable_request_without_completion_authority
     assert verification_value != "independent_completion_receipt_absent"
     assert isinstance(verification_value, dict) and "verdict" in verification_value
     assert verification_value["verdict"] == "canonical_conflict"
-
-
-def test_stable_install_and_doctor_report_digest_verified_readiness(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    home = tmp_path / "home"
-    install_arguments = [
-        "install",
-        "--host",
-        "codex",
-        "--source",
-        str(ROOT),
-        "--home",
-        str(home),
-        "--mode",
-        "copy",
-    ]
-
-    assert cli.main(install_arguments) == 0
-    installed = _json_output(capsys)
-    assert installed["status"] == "installed"
-    assert installed["readiness"] == {"ready": True, "failure_reasons": []}
-    assert installed["result"]["installations"][0]["status"] == "current"
-
-    assert (
-        cli.main(
-            [
-                "doctor",
-                "--host",
-                "codex",
-                "--source",
-                str(ROOT),
-                "--home",
-                str(home),
-            ]
-        )
-        == 0
-    )
-    doctor = _json_output(capsys)
-    assert doctor["schema_version"] == 1
-    assert doctor["status"] == "healthy"
-    assert doctor["readiness"] == {"ready": True, "failure_reasons": []}
 
 
 def test_installed_wheel_exposes_only_the_stable_lifecycle_cli(tmp_path: Path) -> None:
@@ -408,3 +373,56 @@ def test_installed_wheel_exposes_only_the_stable_lifecycle_cli(tmp_path: Path) -
     assert not (
         scripts / ("research-tree-migrate.exe" if sys.platform == "win32" else "research-tree-migrate")
     ).exists()
+
+
+def _coordinator(tmp_path):
+    ledger = RunLedger(tmp_path)
+    ledger.create_run("run-host")
+    handoff = ledger.append_artifact(
+        "run-host",
+        "handoff-1",
+        "alignment-handoff",
+        {"confirmed": True},
+        expected_revision=ledger.get_revision("run-host"),
+    )
+    target = ledger.append_artifact(
+        "run-host",
+        "target-1",
+        "blueprint-target",
+        {"decision_slots": [{"id": "slot-1", "priority": "P0"}]},
+        parent_refs=(ArtifactRef("run-host", handoff.id, handoff.revision),),
+        expected_revision=ledger.get_revision("run-host"),
+    )
+    coordinator = ResearchRunCoordinator(ledger)
+    coordinator.initialize(
+        run_id="run-host",
+        alignment_handoff=handoff,
+        blueprint_target=target,
+        expected_revision=ledger.get_revision("run-host"),
+    )
+    confirm_strategy(ledger, coordinator, "run-host")
+    lease = coordinator.dispatch(
+        run_id="run-host",
+        work_item={"objective": "observe", "success_oracle": "coordinator verifies"},
+        worker_id="host-worker",
+        expected_revision=ledger.get_revision("run-host"),
+        attempt_id="attempt-host",
+    )
+    return ledger, coordinator, lease
+
+
+def _event(ledger: RunLedger, *, event_id: str = "event-host", sequence: int = 1, expected_revision: int | None = None):
+    payload = {"evidence_refs": ["capture-1"], "observation_path": "reports\\capture.json"}
+    return HostEvent.from_value(
+        {
+            "event_id": event_id,
+            "kind": "submission",
+            "run_id": "run-host",
+            "attempt_id": "attempt-host",
+            "expected_revision": ledger.get_revision("run-host") if expected_revision is None else expected_revision,
+            "sequence": sequence,
+            "actor": "worker",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "payload": payload,
+        }
+    )

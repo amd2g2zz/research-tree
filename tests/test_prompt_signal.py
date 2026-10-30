@@ -8,8 +8,6 @@ from pathlib import Path
 import pytest
 
 from research_tree.lifecycle_hook import (
-    HOST_EVENTS,
-    LifecycleHookError,
     classify_prompt_signal,
     observe,
 )
@@ -38,7 +36,7 @@ def _submit(root: Path, prompt: str, **extra: object) -> dict[str, object]:
         "run_id": "run-1",
         **extra,
     }
-    return observe(payload, host="claude", event="UserPromptSubmit", project_root=root, process_cwd=root)
+    return observe(payload, host="pi", event="UserPromptSubmit", project_root=root, process_cwd=root)
 
 
 class TestClassifierRules:
@@ -149,7 +147,7 @@ class TestSignalRecording:
         record = json.loads(files[0].read_text(encoding="utf-8"))
         assert record["schema"] == 1
         assert record["source"] == "research-tree-lifecycle-hook"
-        assert record["host"] == "claude"
+        assert record["host"] == "pi"
         assert record["event"] == "UserPromptSubmit"
         assert record["category"] == "correction"
         assert record["confidence"] == "high"
@@ -242,14 +240,14 @@ class TestSignalRecording:
     def test_empty_prompt_is_skipped(self, tmp_path: Path) -> None:
         root = project(tmp_path)
         result = _submit(root, "   ")
-        assert result == {"status": "skipped_empty_prompt", "host": "claude", "event": "UserPromptSubmit"}
+        assert result == {"status": "skipped_empty_prompt", "host": "pi", "event": "UserPromptSubmit"}
         assert not (root / ".research-tree-debug").exists()
 
     def test_missing_prompt_is_skipped(self, tmp_path: Path) -> None:
         root = project(tmp_path)
         result = observe(
             {"cwd": str(root), "hook_event_name": "UserPromptSubmit", "project_id": "topic-1", "run_id": "run-1"},
-            host="claude",
+            host="pi",
             event="UserPromptSubmit",
             project_root=root,
             process_cwd=root,
@@ -261,25 +259,9 @@ class TestSignalRecording:
 
         # No payload on stdin and no Research Tree checkout at cwd: main must
         # still exit 0 and print exactly one labeled host response.
-        exit_code = main(["--host", "claude", "--event", "UserPromptSubmit"])
+        exit_code = main(["--host", "pi", "--event", "UserPromptSubmit"])
 
         assert exit_code == 0
         output = capsys.readouterr().out
         assert output.count("<rt:event ") == 1
         assert output.rstrip().endswith("</rt:event>")
-
-    def test_event_registered_for_claude_and_codex_only(self) -> None:  # noqa: PLR6301
-        assert "UserPromptSubmit" in HOST_EVENTS["claude"]
-        assert "UserPromptSubmit" in HOST_EVENTS["codex"]
-        assert "UserPromptSubmit" not in HOST_EVENTS["hermes"]
-
-    def test_unsupported_event_still_rejected(self, tmp_path: Path) -> None:
-        root = project(tmp_path)
-        with pytest.raises(LifecycleHookError, match="unsupported claude hook event"):
-            observe(
-                {"cwd": str(root), "hook_event_name": "Nonsense", "prompt": "hello"},
-                host="claude",
-                event="Nonsense",
-                project_root=root,
-                process_cwd=root,
-            )

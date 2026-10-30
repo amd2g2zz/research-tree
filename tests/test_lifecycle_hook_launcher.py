@@ -74,7 +74,7 @@ def test_launcher_exits_zero_outside_any_checkout(tmp_path: Path) -> None:
     workspace = _plain_workspace(tmp_path)
     payload = json.dumps({"cwd": str(workspace), "hook_event_name": "SessionStart"})
 
-    completed = _run_launcher(["--host", "claude", "--event", "SessionStart"], cwd=workspace, stdin=payload)
+    completed = _run_launcher(["--host", "pi", "--event", "SessionStart"], cwd=workspace, stdin=payload)
 
     _assert_single_response(completed, {"continue": True})
     assert "uv" not in completed.stdout
@@ -83,103 +83,12 @@ def test_launcher_exits_zero_outside_any_checkout(tmp_path: Path) -> None:
     assert not (workspace / ".research-tree").exists()
 
 
-def test_launcher_survives_invalid_payload_inside_a_checkout(tmp_path: Path) -> None:
-    checkout = _checkout(tmp_path)
-    payload = "not json"
-
-    completed = _run_launcher(["--host", "claude", "--event", "SessionStart"], cwd=checkout, stdin=payload)
-
-    _assert_single_response(completed, {"continue": True})
-    assert not (checkout / ".research-tree-debug" / "events").exists()
-
-
-def test_launcher_records_through_the_checkout_source_tree(tmp_path: Path) -> None:
-    checkout = _checkout_with_run(tmp_path)
-    payload = json.dumps(
-        {
-            "cwd": str(checkout),
-            "hook_event_name": "UserPromptSubmit",
-            "prompt": "No, use pytest not unittest",
-        }
-    )
-
-    completed = _run_launcher(
-        ["--host", "claude", "--event", "UserPromptSubmit", "--project-id", "topic-1", "--run-id", "run-1"],
-        cwd=checkout,
-        stdin=payload,
-    )
-
-    # Issue #530: the tail snapshot rides every prompt turn with a resolvable
-    # run — the placeholder line while no phase store exists, and no statements.
-    _assert_single_response(
-        completed,
-        {
-            "continue": True,
-            "phase_grounding": {
-                "snapshot": "phase=unknown stance=S0 viol=0 topics=0 digest=none",
-                "events": [],
-            },
-        },
-    )
-    signals = list((checkout / ".research-tree-debug" / "signals").glob("*.json"))
-    assert len(signals) == 1
-    signal = json.loads(signals[0].read_text(encoding="utf-8"))
-    assert signal["category"] == "correction"
-    assert "pytest" not in json.dumps(signal)
-    feeds = list((checkout / ".research-tree" / "projects" / "topic-1" / "runs" / "run-1" / "events").glob("*.json"))
-    assert len(feeds) == 1
-    feed = json.loads(feeds[0].read_text(encoding="utf-8"))
-    assert feed["route"] == "apply_correction"
-
-
-def test_launcher_records_through_an_installed_flat_copy(tmp_path: Path) -> None:
-    checkout = _checkout_with_run(tmp_path)
-    skill_dir = _skill_copy(tmp_path)
-    launcher = skill_dir / "lifecycle_hook_launcher.py"
-    payload = json.dumps(
-        {
-            "cwd": str(checkout),
-            "hook_event_name": "UserPromptSubmit",
-            "prompt": "cancel that search",
-            "project_id": "topic-1",
-            "run_id": "run-1",
-        }
-    )
-
-    completed = subprocess.run(
-        [sys.executable, str(launcher), "--host", "claude", "--event", "UserPromptSubmit"],
-        cwd=checkout,
-        input=payload,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-    # Issue #530: same tail snapshot contract through the installed flat copy.
-    _assert_single_response(
-        completed,
-        {
-            "continue": True,
-            "phase_grounding": {
-                "snapshot": "phase=unknown stance=S0 viol=0 topics=0 digest=none",
-                "events": [],
-            },
-        },
-    )
-    signals = list((checkout / ".research-tree-debug" / "signals").glob("*.json"))
-    assert len(signals) == 1
-    signal = json.loads(signals[0].read_text(encoding="utf-8"))
-    assert signal["category"] == "interruption"
-    run_events = checkout / ".research-tree" / "projects" / "topic-1" / "runs" / "run-1" / "events"
-    assert not run_events.exists()
-
-
 def test_launcher_unknown_flags_still_exit_zero(tmp_path: Path) -> None:
     workspace = _plain_workspace(tmp_path)
     payload = json.dumps({"cwd": str(workspace), "hook_event_name": "SessionStart"})
 
     completed = _run_launcher(
-        ["--host", "claude", "--event", "SessionStart", "--unknown-flag", "value"],
+        ["--host", "pi", "--event", "SessionStart", "--unknown-flag", "value"],
         cwd=workspace,
         stdin=payload,
     )

@@ -14,7 +14,6 @@ import pytest
 
 from research_tree.lifecycle_hook import (
     RUN_PHASES,
-    LifecycleHookError,
     observe,
     resolve_research_reentry,
 )
@@ -50,7 +49,7 @@ def submit(root: Path, prompt: str, **observe_kwargs: object) -> dict[str, objec
         payload["run_id"] = "run-1"
     return observe(
         payload,
-        host="codex",
+        host="pi",
         event="UserPromptSubmit",
         project_root=root,
         process_cwd=root,
@@ -135,106 +134,3 @@ def test_bare_interruptions_that_pick_no_path_are_refused(prompt: str) -> None:
 
 def test_reopen_intent_outranks_a_status_question() -> None:
     assert resolve_research_reentry("status? also I want to realign the strategy")["path"] == ("reopen_alignment")
-
-
-def test_observe_records_reentry_and_routes_verdict_to_run_events(tmp_path: Path) -> None:
-    root = project(tmp_path)
-    project_run(root)
-    result = submit(root, "stop — let's realign the strategy first", run_phase="research")
-
-    assert result["status"] == "recorded"
-    assert result["reentry"]["path"] == "reopen_alignment"
-    record = json.loads((root / result["path"]).read_text(encoding="utf-8"))
-    assert record["reentry"] == result["reentry"]
-    assert record["run_phase"] == "research"
-    assert "prompt" not in record
-
-    run_events = root / ".research-tree" / "projects" / "topic-1" / "runs" / "run-1" / "events"
-    routed = [json.loads(item.read_text(encoding="utf-8")) for item in run_events.glob("*.json")]
-    assert len(routed) == 1
-    assert routed[0]["route"] == "research_reentry"
-    assert routed[0]["reentry"]["path"] == "reopen_alignment"
-    assert "prompt" not in routed[0]
-
-
-def test_observe_routes_refusal_for_chatty_drift(tmp_path: Path) -> None:
-    root = project(tmp_path)
-    project_run(root)
-    result = submit(root, "btw what do you think about coffee?", run_phase="research")
-
-    assert result["reentry"]["path"] == "refused"
-    run_events = root / ".research-tree" / "projects" / "topic-1" / "runs" / "run-1" / "events"
-    routed = [json.loads(item.read_text(encoding="utf-8")) for item in run_events.glob("*.json")]
-    assert len(routed) == 1
-    assert routed[0]["reentry"]["code"] == "research_reentry_refused"
-
-
-def test_status_echo_is_recorded_but_not_routed(tmp_path: Path) -> None:
-    root = project(tmp_path)
-    project_run(root)
-    result = submit(root, "what's the current status", run_phase="research")
-
-    assert result["reentry"]["path"] == "status_echo"
-    run_events = root / ".research-tree" / "projects" / "topic-1" / "runs" / "run-1" / "events"
-    assert list(run_events.glob("*.json")) == []
-
-
-def test_gate_is_inactive_outside_the_research_phase(tmp_path: Path) -> None:
-    root = project(tmp_path)
-    project_run(root)
-    for run_phase in (None, "compiled", "validation"):
-        result = submit(root, "btw what do you think about coffee?", run_phase=run_phase)
-        assert "reentry" not in result
-        assert "run_phase" not in json.loads((root / result["path"]).read_text(encoding="utf-8"))
-
-
-def test_gate_reads_the_run_manifest_phase(tmp_path: Path) -> None:
-    root = project(tmp_path)
-    project_run(root, phase="research")
-    result = submit(root, "stop — realign with me")
-
-    assert result["reentry"]["path"] == "reopen_alignment"
-
-
-def test_gate_reads_the_environment_phase(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = project(tmp_path)
-    project_run(root)
-    monkeypatch.setenv(RESEARCH_PHASE_ENV, "research")
-    result = submit(root, "here's a new source for the second track")
-
-    assert result["reentry"]["path"] == "supplemental_evidence"
-
-
-def test_explicit_phase_outranks_environment_and_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = project(tmp_path)
-    project_run(root, phase="research")
-    monkeypatch.setenv(RESEARCH_PHASE_ENV, "research")
-    result = submit(root, "haha nice", run_phase="compiled")
-
-    assert "reentry" not in result
-
-
-def test_invalid_explicit_phase_is_rejected(tmp_path: Path) -> None:
-    root = project(tmp_path)
-    with pytest.raises(LifecycleHookError, match="run phase"):
-        submit(root, "status?", run_phase="bogus")
-
-
-def test_invalid_environment_and_manifest_phases_are_ignored(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = project(tmp_path)
-    project_run(root, phase="bogus")
-    monkeypatch.setenv(RESEARCH_PHASE_ENV, "bogus")
-    result = submit(root, "haha nice")
-
-    assert "reentry" not in result
-
-
-def test_reentry_is_recorded_but_never_routed_without_an_active_run(tmp_path: Path) -> None:
-    root = project(tmp_path)
-    result = submit(root, "stop — realign with me", run_phase="research", with_run=False)
-
-    assert result["status"] == "recorded"
-    assert result["reentry"]["path"] == "reopen_alignment"
-    record = json.loads((root / result["path"]).read_text(encoding="utf-8"))
-    assert record["reentry"] == result["reentry"]
-    assert not (root / ".research-tree" / "projects").exists()

@@ -17,16 +17,11 @@ from typing import Any, BinaryIO, Iterable, Mapping, Sequence
 
 try:
     from .origins import close_tag, open_tag
-    from .skill_activation import build_loader_receipt
 except ImportError:  # Standalone skill-packaged execution — issue #453.
     import origins as _origins
 
     close_tag = _origins.close_tag
     open_tag = _origins.open_tag
-
-    import skill_activation as _skill_activation
-
-    build_loader_receipt = _skill_activation.build_loader_receipt
 
 try:
     # Issue #497: refresh/validate the alignment turn-record file. The module
@@ -87,26 +82,15 @@ except ImportError:
 MAX_INPUT_BYTES = 64 * 1024
 MAX_IDENTIFIER_LENGTH = 256
 PROJECT_IDENTIFIER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
-HOST_EVENTS = {
-    "codex": frozenset(
-        {
-            "SessionStart",
-            "SessionEnd",
-            "UserPromptSubmit",
-            "PreCompact",
-            "PostCompact",
-            "SubagentStart",
-            "SubagentStop",
-            "Stop",
-        }
-    ),
-    "claude": frozenset(
+# pi-only (issue #585): pi carries the hook pipeline; the event set below is
+# the frozen-v1 placeholder protocol (rt-core #552 redefines it natively).
+HOST_EVENTS: dict[str, frozenset[str]] = {
+    "pi": frozenset(
         {"SessionStart", "SessionEnd", "UserPromptSubmit", "PreCompact", "SubagentStop", "PostToolUse", "Stop"}
     ),
-    "hermes": frozenset({"on_session_start", "on_session_end"}),
 }
 TRACE_DIRECTORY = Path(".research-tree-debug") / "events"
-TRACE_HOSTS = frozenset({"codex", "claude", "hermes"})
+TRACE_HOSTS: frozenset[str] = frozenset()
 TRACE_PHASES = frozenset(
     {
         "lifecycle_observed",
@@ -650,43 +634,6 @@ def observe(
         value = _optional_identifier(payload, key)
         if value is not None:
             record[key] = value
-    if event in {"SessionStart", "on_session_start"}:
-        skill_dir_raw = os.environ.get("RESEARCH_TREE_SKILL_DIR")
-        session_id = record.get("session_id")
-        if isinstance(skill_dir_raw, str) and isinstance(session_id, str):
-            try:
-                loader = build_loader_receipt(
-                    Path(skill_dir_raw),
-                    host=host,
-                    session_id=session_id,
-                    evidence="host-session-start",
-                )
-                record["skill_load"] = loader
-            except (OSError, ValueError):
-                record["skill_load"] = {"state": "unverified_loader_integrity", "host": host}
-    if host == "claude" and event == "SubagentStop":
-        identity = tuple(
-            _optional_identifier(payload, key)
-            for key in ("task_id", "attempt_id", "agent_id", "session_id", "causation_id")
-        )
-        record["binding_status"] = "candidate" if all(identity) else "unknown_outcome"
-    if host == "claude" and event == "PostToolUse" and payload.get("tool_name") == "Agent":
-        response = payload.get("tool_response")
-        agent_id = _optional_identifier(response, "agentId") if isinstance(response, dict) else None
-        causation_id = _optional_identifier(payload, "tool_use_id")
-        if agent_id is not None:
-            record["agent_id"] = agent_id
-        if causation_id is not None:
-            record["causation_id"] = causation_id
-        record["binding_status"] = (
-            "host_identity_recorded" if agent_id is not None and causation_id is not None else "unknown_outcome"
-        )
-    if host == "codex" and event in ("SubagentStart", "SubagentStop"):
-        response = payload.get("tool_response")
-        agent_id = _optional_identifier(response, "agentId") if isinstance(response, dict) else None
-        if agent_id is not None:
-            record["agent_id"] = agent_id
-        record["binding_status"] = "candidate" if agent_id is not None else "unknown_outcome"
     if (
         not isinstance(project_id, str)
         or not isinstance(run_id, str)
@@ -1198,7 +1145,7 @@ def host_response(host: str) -> dict[str, Any]:
     """Return a non-blocking response understood by the selected host."""
     if host not in HOST_EVENTS:
         raise LifecycleHookError(f"unsupported hook host: {host}")
-    return {} if host == "hermes" else {"continue": True}
+    return {"continue": True}
 
 
 def labeled_host_response(host: str) -> str:
