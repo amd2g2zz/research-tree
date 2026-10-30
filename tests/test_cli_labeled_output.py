@@ -61,7 +61,7 @@ def test_failure_output_wrapped_in_rt_error_tag(monkeypatch, capsys, tmp_path) -
             "--workspace",
             str(tmp_path / "ws"),
             "--host",
-            "codex",
+            "pi",
             "--project-id",
             "proj-x",
             "--run-id",

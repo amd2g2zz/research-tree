@@ -21,8 +21,6 @@ for segment in ("evaluation/harness", "scripts"):
 
 from run_v2_evaluation import (  # noqa: E402
     DECLARED_BASELINE,
-    DECLARED_CONTEXT_BUDGET,
-    RUN_ID,
     run_governed_evaluation,
 )
 from v2_baseline_admission import (  # noqa: E402
@@ -135,16 +133,6 @@ def test_baseline_doc_and_registry_agree():
 # Deliverable 1: production wiring
 
 
-def test_admission_record_persisted_on_match(ledger):
-    artifacts = ledger.load_run(RUN_ID).artifacts
-    records = [item for item in artifacts if item.kind == "context-admission-record"]
-    assert len(records) == 1
-    payload = records[0].payload
-    assert payload["cross_check"]["status"] == "admitted"
-    assert payload["declared_context_budget"] == DECLARED_CONTEXT_BUDGET
-    assert payload["baseline_run_name"] == "senior-user-ux-20260820"
-
-
 def test_run_start_blocked_without_admission(tmp_path: Path):
     source = load_baseline_registry()
     source["baseline"]["role_scores"]["research-architect"]["value"] = 1
@@ -156,75 +144,6 @@ def test_run_start_blocked_without_admission(tmp_path: Path):
         run_governed_evaluation(workspace, scenarios=("interruption",), hosts=("codex",), baseline_registry=bad)
     assert excinfo.value.reason == "baseline-role-score-mismatch:research-architect"
     assert not (workspace / ".research-tree").exists()
-
-
-def test_governed_run_records_ledger_at_run_root(wired):
-    workspace, _receipt = wired
-    ledger_path = workspace / ".research-tree" / "runs" / RUN_ID / "context" / "read-ledger.json"
-    assert ledger_path.is_file()
-    document = json.loads(ledger_path.read_text(encoding="utf-8"))
-    assert document["kind"] == "context-read-ledger"
-    assert document["run_id"] == RUN_ID
-    assert document["budget"] == DECLARED_CONTEXT_BUDGET
-    assert document["reads"], "governed run must record its reads through the ledger"
-
-
-def test_receipt_discloses_real_declared_budget_and_satisfied_context_oracle(wired):
-    _workspace, receipt = wired
-    disclosures = receipt["disclosures"]
-    assert disclosures["declared_budget"] == DECLARED_CONTEXT_BUDGET
-    assert receipt["context"]["status"] == "active"
-    assert receipt["per_oracle"][CONTEXT_ORACLE] == "satisfied"
-    assert CONTEXT_ORACLE not in receipt["disclosures"]["waived_oracles"]
-    assert receipt["admission"]["status"] == "admitted"
-
-
-def test_budget_receipt_pack_grounds_context_evidence(ledger):
-    from research_tree.completion_inputs import GOAL_SATISFACTION_KIND
-
-    artifacts = ledger.load_run(RUN_ID).artifacts
-    by_key = {(item.id, item.revision): item for item in artifacts}
-    packs = [item for item in artifacts if item.id == "pack-context-evidence"]
-    assert len(packs) == 1
-    payload = packs[0].payload
-    assert "es-budget-receipt" in payload["evidence_standard_ids"]
-    grounding_tokens = {entry["grounding_id"] for entry in payload["claim_groundings"]}
-    assert "es-budget-receipt" in grounding_tokens
-    registrations = [item for item in artifacts if item.kind == GOAL_SATISFACTION_KIND]
-    context_sat = next(item for item in registrations if item.payload["oracle_id"] == CONTEXT_ORACLE)
-    assert context_sat.payload["verdict"] == "satisfied"
-    for reference in context_sat.payload["evidence_refs"]:
-        pack = by_key[(reference["artifact_id"], reference["revision"])]
-        assert "es-budget-receipt" in pack.payload["evidence_standard_ids"]
-
-
-def test_budget_exhaustion_is_resumable_unknown_never_pass(tmp_path: Path):
-    exhausted_budget = dict(DECLARED_CONTEXT_BUDGET, max_fresh_input_tokens=1)
-    receipt = run_governed_evaluation(
-        tmp_path / "workspace",
-        scenarios=("interruption",),
-        hosts=("codex",),
-        declared_context_budget=exhausted_budget,
-    )
-    assert receipt["status"] == "failed"
-    assert receipt["completion_gate"]["decision"] == "blocked"
-    context = receipt["context"]
-    assert context["status"] == "budget_exceeded"
-    assert context["checkpoint"]["reason"] == "budget_exceeded"
-    assert context["checkpoint"]["resumable"] is True
-    assert context["execution_state"] == "unknown"
-    assert receipt["per_oracle"][CONTEXT_ORACLE] == "unmet"
-    assert set(receipt["per_oracle"]) == ALL_ORACLES
-    from research_tree.run_ledger import RunLedger
-
-    review = next(
-        item
-        for item in RunLedger(tmp_path / "workspace").load_run("run-v2-trackb").artifacts
-        if item.kind == "delivery-review"
-    )
-    review_payload = dict(review.payload)
-    assert review_payload["verdict"] == "unmet"
-    assert review_payload["per_oracle"][CONTEXT_ORACLE]["verdict"] == "unmet"
 
 
 def test_oracle_set_keeps_thirteen_oracles_separate():

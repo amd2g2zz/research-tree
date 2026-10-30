@@ -26,16 +26,6 @@ ACTIVE_DOCUMENTS = (
     ROOT / "README.md",
     ROOT / "references" / "research-tree-architecture.md",
     ROOT / "docs" / "adr" / "ADR-001-runtime-foundation.md",
-    ROOT / "packages" / "codex" / "research-tree" / "references" / "research-tree-architecture.md",
-    ROOT
-    / "packages"
-    / "claude-code"
-    / "research-tree"
-    / "skills"
-    / "research-tree"
-    / "references"
-    / "research-tree-architecture.md",
-    ROOT / "packages" / "hermes" / "research-tree" / "references" / "research-tree-architecture.md",
 )
 
 

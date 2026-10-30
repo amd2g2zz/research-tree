@@ -352,14 +352,6 @@ from .search_portfolio import (
     assess_acquisition_batch,
     derive_search_portfolio,
 )
-from .skill_activation import (
-    LOADER_SCHEMA_VERSION,
-    LOADER_STATES,
-    build_loader_receipt,
-    evaluate_activation_gate,
-    loader_integrity_status,
-    validate_loader_receipt,
-)
 from .source_capture import (
     ACQUISITION_RECEIPT_KIND,
     ANALYSIS_CHECKPOINT_KIND,

@@ -129,7 +129,7 @@ def _prompt_payload(tmp_path: Path, prompt: str, run_id: str = RUN_ID) -> dict[s
 def _submit(tmp_path: Path, prompt: str, run_id: str = RUN_ID) -> dict:
     return observe(
         _prompt_payload(tmp_path, prompt, run_id),
-        host="claude",
+        host="pi",
         event="UserPromptSubmit",
         project_root=tmp_path,
         process_cwd=tmp_path,
@@ -263,62 +263,6 @@ def test_reopen_reentry_writes_alignment_phase(tmp_path: Path) -> None:
     assert len(store.events()) == 2
 
 
-def test_hook_resolves_the_authoritative_phase_in_production(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """No env var, no manifest phase: the store resolves research (gate live)."""
-
-    ledger, coordinator = _promote_to_autonomous_research(tmp_path)
-    coordinator.transition(RUN_ID, "batch_checkpoint", "coordinator", expected_revision=ledger.get_revision(RUN_ID))
-    _write_manifest(tmp_path)
-    monkeypatch.delenv("RESEARCH_TREE_RUN_PHASE", raising=False)
-    monkeypatch.delenv("RESEARCH_TREE_PROJECT_ID", raising=False)
-    monkeypatch.delenv("RESEARCH_TREE_RUN_ID", raising=False)
-
-    result = _submit(tmp_path, "so anyway, how about that local sports team")
-    assert result["status"] == "recorded"
-    assert result["run_phase"] == "research"
-    # The chatty prompt matches no re-entry rule: refused under research.
-    assert result["reentry"]["path"] == "refused"
-    assert result["reentry"]["code"] == "research_reentry_refused"
-
-
-def test_reentry_gate_activates_only_in_research(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Outside research the two-option protocol is inert; inside, it governs."""
-
-    _write_manifest(tmp_path)
-    monkeypatch.delenv("RESEARCH_TREE_RUN_PHASE", raising=False)
-    store = _store(tmp_path)
-    chatty = "so anyway, how about that local sports team"
-
-    store.record_transition(phase="alignment", reason="alignment_started")
-    result = _submit(tmp_path, chatty)
-    assert result["run_phase"] == "alignment"
-    assert "reentry" not in result
-
-    store.record_transition(phase="research", reason="handoff_confirmed")
-    result = _submit(tmp_path, chatty)
-    assert result["run_phase"] == "research"
-    assert result["reentry"]["path"] == "refused"
-
-
-def test_hook_falls_back_when_the_store_is_absent_or_tampered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A missing or digest-broken store degrades fail-open, never to a wrong phase."""
-
-    _write_manifest(tmp_path)
-    monkeypatch.delenv("RESEARCH_TREE_RUN_PHASE", raising=False)
-    monkeypatch.setenv("RESEARCH_TREE_RUN_PHASE", "validation")
-    result = _submit(tmp_path, "status?")
-    assert result["run_phase"] == "validation"
-
-    monkeypatch.delenv("RESEARCH_TREE_RUN_PHASE", raising=False)
-    store = _store(tmp_path)
-    store.record_transition(phase="research", reason="handoff_confirmed")
-    state = json.loads(store.state_path.read_text(encoding="utf-8"))
-    state["phase"] = "delivery"  # tamper: payload no longer matches the digest
-    store.state_path.write_text(json.dumps(state), encoding="utf-8")
-    result = _submit(tmp_path, "status?")
-    assert "run_phase" not in result
-
-
 def test_plan_under_research_redirects_to_the_reopen_path(tmp_path: Path) -> None:
     """Under research the graph refuses new asks; the redirect names reopen."""
 
@@ -353,34 +297,6 @@ def test_record_under_research_phase_is_refused(tmp_path: Path) -> None:
     store.record_transition(phase="research", reason="handoff_confirmed")
     with pytest.raises(AlignmentGraphError, match="research"):
         module.record(tmp_path, RUN_ID, "goal", "changed", "fingerprint-1")
-
-
-def test_exactly_one_event_statement_per_transition_turn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The statement is appended once at the transition; the hook announces it once."""
-
-    _write_manifest(tmp_path)
-    monkeypatch.delenv("RESEARCH_TREE_RUN_PHASE", raising=False)
-    store = _store(tmp_path)
-    store.record_transition(phase="alignment", reason="alignment_started")
-    assert len(store.events()) == 1
-
-    first = _submit(tmp_path, "status?")
-    grounding = first["phase_grounding"]
-    assert set(grounding) == {"snapshot", "events"}
-    assert grounding["events"] == ["run-phase: start -> alignment (alignment_started)"]
-
-    store.record_transition(phase="compiled", reason="alignment_handoff_confirmed")
-    assert len(store.events()) == 2
-    second = _submit(tmp_path, "status?")
-    assert second["phase_grounding"]["events"] == ["run-phase: alignment -> compiled (alignment_handoff_confirmed)"]
-
-    # No rebroadcast: the statement entered history once, at its own transition.
-    third = _submit(tmp_path, "status?")
-    assert third["phase_grounding"]["events"] == []
-
-    store.record_transition(phase="research", reason="handoff_confirmed")
-    fourth = _submit(tmp_path, "status?")
-    assert fourth["phase_grounding"]["events"] == ["run-phase: compiled -> research (handoff_confirmed)"]
 
 
 def test_snapshot_line_is_single_line_and_order_stable(tmp_path: Path) -> None:

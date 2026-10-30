@@ -109,7 +109,7 @@ def submit(root: Path, prompt: str) -> dict[str, object]:
         "project_id": "topic-1",
         "run_id": "run-1",
     }
-    return observe(payload, host="claude", event="UserPromptSubmit", project_root=root, process_cwd=root)
+    return observe(payload, host="pi", event="UserPromptSubmit", project_root=root, process_cwd=root)
 
 
 def fed_user_move_records(run_root: Path) -> list[dict[str, object]]:

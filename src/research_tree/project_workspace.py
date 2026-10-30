@@ -103,7 +103,7 @@ def _load_manifest(workspace: ProjectRunWorkspace) -> dict[str, Any]:
 def initialize_project_run(repository: Path, *, project_id: str, run_id: str, host: str) -> ProjectRunWorkspace:
     project_id = _identifier(project_id, "project_id")
     run_id = _identifier(run_id, "run_id")
-    if host not in {"codex", "claude", "hermes"}:
+    if host != "pi":  # pi-only (issue #585)
         raise ProjectWorkspaceError("unsupported host")
     workspace = _workspace(repository, project_id, run_id)
     if workspace.manifest_path.exists():

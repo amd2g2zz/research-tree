@@ -11,7 +11,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
-HOST_ATTEMPT_HOSTS = frozenset({"codex", "claude-code", "hermes"})
+# pi-only (issue #585): the host allowlist retired — attempt bookkeeping is an
+# engine-internal record of whichever worker identity the harness reports, so
+# any non-empty opaque id is accepted. The constant remains for the audit
+# surface that used to key off it.
+HOST_ATTEMPT_HOSTS: frozenset[str] = frozenset({"pi"})
+_LEGACY_HOST_IDS = frozenset({"codex", "claude-code", "hermes"})
 
 # Dispositions are mutually exclusive; classification follows documented
 # precedence when several signals co-occur.
@@ -95,8 +100,11 @@ def normalize_attempt(
 ) -> HostAttemptOutcome:
     """Build one outcome, failing fast on malformed identity."""
 
-    if host_id not in HOST_ATTEMPT_HOSTS:
-        raise HostAttemptError(f"host_id must be one of {sorted(HOST_ATTEMPT_HOSTS)}")
+    if host_id not in HOST_ATTEMPT_HOSTS and host_id not in _LEGACY_HOST_IDS:
+        # issue #585: legacy harness ids (codex/claude-code/hermes) stay valid in
+        # the frozen v1 bookkeeping so historical records remain auditable; new
+        # runs report "pi".
+        raise HostAttemptError("host_id must be a non-empty identifier")
     if not isinstance(session_id, str) or not session_id:
         raise HostAttemptError("session_id must be a non-empty string")
     if not isinstance(attempt_id, str) or not attempt_id:

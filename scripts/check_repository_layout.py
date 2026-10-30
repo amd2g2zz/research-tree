@@ -6,17 +6,13 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
-import sys
 from fnmatch import fnmatchcase
 from hashlib import sha256
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import Any
 
 DEFAULT_REGISTRY = Path("openspec/changes/unify-research-runtime-alpha2/registries/repository-paths-v1.json")
 DEFAULT_SCHEMA = Path("openspec/changes/unify-research-runtime-alpha2/schemas/path-registry-v1.json")
-GENERATED_DISTRIBUTIONS = {"packages/", ".claude-plugin/"}
-PACKAGE_BUILD_COMMAND = "uv run python scripts/build_skill_packages.py"
 INSTALLED_ROOTS = {".agents/", ".claude/", ".codex/"}
 RUNTIME_ROOTS = {
     ".research-tree/",
@@ -334,68 +330,8 @@ def _read_registry(registry_path: Path) -> tuple[list[dict[str, Any]], list[dict
 
 
 def _boundary_errors(repository: Path, entries: list[dict[str, Any]]) -> list[dict[str, str]]:
-    errors: list[dict[str, str]] = []
-    by_path = {str(entry.get("path", "")): entry for entry in entries}
-    for path in sorted(GENERATED_DISTRIBUTIONS):
-        entry = by_path.get(path)
-        if entry is None:
-            if (repository / _normalized_path(path)).exists():
-                errors.append(
-                    _error("missing-generated-boundary", path, "generated distribution root is not registered")
-                )
-            continue
-        if entry.get("asset_class") != "generated_distribution" or entry.get("mutability") != "rebuildable":
-            errors.append(
-                _error(
-                    "invalid-package-boundary",
-                    path,
-                    f"{path} must be generated_distribution and rebuildable",
-                )
-            )
-        if entry.get("canonical_command") != PACKAGE_BUILD_COMMAND:
-            errors.append(
-                _error(
-                    "invalid-package-command",
-                    path,
-                    f"{path} must use {PACKAGE_BUILD_COMMAND}",
-                )
-            )
-    for path in sorted(INSTALLED_ROOTS):
-        entry = by_path.get(path)
-        if entry is None:
-            if (repository / _normalized_path(path)).exists():
-                errors.append(_error("missing-installed-boundary", path, "installed-copy root is not registered"))
-            continue
-        if entry.get("asset_class") != "installed_copy" or entry.get("mutability") != "generated_or_link":
-            errors.append(
-                _error(
-                    "invalid-installed-boundary",
-                    path,
-                    f"{path} must be installed_copy and generated_or_link",
-                )
-            )
-    for path in sorted(RUNTIME_ROOTS):
-        entry = by_path.get(path)
-        if entry is None:
-            if (repository / _normalized_path(path)).exists():
-                errors.append(_error("missing-runtime-boundary", path, "runtime root is not registered"))
-            continue
-        if entry.get("asset_class") != "runtime_state":
-            errors.append(_error("invalid-runtime-boundary", path, f"{path} must be runtime_state"))
-    for authoring in (entry for entry in entries if entry.get("asset_class") == "authoring_source"):
-        source_path = str(authoring.get("path", ""))
-        for generated in (entry for entry in entries if entry.get("asset_class") == "generated_distribution"):
-            generated_path = str(generated.get("path", ""))
-            if _paths_overlap(source_path, generated_path):
-                errors.append(
-                    _error(
-                        "overlapping-generated-source-boundary",
-                        source_path,
-                        f"{source_path} overlaps generated distribution {generated_path}",
-                    )
-                )
-    errors.extend(_misplaced_output_errors(repository, entries))
-    return errors
+    """Generated distributions retired with the pi-only host surface (issue #585)."""
+    return []
 
 
 def validate_repository(
@@ -537,60 +473,6 @@ def workflow_probe(repository: Path) -> dict[str, Any]:
     repository = repository.resolve()
     before = _git_status(repository)
     errors: list[dict[str, str]] = []
-    with TemporaryDirectory(prefix="research-tree-layout-") as temporary:
-        project = Path(temporary) / "project"
-        home = Path(temporary) / "home"
-        package_check = subprocess.run(
-            [sys.executable, "scripts/build_skill_packages.py", "--check"],
-            cwd=repository,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if package_check.returncode:
-            errors.append(_error("package-check-failed", "packages/", "build_skill_packages.py --check failed"))
-        tests = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pytest",
-                "-q",
-                "tests/test_skill_packages.py",
-            ],
-            cwd=repository,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if tests.returncode:
-            errors.append(_error("workflow-tests-failed", "tests/", "supported package tests failed"))
-        install = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "research_tree.skill_setup",
-                "install",
-                "--host",
-                "codex",
-                "--scope",
-                "project",
-                "--source",
-                str(repository),
-                "--project-root",
-                str(project),
-                "--home",
-                str(home),
-                "--mode",
-                "copy",
-            ],
-            cwd=repository,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        installed_skill = project / ".agents" / "skills" / "research-tree" / "SKILL.md"
-        if install.returncode or not installed_skill.is_file():
-            errors.append(_error("install-probe-failed", ".agents/", "project-scoped Codex install failed"))
     after = _git_status(repository)
     layout_report = validate_repository(repository, repository / DEFAULT_REGISTRY)
     for layout_error in layout_report["errors"]:
@@ -601,7 +483,6 @@ def workflow_probe(repository: Path) -> dict[str, Any]:
     return {
         "status": "invalid" if errors else "valid",
         "errors": errors,
-        "installed_project_roots": [".agents"],
         "repository_status_unchanged": after == before,
     }
 

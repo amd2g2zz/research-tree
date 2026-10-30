@@ -1,7 +1,6 @@
 {
   "schema_version": 1,
   "entries": [
-    { "path": ".claude-plugin/", "asset_class": "generated_distribution", "owner": "host-adapter", "mutability": "rebuildable", "tracked": true, "distributed": true, "cleanup_safety": "safe_rebuild", "canonical_command": "uv run python scripts/build_skill_packages.py", "lifecycle": "generated" },
     { "path": ".gitattributes", "asset_class": "authoring_source", "owner": "maintainers", "mutability": "source", "tracked": true, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": "uv run python scripts/check_repository_layout.py", "lifecycle": "active" },
     { "path": ".github/", "asset_class": "authoring_source", "owner": "maintainers", "mutability": "source", "tracked": true, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": "uv run python scripts/check_delivery_workflow.py validate", "lifecycle": "active" },
     { "path": ".gitignore", "asset_class": "authoring_source", "owner": "maintainers", "mutability": "source", "tracked": true, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": "uv run python scripts/check_repository_layout.py", "lifecycle": "active" },
@@ -10,8 +9,6 @@
     { "path": "pyproject.toml", "asset_class": "authoring_source", "owner": "maintainers", "mutability": "source", "tracked": true, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": "uv lock --check", "lifecycle": "active" },
     { "path": "uv.lock", "asset_class": "authoring_source", "owner": "maintainers", "mutability": "source", "tracked": true, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": "uv lock --check", "lifecycle": "active" },
     { "path": "src/", "asset_class": "authoring_source", "owner": "runtime", "mutability": "source", "tracked": true, "distributed": true, "cleanup_safety": "never_delete", "canonical_command": "uv run pytest -q", "lifecycle": "active" },
-    { "path": "skill-src/", "asset_class": "authoring_source", "owner": "skill", "mutability": "source", "tracked": true, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": "uv run python scripts/build_skill_packages.py", "lifecycle": "active" },
-    { "path": "packages/", "asset_class": "generated_distribution", "owner": "release", "mutability": "rebuildable", "tracked": true, "distributed": true, "cleanup_safety": "safe_rebuild", "canonical_command": "uv run python scripts/build_skill_packages.py", "lifecycle": "generated" },
     { "path": "scripts/", "asset_class": "authoring_source", "owner": "runtime", "mutability": "source", "tracked": true, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": "uv run pytest -q", "lifecycle": "active" },
     { "path": "hooks/", "asset_class": "authoring_source", "owner": "host-adapter", "mutability": "source", "tracked": true, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": "uv run pytest -q", "lifecycle": "active" },
     { "path": "tests/", "asset_class": "authoring_source", "owner": "quality", "mutability": "source", "tracked": true, "distributed": false, "cleanup_safety": "never_delete", "canonical_command": "uv run pytest -q", "lifecycle": "active" },

@@ -7,7 +7,7 @@ import json
 import re
 from typing import Any, Mapping, Sequence
 
-HOSTS = ("codex", "claude-code", "hermes", "pi")
+HOSTS = ("pi",)
 CAPABILITIES = (
     "native_dynamic_workflow",
     "dynamic_delegation",
@@ -24,9 +24,6 @@ CAPABILITIES = (
 CAPABILITY_STATES = frozenset({"available", "unavailable", "partial", "denied", "failed", "unknown"})
 REQUIRED = ("native_dynamic_workflow", "dynamic_delegation", "durable_resume", "structured_event_transport")
 HOST_SURFACES = {
-    "claude-code": "claude-dynamic-phases",
-    "codex": "codex-concurrent-ready",
-    "hermes": "hermes-delegation-batch",
     "pi": "pi-native-reconnaissance",
 }
 EXECUTION_MODES = ("agent", "workflow", "hybrid")
