@@ -41,6 +41,8 @@ export interface ProviderDocument {
   contentType: string;
   text: string;
   bytes: number;
+  /** deterministic extraction summary (plain text / code only; #590) */
+  summary?: unknown;
 }
 
 export interface DataSourceProvider {
