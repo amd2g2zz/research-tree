@@ -15,6 +15,8 @@ import { createHash } from "node:crypto";
 
 import { canonicalJsonBytes } from "../events/canonical.js";
 import { GENESIS_HASH, validateGraphEvent } from "../events/schema.js";
+import { SURFACE_SPECS, validateSurfacePayload } from "../ledger/schema.js";
+import { LedgerIntegrityError } from "./integrity.js";
 import type { EventLog, EventPayload } from "./ports.js";
 
 export interface GraphEventRecord {
@@ -28,7 +30,7 @@ export interface GraphEventRecord {
   [key: string]: unknown;
 }
 
-export class LedgerIntegrityError extends Error {}
+export { LedgerIntegrityError } from "./integrity.js";
 
 interface Migration {
   readonly version: number;
@@ -47,6 +49,81 @@ const MIGRATIONS: readonly Migration[] = [
           prev_hash TEXT NOT NULL,
           content_hash TEXT NOT NULL,
           created_at TEXT NOT NULL
+      );
+    `,
+  },
+  {
+    version: 2,
+    statements: `
+      CREATE TABLE IF NOT EXISTS claims (
+          task_id TEXT NOT NULL,
+          claim_id TEXT NOT NULL,
+          text TEXT NOT NULL,
+          source TEXT NOT NULL,
+          weight TEXT NOT NULL,
+          posterior REAL NOT NULL,
+          verify_tier TEXT NOT NULL,
+          kill_edges TEXT NOT NULL,
+          incentive_flag INTEGER NOT NULL CHECK (incentive_flag IN (0, 1)),
+          deleted_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (task_id, claim_id)
+      );
+      CREATE TABLE IF NOT EXISTS sources (
+          task_id TEXT NOT NULL,
+          source_id TEXT NOT NULL,
+          origin TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          reliability REAL NOT NULL,
+          incentive_vector TEXT NOT NULL,
+          astroturf_flag INTEGER NOT NULL CHECK (astroturf_flag IN (0, 1)),
+          provenance TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (task_id, source_id)
+      );
+      CREATE TABLE IF NOT EXISTS hypotheses (
+          task_id TEXT NOT NULL,
+          hypothesis_id TEXT NOT NULL,
+          text TEXT NOT NULL,
+          status TEXT NOT NULL,
+          review TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (task_id, hypothesis_id)
+      );
+      CREATE TABLE IF NOT EXISTS directions (
+          task_id TEXT NOT NULL,
+          direction_id TEXT NOT NULL,
+          round INTEGER NOT NULL CHECK (round >= 0),
+          value_posterior REAL NOT NULL,
+          budget_allocation REAL NOT NULL,
+          history TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (task_id, direction_id)
+      );
+      CREATE TABLE IF NOT EXISTS experiments (
+          task_id TEXT NOT NULL,
+          experiment_id TEXT NOT NULL,
+          status TEXT NOT NULL,
+          preregistration TEXT NOT NULL,
+          stop_state TEXT,
+          cost REAL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (task_id, experiment_id)
+      );
+      CREATE TABLE IF NOT EXISTS decompositions (
+          task_id TEXT NOT NULL,
+          decomposition_id TEXT NOT NULL,
+          elements TEXT NOT NULL,
+          checklist_state TEXT NOT NULL,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (task_id, decomposition_id)
       );
     `,
   },
@@ -168,6 +245,174 @@ export class LedgerStore implements EventLog {
       previous = row.content_hash as string;
       expectedSeq = seq + 1;
     }
+  }
+
+  // ------------------------------------------------- v2 ledger surface (issue #547)
+  // Full-row state upserts (created_at stable, updated_at refreshes); claims
+  // delete is soft — 产物删除 must stay auditable and land in version snapshots.
+
+  upsertClaim(taskId: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return this.surfaceWrite("claims", taskId, payload);
+  }
+
+  getClaim(taskId: string, claimId: string): Record<string, unknown> | null {
+    return this.surfaceGet("claims", taskId, claimId);
+  }
+
+  listClaims(taskId: string): Array<Record<string, unknown>> {
+    return this.surfaceList("claims", taskId);
+  }
+
+  deleteClaim(taskId: string, claimId: string, deletedAt: string): Record<string, unknown> {
+    this.initialize();
+    const now = new Date().toISOString();
+    const info = this.connect()
+      .prepare("UPDATE claims SET deleted_at = ?, updated_at = ? WHERE task_id = ? AND claim_id = ?")
+      .run(deletedAt, now, taskId, claimId);
+    if (info.changes !== 1) {
+      throw new LedgerIntegrityError(`claim does not exist: ${taskId}/${claimId}`);
+    }
+    return this.surfaceGet("claims", taskId, claimId)!;
+  }
+
+  upsertSource(taskId: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return this.surfaceWrite("sources", taskId, payload);
+  }
+
+  getSource(taskId: string, sourceId: string): Record<string, unknown> | null {
+    return this.surfaceGet("sources", taskId, sourceId);
+  }
+
+  listSources(taskId: string): Array<Record<string, unknown>> {
+    return this.surfaceList("sources", taskId);
+  }
+
+  upsertHypothesis(taskId: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return this.surfaceWrite("hypotheses", taskId, payload);
+  }
+
+  getHypothesis(taskId: string, hypothesisId: string): Record<string, unknown> | null {
+    return this.surfaceGet("hypotheses", taskId, hypothesisId);
+  }
+
+  listHypotheses(taskId: string): Array<Record<string, unknown>> {
+    return this.surfaceList("hypotheses", taskId);
+  }
+
+  upsertDirection(taskId: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return this.surfaceWrite("directions", taskId, payload);
+  }
+
+  getDirection(taskId: string, directionId: string): Record<string, unknown> | null {
+    return this.surfaceGet("directions", taskId, directionId);
+  }
+
+  listDirections(taskId: string): Array<Record<string, unknown>> {
+    return this.surfaceList("directions", taskId);
+  }
+
+  upsertExperiment(taskId: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return this.surfaceWrite("experiments", taskId, payload);
+  }
+
+  getExperiment(taskId: string, experimentId: string): Record<string, unknown> | null {
+    return this.surfaceGet("experiments", taskId, experimentId);
+  }
+
+  listExperiments(taskId: string): Array<Record<string, unknown>> {
+    return this.surfaceList("experiments", taskId);
+  }
+
+  upsertDecomposition(taskId: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return this.surfaceWrite("decompositions", taskId, payload);
+  }
+
+  getDecomposition(taskId: string, decompositionId: string): Record<string, unknown> | null {
+    return this.surfaceGet("decompositions", taskId, decompositionId);
+  }
+
+  listDecompositions(taskId: string): Array<Record<string, unknown>> {
+    return this.surfaceList("decompositions", taskId);
+  }
+
+  private surfaceWrite(
+    table: string,
+    taskId: string,
+    payload: Record<string, unknown>,
+  ): Record<string, unknown> {
+    this.initialize();
+    const spec = SURFACE_SPECS[table]!;
+    const values = validateSurfacePayload(table, payload);
+    const now = new Date().toISOString();
+    const columns = ["task_id", ...Object.keys(values), "created_at", "updated_at"];
+    const updateColumns = [...Object.keys(values), "updated_at"];
+    const sql =
+      `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")}) ` +
+      `ON CONFLICT(task_id, ${spec.idColumn}) DO UPDATE SET ` +
+      updateColumns.map((column) => `${column} = excluded.${column}`).join(", ");
+    const jsonColumns = new Set(spec.json);
+    const rowValues = [
+      taskId,
+      ...Object.keys(values).map((column) =>
+        jsonColumns.has(column) && values[column] !== null
+          ? canonicalJsonBytes(values[column] as never)
+          : typeof values[column] === "boolean"
+            ? values[column]
+              ? 1
+              : 0
+            : values[column],
+      ),
+      now,
+      now,
+    ];
+    const write = this.connect().transaction(() => {
+      this.connect().prepare(sql).run(...rowValues);
+    });
+    try {
+      write();
+    } catch (error: unknown) {
+      throw new LedgerIntegrityError(`${table} write violated a ledger constraint: ${String(error)}`);
+    }
+    return this.surfaceGet(table, taskId, String(values[spec.idColumn]))!;
+  }
+
+  private surfaceGet(table: string, taskId: string, rowId: string): Record<string, unknown> | null {
+    const spec = SURFACE_SPECS[table]!;
+    const row = this.connect()
+      .prepare(`SELECT * FROM ${table} WHERE task_id = ? AND ${spec.idColumn} = ?`)
+      .get(taskId, rowId) as Record<string, unknown> | undefined;
+    if (row === undefined) {
+      return null;
+    }
+    const record: Record<string, unknown> = { ...row };
+    for (const column of spec.json) {
+      if (record[column] !== null && record[column] !== undefined) {
+        record[column] = JSON.parse(String(record[column]));
+      }
+    }
+    for (const column of spec.booleans) {
+      record[column] = Boolean(record[column]);
+    }
+    return record;
+  }
+
+  private surfaceList(table: string, taskId: string): Array<Record<string, unknown>> {
+    const spec = SURFACE_SPECS[table]!;
+    const rows = this.connect()
+      .prepare(`SELECT * FROM ${table} WHERE task_id = ? ORDER BY ${spec.idColumn}`)
+      .all(taskId) as Array<Record<string, unknown>>;
+    return rows.map((row) => {
+      const record: Record<string, unknown> = { ...row };
+      for (const column of spec.json) {
+        if (record[column] !== null && record[column] !== undefined) {
+          record[column] = JSON.parse(String(record[column]));
+        }
+      }
+      for (const column of spec.booleans) {
+        record[column] = Boolean(record[column]);
+      }
+      return record;
+    });
   }
 
   private connect(): Database.Database {

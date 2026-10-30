@@ -9,7 +9,7 @@ log alone.
 
 import type { GraphProjection, Snapshot } from "./ports.js";
 import type { EventLog, EventPayload } from "./ports.js";
-import type { GraphEventRecord } from "./ledger.js";
+import type { GraphEventRecord, LedgerStore } from "./ledger.js";
 
 export class GraphProjectionError extends Error {}
 
@@ -47,6 +47,33 @@ export class EngineCore {
 
   graphEvents(sinceSeq = 0): GraphEventRecord[] {
     return this.log.graphEvents(sinceSeq);
+  }
+
+  /** Claim ledger round-trip: ledger row write + graph events.
+   * Emits one `claim.upsert` (row state; the node's `stale` flag is owned by
+   * belief-propagation events) plus one `claim.kill_edge` per kill edge —
+   * CRUD never bypasses the dual-write seam.
+   */
+  upsertClaim(taskId: string, payload: Record<string, unknown>): Record<string, unknown> {
+    const surface = this.log as LedgerStore;
+    const row = surface.upsertClaim(taskId, payload);
+    this.appendGraphEvent("claim.upsert", {
+      claim: {
+        id: row.claim_id,
+        text: row.text,
+        source: row.source,
+        weight: row.weight,
+        posterior: row.posterior,
+        verify_tier: row.verify_tier,
+      },
+    });
+    for (const killTarget of row.kill_edges as string[]) {
+      this.appendGraphEvent("claim.kill_edge", {
+        claim_id: row.claim_id,
+        kill_target_id: killTarget,
+      });
+    }
+    return row;
   }
 
   async resyncGraph(): Promise<Snapshot> {
