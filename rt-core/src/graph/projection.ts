@@ -312,4 +312,6 @@ const HANDLERS: Record<GraphEventType, ProjectionHandler> = {
     "created_at",
   ),
   "fork.edge": edge("FORKED_FROM", "child_version_id", "parent_version_id"),
+  // provider audit events live in the log only — they never change graph state
+  "provider.action": async () => {},
 };

@@ -3,6 +3,9 @@
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
 export function canonicalJson(value: Json): string {
+  if (value === undefined) {
+    return "null"; // never crash on a dropped key — canonical null
+  }
   if (value === null || typeof value === "boolean" || typeof value === "number") {
     return JSON.stringify(value);
   }
