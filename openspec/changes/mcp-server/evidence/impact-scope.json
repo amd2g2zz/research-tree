@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"mcp-server","files":["openspec/changes/mcp-server/design.md","openspec/changes/mcp-server/evidence/impact-scope.json","openspec/changes/mcp-server/proposal.md","openspec/changes/mcp-server/specs/mcp/spec.md","openspec/changes/mcp-server/tasks.md","rt-core/src/mcp/server.ts","rt-core/package.json","rt-core/test/mcp_server.test.ts"]}
