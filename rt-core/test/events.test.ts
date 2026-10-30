@@ -36,6 +36,12 @@ const MINIMAL_PAYLOADS: Record<string, Record<string, unknown>> = {
     target: "query",
     outcome: "ok",
   },
+  "task.transition": {
+    id: "tt1",
+    task_id: "t1",
+    from: "chat",
+    to: "decompose",
+  },
 };
 
 describe("graph event vocabulary", () => {

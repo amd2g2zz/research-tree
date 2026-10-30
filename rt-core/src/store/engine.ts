@@ -9,7 +9,8 @@ log alone.
 
 import type { GraphProjection, Snapshot } from "./ports.js";
 import type { EventLog, EventPayload } from "./ports.js";
-import type { GraphEventRecord, LedgerStore } from "./ledger.js";
+import type { GraphEventRecord } from "./ledger.js";
+import { LedgerStore } from "./ledger.js";
 
 export class GraphProjectionError extends Error {}
 
@@ -47,6 +48,11 @@ export class EngineCore {
 
   graphEvents(sinceSeq = 0): GraphEventRecord[] {
     return this.log.graphEvents(sinceSeq);
+  }
+
+  /** The ledger store — the state machine reads surface rows through it. */
+  get ledgerStore(): InstanceType<typeof import("./ledger.js")["LedgerStore"]> | undefined {
+    return this.log instanceof LedgerStore ? this.log : undefined;
   }
 
   /** Claim ledger round-trip: ledger row write + graph events.

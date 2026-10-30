@@ -22,6 +22,7 @@ export const GRAPH_EVENT_TYPES = [
   "version.commit",
   "fork.edge",
   "provider.action",
+  "task.transition",
 ] as const;
 
 export type GraphEventType = (typeof GRAPH_EVENT_TYPES)[number];
@@ -35,7 +36,7 @@ export const GENESIS_HASH = "0".repeat(64);
 
 export class GraphEventError extends Error {}
 
-export type FieldKind = "nonEmpty" | "string" | "enum" | "probability" | "integer" | "boolean";
+export type FieldKind = "nonEmpty" | "string" | "optionalString" | "enum" | "probability" | "integer" | "boolean";
 
 export interface FieldSpec {
   kind: FieldKind;
@@ -122,6 +123,18 @@ export const EVENT_SPECS: Record<GraphEventType, EventSpec> = {
       },
     },
   },
+  "task.transition": {
+    kind: "flat",
+    object: {
+      fields: {
+        id: f("nonEmpty"),
+        task_id: f("nonEmpty"),
+        from: f("optionalString", { optional: true }),
+        to: f("nonEmpty"),
+        reason: f("optionalString", { optional: true }),
+      },
+    },
+  },
 };
 
 type Payload = Record<string, unknown>;
@@ -148,6 +161,14 @@ function validateField(entry: Payload, key: string, spec: FieldSpec, label: stri
     case "string":
       if (typeof value !== "string") {
         throw new GraphEventError(`field "${key}" must be a string`);
+      }
+      return value;
+    case "optionalString":
+      if (value === null) {
+        return null;
+      }
+      if (typeof value !== "string") {
+        throw new GraphEventError(`field "${key}" must be a string or null`);
       }
       return value;
     case "enum":
