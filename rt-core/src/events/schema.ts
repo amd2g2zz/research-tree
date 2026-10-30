@@ -131,9 +131,10 @@ function isMapping(value: unknown): value is Payload {
 }
 
 function validateField(entry: Payload, key: string, spec: FieldSpec, label: string): unknown {
-  if (!(key in entry) || entry[key] === undefined) {
+  if (!(key in entry) || entry[key] === undefined || entry[key] === null) {
+    // null is the canonical form of "absent" (records round-trip through JSON)
     if (spec.optional) {
-      return spec.fallback ?? null; // canonical JSON nulls over undefined
+      return spec.fallback ?? null;
     }
     throw new GraphEventError(`${label} missing required keys: ${JSON.stringify([key])}`);
   }

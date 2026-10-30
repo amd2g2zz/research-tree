@@ -25,20 +25,27 @@ export type AuditLog = { appendGraphEvent(eventType: string, payload: EventPaylo
 
 export function auditedProvider(log: AuditLog, inner: DataSourceProvider): DataSourceProvider {
   const manifest = inner.manifest;
-  const audit = (
+  const audit = async (
     action: "search" | "fetch",
     target: string,
     outcome: "ok" | "error",
     metrics: { result_count?: number; bytes?: number } = {},
-  ): void => {
-    log.appendGraphEvent("provider.action", {
-      id: nextActionId(),
-      provider: manifest.name,
-      action,
-      target,
-      outcome,
-      ...metrics,
-    });
+  ): Promise<void> => {
+    // best-effort telemetry: the ledger write inside appendGraphEvent is
+    // synchronous (the event lands), and a projection failure after it is
+    // repairable via resync — the provider action itself must not break.
+    try {
+      await log.appendGraphEvent("provider.action", {
+        id: nextActionId(),
+        provider: manifest.name,
+        action,
+        target,
+        outcome,
+        ...metrics,
+      });
+    } catch {
+      // audit append failure never fails the provider action
+    }
   };
 
   return {
@@ -47,10 +54,10 @@ export function auditedProvider(log: AuditLog, inner: DataSourceProvider): DataS
     async search(query: SearchQuery): Promise<SearchResult[]> {
       try {
         const results = await inner.search(query);
-        audit("search", query.query, "ok", { result_count: results.length });
+        await audit("search", query.query, "ok", { result_count: results.length });
         return results;
       } catch (error: unknown) {
-        audit("search", query.query, "error");
+        await audit("search", query.query, "error");
         throw new ProviderActionError(`provider search failed: ${manifest.name}`);
       }
     },
@@ -58,10 +65,10 @@ export function auditedProvider(log: AuditLog, inner: DataSourceProvider): DataS
     async fetch(ref: ResourceRef): Promise<ProviderDocument> {
       try {
         const document = await inner.fetch(ref);
-        audit("fetch", ref.url, "ok", { bytes: document.bytes });
+        await audit("fetch", ref.url, "ok", { bytes: document.bytes });
         return document;
       } catch (error: unknown) {
-        audit("fetch", ref.url, "error");
+        await audit("fetch", ref.url, "error");
         throw new ProviderActionError(`provider fetch failed: ${manifest.name}`);
       }
     },
