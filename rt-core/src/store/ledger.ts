@@ -31,6 +31,7 @@ export interface GraphEventRecord {
 }
 
 export { LedgerIntegrityError } from "./integrity.js";
+export { LedgerStore as LedgerStoreClass };
 
 interface Migration {
   readonly version: number;
