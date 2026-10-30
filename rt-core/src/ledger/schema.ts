@@ -23,6 +23,7 @@ export const DECOMPOSITION_STATUSES = ["draft", "confirmed", "superseded"] as co
 export type FieldKind =
   | "nonEmpty"
   | "string"
+  | "optionalString"
   | "enum"
   | "probability"
   | "integer"
@@ -159,6 +160,14 @@ function validateField(
     case "string":
       if (typeof value !== "string") {
         throw new LedgerSurfaceError(`field "${key}" must be a string`);
+      }
+      return value;
+    case "optionalString":
+      if (value === null) {
+        return null;
+      }
+      if (typeof value !== "string") {
+        throw new LedgerSurfaceError(`field "${key}" must be a string or null`);
       }
       return value;
     case "enum":
