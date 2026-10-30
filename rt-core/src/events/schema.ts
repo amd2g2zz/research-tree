@@ -21,6 +21,7 @@ export const GRAPH_EVENT_TYPES = [
   "artifact.link",
   "version.commit",
   "fork.edge",
+  "provider.action",
 ] as const;
 
 export type GraphEventType = (typeof GRAPH_EVENT_TYPES)[number];
@@ -50,6 +51,7 @@ export interface ObjectSpec {
 
 export type EventSpec =
   | { kind: "node"; object: ObjectSpec }
+  | { kind: "flat"; object: ObjectSpec }
   | { kind: "pair"; firstId: string; secondId: string };
 
 const f = (kind: FieldKind, extra: Partial<FieldSpec> = {}): FieldSpec => ({ kind, ...extra });
@@ -106,6 +108,20 @@ export const EVENT_SPECS: Record<GraphEventType, EventSpec> = {
   "artifact.link": { kind: "pair", firstId: "artifact_id", secondId: "claim_id" },
   "version.commit": { kind: "node", object: VERSION_FIELDS },
   "fork.edge": { kind: "pair", firstId: "child_version_id", secondId: "parent_version_id" },
+  "provider.action": {
+    kind: "flat",
+    object: {
+      fields: {
+        id: f("nonEmpty"),
+        provider: f("nonEmpty"),
+        action: f("enum", { allowed: ["search", "fetch"] }),
+        target: f("string"),
+        outcome: f("enum", { allowed: ["ok", "error"] }),
+        result_count: f("integer", { minimum: 0, optional: true }),
+        bytes: f("integer", { minimum: 0, optional: true }),
+      },
+    },
+  },
 };
 
 type Payload = Record<string, unknown>;
@@ -117,7 +133,7 @@ function isMapping(value: unknown): value is Payload {
 function validateField(entry: Payload, key: string, spec: FieldSpec, label: string): unknown {
   if (!(key in entry) || entry[key] === undefined) {
     if (spec.optional) {
-      return spec.fallback;
+      return spec.fallback ?? null; // canonical JSON nulls over undefined
     }
     throw new GraphEventError(`${label} missing required keys: ${JSON.stringify([key])}`);
   }
@@ -223,7 +239,9 @@ export function validateGraphEvent(eventType: unknown, payload: unknown): Payloa
   const key = nodeKey(eventType as GraphEventType);
   return spec.kind === "node"
     ? { [key]: validateObject(payload[key], spec.object, key) }
-    : validatePair(payload, spec);
+    : spec.kind === "flat"
+      ? validateObject(payload, spec.object, key)
+      : validatePair(payload, spec);
 }
 
 function nodeKey(eventType: GraphEventType): string {

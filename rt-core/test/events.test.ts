@@ -29,6 +29,13 @@ const MINIMAL_PAYLOADS: Record<string, Record<string, unknown>> = {
     version: { id: "t1:0", task_id: "t1", v: 0, commit_hash: "c".repeat(64), verdict: "GO", summary: "first commit" },
   },
   "fork.edge": { child_version_id: "t2:0", parent_version_id: "t1:0" },
+  "provider.action": {
+    id: "pa1",
+    provider: "anysearch",
+    action: "search",
+    target: "query",
+    outcome: "ok",
+  },
 };
 
 describe("graph event vocabulary", () => {

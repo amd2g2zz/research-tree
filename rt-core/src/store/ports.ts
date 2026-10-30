@@ -14,7 +14,7 @@ export interface EventLog {
   appendGraphEvent(
     eventType: string,
     payload: EventPayload,
-    options: { runId?: string | null },
+    options?: { runId?: string | null },
   ): GraphEventRecord;
   graphEvents(sinceSeq?: number): GraphEventRecord[];
   verifyGraphChain(): void;
