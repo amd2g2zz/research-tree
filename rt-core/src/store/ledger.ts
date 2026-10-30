@@ -127,6 +127,36 @@ const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 3,
+    statements: `
+      CREATE TABLE IF NOT EXISTS versions (
+          task_id TEXT NOT NULL,
+          v INTEGER NOT NULL CHECK (v >= 0),
+          commit_hash TEXT NOT NULL,
+          parent_v INTEGER,
+          verdict TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          snapshot_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (task_id, v),
+          UNIQUE (task_id, commit_hash)
+      );
+      CREATE TABLE IF NOT EXISTS fork_edges (
+          from_task TEXT NOT NULL,
+          from_v INTEGER NOT NULL,
+          to_task TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (from_task, from_v, to_task)
+      );
+      CREATE TABLE IF NOT EXISTS drafts (
+          task_id TEXT PRIMARY KEY,
+          working_set_json TEXT NOT NULL,
+          base_v INTEGER,
+          updated_at TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 function chainHash(record: Record<string, unknown>): string {
@@ -413,6 +443,11 @@ export class LedgerStore implements EventLog {
       }
       return record;
     });
+  }
+
+  get connection(): Database.Database {
+    this.connect();
+    return this.database!;
   }
 
   private connect(): Database.Database {
