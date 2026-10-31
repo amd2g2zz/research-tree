@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"timeline-scrubber","files":["openspec/changes/timeline-scrubber/evidence/impact-scope.json","openspec/changes/timeline-scrubber/proposal.md","openspec/changes/timeline-scrubber/specs/canvas/spec.md","openspec/changes/timeline-scrubber/tasks.md","rt-core/src/canvas/scrubber.ts","rt-core/test/scrubber.test.ts"]}
