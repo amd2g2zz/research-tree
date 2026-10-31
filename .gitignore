@@ -142,4 +142,9 @@ pytestdebug.log
 .#*
 \#*#
 rt-core/node_modules/
+webui-server/node_modules/
+webui/node_modules/
+webui/dist/
+webui-server/*.sqlite*
+*.tsbuildinfo
 rt-core/pnpm-lock.yaml
