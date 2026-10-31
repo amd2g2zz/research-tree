@@ -100,6 +100,8 @@ describe("legal transition walk (对话→计划→研究→裁决→提交→�
     machine.attachRunPlan("t1", PLAN());
     machine.transition("t1", { event: "sign" });
     machine.transition("t1", { event: "research-completed" });
+    // freeze consumed the draft — 继续研究 opens a copy-on-write draft from the latest commit (A7 rule 3)
+    versions.openDraftFromVersion("t1", 0);
     versions.mutateDraft("t1", (draft) => {
       (draft.snapshot.claims as Array<Record<string, unknown>>).push({ id: "c2", posterior: 0.4 });
     });
