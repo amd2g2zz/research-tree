@@ -158,6 +158,22 @@ const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 4,
+    statements: `
+      CREATE TABLE IF NOT EXISTS parallel_stages (
+          stage_id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          status TEXT NOT NULL,
+          claim_ids TEXT NOT NULL,
+          depends_on TEXT NOT NULL,
+          assigned_worker_class TEXT NOT NULL,
+          retries INTEGER NOT NULL,
+          max_retries INTEGER NOT NULL,
+          outputs TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 function chainHash(record: Record<string, unknown>): string {
