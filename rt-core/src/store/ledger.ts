@@ -193,6 +193,19 @@ const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 6,
+    statements: `
+      CREATE TABLE IF NOT EXISTS archive_entries (
+          task_id TEXT NOT NULL,
+          v INTEGER NOT NULL,
+          verdict TEXT NOT NULL,
+          entry_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (task_id, v)
+      );
+    `,
+  },
 ];
 
 function chainHash(record: Record<string, unknown>): string {
