@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"auto-memory","files":["openspec/changes/auto-memory/evidence/impact-scope.json","openspec/changes/auto-memory/proposal.md","openspec/changes/auto-memory/specs/memory/spec.md","openspec/changes/auto-memory/tasks.md","rt-core/src/memory/store.ts","rt-core/src/store/ledger.ts","rt-core/test/memory.test.ts"]}
