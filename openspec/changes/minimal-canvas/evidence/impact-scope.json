@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"minimal-canvas","files":["openspec/changes/minimal-canvas/design.md","openspec/changes/minimal-canvas/evidence/impact-scope.json","openspec/changes/minimal-canvas/proposal.md","openspec/changes/minimal-canvas/specs/canvas/spec.md","openspec/changes/minimal-canvas/tasks.md","rt-core/src/canvas/projection.ts","rt-core/test/canvas.test.ts"]}
