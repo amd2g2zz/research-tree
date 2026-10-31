@@ -157,13 +157,17 @@ export class VersionStore {
     if (this.findByHash(taskId, commitHash)) {
       throw new LedgerIntegrityError(`duplicate commit: identical snapshot already committed for ${taskId}`);
     }
-    return this.appendVersion(taskId, {
+    const committed = this.appendVersion(taskId, {
       v: this.nextV(taskId),
       snapshot: draft.snapshot,
       verdict: commit.verdict,
       summary: commit.summary,
       parentV: draft.base_v,
     });
+    // freeze consumes the draft (草稿不可跟踪): the committed version is the
+    // only remaining trackable state — no stale unfrozen row lingers.
+    this.connect().prepare("DELETE FROM drafts WHERE task_id = ?").run(taskId);
+    return committed;
   }
 
   /** Direct version insertion — the state machine's commit path (also the

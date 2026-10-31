@@ -115,7 +115,7 @@ export const EVENT_SPECS: Record<GraphEventType, EventSpec> = {
       fields: {
         id: f("nonEmpty"),
         provider: f("nonEmpty"),
-        action: f("enum", { allowed: ["search", "fetch"] }),
+        action: f("enum", { allowed: ["search", "fetch", "report"] }),
         target: f("string"),
         outcome: f("enum", { allowed: ["ok", "error"] }),
         result_count: f("integer", { minimum: 0, optional: true }),
