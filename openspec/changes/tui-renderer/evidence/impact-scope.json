@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"tui-renderer","files":["openspec/changes/tui-renderer/design.md","openspec/changes/tui-renderer/evidence/impact-scope.json","openspec/changes/tui-renderer/proposal.md","openspec/changes/tui-renderer/specs/tui/spec.md","openspec/changes/tui-renderer/tasks.md","rt-core/src/tui/renderer.ts","rt-core/test/tui_renderer.test.ts"]}
