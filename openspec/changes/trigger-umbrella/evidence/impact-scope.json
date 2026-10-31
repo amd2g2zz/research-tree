@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"trigger-umbrella","files":["openspec/changes/trigger-umbrella/evidence/impact-scope.json","openspec/changes/trigger-umbrella/proposal.md","openspec/changes/trigger-umbrella/specs/learning/spec.md","openspec/changes/trigger-umbrella/tasks.md","rt-core/src/learning/umbrella.ts","rt-core/test/umbrella.test.ts"]}
