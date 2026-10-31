@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"thompson-directions","files":["openspec/changes/thompson-directions/evidence/impact-scope.json","openspec/changes/thompson-directions/proposal.md","openspec/changes/thompson-directions/specs/directions/spec.md","openspec/changes/thompson-directions/tasks.md","rt-core/src/directions/thompson.ts","rt-core/test/directions.test.ts"]}
