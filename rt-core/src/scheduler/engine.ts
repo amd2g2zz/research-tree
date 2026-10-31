@@ -79,7 +79,8 @@ export function evaluateStage(
     .map((id) => byId.get(id))
     .filter((claim): claim is ClaimState => claim !== undefined);
 
-  if (stageClaims.length > 0 && stageClaims.every((claim) => claim.state === "decided")) {
+  // vacuous truth: a stage with no open claims has nothing left to decide
+  if (stageClaims.every((claim) => claim.state === "decided")) {
     return { action: "rollup", reason: "all-decided" };
   }
   if (context.budgetRemainingMs <= 0) {
