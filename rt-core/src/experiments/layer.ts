@@ -86,6 +86,10 @@ export class ExperimentLayer {
         `designer ≠ executor violated: ${options.executor} designed and executes ${experimentId}`,
       );
     }
+    if (row.status === "gated") {
+      // 阶梯硬门: experiment-gated claims land in the risk register, they do not run
+      throw new LedgerIntegrityError(`experiment is budget-gated and cannot run: ${experimentId}`);
+    }
     this.ledger.upsertExperiment(String(row.task_id ?? "t1"), {
       experiment_id: experimentId,
       status: "running",
