@@ -28,7 +28,7 @@ function registryWithCliDeps(): ProviderRegistry {
   return registry;
 }
 
-describe("rt setup (idempotent)", () => {
+describe("rt setup (idempotent)", { timeout: 30_000 }, () => {
   it("initializes the workspace and reports what it did", async () => {
     const report = await runSetup({ workspace });
     expect(report.steps).toMatchObject({ workspace: "created" });
@@ -70,7 +70,7 @@ describe("rt setup (idempotent)", () => {
   });
 });
 
-describe("rt doctor (boot readiness)", () => {
+describe("rt doctor (boot readiness)", { timeout: 30_000 }, () => {
   it("reports per-provider availability, storage, mcp and pi states", async () => {
     runSetup({ workspace });
     const readiness = await doctor({

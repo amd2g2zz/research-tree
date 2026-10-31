@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"evsi-actions","files":["openspec/changes/evsi-actions/design.md","openspec/changes/evsi-actions/evidence/impact-scope.json","openspec/changes/evsi-actions/proposal.md","openspec/changes/evsi-actions/specs/evsi/spec.md","openspec/changes/evsi-actions/tasks.md","rt-core/src/evsi/selector.ts","rt-core/test/evsi.test.ts"]}
