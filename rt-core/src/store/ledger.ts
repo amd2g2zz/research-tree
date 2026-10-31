@@ -206,6 +206,25 @@ const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 7,
+    statements: `
+      CREATE TABLE IF NOT EXISTS memories (
+          memory_id TEXT PRIMARY KEY,
+          scope TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          text TEXT NOT NULL,
+          provenance_json TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('active', 'superseded')),
+          superseded_by TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope, status);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_dedupe ON memories(scope, kind, content_hash, status);
+    `,
+  },
 ];
 
 function chainHash(record: Record<string, unknown>): string {
