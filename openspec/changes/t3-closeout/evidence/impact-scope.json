@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"t3-closeout","files":["openspec/changes/t3-closeout/evidence/acceptance.md","openspec/changes/t3-closeout/evidence/impact-scope.json","openspec/changes/t3-closeout/proposal.md","openspec/changes/t3-closeout/specs/t3/spec.md","openspec/changes/t3-closeout/tasks.md","rt-core/src/ux/project_home.ts","rt-core/test/t3_closeout.test.ts"]}

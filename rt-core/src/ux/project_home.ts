@@ -142,12 +142,12 @@ export class ProjectHomeModel {
   }
 
   /** Default projection = main branch's latest version (A7 rule 5). */
-  defaultProjection(projectId: string): { v: number; verdict: string; commit_hash: string; summary: string } {
+  defaultProjection(projectId: string): { task_id: string; v: number; verdict: string; commit_hash: string; summary: string } {
     const main = this.listLines(projectId).find((line) => line.role === "main");
     if (main?.latest === undefined || main.latest === null) {
       throw new ProjectHomeError(`project has no committed main-line version: ${projectId}`);
     }
-    return main.latest;
+    return { task_id: main.task_id, ...main.latest };
   }
 
   /** 查看最新报告 entry grows automatically after the first commit. */
