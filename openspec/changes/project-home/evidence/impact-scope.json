@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"project-home","files":["openspec/changes/project-home/evidence/impact-scope.json","openspec/changes/project-home/proposal.md","openspec/changes/project-home/specs/project-home/spec.md","openspec/changes/project-home/tasks.md","rt-core/src/store/ledger.ts","rt-core/src/ux/project_home.ts","rt-core/test/project_home.test.ts"]}

@@ -174,6 +174,25 @@ const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 5,
+    statements: `
+      CREATE TABLE IF NOT EXISTS projects (
+          project_id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('active', 'archived')),
+          attachments TEXT NOT NULL,
+          created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS project_tasks (
+          task_id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          role TEXT NOT NULL CHECK (role IN ('main', 'fork')),
+          created_at TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 function chainHash(record: Record<string, unknown>): string {
