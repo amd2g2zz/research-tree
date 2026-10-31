@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"overnight-run","files":["openspec/changes/overnight-run/evidence/impact-scope.json","openspec/changes/overnight-run/proposal.md","openspec/changes/overnight-run/specs/overnight/spec.md","openspec/changes/overnight-run/tasks.md","rt-core/src/headless/overnight.ts","rt-core/test/overnight.test.ts"]}
