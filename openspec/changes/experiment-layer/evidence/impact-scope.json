@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"experiment-layer","files":["openspec/changes/experiment-layer/evidence/impact-scope.json","openspec/changes/experiment-layer/proposal.md","openspec/changes/experiment-layer/specs/experiments/spec.md","openspec/changes/experiment-layer/tasks.md","rt-core/src/experiments/layer.ts","rt-core/test/experiments.test.ts"]}
