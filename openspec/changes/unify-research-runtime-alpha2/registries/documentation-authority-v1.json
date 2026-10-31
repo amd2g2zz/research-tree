@@ -417,6 +417,18 @@
    "update_trigger": "provider contract change",
    "superseded_by": null,
    "validation_rule": "none"
+  },
+  {
+   "path": "rt-core/pi-extension/README.md",
+   "class": "reference",
+   "authority": "engine",
+   "audience": "agents-and-contributors",
+   "owner": "rt-engine",
+   "lifecycle": "active",
+   "canonical_edit": "rt-core/pi-extension/README.md",
+   "update_trigger": "extension contract change",
+   "superseded_by": null,
+   "validation_rule": "none"
   }
  ]
 }
