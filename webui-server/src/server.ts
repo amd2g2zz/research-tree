@@ -190,12 +190,32 @@ export class WebUIServer {
         const text = String(params.text ?? "");
         const taskId = String(params.task_id);
         const controller = new DialogueController(this.ledger, taskId);
-        return controller.ingest({
+        const receipt = controller.ingest({
           kind: kind as never,
           text,
           source: { kind: "chat-message", ref: `msg:${++this.msgId}`, quote: text },
           hardness: params.hardness === "guessed" ? "guessed" : undefined,
         });
+        // P2 hub transcript: user message + rt routing receipt persisted (migration v8)
+        this.appendChat(taskId, "user", kind, text, null);
+        this.appendChat(taskId, "rt", "receipt", routingLabel(receipt as never), receipt as never);
+        return { receipt, routed_count: this.routedCount(taskId) };
+      }
+      case "chat.history":
+        return {
+          messages: this.ledger.connection
+            .prepare("SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? ORDER BY seq")
+            .all(String(params.task_id)) as Array<Record<string, unknown>>,
+        };
+      case "task.status": {
+        // 任务状态卡 data: phase → 下一步动作唯一化 (运行中→查看研究 / 收敛→报告+冻结 / 提交后消失)
+        const taskId = String(params.task_id);
+        const latest = this.versions.listVersions(taskId).slice().sort((a, b) => b.v - a.v)[0] ?? null;
+        return {
+          phase: this.machine.phaseOf(taskId) ?? "chat",
+          latest: latest !== null ? { v: latest.v, verdict: latest.verdict, commit_hash: latest.commit_hash } : null,
+          routed_count: this.routedCount(taskId),
+        };
       }
       case "research.launch": {
         const script: HeadlessScript = {
@@ -222,4 +242,33 @@ export class WebUIServer {
         throw new ProjectHomeError(`unknown rpc method: ${method}`);
     }
   }
+
+  private appendChat(taskId: string, role: "user" | "rt" | "system", kind: string, text: string, receipt: unknown): void {
+    const seq = (
+      this.ledger.connection.prepare("SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM chat_messages WHERE task_id = ?").get(taskId) as {
+        next: number;
+      }
+    ).next;
+    this.ledger.connection
+      .prepare("INSERT INTO chat_messages (task_id, seq, role, kind, text, receipt_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(taskId, seq, role, kind, text, receipt !== null ? JSON.stringify(receipt) : null, new Date().toISOString());
+  }
+
+  private routedCount(taskId: string): number {
+    return (
+      this.ledger.connection.prepare("SELECT COUNT(*) AS n FROM chat_messages WHERE task_id = ? AND role = 'rt'").get(taskId) as { n: number }
+    ).n;
+  }
+}
+
+const ROUTE_LABELS: Record<string, string> = {
+  slot: "→ 偏好槽位（权威域，遵循到底）",
+  "claim-ledger": "→ 主张账本（检验：不信不驳）",
+  "hypothesis-ledger": "→ 假设账本（受理受审：与替代方案同台评审）",
+  "parking-lot": "→ 停车场（收纳不惩罚，不进关键路径）",
+  constraint: "→ 约束槽位（溯源问询）",
+};
+
+function routingLabel(receipt: { routed: string }): string {
+  return ROUTE_LABELS[receipt.routed] ?? `→ ${receipt.routed}`;
 }
