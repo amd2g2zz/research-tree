@@ -43,12 +43,15 @@ import {
   type DecompositionElements,
 } from "../../rt-core/src/decomposition/engine.js";
 import { readPiConfig, writeProviderKey, writeDefaultModel, ConfigWriteError } from "./pi-config.js";
+import { pickClassifier } from "./classify.js";
 
 export interface WebUIOptions {
   /** server workspace — the ledger lives here */
   workspace: string;
   /** pi config dir override (tests); default ~/.pi/agent */
   piConfigDir?: string;
+  /** injectable pi headless runner (contract tests; CI never spawns pi) */
+  piRunner?: (command: string, prompt: string) => string;
 }
 
 interface RpcMessage {
@@ -306,12 +309,21 @@ export class WebUIServer {
         // 从此分叉: new task inherits the snapshot (分叉即继承), lands in chat
         return this.timeline.fork(String(params.task_id), Number(params.v), String(params.new_task_id));
       case "chat.ingest": {
-        const kind = String(params.kind);
-        if (!(CHAT_KINDS as readonly string[]).includes(kind)) {
-          throw new ProjectHomeError(`utterance kind must be one of ${CHAT_KINDS.join("|")}`);
-        }
         const text = String(params.text ?? "");
         const taskId = String(params.task_id);
+        // #651: kind is now optional — an explicit user kind is always
+        // respected; otherwise the ClassificationPort judges (LLM when the
+        // keyed session is ready, disclosed heuristic fallback otherwise)
+        let kind: string;
+        let classifiedBy: string;
+        if (typeof params.kind === "string" && (CHAT_KINDS as readonly string[]).includes(params.kind)) {
+          kind = params.kind;
+          classifiedBy = "user";
+        } else {
+          const classification = pickClassifier({ ready: readPiConfig(this.options.piConfigDir).keyed_session_ready }, { runner: this.options.piRunner }).classify(text);
+          kind = classification.kind;
+          classifiedBy = classification.classified_by;
+        }
         const controller = new DialogueController(this.ledger, taskId);
         const receipt = controller.ingest({
           kind: kind as never,
@@ -320,9 +332,9 @@ export class WebUIServer {
           hardness: params.hardness === "guessed" ? "guessed" : undefined,
         });
         // P2 hub transcript: user message + rt routing receipt persisted (migration v8)
-        this.appendChat(taskId, "user", kind, text, null);
-        this.appendChat(taskId, "rt", "receipt", routingLabel(receipt as never), receipt as never);
-        return { receipt, routed_count: this.routedCount(taskId) };
+        this.appendChat(taskId, "user", kind, text, { classified_by: classifiedBy });
+        this.appendChat(taskId, "rt", "receipt", routingLabel(receipt as never), { ...receipt, classified_by: classifiedBy });
+        return { receipt: { ...receipt, classified_by: classifiedBy }, routed_count: this.routedCount(taskId) };
       }
       case "chat.history":
         return {
