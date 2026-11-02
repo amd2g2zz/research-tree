@@ -222,6 +222,60 @@ export function App() {
 
   const selectedProject = tree.find((p) => p.project_id === selected) ?? null;
 
+  const mainTaskId = selectedProject?.lines.find((l) => l.role === "main")?.task_id ?? null;
+
+  // ---------------- P4 research page ----------------
+  const [research, setResearch] = useState<{
+    question: { task_id: string; title: string };
+    claims: Record<string, { text: string; posterior: number; verify_tier: string; weight: string; state: string }>;
+    stages: Array<{ stage_id: string; title: string; status: string; claim_ids: string[]; depends_on: string[] }>;
+    transitions: Array<{ from: string | null; to: string }>;
+    providers: string[];
+  } | null>(null);
+  const [beats, setBeats] = useState<Array<{ seq: number; event_type: string; summary: string }>>([]);
+  const [beat, setBeat] = useState<number | null>(null); // null = live tail
+  const [atView, setAtView] = useState<{ console: string[]; claims: Record<string, Record<string, unknown>> } | null>(null);
+  const [drawer, setDrawer] = useState<{ claimId: string; lineage: { steps: Array<{ layer: string; detail?: string }>; raw_evidence?: string } | null } | null>(null);
+
+  const refreshResearch = useCallback(
+    async (taskId: string) => {
+      const view = await (await fetch(`/api/research/${encodeURIComponent(taskId)}`)).json();
+      setResearch(view as never);
+      const b = (await (await fetch(`/api/research/${encodeURIComponent(taskId)}/beats`)).json()) as { beats: typeof beats };
+      setBeats(b.beats);
+      setBeat(null);
+      setAtView(null);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (mainTaskId !== null) {
+      void refreshResearch(mainTaskId);
+    } else {
+      setResearch(null);
+      setBeats([]);
+    }
+  }, [mainTaskId, refreshResearch]);
+
+  const scrubTo = async (t: number): Promise<void> => {
+    if (mainTaskId === null) {
+      return;
+    }
+    setBeat(t);
+    const view = (await (await fetch(`/api/research/${encodeURIComponent(mainTaskId)}/at/${t}`)).json()) as never;
+    setAtView(view as { console: string[]; claims: Record<string, Record<string, unknown>> });
+  };
+
+  const openDrawer = async (claimId: string): Promise<void> => {
+    if (mainTaskId === null) {
+      return;
+    }
+    const res = await fetch(`/api/research/${encodeURIComponent(mainTaskId)}/lineage/0/${encodeURIComponent(claimId)}`);
+    const body = (await res.json()) as { steps?: Array<{ layer: string; detail?: string }>; raw_evidence?: string; error?: string };
+    setDrawer({ claimId, lineage: body.error !== undefined ? null : (body as never) });
+  };
+
   // ---------------- P3 decomposition page ----------------
   const [decomp, setDecomp] = useState<{
     decomposition_id: string;
@@ -295,8 +349,6 @@ export function App() {
   ];
 
   // ---------------- P2 hub actions ----------------
-  const mainTaskId = selectedProject?.lines.find((l) => l.role === "main")?.task_id ?? null;
-
   const refreshHub = useCallback(
     async (taskId: string) => {
       const h = await rpc(await getSocket(), "chat.history", { task_id: taskId });
@@ -482,6 +534,87 @@ export function App() {
                 聊得差不多了 → 分解（≥3 句被路由后可用；P3 页面 #635 落地）
               </button>
             </p>
+          </section>
+          {/* ---------------- P4 研究页（三层图谱 + console 同步重放） ---------------- */}
+          <section className="card research">
+            <h2>研究页（信任面）{mainTaskId !== null && <code className="task-id">{mainTaskId}</code>}</h2>
+            {research === null ? (
+              <p className="empty">选择项目查看研究图谱</p>
+            ) : (
+              <>
+                <div className="graph">
+                  <div className="gnode question">❓ 研究问题：{String(research.question?.title ?? mainTaskId)}</div>
+                  <div className="gnode task">🧵 主线任务 {mainTaskId}（{research.transitions.length} 次迁移 · providers: {research.providers.join(", ") || "—"}）</div>
+                  <div className="dag">
+                    {research.stages.map((stage) => (
+                      <div key={stage.stage_id} className="stage">
+                        <div className="stage-head">
+                          ▣ {stage.title} <span className={`badge ${stage.status}`}>{stage.status}</span>
+                          {stage.depends_on.length > 0 && <span className="dep">依赖: {stage.depends_on.join(", ")}</span>}
+                        </div>
+                        {stage.claim_ids.map((cid) => {
+                          const c = (atView?.claims ?? research.claims)[cid];
+                          return c === undefined ? null : (
+                            <div key={cid} className={`claim-row ${String(c.state)}`} onClick={() => void openDrawer(cid)}>
+                              {String(c.text)} · 后验 {Number(c.posterior).toFixed(2)} · {String(c.verify_tier)}
+                              <span className={`badge ${Number(c.posterior) >= 0.9 ? "decided" : "undecided"}`}>
+                                {Number(c.posterior) >= 0.9 ? "已决" : "未决"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                        {stage.claim_ids.length === 0 && <div className="empty">无主张行</div>}
+                      </div>
+                    ))}
+                    {research.stages.length === 0 && <div className="empty">调研 DAG：调度器尚未注册阶段（#565）</div>}
+                    {Object.entries(atView?.claims ?? research.claims).filter(([cid]) => !research.stages.some((s) => s.claim_ids.includes(cid))).map(([cid, c]) => (
+                      <div key={cid} className={`claim-row orphan ${String(c.state)}`} onClick={() => void openDrawer(cid)}>
+                        {String(c.text)} · 后验 {Number(c.posterior).toFixed(2)} · {String(c.verify_tier)}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {/* 重放条：拖动 = 回到该拍，图谱与 console 同步 */}
+                <div className="scrubber">
+                  <span className="hint">重放条（#572 确定性投影）</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={Math.max(beats.length, 1)}
+                    value={beat ?? beats.length}
+                    onChange={(e) => void scrubTo(Number(e.target.value))}
+                  />
+                  <span className="hint">{beat === null ? `实时（${beats.length} 拍）` : `第 ${beat} 拍`}</span>
+                </div>
+                <div className="console-lines">
+                  {(atView?.console ?? beats.map((b) => b.summary)).map((line, i) => (
+                    <div key={i} className="cline">
+                      {beat !== null ? line : `#${beats[i]?.seq} ${line}`}
+                    </div>
+                  ))}
+                  {beats.length === 0 && <div className="empty">尚无引擎事件</div>}
+                </div>
+                {drawer !== null && (
+                  <div className="drawer">
+                    <strong>主张抽屉：{drawer.claimId}</strong>
+                    <button className="ghost tiny" onClick={() => setDrawer(null)}>
+                      关闭
+                    </button>
+                    {drawer.lineage === null ? (
+                      <div className="empty">无 lineage（不伪造溯源路径）</div>
+                    ) : (
+                      drawer.lineage.steps.map((s, i) => (
+                        <div key={i} className="cline">
+                          {i + 1}. {s.layer} {s.detail ?? ""}
+                        </div>
+                      ))
+                    )}
+                    {drawer.lineage?.raw_evidence !== undefined && <code className="cline">{String(drawer.lineage.raw_evidence).slice(0, 80)}…</code>}
+                    <p className="hint">任一结论 ≤3 次点击到达原始证据（#566）</p>
+                  </div>
+                )}
+              </>
+            )}
           </section>
           {/* ---------------- P3 分解页 ---------------- */}
           <section className="card decomp">
