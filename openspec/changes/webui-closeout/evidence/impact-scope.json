@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"webui-closeout","files":["openspec/changes/webui-closeout/evidence/acceptance.md","openspec/changes/webui-closeout/evidence/impact-scope.json","openspec/changes/webui-closeout/proposal.md","openspec/changes/webui-closeout/specs/webui/spec.md","openspec/changes/webui-closeout/tasks.md","webui-server/test/closeout.test.ts"]}
