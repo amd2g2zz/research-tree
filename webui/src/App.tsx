@@ -276,6 +276,71 @@ export function App() {
     setDrawer({ claimId, lineage: body.error !== undefined ? null : (body as never) });
   };
 
+  // ---------------- P5 version page ----------------
+  const [vtl, setVtl] = useState<{
+    is_main_branch: boolean;
+    versions: Array<{ v: number; verdict: string; commit_hash: string; summary: string; forked: boolean }>;
+    draft: { base_v: number | null; updated_at: string } | null;
+    fork_parent: { task_id: string; v: number } | null;
+  } | null>(null);
+  const [snap, setSnap] = useState<{
+    banner: { v: number; commit_hash: string; verdict: string; summary: string };
+    report: Record<string, unknown>;
+  } | null>(null);
+  const [archiveView, setArchiveView] = useState<{ entries: Array<{ task_id: string; v: number; verdict: string; disposition: { kind: string } }> } | null>(null);
+
+  const refreshVersions = useCallback(
+    async (taskId: string) => {
+      const res = await fetch(`/api/versions/${encodeURIComponent(taskId)}`);
+      if (res.ok) {
+        setVtl((await res.json()) as never);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (mainTaskId !== null) {
+      void refreshVersions(mainTaskId);
+    } else {
+      setVtl(null);
+    }
+  }, [mainTaskId, refreshVersions]);
+
+  const openSnapshot = async (v: number): Promise<void> => {
+    if (mainTaskId === null) {
+      return;
+    }
+    const res = await fetch(`/api/versions/${encodeURIComponent(mainTaskId)}/snapshot/${v}`);
+    if (res.ok) {
+      setSnap((await res.json()) as never);
+    }
+  };
+
+  const versionAction = async (action: "continue" | "fork"): Promise<void> => {
+    if (mainTaskId === null) {
+      return;
+    }
+    try {
+      if (action === "continue") {
+        await rpc(await getSocket(), "version.continue", { task_id: mainTaskId });
+        push("rpc", "继续研究：新草稿自最新提交复制（写时复制）");
+      } else {
+        const newTaskId = `${mainTaskId}-fork-${Date.now().toString(36).slice(-4)}`;
+        await rpc(await getSocket(), "version.fork", { task_id: mainTaskId, v: vtl?.versions[0]?.v ?? 0, new_task_id: newTaskId });
+        push("rpc", `分叉 → ${newTaskId}（分叉即继承，落 chat）`);
+      }
+      await Promise.all([refreshVersions(mainTaskId), refreshTree(), refreshResearch(mainTaskId)]);
+    } catch (error) {
+      push("error", String(error));
+    }
+  };
+
+  const browseArchive = async (): Promise<void> => {
+    const res = await fetch("/api/archive");
+    setArchiveView((await res.json()) as never);
+  };
+
   // ---------------- P3 decomposition page ----------------
   const [decomp, setDecomp] = useState<{
     decomposition_id: string;
@@ -534,6 +599,64 @@ export function App() {
                 聊得差不多了 → 分解（≥3 句被路由后可用；P3 页面 #635 落地）
               </button>
             </p>
+          </section>
+          {/* ---------------- P5 版本页 ---------------- */}
+          <section className="card versions">
+            <h2>版本页（时间线 · ⑂ 分叉 · 只读快照）</h2>
+            {vtl === null ? (
+              <p className="empty">选择项目查看版本时间线</p>
+            ) : (
+              <>
+                <div className="vtl-meta">
+                  {vtl.is_main_branch ? "主分支" : `⑂ 支线（fork 自 ${vtl.fork_parent?.task_id}@v${vtl.fork_parent?.v}）`}
+                  <button className="ghost inline" onClick={() => void versionAction("continue")}>
+                    继续研究（版本+1）
+                  </button>
+                  <button className="ghost inline" onClick={() => void versionAction("fork")}>
+                    从此分叉
+                  </button>
+                  <button className="ghost inline" onClick={() => void browseArchive()}>
+                    四态归档
+                  </button>
+                </div>
+                {vtl.draft !== null && (
+                  <div className="vtl-row draft-row">✎ 草稿（未冻结·不可跟踪）base_v={String(vtl.draft.base_v)}</div>
+                )}
+                {vtl.versions.map((v) => (
+                  <div key={v.v} className="vtl-row" onClick={() => void openSnapshot(v.v)}>
+                    v{v.v} · {v.verdict} · <code>{v.commit_hash.slice(0, 12)}</code> · {v.summary}
+                    {v.forked && <span className="fork-mark">⑂ 已分叉 → 支线</span>}
+                    <span className="hint">（点击查看只读快照）</span>
+                  </div>
+                ))}
+                {vtl.versions.length === 0 && <div className="empty">尚无已提交版本</div>}
+              </>
+            )}
+            {snap !== null && (
+              <div className="snapshot">
+                <div className="frozen-banner">
+                  🔒 已冻结 v{snap.banner.v} · {snap.banner.verdict} · <code>{snap.banner.commit_hash.slice(0, 12)}</code>
+                  ——不可再修改；继续研究=版本+1
+                  <button className="ghost inline" onClick={() => setSnap(null)}>
+                    回当前工作区
+                  </button>
+                </div>
+                <pre className="report">{JSON.stringify(snap.report, null, 2)}</pre>
+              </div>
+            )}
+            {archiveView !== null && (
+              <div className="snapshot">
+                <strong>四态归档（{archiveView.entries.length}）</strong>
+                <button className="ghost inline" onClick={() => setArchiveView(null)}>
+                  收起
+                </button>
+                {archiveView.entries.map((e) => (
+                  <div key={`${e.task_id}-${e.v}`} className="cline">
+                    {e.task_id}@v{e.v} · {e.verdict} · {e.disposition.kind}
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
           {/* ---------------- P4 研究页（三层图谱 + console 同步重放） ---------------- */}
           <section className="card research">
