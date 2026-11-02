@@ -30,6 +30,9 @@ import { ProductStateMachine } from "../../rt-core/src/state/machine.js";
 import { ProjectHomeModel, ProjectHomeError } from "../../rt-core/src/ux/project_home.js";
 import { DialogueController } from "../../rt-core/src/dialogue/controller.js";
 import { runHeadless, type HeadlessScript } from "../../rt-core/src/headless/runner.js";
+import { CanvasProjection } from "../../rt-core/src/canvas/projection.js";
+import { TimelineScrubber } from "../../rt-core/src/canvas/scrubber.js";
+import { LineageDrillDown } from "../../rt-core/src/canvas/lineage.js";
 import {
   parseDecomposition,
   saveDraftDecomposition,
@@ -59,7 +62,9 @@ export class WebUIServer {
   private readonly versions: VersionStore;
   private readonly machine: ProductStateMachine;
   private readonly home: ProjectHomeModel;
-  private readonly http = createServer((req, res) => this.rest(req, res));
+  private readonly canvas: Promise<CanvasProjection>;
+  private _scrubber: TimelineScrubber | null = null;
+  private readonly http = createServer((req, res) => void this.rest(req, res));
   private readonly wss = new WebSocketServer({ noServer: true });
   private msgId = 0;
 
@@ -69,6 +74,7 @@ export class WebUIServer {
     this.versions = new VersionStore(this.ledger);
     this.machine = new ProductStateMachine(new EngineCore(this.ledger), this.versions);
     this.home = new ProjectHomeModel(this.ledger, this.versions);
+    this.canvas = CanvasProjection.fromLedger(this.ledger);
     this.http.on("upgrade", (req, socket, head) => {
       if (req.url === "/ws") {
         this.wss.handleUpgrade(req, socket, head, (ws) => this.wss.emit("connection", ws, req));
@@ -127,7 +133,7 @@ export class WebUIServer {
     });
   }
 
-  private rest(req: IncomingMessage, res: ServerResponse): void {
+  private async rest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const reply = (code: number, body: unknown): void => {
       res.writeHead(code, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
@@ -153,7 +159,76 @@ export class WebUIServer {
       }
       return;
     }
+    const research = /^\/api\/research\/([^/]+)(\/beats|\/at\/(\d+)|\/lineage\/(\d+)\/([^/]+))?$/.exec(req.url ?? "");
+    if (research !== null) {
+      const taskId = decodeURIComponent(research[1]!);
+      try {
+        if (research[2] === "/beats") {
+          reply(200, { beats: this.scrubber().beats() });
+        } else if (research[3] !== undefined) {
+          reply(200, await this.atBeat(taskId, Number(research[3])));
+        } else if (research[4] !== undefined && research[5] !== undefined) {
+          const lineage = this.lineage().resolve(taskId, Number(research[4]), decodeURIComponent(research[5]));
+          reply(200, lineage ?? { error: "no lineage (no fake lineage)" });
+        } else {
+          reply(200, await this.researchView(taskId));
+        }
+      } catch (error) {
+        reply(500, { error: String(error instanceof Error ? error.message : error) });
+      }
+      return;
+    }
     reply(404, { error: "not found" });
+  }
+
+  /** P4 three-layer view: ❓研究问题 → 🧵主线任务 → 调研 DAG (stage containers
+   * × claim rows). Assembled from the #559 canvas projection + the stage table. */
+  private async researchView(taskId: string): Promise<Record<string, unknown>> {
+    const canvas = await (await this.canvas).render(taskId);
+    // the claims surface is the live posterior authority (dual-write: the
+    // engine updates surfaces + events; surface wins for display state)
+    const claims: Record<string, unknown> = { ...canvas.claims };
+    for (const claim of this.ledger.listClaims(taskId)) {
+      claims[String(claim.claim_id)] = {
+        text: String(claim.text ?? ""),
+        posterior: Number(claim.posterior ?? 0),
+        verify_tier: String(claim.verify_tier ?? ""),
+        weight: String(claim.weight ?? "important"),
+        state: Number(claim.posterior ?? 0) >= 0.9 ? "decided" : "undecided",
+      };
+    }
+    const stages = this.ledger.connection
+      .prepare("SELECT stage_id, title, status, claim_ids, depends_on, assigned_worker_class FROM parallel_stages")
+      .all() as Array<Record<string, unknown>>;
+    return {
+      question: canvas.question,
+      claims,
+      transitions: canvas.transitions,
+      providers: canvas.providers,
+      stages: stages.map((s) => ({ ...s, claim_ids: JSON.parse(String(s.claim_ids)) as string[], depends_on: JSON.parse(String(s.depends_on)) as string[] })),
+    };
+  }
+
+  /** #572 scrubber: the canvas at any t is a pure projection of events ≤ t. */
+  private atBeat(taskId: string, t: number): Promise<Record<string, unknown>> {
+    void taskId;
+    return this.scrubber().projectionAt(t).then((view) => ({
+      console: view.console,
+      claims: view.snapshot.Claim ?? {},
+      stages: view.snapshot.Stage ?? {},
+      beats: this.scrubber().beatCount(),
+    }));
+  }
+
+  private scrubber(): TimelineScrubber {
+    if (this._scrubber === null) {
+      this._scrubber = new TimelineScrubber(this.ledger, join(this.options.workspace, "scrub-replay.db"));
+    }
+    return this._scrubber;
+  }
+
+  private lineage(): LineageDrillDown {
+    return new LineageDrillDown(this.versions);
   }
 
   private rpc(ws: WebSocket, data: unknown): void {

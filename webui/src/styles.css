@@ -64,3 +64,23 @@ button.ghost.danger { color: #c0392b; border-color: #f0c4bd; }
 .element { background: #fafbfd; border: 1px solid #eef0f4; border-radius: 6px; padding: 6px 8px; font-size: 12px; margin-bottom: 6px; }
 .element .prov { color: #999; font-size: 11px; margin: 3px 0; }
 button.tiny { padding: 1px 8px; font-size: 11px; margin-top: 2px; }
+/* ---------------- P4 research graph ---------------- */
+.research { grid-column: 1 / -1; }
+.graph { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.gnode { border: 1px solid #dfe3ec; border-radius: 8px; padding: 6px 10px; font-size: 13px; background: #fbfcfe; }
+.gnode.question { border-color: #c4d5fb; background: #f3f7ff; }
+.dag { display: flex; gap: 10px; flex-wrap: wrap; margin-left: 22px; }
+.stage { border: 1px dashed #c9cede; border-radius: 8px; padding: 8px; min-width: 220px; flex: 1; }
+.stage-head { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+.dep { color: #999; font-weight: 400; font-size: 11px; margin-left: 6px; }
+.claim-row { background: #fff; border: 1px solid #eef0f4; border-radius: 6px; padding: 4px 8px; font-size: 12px; margin: 4px 0; cursor: pointer; }
+.claim-row.decided { border-color: #cdeccd; background: #f4fdf4; }
+.claim-row.orphan { margin-left: 22px; }
+.badge { font-size: 10px; border-radius: 4px; padding: 0 5px; margin-left: 6px; background: #f0f0f0; color: #666; }
+.badge.decided { background: #dff3df; color: #1d7a1d; }
+.badge.running { background: #eef4ff; color: #2f6fed; }
+.scrubber { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.scrubber input { flex: 1; }
+.console-lines { max-height: 200px; overflow-y: auto; font-family: ui-monospace, Menlo, monospace; font-size: 11px; border: 1px solid #eef0f4; border-radius: 8px; padding: 6px; }
+.cline { padding: 1px 0; }
+.drawer { border: 1px solid #c4d5fb; background: #f7faff; border-radius: 8px; padding: 10px; margin-top: 10px; font-size: 12px; }
