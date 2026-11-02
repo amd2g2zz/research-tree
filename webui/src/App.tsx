@@ -341,6 +341,36 @@ export function App() {
     setArchiveView((await res.json()) as never);
   };
 
+  // ---------------- 设置页（pi 同源写路径，#638） ----------------
+  const [settings, setSettings] = useState<{ present: boolean; default_model: string | null; models: string[]; auth_providers: string[]; config_path: string } | null>(null);
+  const [provider, setProvider] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState("");
+
+  const refreshSettings = useCallback(async () => {
+    setSettings((await (await fetch("/api/config/pi")).json()) as never);
+  }, []);
+
+  useEffect(() => {
+    void refreshSettings();
+  }, [refreshSettings]);
+
+  const saveSettings = async (what: "key" | "model"): Promise<void> => {
+    try {
+      if (what === "key") {
+        await rpc(await getSocket(), "config.setProviderKey", { provider: provider.trim(), api_key: apiKey });
+        push("rpc", `provider ${provider.trim()} 的 key 已写入 pi 配置（审计只记名，key 不回显）`);
+        setApiKey("");
+      } else {
+        await rpc(await getSocket(), "config.setDefaultModel", { model: model.trim() });
+        push("rpc", `默认模型 → ${model.trim()}（新开的 pi 会话生效）`);
+      }
+      await refreshSettings();
+    } catch (error) {
+      push("error", String(error));
+    }
+  };
+
   // ---------------- P3 decomposition page ----------------
   const [decomp, setDecomp] = useState<{
     decomposition_id: string;
@@ -599,6 +629,51 @@ export function App() {
                 聊得差不多了 → 分解（≥3 句被路由后可用；P3 页面 #635 落地）
               </button>
             </p>
+          </section>
+          {/* ---------------- 设置页（pi 同源，#638） ---------------- */}
+          <section className="card settings">
+            <h2>设置 — 模型 / API（与 pi agent 同源：~/.pi/agent 是唯一事实源）</h2>
+            {settings === null ? (
+              <p className="empty">配置读取中…</p>
+            ) : (
+              <>
+                <p className="hint">
+                  当前：默认模型 {settings.default_model ?? "未设置"} · provider {settings.auth_providers.join(", ") || "无"} · 配置目录{" "}
+                  <code>{settings.config_path}</code>。此页直接读写 pi 的配置文件，rt 侧无副本；key 永不回显。
+                </p>
+                <div className="row">
+                  <select value={model} onChange={(e) => setModel(e.target.value)}>
+                    <option value="">— 选择默认模型 —</option>
+                    {settings.models.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    placeholder="或输入模型名"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                  />
+                  <button onClick={() => void saveSettings("model")} disabled={model.trim() === ""}>
+                    设为默认
+                  </button>
+                </div>
+                <div className="row">
+                  <input placeholder="provider（如 zai / openai）" value={provider} onChange={(e) => setProvider(e.target.value)} />
+                  <input
+                    type="password"
+                    placeholder="API key（保存后不回显）"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                  />
+                  <button onClick={() => void saveSettings("key")} disabled={provider.trim() === "" || apiKey.trim() === ""}>
+                    保存 key
+                  </button>
+                </div>
+                <p className="hint">新开的 pi 会话使用新配置；进行中的会话不被打断。变更落审计事件（只记 provider 名，不记 key）。</p>
+              </>
+            )}
           </section>
           {/* ---------------- P5 版本页 ---------------- */}
           <section className="card versions">
