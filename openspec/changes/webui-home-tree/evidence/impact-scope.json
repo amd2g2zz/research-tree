@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"webui-home-tree","files":["openspec/changes/webui-home-tree/evidence/impact-scope.json","openspec/changes/webui-home-tree/proposal.md","openspec/changes/webui-home-tree/specs/webui/spec.md","openspec/changes/webui-home-tree/tasks.md","webui-server/src/server.ts","webui-server/test/server.test.ts","webui/src/App.tsx","webui/src/styles.css"]}

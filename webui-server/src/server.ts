@@ -74,6 +74,37 @@ export class WebUIServer {
     });
   }
 
+  /** P1 sidebar tree: project → research lines (main/fork) → version nodes
+   * (vN·hash·verdict, fork markers) + the draft row (未冻结·不可跟踪).
+   * Assembled read-only from #571 ProjectHomeModel + #548 version store. */
+  private tree(): Array<Record<string, unknown>> {
+    return this.home.listProjects().map((project) => ({
+      ...project,
+      vitals: this.home.vitals(project.project_id),
+      lines: this.home.listLines(project.project_id).map((line) => {
+        const versions = this.versions
+          .listVersions(line.task_id)
+          .slice()
+          .sort((a, b) => b.v - a.v)
+          .map((v) => ({
+          v: v.v,
+          verdict: v.verdict,
+          commit_hash: v.commit_hash,
+          summary: v.summary,
+          forked: this.versions.forkChildren(line.task_id, v.v).length > 0,
+        }));
+        const draft = this.versions.draftOf(line.task_id);
+        return {
+          task_id: line.task_id,
+          role: line.role,
+          latest: line.latest,
+          versions,
+          draft: draft !== null ? { base_v: draft.base_v, updated_at: draft.updated_at } : null,
+        };
+      }),
+    }));
+  }
+
   listen(port = 0): Promise<number> {
     return new Promise((resolve) => {
       this.http.listen(port, "127.0.0.1", () => resolve((this.http.address() as { port: number }).port));
@@ -100,6 +131,10 @@ export class WebUIServer {
     }
     if (req.url === "/api/projects") {
       reply(200, { projects: this.home.listProjects() });
+      return;
+    }
+    if (req.url === "/api/tree") {
+      reply(200, { projects: this.tree() });
       return;
     }
     const vitals = /^\/api\/projects\/([^/]+)\/vitals$/.exec(req.url ?? "");
@@ -141,6 +176,12 @@ export class WebUIServer {
       case "project.registerTask":
         this.home.registerTask(String(params.project_id), String(params.task_id), params.role === "fork" ? "fork" : "main");
         return { registered: true };
+      case "project.archive":
+        this.home.archiveProject(String(params.project_id));
+        return { archived: true };
+      case "project.delete":
+        this.home.deleteProject(String(params.project_id));
+        return { deleted: true };
       case "chat.ingest": {
         const kind = String(params.kind);
         if (!(CHAT_KINDS as readonly string[]).includes(kind)) {
