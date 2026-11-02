@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"webui-hub","files":["openspec/changes/webui-hub/evidence/impact-scope.json","openspec/changes/webui-hub/proposal.md","openspec/changes/webui-hub/specs/webui/spec.md","openspec/changes/webui-hub/tasks.md","rt-core/src/store/ledger.ts","webui-server/src/server.ts","webui-server/test/server.test.ts","webui/src/App.tsx","webui/src/styles.css"]}

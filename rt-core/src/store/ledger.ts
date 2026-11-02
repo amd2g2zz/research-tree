@@ -225,6 +225,21 @@ const MIGRATIONS: readonly Migration[] = [
       CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_dedupe ON memories(scope, kind, content_hash, status);
     `,
   },
+  {
+    version: 8,
+    statements: `
+      CREATE TABLE IF NOT EXISTS chat_messages (
+          task_id TEXT NOT NULL,
+          seq INTEGER NOT NULL,
+          role TEXT NOT NULL CHECK (role IN ('user', 'rt', 'system')),
+          kind TEXT NOT NULL,
+          text TEXT NOT NULL,
+          receipt_json TEXT,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (task_id, seq)
+      );
+    `,
+  },
 ];
 
 function chainHash(record: Record<string, unknown>): string {

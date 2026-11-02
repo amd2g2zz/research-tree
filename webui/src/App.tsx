@@ -39,6 +39,26 @@ interface LogLine {
   kind: "engine" | "rpc" | "error";
   text: string;
 }
+type UtteranceKind = "preference" | "claim" | "guess" | "branch";
+interface ChatMessage {
+  seq: number;
+  role: "user" | "rt" | "system";
+  kind: string;
+  text: string;
+  receipt_json: string | null;
+  created_at: string;
+}
+interface TaskStatus {
+  phase: string;
+  latest: { v: number; verdict: string; commit_hash: string } | null;
+  routed_count: number;
+}
+const KIND_LABELS: Record<UtteranceKind, string> = {
+  preference: "偏好/意图",
+  claim: "事实主张",
+  guess: "方案猜测",
+  branch: "分支/岔路",
+};
 
 const WALK_STEPS = [
   {
@@ -82,6 +102,11 @@ export function App() {
   const [running, setRunning] = useState(false);
   const [name, setName] = useState("");
   const socketRef = useRef<WebSocket | null>(null);
+  // ---------------- P2 hub state ----------------
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [status, setStatus] = useState<TaskStatus | null>(null);
+  const [draft, setDraft] = useState("");
+  const [kind, setKind] = useState<UtteranceKind>("preference");
 
   const push = useCallback((kind: LogLine["kind"], text: string) => {
     setLog((prev) => [...prev.slice(-199), { kind, text }]);
@@ -197,6 +222,42 @@ export function App() {
 
   const selectedProject = tree.find((p) => p.project_id === selected) ?? null;
 
+  // ---------------- P2 hub actions ----------------
+  const mainTaskId = selectedProject?.lines.find((l) => l.role === "main")?.task_id ?? null;
+
+  const refreshHub = useCallback(
+    async (taskId: string) => {
+      const h = await rpc(await getSocket(), "chat.history", { task_id: taskId });
+      setMessages((h.messages as never) ?? []);
+      setStatus((await rpc(await getSocket(), "task.status", { task_id: taskId })) as never as TaskStatus);
+    },
+    [getSocket, rpc],
+  );
+
+  useEffect(() => {
+    if (mainTaskId !== null) {
+      void refreshHub(mainTaskId);
+    } else {
+      setMessages([]);
+      setStatus(null);
+    }
+  }, [mainTaskId, refreshHub]);
+
+  const sendChat = async (): Promise<void> => {
+    if (mainTaskId === null || draft.trim() === "") {
+      return;
+    }
+    try {
+      const result = await rpc(await getSocket(), "chat.ingest", { task_id: mainTaskId, kind, text: draft.trim() });
+      const routed = (result as { receipt: { routed: string } }).receipt.routed;
+      push("rpc", `已路由：${KIND_LABELS[kind]} → ${routed}`);
+      setDraft("");
+      await refreshHub(mainTaskId);
+    } catch (error) {
+      push("error", String(error));
+    }
+  };
+
   return (
     <div className="app">
       <header>
@@ -295,6 +356,60 @@ export function App() {
                 <p className="hint">演练走 #579 headless 全链路；真实对话/分解页在 #634/#635 落地。</p>
               </>
             )}
+          </section>
+          {/* ---------------- P2 hub 对话页（项目主界面） ---------------- */}
+          <section className="card chat">
+            <h2>对话（hub）{mainTaskId !== null && <code className="task-id">{mainTaskId}</code>}</h2>
+            {/* 任务状态卡：运行中→查看研究；收敛→报告+冻结；提交后消失（phase 回 chat 且有 latest） */}
+            {status !== null && status.latest === null && status.phase !== "chat" && (
+              <div className="status-card">研究进行中（phase: {status.phase}）→ 查看研究</div>
+            )}
+            {status !== null && status.latest !== null && (
+              <div className="status-card aligned">
+                已提交 v{status.latest.v} · {status.latest.verdict} · <code>{status.latest.commit_hash.slice(0, 12)}</code>
+                <span className="hint">（状态卡提交后消失；继续研究=版本+1）</span>
+              </div>
+            )}
+            <div className="messages">
+              {messages.map((m) =>
+                m.role === "user" ? (
+                  <div key={m.seq} className="msg user">
+                    {m.text}
+                  </div>
+                ) : (
+                  <div key={m.seq} className="msg rt">
+                    {m.text}
+                  </div>
+                ),
+              )}
+              {messages.length === 0 && <div className="empty">研究从对话发起——把想法倒进来</div>}
+            </div>
+            {/* 追加信息门：输入框贯穿所有阶段 */}
+            <div className="row chat-input">
+              <select value={kind} onChange={(e) => setKind(e.target.value as UtteranceKind)}>
+                {(Object.keys(KIND_LABELS) as UtteranceKind[]).map((k) => (
+                  <option key={k} value={k}>
+                    {KIND_LABELS[k]}
+                  </option>
+                ))}
+              </select>
+              <input
+                placeholder="追加信息（贯穿所有阶段）"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && draft.trim() !== "" && void sendChat()}
+                disabled={mainTaskId === null}
+              />
+              <button onClick={() => void sendChat()} disabled={mainTaskId === null || draft.trim() === ""}>
+                发送
+              </button>
+            </div>
+            <p className="hint">
+              语义分类当前显式选择——LLM 分类器随 keyed-session provisioning（#588）接入后自动判定。
+              <button className="ghost inline" disabled={(status?.routed_count ?? 0) < 3}>
+                聊得差不多了 → 分解（≥3 句被路由后可用；P3 页面 #635 落地）
+              </button>
+            </p>
           </section>
           <section className="card console">
             <h2>引擎事件流</h2>

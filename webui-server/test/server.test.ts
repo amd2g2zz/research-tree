@@ -115,11 +115,11 @@ describe("webui spike (issue #632)", () => {
 
     // the chat hub: three routed utterances (the browser sends what the user typed)
     const preference = await rpc("chat.ingest", { task_id: "t-main", kind: "preference", text: "2C4G 越快上越好" });
-    expect(preference.routed).toBe("slot");
+    expect((preference.receipt as { routed: string }).routed).toBe("slot");
     const guess = await rpc("chat.ingest", { task_id: "t-main", kind: "guess", text: "2C4G 够用了吧", hardness: "guessed" });
-    expect(guess.routed).toBe("hypothesis-ledger");
+    expect((guess.receipt as { routed: string }).routed).toBe("hypothesis-ledger");
     const branch = await rpc("chat.ingest", { task_id: "t-main", kind: "branch", text: "或者我们换 4C8G？" });
-    expect(branch.routed).toBe("parking-lot");
+    expect((branch.receipt as { routed: string }).routed).toBe("parking-lot");
 
     // research.launch = the decompose-confirm-sign-commit walk (#579 machinery)
     const launch = await rpc("research.launch", {
@@ -197,6 +197,45 @@ describe("webui spike (issue #632)", () => {
     const line2 = ((tree2.find((p) => p.project_id === "pT")!.lines as Array<Record<string, unknown>>)[0]!);
     expect((line2.versions as Array<Record<string, unknown>>).map((v) => v.v)).toEqual([1, 0]);
     expect(line2.draft).toBeNull(); // freeze consumed the draft
+  });
+
+  it("P2 hub: transcript persists, status card tracks phase, 分解 gate counts routed sentences (issue #634)", async () => {
+    await rpc("project.create", { project_id: "pH", name: "hub 项目" });
+    await rpc("project.registerTask", { project_id: "pH", task_id: "tH", role: "main" });
+
+    // three routed sentences → 「聊得差不多了 → 分解」 becomes available (client gate reads routed_count)
+    await rpc("chat.ingest", { task_id: "tH", kind: "preference", text: "越快上越好" });
+    await rpc("chat.ingest", { task_id: "tH", kind: "guess", text: "2C4G 够用吧", hardness: "guessed" });
+    const third = await rpc("chat.ingest", { task_id: "tH", kind: "claim", text: "我们的 p95 已经 400ms" });
+    expect(third.routed_count).toBe(3);
+
+    const history = await rpc("chat.history", { task_id: "tH" });
+    const messages = history.messages as Array<Record<string, unknown>>;
+    expect(messages).toHaveLength(6); // 3×(user + rt receipt)
+    expect(messages.filter((m) => m.role === "rt").every((m) => JSON.parse(String(m.receipt_json)).routed !== undefined)).toBe(true);
+
+    // status card before research: chat phase, no verdict, 分解 gate open
+    const before = await rpc("task.status", { task_id: "tH" });
+    expect(before).toMatchObject({ phase: "chat", latest: null, routed_count: 3 });
+
+    // after the full walk the status card shows the commit (收敛→报告+冻结提交→提交后消失的依据)
+    const launch = await rpc("research.launch", {
+      task_id: "tH",
+      pre_signed: { verdict: "PARK", summary: "预算尽" },
+      steps: [
+        { event: "open-draft", snapshot: { elements: {}, claims: [], evidence_refs: [], report: {}, deleted_nodes: [] }, base_v: null },
+        { event: "attach", decomposition: EXTRACTION, decomposition_id: "dc-h", plan: PLAN },
+        { event: "confirm" },
+        { event: "sign" },
+        { event: "research-completed" },
+      ],
+    });
+    // freezeTask lands BACK at chat (研究收敛自动回对话，docs 03) — the status
+    // card disappears after commit precisely because the phase is chat again
+    expect(launch.outcome).toBe("success");
+    const after = await rpc("task.status", { task_id: "tH" });
+    expect(after.phase).toBe("chat");
+    expect((after.latest as Record<string, unknown>)).toMatchObject({ v: 0, verdict: "PARK" });
   });
 
   it("card wall management: archive blocked-while-active delete surfaced verbatim; archived read-only; delete allowed (issue #633)", async () => {
