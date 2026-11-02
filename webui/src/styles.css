@@ -4,22 +4,36 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: #f2f3f7; color: #1c1e21; }
-.app { max-width: 1080px; margin: 0 auto; padding: 18px; }
+.app { max-width: 1180px; margin: 0 auto; padding: 18px; }
 header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; }
-h1 { font-size: 20px; margin: 0; }
+h1 { font-size: 20px; margin: 0; cursor: pointer; }
 .pi-config { font-size: 12px; color: #666; }
-main { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.layout { display: grid; grid-template-columns: 300px 1fr; gap: 14px; align-items: start; }
+main { display: grid; gap: 14px; }
 .card { background: #fff; border: 1px solid #e2e4ea; border-radius: 10px; padding: 14px; }
 .console { grid-column: 1 / -1; }
 h2 { font-size: 14px; margin: 0 0 10px; color: #444; }
 .row { display: flex; gap: 8px; margin-bottom: 10px; }
 input { flex: 1; padding: 7px 10px; border: 1px solid #d5d8e0; border-radius: 7px; }
-button { padding: 7px 14px; border: 0; border-radius: 7px; background: #2f6fed; color: #fff; cursor: pointer; }
+button { padding: 7px 14px; border: 0; border-radius: 7px; background: #2f6fed; color: #fff; cursor: pointer; margin-top: 6px; }
 button:disabled { background: #a9bdf3; cursor: default; }
-ul.projects { list-style: none; margin: 0; padding: 0; }
-ul.projects li { padding: 7px 4px; border-bottom: 1px solid #f0f1f5; cursor: pointer; }
+button.ghost { background: transparent; color: #2f6fed; border: 1px solid #c4d5fb; }
+button.ghost.danger { color: #c0392b; border-color: #f0c4bd; }
+.card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.card-head .spacer { flex: 1; }
+.chip { font-size: 11px; background: #f4f5f9; border: 1px solid #e2e4ea; border-radius: 5px; padding: 1px 7px; }
 .status { font-size: 11px; margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: #eef4ff; color: #2f6fed; }
 .status.archived { background: #f0f0f0; color: #888; }
+/* ---------------- P1 sidebar tree ---------------- */
+.tree-project { margin-bottom: 8px; }
+.tree-row { padding: 4px 6px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+.tree-row:hover { background: #f4f6fd; }
+.tree-row.project { font-weight: 600; }
+.tree-row.line-node { padding-left: 20px; color: #333; }
+.tree-row.version { padding-left: 38px; color: #666; font-size: 12px; cursor: default; }
+.tree-row.draft { padding-left: 38px; color: #b8860b; font-size: 12px; cursor: default; }
+.tree-row.archived { opacity: 0.55; }
+.fork-mark { margin-left: 6px; color: #7a4fd0; font-size: 11px; }
 .empty { color: #999; font-size: 13px; }
 .vitals div { padding: 3px 0; font-size: 14px; }
 .hint { font-size: 12px; color: #999; }

@@ -152,4 +152,61 @@ describe("webui spike (issue #632)", () => {
     await expect(rest("/api/projects/ghost/vitals")).resolves.toMatchObject({ status: 404 });
     await expect(rpc("project.registerTask", { project_id: "ghost", task_id: "t9", role: "main" })).rejects.toThrow(/unknown project/);
   });
+
+  it("P1 tree renders lines with versions + draft row; fork marks both ends (issue #633)", async () => {
+    await rpc("project.create", { project_id: "pT", name: "树形项目" });
+    await rpc("project.registerTask", { project_id: "pT", task_id: "tT", role: "main" });
+    await rpc("research.launch", {
+      task_id: "tT",
+      pre_signed: { verdict: "GO", summary: "v0" },
+      steps: [
+        { event: "open-draft", snapshot: { elements: {}, claims: [], evidence_refs: [], report: {}, deleted_nodes: [] }, base_v: null },
+        { event: "attach", decomposition: EXTRACTION, decomposition_id: "dc-t", plan: PLAN },
+        { event: "confirm" },
+        { event: "sign" },
+        { event: "research-completed" },
+      ],
+    });
+    // an unfrozen draft appears as 未冻结·不可跟踪 (opened explicitly, not yet frozen)
+    await rpc("research.launch", {
+      task_id: "tT",
+      pre_signed: {},
+      steps: [
+        {
+          event: "open-draft",
+          snapshot: { elements: {}, claims: [{ id: "c-wip", text: "wip claim" }], evidence_refs: [], report: {}, deleted_nodes: [] },
+          base_v: 0,
+        },
+      ],
+    });
+    const tree = (await rest("/api/tree")).body.projects as Array<Record<string, unknown>>;
+    const pT = tree.find((p) => p.project_id === "pT")!;
+    const line = (pT.lines as Array<Record<string, unknown>>)[0]!;
+    expect(line.role).toBe("main");
+    expect((line.versions as Array<Record<string, unknown>>)[0]).toMatchObject({ v: 0, verdict: "GO", forked: false });
+    expect(line.draft).not.toBeNull();
+    expect(pT.vitals).toMatchObject({ research_lines: 1 });
+
+    // freeze the draft (version+1) — freeze consumes it, the draft row vanishes
+    await rpc("research.launch", {
+      task_id: "tT",
+      pre_signed: { verdict: "GO", summary: "v1" },
+      steps: [{ event: "confirm" }, { event: "sign" }, { event: "research-completed" }],
+    });
+    const tree2 = (await rest("/api/tree")).body.projects as Array<Record<string, unknown>>;
+    const line2 = ((tree2.find((p) => p.project_id === "pT")!.lines as Array<Record<string, unknown>>)[0]!);
+    expect((line2.versions as Array<Record<string, unknown>>).map((v) => v.v)).toEqual([1, 0]);
+    expect(line2.draft).toBeNull(); // freeze consumed the draft
+  });
+
+  it("card wall management: archive blocked-while-active delete surfaced verbatim; archived read-only; delete allowed (issue #633)", async () => {
+    await rpc("project.create", { project_id: "pM", name: "管理项目" });
+    await rpc("project.registerTask", { project_id: "pM", task_id: "tM", role: "main" });
+    await expect(rpc("project.delete", { project_id: "pM" })).rejects.toThrow(/archiv/); // engine red line verbatim
+    await rpc("project.archive", { project_id: "pM" });
+    await expect(rpc("project.registerTask", { project_id: "pM", task_id: "tM2", role: "fork" })).rejects.toThrow(/archived/); // read-only
+    await rpc("project.delete", { project_id: "pM" });
+    const tree = (await rest("/api/tree")).body.projects as Array<Record<string, unknown>>;
+    expect(tree.some((p) => p.project_id === "pM")).toBe(false);
+  });
 });
