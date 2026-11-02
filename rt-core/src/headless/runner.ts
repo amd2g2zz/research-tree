@@ -157,5 +157,13 @@ function confirmDecompositionVia(
   extraction: Record<string, unknown>,
   decompositionId: string,
 ): void {
-  confirmDecomposition(ledger, taskId, parseDecomposition(extraction as never), { refusals: "none" }, { decomposition_id: decompositionId });
+  try {
+    confirmDecomposition(ledger, taskId, parseDecomposition(extraction as never), { refusals: "none" }, { decomposition_id: decompositionId });
+  } catch (error) {
+    // the P3 page confirms before launching; a walk re-attaching the SAME
+    // already-confirmed set is idempotent (anything else still fails closed)
+    if (!(error instanceof Error) || !/already confirmed/.test(error.message)) {
+      throw error;
+    }
+  }
 }

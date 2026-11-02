@@ -30,6 +30,13 @@ import { ProductStateMachine } from "../../rt-core/src/state/machine.js";
 import { ProjectHomeModel, ProjectHomeError } from "../../rt-core/src/ux/project_home.js";
 import { DialogueController } from "../../rt-core/src/dialogue/controller.js";
 import { runHeadless, type HeadlessScript } from "../../rt-core/src/headless/runner.js";
+import {
+  parseDecomposition,
+  saveDraftDecomposition,
+  confirmDecomposition,
+  checklistFor,
+  type DecompositionElements,
+} from "../../rt-core/src/decomposition/engine.js";
 import { readPiConfig } from "./pi-config.js";
 
 export interface WebUIOptions {
@@ -216,6 +223,73 @@ export class WebUIServer {
           latest: latest !== null ? { v: latest.v, verdict: latest.verdict, commit_hash: latest.commit_hash } : null,
           routed_count: this.routedCount(taskId),
         };
+      }
+      case "decompose.prepare": {
+        // P3: the extraction arrives from the LLM side (pi session); parse +
+        // save as a DRAFT — confirmation is a separate explicit user action.
+        const taskId = String(params.task_id);
+        const decompositionId = String(params.decomposition_id);
+        const parsed = parseDecomposition(params.extraction as DecompositionElements);
+        const notes = { refusals: typeof params.refusals_note === "string" ? params.refusals_note : undefined };
+        const row = saveDraftDecomposition(this.ledger, taskId, parsed, notes, { decomposition_id: decompositionId });
+        return { checklist: row.checklist_state, elements: row.elements, dropped: parsed.dropped };
+      }
+      case "decompose.get": {
+        const row = this.ledger.getDecomposition(String(params.task_id), String(params.decomposition_id));
+        if (row === null) {
+          throw new ProjectHomeError(`unknown decomposition: ${String(params.decomposition_id)}`);
+        }
+        return row;
+      }
+      case "decompose.removeElement": {
+        // 编辑权在确认前: removing an element re-drafts; a confirmed set is
+        // frozen — post-confirmation change is a major pivot (re-sign).
+        const taskId = String(params.task_id);
+        const decompositionId = String(params.decomposition_id);
+        const row = this.ledger.getDecomposition(taskId, decompositionId);
+        if (row === null) {
+          throw new ProjectHomeError(`unknown decomposition: ${decompositionId}`);
+        }
+        if (row.status === "confirmed") {
+          throw new ProjectHomeError("decomposition is confirmed; post-confirmation change is a major pivot (re-sign)");
+        }
+        const elementClass = String(params.element_class);
+        const index = Number(params.index);
+        const elements = row.elements as DecompositionElements;
+        const list = (elements as Record<string, unknown>)[elementClass];
+        if (!Array.isArray(list) || index < 0 || index >= list.length) {
+          throw new ProjectHomeError(`no removable element at ${elementClass}[${index}]`);
+        }
+        list.splice(index, 1);
+        const parsed = parseDecomposition(elements);
+        const saved = saveDraftDecomposition(this.ledger, taskId, parsed, (row.checklist_state as { notes?: { refusals?: string } }).notes ?? {}, {
+          decomposition_id: decompositionId,
+        });
+        return { checklist: saved.checklist_state, elements: saved.elements };
+      }
+      case "decompose.confirm": {
+        // 确认 → the element set freezes as the research constitution (v0)
+        const taskId = String(params.task_id);
+        const decompositionId = String(params.decomposition_id);
+        const row = this.ledger.getDecomposition(taskId, decompositionId);
+        if (row === null) {
+          throw new ProjectHomeError(`unknown decomposition: ${decompositionId}`);
+        }
+        const parsed = parseDecomposition(row.elements as DecompositionElements);
+        const notes = (row.checklist_state as { notes?: { refusals?: string } }).notes ?? {};
+        const confirmed = confirmDecomposition(this.ledger, taskId, parsed, notes, { decomposition_id: decompositionId });
+        this.machine.attachDecomposition(taskId, decompositionId);
+        return { confirmed: true, checklist: confirmed.checklist_state };
+      }
+      case "decompose.checklist": {
+        const taskId = String(params.task_id);
+        const decompositionId = String(params.decomposition_id);
+        const row = this.ledger.getDecomposition(taskId, decompositionId);
+        if (row === null) {
+          throw new ProjectHomeError(`unknown decomposition: ${decompositionId}`);
+        }
+        const parsed = parseDecomposition(row.elements as DecompositionElements);
+        return checklistFor(parsed, (row.checklist_state as { notes?: { refusals?: string } }).notes ?? {});
       }
       case "research.launch": {
         const script: HeadlessScript = {
