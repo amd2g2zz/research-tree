@@ -42,7 +42,7 @@ import {
   checklistFor,
   type DecompositionElements,
 } from "../../rt-core/src/decomposition/engine.js";
-import { readPiConfig } from "./pi-config.js";
+import { readPiConfig, writeProviderKey, writeDefaultModel, ConfigWriteError } from "./pi-config.js";
 
 export interface WebUIOptions {
   /** server workspace — the ledger lives here */
@@ -245,6 +245,10 @@ export class WebUIServer {
     }));
   }
 
+  private piConfigDir(): string | undefined {
+    return this.options.piConfigDir;
+  }
+
   /** test access to the engine log (H7 telemetry assertions) */
   ledgerForTests(): LedgerStore {
     return this.ledger;
@@ -326,6 +330,30 @@ export class WebUIServer {
             .prepare("SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? ORDER BY seq")
             .all(String(params.task_id)) as Array<Record<string, unknown>>,
         };
+      case "config.setProviderKey": {
+        // #638: write pi's OWN auth.json — the audit records the provider
+        // NAME only, never the key; the key never echoes back over the wire
+        const result = writeProviderKey(this.piConfigDir(), String(params.provider), String(params.api_key ?? ""));
+        this.ledger.appendGraphEvent("provider.action", {
+          id: `settings-auth-${Date.now()}`,
+          provider: "settings",
+          action: "report",
+          target: `settings:auth:${result.provider}`,
+          outcome: "ok",
+        });
+        return result;
+      }
+      case "config.setDefaultModel": {
+        const result = writeDefaultModel(this.piConfigDir(), String(params.model ?? ""));
+        this.ledger.appendGraphEvent("provider.action", {
+          id: `settings-model-${Date.now()}`,
+          provider: "settings",
+          action: "report",
+          target: `settings:model:${result.default_model}`,
+          outcome: "ok",
+        });
+        return result;
+      }
       case "task.status": {
         // 任务状态卡 data: phase → 下一步动作唯一化 (运行中→查看研究 / 收敛→报告+冻结 / 提交后消失)
         const taskId = String(params.task_id);

@@ -93,3 +93,5 @@ button.tiny { padding: 1px 8px; font-size: 11px; margin-top: 2px; }
 .snapshot { border: 1px solid #cdeccd; background: #f7fcf7; border-radius: 8px; padding: 10px; margin-top: 10px; }
 .frozen-banner { background: #dff3df; border-radius: 7px; padding: 8px 10px; font-size: 13px; margin-bottom: 8px; }
 .report { font-size: 12px; max-height: 200px; overflow: auto; background: #fff; border-radius: 7px; padding: 8px; }
+/* ---------------- settings ---------------- */
+.settings { grid-column: 1 / -1; border-color: #d9e3f8; }
