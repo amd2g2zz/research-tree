@@ -148,7 +148,10 @@ describe("webui spike (issue #632)", () => {
   });
 
   it("engine-side errors surface verbatim over RPC (typed, not swallowed)", async () => {
-    await expect(rpc("chat.ingest", { task_id: "t2", kind: "nonsense" })).rejects.toThrow(/utterance kind/);
+    // #651: an unrecognized kind no longer throws — the ClassificationPort
+    // judges (heuristic fallback here), disclosed via classified_by
+    const auto = await rpc("chat.ingest", { task_id: "t2", kind: "nonsense", text: "实测 p95 已 400ms" });
+    expect((auto.receipt as Record<string, unknown>).classified_by).toBe("heuristic");
     await expect(rest("/api/projects/ghost/vitals")).resolves.toMatchObject({ status: 404 });
     await expect(rpc("project.registerTask", { project_id: "ghost", task_id: "t9", role: "main" })).rejects.toThrow(/unknown project/);
   });

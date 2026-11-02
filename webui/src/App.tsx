@@ -39,7 +39,7 @@ interface LogLine {
   kind: "engine" | "rpc" | "error";
   text: string;
 }
-type UtteranceKind = "preference" | "claim" | "guess" | "branch";
+type UtteranceKind = "auto" | "preference" | "claim" | "guess" | "branch";
 interface ChatMessage {
   seq: number;
   role: "user" | "rt" | "system";
@@ -54,6 +54,7 @@ interface TaskStatus {
   routed_count: number;
 }
 const KIND_LABELS: Record<UtteranceKind, string> = {
+  auto: "自动分类",
   preference: "偏好/意图",
   claim: "事实主张",
   guess: "方案猜测",
@@ -106,7 +107,7 @@ export function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<TaskStatus | null>(null);
   const [draft, setDraft] = useState("");
-  const [kind, setKind] = useState<UtteranceKind>("preference");
+  const [kind, setKind] = useState<UtteranceKind>("auto");
 
   const push = useCallback((kind: LogLine["kind"], text: string) => {
     setLog((prev) => [...prev.slice(-199), { kind, text }]);
@@ -467,9 +468,13 @@ export function App() {
       return;
     }
     try {
-      const result = await rpc(await getSocket(), "chat.ingest", { task_id: mainTaskId, kind, text: draft.trim() });
-      const routed = (result as { receipt: { routed: string } }).receipt.routed;
-      push("rpc", `已路由：${KIND_LABELS[kind]} → ${routed}`);
+      const params: Record<string, unknown> = { task_id: mainTaskId, text: draft.trim() };
+      if (kind !== "auto") {
+        params.kind = kind;
+      }
+      const result = await rpc(await getSocket(), "chat.ingest", params);
+      const receipt = result.receipt as { routed: string; classified_by: string };
+      push("rpc", `已路由（${receipt.classified_by === "user" ? "手动" : receipt.classified_by === "pi-session" ? "pi 会话自动" : "规则回退"}）：→ ${receipt.routed}`);
       setDraft("");
       await refreshHub(mainTaskId);
     } catch (error) {

@@ -23,6 +23,9 @@ export interface PiConfigSummary {
   models: string[];
   /** provider names from auth.json — key VALUES are never read out */
   auth_providers: string[];
+  /** keyed-session readiness: ≥1 provider key AND a default model (#651) */
+  keyed_session_ready: boolean;
+  readiness: { has_provider_key: boolean; has_default_model: boolean };
 }
 
 type Json = Record<string, unknown>;
@@ -65,13 +68,23 @@ export function readPiConfig(dir: string = join(homedir(), ".pi", "agent")): PiC
   const store = readJson(join(dir, "models-store.json"));
   const auth = readJson(join(dir, "auth.json"));
   const models = store !== null ? extractModels(store) : { models: [], default_model: null };
+  const authProviders = auth !== null ? Object.keys(auth) : [];
+  const hasProviderKey =
+    auth !== null &&
+    authProviders.some((provider) => {
+      const entry = auth[provider];
+      return typeof entry === "object" && entry !== null && Object.keys(entry as Json).length > 0;
+    });
+  const hasDefaultModel = models.default_model !== null;
   return {
     config_path: dir,
     present: store !== null || auth !== null,
     default_model: models.default_model,
     models: models.models,
     // names only — values (API keys) are never surfaced
-    auth_providers: auth !== null ? Object.keys(auth) : [],
+    auth_providers: authProviders,
+    keyed_session_ready: hasProviderKey && hasDefaultModel,
+    readiness: { has_provider_key: hasProviderKey, has_default_model: hasDefaultModel },
   };
 }
 
