@@ -33,6 +33,8 @@ import { runHeadless, type HeadlessScript } from "../../rt-core/src/headless/run
 import { CanvasProjection } from "../../rt-core/src/canvas/projection.js";
 import { TimelineScrubber } from "../../rt-core/src/canvas/scrubber.js";
 import { LineageDrillDown } from "../../rt-core/src/canvas/lineage.js";
+import { VersionTimeline, VersionTimelineError } from "../../rt-core/src/versions/timeline.js";
+import { FourStateArchive } from "../../rt-core/src/versions/archive.js";
 import {
   parseDecomposition,
   saveDraftDecomposition,
@@ -63,6 +65,8 @@ export class WebUIServer {
   private readonly machine: ProductStateMachine;
   private readonly home: ProjectHomeModel;
   private readonly canvas: Promise<CanvasProjection>;
+  private readonly timeline: VersionTimeline;
+  private readonly archive: FourStateArchive;
   private _scrubber: TimelineScrubber | null = null;
   private readonly http = createServer((req, res) => void this.rest(req, res));
   private readonly wss = new WebSocketServer({ noServer: true });
@@ -75,6 +79,8 @@ export class WebUIServer {
     this.machine = new ProductStateMachine(new EngineCore(this.ledger), this.versions);
     this.home = new ProjectHomeModel(this.ledger, this.versions);
     this.canvas = CanvasProjection.fromLedger(this.ledger);
+    this.timeline = new VersionTimeline(this.ledger, this.versions, this.machine);
+    this.archive = new FourStateArchive(this.ledger, this.versions, this.machine);
     this.http.on("upgrade", (req, socket, head) => {
       if (req.url === "/ws") {
         this.wss.handleUpgrade(req, socket, head, (ws) => this.wss.emit("connection", ws, req));
@@ -144,6 +150,25 @@ export class WebUIServer {
     }
     if (req.url === "/api/projects") {
       reply(200, { projects: this.home.listProjects() });
+      return;
+    }
+    if (req.url === "/api/archive") {
+      reply(200, { entries: this.archive.list(), graveyard: this.archive.graveyard().map((e) => e.task_id) });
+      return;
+    }
+    const versionsRoute = /^\/api\/versions\/([^/]+)(\/snapshot\/(\d+))?$/.exec(req.url ?? "");
+    if (versionsRoute !== null) {
+      const taskId = decodeURIComponent(versionsRoute[1]!);
+      try {
+        if (versionsRoute[3] !== undefined) {
+          // 只读快照视图: frozen banner + full report projection
+          reply(200, this.timeline.snapshotView(taskId, Number(versionsRoute[3])));
+        } else {
+          reply(200, this.timeline.timeline(taskId));
+        }
+      } catch (error) {
+        reply(error instanceof VersionTimelineError ? 404 : 500, { error: String(error instanceof Error ? error.message : error) });
+      }
       return;
     }
     if (req.url === "/api/tree") {
@@ -220,6 +245,11 @@ export class WebUIServer {
     }));
   }
 
+  /** test access to the engine log (H7 telemetry assertions) */
+  ledgerForTests(): LedgerStore {
+    return this.ledger;
+  }
+
   private scrubber(): TimelineScrubber {
     if (this._scrubber === null) {
       this._scrubber = new TimelineScrubber(this.ledger, join(this.options.workspace, "scrub-replay.db"));
@@ -264,6 +294,13 @@ export class WebUIServer {
       case "project.delete":
         this.home.deleteProject(String(params.project_id));
         return { deleted: true };
+      case "version.continue":
+        // 继续研究 (version+1): live draft resumes, never clobbers; H7 telemetry lands
+        this.timeline.continueResearch(String(params.task_id));
+        return { opened: true };
+      case "version.fork":
+        // 从此分叉: new task inherits the snapshot (分叉即继承), lands in chat
+        return this.timeline.fork(String(params.task_id), Number(params.v), String(params.new_task_id));
       case "chat.ingest": {
         const kind = String(params.kind);
         if (!(CHAT_KINDS as readonly string[]).includes(kind)) {

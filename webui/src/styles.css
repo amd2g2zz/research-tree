@@ -84,3 +84,12 @@ button.tiny { padding: 1px 8px; font-size: 11px; margin-top: 2px; }
 .console-lines { max-height: 200px; overflow-y: auto; font-family: ui-monospace, Menlo, monospace; font-size: 11px; border: 1px solid #eef0f4; border-radius: 8px; padding: 6px; }
 .cline { padding: 1px 0; }
 .drawer { border: 1px solid #c4d5fb; background: #f7faff; border-radius: 8px; padding: 10px; margin-top: 10px; font-size: 12px; }
+/* ---------------- P5 version page ---------------- */
+.versions { grid-column: 1 / -1; }
+.vtl-meta { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 8px; }
+.vtl-row { padding: 6px 10px; border: 1px solid #eef0f4; border-radius: 7px; font-size: 13px; margin: 4px 0; cursor: pointer; }
+.vtl-row:hover { background: #f7f9ff; }
+.vtl-row.draft-row { color: #b8860b; cursor: default; }
+.snapshot { border: 1px solid #cdeccd; background: #f7fcf7; border-radius: 8px; padding: 10px; margin-top: 10px; }
+.frozen-banner { background: #dff3df; border-radius: 7px; padding: 8px 10px; font-size: 13px; margin-bottom: 8px; }
+.report { font-size: 12px; max-height: 200px; overflow: auto; background: #fff; border-radius: 7px; padding: 8px; }
