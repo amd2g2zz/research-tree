@@ -53,3 +53,14 @@ button.ghost.danger { color: #c0392b; border-color: #f0c4bd; }
 .msg.rt { background: #f4f5f9; color: #555; }
 .chat-input select { padding: 7px; border: 1px solid #d5d8e0; border-radius: 7px; font-size: 12px; }
 .ghost.inline { margin-left: 8px; padding: 2px 8px; font-size: 12px; }
+/* ---------------- P3 decomposition ---------------- */
+.decomp { grid-column: 1 / -1; }
+.checklist { border-radius: 8px; padding: 8px 12px; font-size: 13px; margin-bottom: 10px; }
+.checklist.ok { background: #eef9ee; border: 1px solid #cdeccd; }
+.checklist.gaps { background: #fdf3e7; border: 1px solid #f0d9b5; color: #8a5a00; }
+.wall { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }
+.cell { border: 1px solid #eef0f4; border-radius: 8px; padding: 8px; min-height: 80px; }
+.cell h3 { font-size: 12px; margin: 0 0 6px; color: #666; }
+.element { background: #fafbfd; border: 1px solid #eef0f4; border-radius: 6px; padding: 6px 8px; font-size: 12px; margin-bottom: 6px; }
+.element .prov { color: #999; font-size: 11px; margin: 3px 0; }
+button.tiny { padding: 1px 8px; font-size: 11px; margin-top: 2px; }

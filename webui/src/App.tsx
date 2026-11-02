@@ -222,6 +222,78 @@ export function App() {
 
   const selectedProject = tree.find((p) => p.project_id === selected) ?? null;
 
+  // ---------------- P3 decomposition page ----------------
+  const [decomp, setDecomp] = useState<{
+    decomposition_id: string;
+    elements: Record<string, Array<Record<string, unknown>>>;
+    checklist: { complete: boolean; gaps: string[] };
+    status?: string;
+  } | null>(null);
+
+  const prepareDecomp = async (): Promise<void> => {
+    if (mainTaskId === null) {
+      return;
+    }
+    try {
+      // 演练：extraction 由 LLM 侧（pi 会话）产出；keyed session 接入前此处注入 fixture
+      const result = await rpc(await getSocket(), "decompose.prepare", {
+        task_id: mainTaskId,
+        decomposition_id: `dc-${mainTaskId}`,
+        extraction: WALK_STEPS.find((s) => s.event === "attach")?.decomposition,
+        refusals_note: "none",
+      });
+      setDecomp({
+        decomposition_id: `dc-${mainTaskId}`,
+        elements: result.elements as never,
+        checklist: result.checklist as never,
+      });
+      push("rpc", `分解草稿已保存（溯源律丢弃 ${String(result.dropped)} 条无源要素）`);
+    } catch (error) {
+      push("error", String(error));
+    }
+  };
+
+  const removeElement = async (elementClass: string, index: number): Promise<void> => {
+    if (decomp === null || mainTaskId === null) {
+      return;
+    }
+    try {
+      const result = await rpc(await getSocket(), "decompose.removeElement", {
+        task_id: mainTaskId,
+        decomposition_id: decomp.decomposition_id,
+        element_class: elementClass,
+        index,
+      });
+      setDecomp({ ...decomp, elements: result.elements as never, checklist: result.checklist as never });
+      push("rpc", `已删除 ${elementClass}[${index}]（编辑权在确认前）`);
+    } catch (error) {
+      push("error", String(error)); // 确认后编辑 = major pivot，引擎拒绝 verbatim
+    }
+  };
+
+  const confirmDecomp = async (): Promise<void> => {
+    if (decomp === null || mainTaskId === null) {
+      return;
+    }
+    try {
+      await rpc(await getSocket(), "decompose.confirm", { task_id: mainTaskId, decomposition_id: decomp.decomposition_id });
+      push("rpc", "要素集已冻结为研究宪法（v0）；启动研究");
+      setDecomp({ ...decomp, status: "confirmed" });
+      await refreshTree();
+    } catch (error) {
+      push("error", String(error)); // 预注册缺口 verbatim
+    }
+  };
+
+  const ELEMENT_META: Array<[string, string]> = [
+    ["requirements", "🎯 需求"],
+    ["constraints", "📌 条件约束"],
+    ["background", "📖 任务背景"],
+    ["intents", "💡 用户意图"],
+    ["refusals", "🚫 拒绝点"],
+    ["difficulties", "⚠ 难点→kill 候选"],
+  ];
+
   // ---------------- P2 hub actions ----------------
   const mainTaskId = selectedProject?.lines.find((l) => l.role === "main")?.task_id ?? null;
 
@@ -410,6 +482,49 @@ export function App() {
                 聊得差不多了 → 分解（≥3 句被路由后可用；P3 页面 #635 落地）
               </button>
             </p>
+          </section>
+          {/* ---------------- P3 分解页 ---------------- */}
+          <section className="card decomp">
+            <h2>分解（六要素 · 溯源律可见 · 编辑权在确认前）</h2>
+            {decomp === null ? (
+              <button onClick={() => void prepareDecomp()} disabled={mainTaskId === null}>
+                生成分解草稿（extraction 由 LLM 侧产出；演练注入 fixture）
+              </button>
+            ) : (
+              <>
+                <div className={`checklist ${decomp.checklist.complete ? "ok" : "gaps"}`}>
+                  {decomp.checklist.complete
+                    ? "充分性 checklist：六类各 ≥1 ✓（拒绝点已显式为无）"
+                    : `充分性缺口：${decomp.checklist.gaps.join("、")} —— 缺口阻止确认`}
+                  {decomp.status === "confirmed" && <span> · 已冻结（确认后变更=重大转向重签）</span>}
+                </div>
+                <div className="wall">
+                  {ELEMENT_META.map(([cls, label]) => (
+                    <div key={cls} className="cell">
+                      <h3>{label}</h3>
+                      {(decomp.elements[cls] ?? []).map((el, i) => (
+                        <div key={i} className="element">
+                          <div>{String(el.text)}</div>
+                          <div className="prov">
+                            来自{String((el.source as Record<string, unknown>).kind) === "attachment" ? "附件" : "你的话"}：
+                            “{String((el.source as Record<string, unknown>).quote)}”
+                          </div>
+                          {decomp.status !== "confirmed" && (
+                            <button className="ghost tiny" onClick={() => void removeElement(cls, i)}>
+                              删除
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      {(decomp.elements[cls] ?? []).length === 0 && <div className="empty">待对齐</div>}
+                    </div>
+                  ))}
+                </div>
+                <button onClick={() => void confirmDecomp()} disabled={!decomp.checklist.complete || decomp.status === "confirmed"}>
+                  确认无误，启动研究 v0（缺口阻止确认）
+                </button>
+              </>
+            )}
           </section>
           <section className="card console">
             <h2>引擎事件流</h2>
