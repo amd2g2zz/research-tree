@@ -1,17 +1,22 @@
-/** Async pi runner (issue #670, perf #672).
+/** Async pi runner (issue #670, perf #672, settle fix #676).
 
 spawnSync froze the entire Node event loop for the full duration of every
-pi call (45s+ with a reasoning model and extensions) — the whole WebUI
-hung: every HTTP/WS request queued behind one synchronous spawn. runPi
-spawns **asynchronously** (promise wrapper), keeps the event loop free,
-enforces a hard timeout (kill + typed error — a hung pi must not hang the
-server forever), and fails closed with the process's own output in the
-message so the existing parse layers keep working.
+pi call (45s+) — the whole WebUI hung: every HTTP/WS request queued behind
+one synchronous spawn. runPi spawns **asynchronously**, keeps the event
+loop free, enforces a hard timeout, and fails closed with the process's
+own output in the message so the existing parse layers keep working.
 
 #672: server-side structured calls (classification / turn / extraction)
 pass extraArgs `["-nt"]` — they need TEXT JSON only, and skipping the
 tool/extension tool-surface cuts latency ~3x on machines with the default
 extension pack (measured 60s → 18s for a classification).
+
+**#676 settle-on-exit rule**: pi extensions spawn MCP children that
+inherit the runner's stdio pipes — Node's `close` event waits for ALL pipe
+writers and NEVER fires when a grandchild outlives pi. runPi therefore
+settles on **`exit`** (the pi process itself is done) and takes whatever
+stdout has accumulated, and kills the whole process GROUP on timeout
+(SIGKILL — extensions ignore SIGTERM).
 */
 
 import { spawn } from "node:child_process";
@@ -25,27 +30,60 @@ export function runPi(
   extraArgs: string[] = [],
 ): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    const child = spawn(command, [...extraArgs, "-p", prompt], { timeout: timeoutMs });
+    // detached: own process group — lets the timeout SIGKILL the whole tree
+    // (pi + its MCP grandchildren), not just pi
+    const child = spawn(command, [...extraArgs, "-p", prompt], { detached: true, stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     let settled = false;
+    let timedOut = false;
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        if (child.pid !== undefined) {
+          process.kill(-child.pid, "SIGKILL"); // whole group
+        }
+      } catch {
+        child.kill("SIGKILL");
+      }
+    }, timeoutMs);
+
+    const settle = (error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error !== undefined) {
+        reject(error);
+      } else {
+        resolve(out);
+      }
+    };
+
     child.stdout?.on("data", (chunk) => {
       out += String(chunk);
     });
     child.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      reject(new PiRunError(`pi spawn failed: ${String(error)}`));
+      settle(new PiRunError(`pi spawn failed: ${String(error)}`));
     });
-    child.on("close", (code, signal) => {
-      if (settled) return;
-      settled = true;
+    // settle on EXIT (pi itself is done) — never on `close`, which waits for
+    // inherited stdio pipes held by outliving extension children
+    child.on("exit", (code, signal) => {
+      if (timedOut) {
+        settle(
+          new PiRunError(
+            `pi was terminated (timeout ${Math.round(timeoutMs / 1000)}s) — extensions may still be loading or the network is slow; retry`,
+          ),
+        );
+        return;
+      }
+      if (signal !== null) {
+        settle(new PiRunError(`pi was killed by signal ${signal}`));
+        return;
+      }
       if (code === 0) {
-        resolve(out);
-      } else if (signal !== null) {
-        // timeout kill (or external signal): extensions can still be loading
-        reject(new PiRunError(`pi was terminated (${signal}) — extensions may still be loading or the network is slow; retry`));
+        settle();
       } else {
-        reject(new PiRunError(`pi exited with code ${code}: ${out.slice(0, 200)}`));
+        settle(new PiRunError(`pi exited with code ${code}: ${out.slice(0, 200)}`));
       }
     });
   });
