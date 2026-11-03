@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"recon-degrade-skill-cli","files":["openspec/changes/recon-degrade-skill-cli/proposal.md","openspec/changes/recon-degrade-skill-cli/tasks.md","openspec/changes/recon-degrade-skill-cli/specs/webui/spec.md","webui-server/src/skill_search.ts","webui-server/src/server.ts","webui-server/test/recon_degrade.test.ts"]}
