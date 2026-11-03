@@ -115,12 +115,12 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: 0.92em; backgroun
 /* ============ chat stream ============ */
 .stream { flex: 1; overflow-y: auto; padding: 24px 0 8px; }
 .msg-user, .msg-rt, .msg-system, .chat-welcome {
-  max-width: 720px; margin: 0 auto; padding: 0 20px; width: 100%;
+  max-width: 960px; margin: 0 auto; padding: 0 24px; width: 100%;
 }
 .msg-user {
   background: var(--user-bubble); border-radius: 18px;
   padding: 10px 16px; margin-bottom: 14px; width: fit-content;
-  max-width: min(720px, 85%); margin-left: auto;
+  max-width: min(960px, 90%); margin-left: auto;
 }
 .msg-rt {
   color: #444; margin-bottom: 12px; font-size: 13.5px;
@@ -135,7 +135,7 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: 0.92em; backgroun
 /* ============ composer ============ */
 .composer-wrap { padding: 8px 20px 14px; }
 .composer {
-  max-width: 720px; margin: 0 auto; display: flex; align-items: flex-end; gap: 8px;
+  max-width: 960px; margin: 0 auto; display: flex; align-items: flex-end; gap: 8px;
   border: 1px solid var(--border); border-radius: 24px;
   padding: 8px 10px 8px 6px; background: #fff;
   box-shadow: 0 2px 12px rgba(0,0,0,0.05);
@@ -153,11 +153,11 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: 0.92em; backgroun
   background: var(--accent); color: #fff; font-size: 15px; flex-shrink: 0;
 }
 .send:disabled { background: #d9d9d9; }
-.composer-hint { max-width: 720px; margin: 6px auto 0; text-align: center; font-size: 11.5px; color: var(--text-dim); }
+.composer-hint { max-width: 960px; margin: 6px auto 0; text-align: center; font-size: 11.5px; color: var(--text-dim); }
 
 /* ============ canvas panel (right) ============ */
 .canvas {
-  width: 460px; flex-shrink: 0; border-left: 1px solid var(--border);
+  width: 560px; flex-shrink: 0; border-left: 1px solid var(--border);
   background: #fcfcfc; display: flex; flex-direction: column; min-height: 0;
 }
 .canvas-head {
@@ -237,7 +237,7 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: 0.92em; backgroun
 .verdict { flex: 1; border: 1px solid var(--border); background: #fff; border-radius: 10px; padding: 9px 0; font-size: 13px; font-weight: 600; }
 .verdict.picked { background: #0d0d0d; color: #fff; border-color: #0d0d0d; }
 /* ============ #660 agent conversation ============ */
-.msg-agent { max-width: min(720px, 85%); margin: 0 0 14px; }
+.msg-agent { max-width: min(960px, 90%); margin: 0 0 14px; }
 .agent-tag { font-size: 11px; color: var(--text-dim); margin-bottom: 3px; }
 .agent-body { font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
 .qchips { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
@@ -247,7 +247,7 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: 0.92em; backgroun
 }
 .qchip:hover { background: #f4f4f4; }
 .msg-question { color: #2f6fed; font-size: 13px; margin: 4px 0 10px; cursor: pointer; }
-.msg-recon { font-size: 12.5px; color: #555; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; margin: 4px 0 12px; max-width: min(720px, 85%); }
+.msg-recon { font-size: 12.5px; color: #555; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; margin: 4px 0 12px; max-width: min(960px, 90%); }
 .ext-block { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 10px; }
 .ext-block h4 { font-size: 13px; margin: 0 0 6px; }
 .ext-list { margin-bottom: 8px; }
@@ -255,7 +255,7 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: 0.92em; backgroun
 .msg-user { background: #d7e3fd; color: #0d0d0d; }
 .msg-agent {
   background: #f7f7f8; border: 1px solid #ececf1; border-radius: 14px;
-  padding: 10px 16px; max-width: min(720px, 85%);
+  padding: 10px 16px; max-width: min(960px, 90%);
 }
 .agent-tag { font-size: 11px; color: #8f8f8f; margin-bottom: 3px; }
 .agent-body { font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
