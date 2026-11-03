@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"async-pi-runner","files":["openspec/changes/async-pi-runner/proposal.md","openspec/changes/async-pi-runner/tasks.md","openspec/changes/async-pi-runner/specs/webui/spec.md","webui-server/src/pi-run.ts","webui-server/src/classify.ts","webui-server/src/server.ts","webui-server/test/pi_run.test.ts","webui-server/test/keyed_session.test.ts"]}
