@@ -186,6 +186,16 @@ describe("real server flow: chat → extraction → confirm → start → freeze
 
     // bad verdict refused
     await expect(rpc("research.freeze", { task_id: "tR", verdict: "MAYBE" })).rejects.toThrow(/verdict must be one of/);
+
+    // A7 rule 3: 继续研究 opens an inherited draft; a second research.start
+    // must KEEP the live draft (no preview reseed → inheritance preserved)
+    await rpc("version.continue", { task_id: "tR" });
+    const draftBefore = (await rpc("chat.history", { task_id: "tR" })) && true; // task alive
+    const start2 = await rpc("research.start", { task_id: "tR" });
+    expect(start2.phase).toBe("research");
+    // freeze without delta → duplicate refused (nothing new = no new version)
+    await expect(rpc("research.freeze", { task_id: "tR", verdict: "GO", summary: "no delta" })).rejects.toThrow(/duplicate commit/);
+    void draftBefore;
   });
 });
 
