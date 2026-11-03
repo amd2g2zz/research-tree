@@ -52,6 +52,7 @@ import { pickClassifier } from "./classify.js";
 import { extractionPrompt, parseExtraction, mechanicalPlan, type TranscriptMessage } from "./real-flow.js";
 import { buildTurnPrompt, parseTurnOutput, runRecon, reconToText } from "./chat-turn.js";
 import { AnysearchProvider } from "../../rt-core/src/providers/anysearch.js";
+import { SkillSearchProvider } from "./skill_search.js";
 import type { DataSourceProvider } from "../../rt-core/src/providers/types.js";
 
 export interface WebUIOptions {
@@ -288,6 +289,16 @@ export class WebUIServer {
     return this.options.piConfigDir ?? join(homedir(), ".pi", "agent");
   }
 
+  /** Default recon provider: the vendored anysearch skill CLI when present
+   * (positional query, markdown), else the generic anysearch-on-PATH form. */
+  private defaultProvider(): DataSourceProvider {
+    if (this.options.provider !== undefined) {
+      return this.options.provider;
+    }
+    const skill = new SkillSearchProvider();
+    return skill.available() ? skill : new AnysearchProvider();
+  }
+
   /** per-task DAG scheduler over the persisted stage table */
   private schedulers = new Map<string, ParallelDagScheduler>();
   private schedulerFor(taskId: string): ParallelDagScheduler {
@@ -404,10 +415,30 @@ export class WebUIServer {
         const turn = parseTurnOutput(stdout);
 
         let reconResults: Array<{ title: string; url?: string; snippet?: string }> | undefined;
+        let reconError: string | undefined;
         if (turn.recon !== null && turn.recon !== undefined) {
           const query = turn.recon.query;
-          const provider: DataSourceProvider = this.options.provider ?? new AnysearchProvider();
-          reconResults = await runRecon(provider, query);
+          const provider: DataSourceProvider = this.options.provider ?? this.defaultProvider();
+          try {
+            reconResults = await runRecon(provider, query);
+          } catch (error) {
+            // #666: recon is an ENHANCEMENT — its failure must not kill the
+            // reply. Degrade honestly into the transcript, keep the turn.
+            const reason = String(error instanceof Error ? error.message : error);
+            this.appendChat(taskId, "rt", "recon", `前期侦查失败：${reason}（回应不受影响）`, { query, failed: true });
+            this.ledger.appendGraphEvent("provider.action", {
+              id: `recon-${Date.now()}`,
+              provider: "anysearch",
+              action: "search",
+              target: query,
+              outcome: "error",
+            });
+            reconResults = undefined;
+            reconError = reason;
+          }
+        }
+        if (reconResults !== undefined) {
+          const query = turn.recon?.query ?? "";
           this.appendChat(taskId, "rt", "recon", reconToText(reconResults), { query });
           this.ledger.appendGraphEvent("provider.action", {
             id: `recon-${Date.now()}`,
@@ -422,7 +453,13 @@ export class WebUIServer {
         for (const q of turn.questions) {
           this.appendChat(taskId, "rt", "question", q, null);
         }
-        return { reply: turn.reply, questions: turn.questions, recon_results: reconResults ?? [], classified_by: classification.classified_by };
+        return {
+          reply: turn.reply,
+          questions: turn.questions,
+          recon_results: reconResults ?? [],
+          recon_error: reconError,
+          classified_by: classification.classified_by,
+        };
       }
       case "chat.ingest": {
         const text = String(params.text ?? "");
