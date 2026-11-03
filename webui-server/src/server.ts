@@ -404,7 +404,7 @@ export class WebUIServer {
         }
         // the user message first (so the prompt sees it); classification is
         // async now (issue #670) and lands with the same classified_by
-        const classifier = pickClassifier({ ready: true }, { runner: this.options.piRunner, command, timeoutMs: 120_000 });
+        const classifier = pickClassifier({ ready: true }, { runner: this.options.piRunner, command, timeoutMs: 300_000 });
         const classification = await classifier.classify(text);
         this.appendChat(taskId, "user", classification.kind, text, { classified_by: classification.classified_by });
 
@@ -416,7 +416,7 @@ export class WebUIServer {
         const stdout =
           this.options.piRunner !== undefined
             ? await this.options.piRunner(command, prompt)
-            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000);
+            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000, ["-nt"]);
         const turn = parseTurnOutput(stdout);
 
         let reconResults: Array<{ title: string; url?: string; snippet?: string }> | undefined;
@@ -486,7 +486,7 @@ export class WebUIServer {
                 "keyed session is ready but the pi binary was not found (set RT_PI_CMD) — auto-classification fails closed",
               );
             }
-            const classification = await pickClassifier({ ready: true }, { runner: this.options.piRunner, command }).classify(text);
+            const classification = await pickClassifier({ ready: true }, { runner: this.options.piRunner, command, timeoutMs: 300_000 }).classify(text);
             kind = classification.kind;
             classifiedBy = classification.classified_by;
           } else {
@@ -596,7 +596,7 @@ export class WebUIServer {
         const stdout =
           this.options.piRunner !== undefined
             ? await this.options.piRunner(command, prompt)
-            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000);
+            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000, ["-nt"]);
         const extraction = parseExtraction(stdout, transcript);
         const parsed = parseDecomposition(extraction);
         const notes = { refusals: typeof params.refusals_note === "string" ? params.refusals_note : undefined };

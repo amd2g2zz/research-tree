@@ -78,7 +78,7 @@ export class PiSessionClassifier implements ClassifierPort {
     const command = this.options.command ?? "pi";
     // async spawn (issue #670): never block the event loop; hard timeout —
     // a hung pi fails closed instead of freezing the whole WebUI
-    const stdout = await (this.options.runner ?? ((cmd, p) => runPi(cmd, p, this.options.timeoutMs ?? 120_000)))(
+    const stdout = await (this.options.runner ?? ((cmd, p) => runPi(cmd, p, this.options.timeoutMs ?? 300_000, ["-nt"])))(
       command,
       prompt,
     );

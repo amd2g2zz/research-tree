@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"pi-nt-latency","files":["openspec/changes/pi-nt-latency/proposal.md","openspec/changes/pi-nt-latency/tasks.md","openspec/changes/pi-nt-latency/specs/webui/spec.md","webui-server/src/pi-run.ts","webui-server/src/classify.ts","webui-server/src/server.ts"]}
