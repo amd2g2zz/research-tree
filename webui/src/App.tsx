@@ -12,6 +12,7 @@
   source (#638), keys never echo.
 */
 
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type Panel = null | "decomp" | "research" | "versions";
@@ -54,14 +55,21 @@ interface TaskStatus {
   routed_count: number;
 }
 type UtteranceKind = "auto" | "preference" | "claim" | "guess" | "branch";
+interface PiModelInfo {
+  id: string;
+  name: string;
+  provider: string;
+}
 interface PiConfig {
   present: boolean;
   default_model: string | null;
-  models: string[];
+  models: PiModelInfo[];
   auth_providers: string[];
+  providers: string[];
   config_path: string;
   keyed_session_ready: boolean;
-  readiness: { has_provider_key: boolean; has_default_model: boolean };
+  readiness: { has_provider_key: boolean; has_model: boolean; has_default_model: boolean };
+  follows_pi_default: boolean;
 }
 interface LogLine {
   kind: "engine" | "rpc" | "error";
@@ -93,40 +101,6 @@ const ELEMENT_META: Array<[string, string]> = [
   ["difficulties", "⚠ 难点→kill 候选"],
 ];
 
-const WALK_STEPS = [
-  {
-    event: "open-draft",
-    snapshot: { elements: {}, claims: [], evidence_refs: [], report: {}, deleted_nodes: [] },
-    base_v: null,
-  },
-  {
-    event: "attach",
-    decomposition_id: "dc-spike",
-    decomposition: {
-      requirements: [{ text: "deploy on 2C4G fast", source: { kind: "chat-message", ref: "msg:1", quote: "2C4G 越快上越好" } }],
-      constraints: [{ text: "2C4G is a guess", source: { kind: "chat-message", ref: "msg:1", quote: "2C4G 越快上越好" }, hardness: "guessed" }],
-      background: [],
-      intents: [{ text: "ship fast", source: { kind: "chat-message", ref: "msg:1", quote: "2C4G 越快上越好" } }],
-      refusals: [],
-      difficulties: [{ text: "2C4G memory ceiling", source: { kind: "chat-message", ref: "msg:1", quote: "2C4G 越快上越好" }, kill_candidates: ["c-mob"] }],
-      claims_preview: [{ id: "c-mob", text: "2C4G suffices", kill_condition: "OOM under load" }],
-    },
-    plan: {
-      plan_id: "plan-spike",
-      stages: [{ id: "s1", title: "recon", claim_ids: [], depends_on: [] }],
-      budget: { capMs: 12 * 3600 * 1000 },
-      yaw_checks: [
-        { slot: "plan-level", mode: "auto" },
-        { slot: "problem-level", mode: "human" },
-        { slot: "knowledge-level", mode: "auto" },
-      ],
-    },
-  },
-  { event: "confirm" },
-  { event: "sign" },
-  { event: "research-completed" },
-];
-
 export function App() {
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
@@ -139,6 +113,7 @@ export function App() {
   const [panel, setPanel] = useState<Panel>(null);
   const [modal, setModal] = useState<null | "settings" | "new" | "snapshot">(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   // hub
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<TaskStatus | null>(null);
@@ -174,6 +149,8 @@ export function App() {
   // settings
   const [settings, setSettings] = useState<PiConfig | null>(null);
   const [provider, setProvider] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [modelId, setModelId] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [newName, setNewName] = useState("");
@@ -323,45 +300,87 @@ export function App() {
     }
   };
 
-  const runWalk = async (): Promise<void> => {
-    if (activeTaskId === null) {
-      return;
+  const pConfig = (): ReactNode | null => {
+    if (piConfig === null) {
+      return <p className="empty">pi 配置读取中…</p>;
     }
-    setRunning(true);
-    try {
-      push("rpc", "端到端演练：分解 → 签署 → 研究 → 冻结提交");
-      const result = await rpc(await getSocket(), "research.launch", {
-        task_id: activeTaskId,
-        pre_signed: { verdict: "GO", summary: "webui 演练提交" },
-        steps: WALK_STEPS,
-      });
-      push("rpc", `演练完成：outcome=${String(result.outcome)} events=${String(result.events)}`);
-      await Promise.all([refreshTree(), refreshHub(activeTaskId)]);
-    } catch (error) {
-      push("error", String(error));
-    } finally {
-      setRunning(false);
+    if (!piConfig.readiness.has_provider_key || !piConfig.readiness.has_model) {
+      return (
+        <p className="empty">
+          keyed 会话未就绪（{!piConfig.readiness.has_provider_key ? "缺 provider key" : "pi 未配置模型"}）——到 ⚙ 设置里补齐后才能提取；不提供模拟提取。
+        </p>
+      );
     }
+    return null;
   };
 
-  // ------------- decomp panel -------------
-  const prepareDecomp = async (): Promise<void> => {
+  // ------------- decomp panel (REAL: chat transcript → pi session) -------------
+  const [noRefusals, setNoRefusals] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const extractFromChat = async (): Promise<void> => {
     if (activeTaskId === null) {
       return;
     }
+    setExtracting(true);
     try {
-      const result = await rpc(await getSocket(), "decompose.prepare", {
+      const result = await rpc(await getSocket(), "decompose.fromChat", {
         task_id: activeTaskId,
         decomposition_id: `dc-${activeTaskId}`,
-        extraction: WALK_STEPS.find((s) => s.event === "attach")?.decomposition,
-        refusals_note: "none",
+        refusals_note: noRefusals ? "none" : undefined,
       });
       setDecomp({
         decomposition_id: `dc-${activeTaskId}`,
         elements: result.elements as never,
         checklist: result.checklist as never,
       });
-      push("rpc", `分解草稿已保存（溯源律丢弃 ${String(result.dropped)} 条无源要素）`);
+      push("rpc", `pi 会话提取完成（溯源律丢弃 ${String(result.dropped)} 条无源要素）`);
+    } catch (error) {
+      push("error", String(error));
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const startResearch = async (): Promise<void> => {
+    if (activeTaskId === null || decomp === null) {
+      return;
+    }
+    setStarting(true);
+    try {
+      const result = await rpc(await getSocket(), "research.start", {
+        task_id: activeTaskId,
+        decomposition_id: decomp.decomposition_id,
+      });
+      push("rpc", `研究已启动：phase=${String(result.phase)} 阶段=${String(result.stages)} 派发=${String(result.dispatched)}`);
+      setPanel("research");
+      await refreshHub(activeTaskId);
+    } catch (error) {
+      push("error", String(error));
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  // ------------- freeze (human verdict gate) -------------
+  const [freezeOpen, setFreezeOpen] = useState(false);
+  const [verdict, setVerdict] = useState("");
+  const [verdictSummary, setVerdictSummary] = useState("");
+  const freezeVerdict = async (): Promise<void> => {
+    if (activeTaskId === null || verdict === "") {
+      return;
+    }
+    try {
+      const result = await rpc(await getSocket(), "research.freeze", {
+        task_id: activeTaskId,
+        verdict,
+        summary: verdictSummary.trim() !== "" ? verdictSummary.trim() : undefined,
+      });
+      push("rpc", `已冻结 v${String(result.v)} · ${verdict} · ${String(result.commit_hash).slice(0, 12)}`);
+      setFreezeOpen(false);
+      setVerdict("");
+      setVerdictSummary("");
+      await refreshHub(activeTaskId);
     } catch (error) {
       push("error", String(error));
     }
@@ -490,8 +509,13 @@ export function App() {
   const saveSettings = async (what: "key" | "model"): Promise<void> => {
     try {
       if (what === "key") {
-        await rpc(await getSocket(), "config.setProviderKey", { provider: provider.trim(), api_key: apiKey });
-        push("rpc", `provider ${provider.trim()} 的 key 已写入 pi 配置（审计只记名，key 不回显）`);
+        await rpc(await getSocket(), "config.setProviderKey", {
+          provider: provider.trim(),
+          api_key: apiKey,
+          baseUrl: baseUrl.trim() !== "" ? baseUrl.trim() : undefined,
+          model_id: modelId.trim() !== "" ? modelId.trim() : undefined,
+        });
+        push("rpc", `provider ${provider.trim()} 已写入 pi 的 models.json（审计只记名，key 不回显）`);
         setApiKey("");
       } else {
         await rpc(await getSocket(), "config.setDefaultModel", { model: model.trim() });
@@ -517,7 +541,7 @@ export function App() {
           </button>
         </div>
         <nav className="side-list">
-          {tree.map((project) => (
+          {tree.filter((p) => p.status === "active").map((project) => (
             <div key={project.project_id} className="side-group">
               <div
                 className={`side-project ${project.status === "archived" ? "archived" : ""}`}
@@ -559,7 +583,46 @@ export function App() {
               ))}
             </div>
           ))}
-          {tree.length === 0 && <div className="side-empty">还没有研究——点「新研究」开始</div>}
+          {tree.filter((p) => p.status === "active").length === 0 && (
+            <div className="side-empty">还没有研究——点「新研究」开始</div>
+          )}
+          {tree.some((p) => p.status === "archived") && (
+            <div className="archive-folder">
+              <div className="archive-head" onClick={() => setArchiveOpen(!archiveOpen)}>
+                {archiveOpen ? "▾" : "▸"} 归档（{tree.filter((p) => p.status === "archived").length}）
+              </div>
+              {archiveOpen &&
+                tree
+                  .filter((p) => p.status === "archived")
+                  .map((project) => (
+                    <div key={project.project_id} className="side-group">
+                      <div
+                        className="side-project archived"
+                        onClick={() => setActiveTaskId(project.lines.find((l) => l.role === "main")?.task_id ?? null)}
+                      >
+                        <span className="glyph">📁</span>
+                        <span className="project-name">{project.name}</span>
+                        <span
+                          className="side-menu"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMenuFor(menuFor === project.project_id ? null : project.project_id);
+                          }}
+                        >
+                          ⋯
+                        </span>
+                        {menuFor === project.project_id && (
+                          <div className="menu" onClick={(e) => e.stopPropagation()}>
+                            <button className="danger" onClick={() => void manage(project.project_id, "delete")}>
+                              删除项目（仅归档可删）
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+            </div>
+          )}
         </nav>
         <div className="side-bottom">
           <div className="pi-row">
@@ -615,9 +678,9 @@ export function App() {
             <button className="chip-btn" onClick={() => setPanel(panel === "versions" ? null : "versions")} disabled={activeTaskId === null}>
               版本
             </button>
-            {activeTaskId !== null && (
-              <button className="chip-btn" onClick={() => void runWalk()} disabled={running}>
-                {running ? "推进中…" : "端到端演练"}
+            {status !== null && status.phase === "research" && (
+              <button className="chip-btn" onClick={() => setFreezeOpen(true)}>
+                冻结提交…
               </button>
             )}
             {sidebarOpen && (
@@ -712,8 +775,19 @@ export function App() {
                     </>
                   )}
                   {panel === "decomp" && decomp === null && (
-                    <button className="mini-btn" onClick={() => void prepareDecomp()}>
-                      生成分解草稿
+                    <>
+                      <label className="mini-label">
+                        <input type="checkbox" checked={noRefusals} onChange={(e) => setNoRefusals(e.target.checked)} />
+                        无拒绝点
+                      </label>
+                      <button className="mini-btn" onClick={() => void extractFromChat()} disabled={extracting || !piConfig?.keyed_session_ready}>
+                        {extracting ? "提取中…" : "从对话提取（pi 会话）"}
+                      </button>
+                    </>
+                  )}
+                  {panel === "decomp" && decomp !== null && decomp.status === "confirmed" && (
+                    <button className="mini-btn" onClick={() => void startResearch()} disabled={starting}>
+                      {starting ? "启动中…" : "启动研究"}
                     </button>
                   )}
                   <button className="mini-btn" onClick={() => setPanel(null)}>
@@ -723,7 +797,11 @@ export function App() {
                 <div className="canvas-body">
                   {panel === "decomp" &&
                     (decomp === null ? (
-                      <p className="empty">点击上方「生成分解草稿」。extraction 由 LLM 侧产出（演练注入 fixture）。</p>
+                      pConfig() ?? (
+                        <p className="empty">
+                          在 hub 里把想法说清楚，然后点上方「从对话提取」——pi 会话从对话转写提取六要素，quote 逐字回查原句（溯源律）。
+                        </p>
+                      )
                     ) : (
                       <>
                         <div className={`checklist ${decomp.checklist.complete ? "ok" : "gaps"}`}>
@@ -757,8 +835,11 @@ export function App() {
                           onClick={() => void confirmDecomp()}
                           disabled={!decomp.checklist.complete || decomp.status === "confirmed"}
                         >
-                          确认无误，启动研究 v0
+                          确认无误（要素集冻结为研究宪法）
                         </button>
+                        {decomp.status === "confirmed" && (
+                          <p className="hint">已确认——点顶部「启动研究」把 claims_preview 变成调研 DAG。</p>
+                        )}
                       </>
                     ))}
                   {panel === "research" &&
@@ -859,6 +940,34 @@ export function App() {
       </div>
 
       {/* ============ modals ============ */}
+      {freezeOpen && (
+        <div className="overlay" onClick={() => setFreezeOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>冻结提交 — 三元裁决（人工签署）</h3>
+            <p className="hint">裁决永远由你签——问句不是判决。提交后版本不可修改，继续研究=版本+1。</p>
+            <div className="verdicts">
+              {["GO", "NO-GO", "PARK", "REFRAMED"].map((v) => (
+                <button key={v} className={`verdict ${verdict === v ? "picked" : ""}`} onClick={() => setVerdict(v)}>
+                  {v}
+                </button>
+              ))}
+            </div>
+            <input
+              placeholder="研究摘要（可选）"
+              value={verdictSummary}
+              onChange={(e) => setVerdictSummary(e.target.value)}
+            />
+            <div className="modal-actions">
+              <button className="mini-btn" onClick={() => setFreezeOpen(false)}>
+                取消
+              </button>
+              <button className="primary" onClick={() => void freezeVerdict()} disabled={verdict === ""}>
+                签署并提交
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {modal === "new" && (
         <div className="overlay" onClick={() => setModal(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -891,37 +1000,58 @@ export function App() {
             ) : (
               <>
                 <p className="hint">
-                  唯一事实源 <code>{settings.config_path}</code> · 默认模型 {settings.default_model ?? "未设置"} · provider{" "}
-                  {settings.auth_providers.join(", ") || "无"} · keyed 会话 {settings.keyed_session_ready ? "就绪" : "未就绪"}。key 永不回显，rt
-                  侧无副本。
+                  唯一事实源 <code>{settings.config_path}</code>
+                  {settings.follows_pi_default
+                    ? " · 当前跟随 pi agent 默认配置（rt 未覆盖）"
+                    : ` · 默认模型覆盖：${settings.default_model}`}
+                  {" "}· provider {settings.providers.join(", ") || "无"} · keyed 会话 {settings.keyed_session_ready ? "就绪" : "未就绪"}。key
+                  永不回显，rt 侧无副本。
                 </p>
+                {settings.models.length > 0 && (
+                  <div className="pi-models">
+                    {settings.models.map((m) => (
+                      <div key={m.id} className="cline">
+                        {m.id} · {m.name}
+                        {settings.default_model === m.id && <span className="mini"> 当前默认</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="row">
                   <select value={model} onChange={(e) => setModel(e.target.value)}>
-                    <option value="">— 选择默认模型 —</option>
+                    <option value="">— 设默认模型覆盖（可选）—</option>
                     {settings.models.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
+                      <option key={m.id} value={m.id}>
+                        {m.id}
                       </option>
                     ))}
                   </select>
-                  <input placeholder="或输入模型名" value={model} onChange={(e) => setModel(e.target.value)} />
                   <button className="primary" onClick={() => void saveSettings("model")} disabled={model.trim() === ""}>
                     设为默认
                   </button>
                 </div>
+                <p className="hint">不设置覆盖时，产品跟随 pi agent 自己的默认模型。</p>
                 <div className="row">
-                  <input placeholder="provider（如 zai / openai）" value={provider} onChange={(e) => setProvider(e.target.value)} />
+                  <input placeholder="provider id（如 deepseek）" value={provider} onChange={(e) => setProvider(e.target.value)} />
+                  <input placeholder="base URL" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+                </div>
+                <div className="row">
+                  <input placeholder="模型 id（如 deepseek-flash）" value={modelId} onChange={(e) => setModelId(e.target.value)} />
                   <input
                     type="password"
                     placeholder="API key（保存后不回显）"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                   />
-                  <button className="primary" onClick={() => void saveSettings("key")} disabled={provider.trim() === "" || apiKey.trim() === ""}>
-                    保存 key
+                  <button
+                    className="primary"
+                    onClick={() => void saveSettings("key")}
+                    disabled={provider.trim() === "" || apiKey.trim() === ""}
+                  >
+                    保存 provider
                   </button>
                 </div>
-                <p className="hint">新开的 pi 会话生效；进行中会话不打断。变更落审计事件（只记 provider 名）。</p>
+                <p className="hint">写入 pi 自己的 models.json（schema 兼容）；新开的 pi 会话生效。变更落审计事件（只记 provider 名）。</p>
                 <div className="modal-actions">
                   <button className="primary" onClick={() => setModal(null)}>
                     完成
