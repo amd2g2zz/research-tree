@@ -257,22 +257,29 @@ export function App() {
     if (activeTaskId === null || draft.trim() === "") {
       return;
     }
+    const text = draft.trim();
+    // 即时回显：user bubble appears NOW — never wait for the model to feel "sent"
+    setMessages((prev) => [
+      ...prev,
+      { seq: -Date.now(), role: "user", kind: kind === "auto" ? "utterance" : kind, text, receipt_json: null, created_at: new Date().toISOString() },
+    ]);
+    setDraft("");
     setThinking(true);
     try {
-      // #660: 对话回路优先 — the agent responds; explicit kind (≠自动) keeps the
-      // lightweight routing-only path
       if (kind === "auto") {
-        const result = await rpc(await getSocket(), "chat.turn", { task_id: activeTaskId, text: draft.trim() });
-        push("rpc", `agent 回应（侦查 ${Array.isArray(result.recon_results) ? (result.recon_results as unknown[]).length : 0} 条）`);
+        // 对话回路：agent 回应 + 主动提问 + 侦查（一次 pi 调用，#674）
+        const result = await rpc(await getSocket(), "chat.turn", { task_id: activeTaskId, text });
+        const by = CLASSIFIED_BY_LABELS[result.classified_by as string] ?? "自动";
+        push("rpc", `agent 回应（${by} · 侦查 ${Array.isArray(result.recon_results) ? (result.recon_results as unknown[]).length : 0} 条）`);
       } else {
-        const result = await rpc(await getSocket(), "chat.ingest", { task_id: activeTaskId, text: draft.trim(), kind });
+        const result = await rpc(await getSocket(), "chat.ingest", { task_id: activeTaskId, text, kind });
         const receipt = result.receipt as ClassificationBadge;
         push("rpc", `已路由（${CLASSIFIED_BY_LABELS[receipt.classified_by ?? ""] ?? "手动"}）→ ${receipt.routed}`);
       }
-      setDraft("");
       await refreshHub(activeTaskId);
     } catch (error) {
       push("error", String(error));
+      await refreshHub(activeTaskId); // roll back the optimistic bubble from the server truth
     } finally {
       setThinking(false);
     }
@@ -765,7 +772,13 @@ export function App() {
                     </div>
                   ),
                 )}
-                {messages.length === 0 && (
+                {thinking && (
+                  <div className="msg-agent typing">
+                    <div className="agent-tag">rt</div>
+                    <div className="agent-body typing-dots"><span></span><span></span><span></span></div>
+                  </div>
+                )}
+                {messages.length === 0 && !thinking && (
                   <div className="chat-welcome">
                     <h2>{activeProject?.name ?? "新研究"}</h2>
                     <p>把想法倒进来——研究从对话发起、收敛后自动回到对话。</p>

@@ -13,6 +13,7 @@ import { WebUIServer } from "../src/server.js";
 import { parseMarkdownResults, SkillSearchProvider } from "../src/skill_search.js";
 
 const TURN_WITH_RECON = JSON.stringify({
+  kind: "preference",
   reply: "想法收到，先做个市场侦查。",
   questions: ["目标客户是谁？"],
   recon: { query: "数据标注市场" },
@@ -89,10 +90,7 @@ beforeAll(async () => {
   server = new WebUIServer({
     workspace: mkdtempSync(join(tmpdir(), "rt-rd-")),
     piConfigDir: piDir,
-    piRunner: (_command: string, prompt: string) =>
-      prompt.includes("preference|claim|guess|constraint|branch")
-        ? '{"kind":"preference"}'
-        : TURN_WITH_RECON,
+    piRunner: () => TURN_WITH_RECON, // one call per turn (#674): kind + reply in one JSON
     provider: new ExplodingProvider(), // recon provider always fails
   });
   port = await server.listen();
