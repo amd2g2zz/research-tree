@@ -17,14 +17,24 @@ describe("keyed-session readiness + auto-classification (issue #651)", () => {
   it("readiness probe: no key/模型 → not ready; 齐备 → ready", () => {
     const empty = readPiConfig(mkdtempSync(join(tmpdir(), "rt-ks-empty-")));
     expect(empty.keyed_session_ready).toBe(false);
-    expect(empty.readiness).toEqual({ has_provider_key: false, has_default_model: false });
+    expect(empty.follows_pi_default).toBe(true); // nothing overridden → follow pi agent
 
     const dir = mkdtempSync(join(tmpdir(), "rt-ks-full-"));
-    writeFileSync(join(dir, "auth.json"), JSON.stringify({ zai: { api_key: "k" } }));
-    writeFileSync(join(dir, "models-store.json"), JSON.stringify({ models: ["glm-5.3"], default: "glm-5.3" }));
+    // pi's REAL registry shape: models.json providers with key + models
+    writeFileSync(
+      join(dir, "models.json"),
+      JSON.stringify({
+        providers: {
+          zai: { name: "Z", baseUrl: "https://api.example.com/v1", api: "openai-completions", apiKey: "sk-K", models: [{ id: "m-1", name: "Model One" }] },
+        },
+      }),
+    );
+    writeFileSync(join(dir, "models-store.json"), JSON.stringify({ default: "zai/m-1" }));
     const full = readPiConfig(dir);
     expect(full.keyed_session_ready).toBe(true);
-    expect(JSON.stringify(full)).not.toContain("api_key"); // masking intact
+    expect(full.models).toEqual([{ id: "zai/m-1", name: "Model One", provider: "zai" }]);
+    expect(full.follows_pi_default).toBe(false);
+    expect(JSON.stringify(full)).not.toContain("sk-K"); // masking intact
   });
 
   it("strategy selection follows readiness; heuristic is deterministic and disclosed", () => {
@@ -71,8 +81,11 @@ describe("keyed-session readiness + auto-classification (issue #651)", () => {
 
   it("hub with a keyed session: the pi-session classifier serves auto classification", async () => {
     const piDir = mkdtempSync(join(tmpdir(), "rt-ks-pi-"));
-    writeFileSync(join(piDir, "auth.json"), JSON.stringify({ zai: { api_key: "k" } }));
-    writeFileSync(join(piDir, "models-store.json"), JSON.stringify({ models: ["glm-5.3"], default: "glm-5.3" }));
+    writeFileSync(
+      join(piDir, "models.json"),
+      JSON.stringify({ providers: { zai: { apiKey: "k", models: [{ id: "m-1" }] } } }),
+    );
+    writeFileSync(join(piDir, "models-store.json"), JSON.stringify({ default: "zai/m-1" }));
     const server2 = new WebUIServer({
       workspace: mkdtempSync(join(tmpdir(), "rt-ks-ws-")),
       piConfigDir: piDir,
@@ -114,7 +127,10 @@ let port: number;
 let nextId = 1;
 
 beforeAll(async () => {
-  server = new WebUIServer({ workspace: mkdtempSync(join(tmpdir(), "rt-ks-main-")) });
+  server = new WebUIServer({
+    workspace: mkdtempSync(join(tmpdir(), "rt-ks-main-")),
+    piConfigDir: mkdtempSync(join(tmpdir(), "rt-ks-main-pi-")), // empty → heuristic fallback
+  });
   port = await server.listen();
 });
 afterAll(async () => {

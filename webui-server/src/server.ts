@@ -19,6 +19,8 @@ Surface:
 */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { WebSocketServer, type WebSocket } from "ws";
@@ -35,6 +37,7 @@ import { TimelineScrubber } from "../../rt-core/src/canvas/scrubber.js";
 import { LineageDrillDown } from "../../rt-core/src/canvas/lineage.js";
 import { VersionTimeline, VersionTimelineError } from "../../rt-core/src/versions/timeline.js";
 import { FourStateArchive } from "../../rt-core/src/versions/archive.js";
+import { ParallelDagScheduler, type ParallelStage } from "../../rt-core/src/scheduler/parallel_dag.js";
 import {
   parseDecomposition,
   saveDraftDecomposition,
@@ -44,6 +47,7 @@ import {
 } from "../../rt-core/src/decomposition/engine.js";
 import { readPiConfig, writeProviderKey, writeDefaultModel, ConfigWriteError } from "./pi-config.js";
 import { pickClassifier } from "./classify.js";
+import { extractionPrompt, parseExtraction, mechanicalPlan, type TranscriptMessage } from "./real-flow.js";
 
 export interface WebUIOptions {
   /** server workspace — the ledger lives here */
@@ -61,6 +65,25 @@ interface RpcMessage {
 }
 
 const CHAT_KINDS = ["preference", "claim", "guess", "constraint", "branch"] as const;
+const VERDICTS = ["GO", "NO-GO", "PARK", "REFRAMED"] as const;
+
+/** Locate the pi binary: RT_PI_CMD env → PATH → the known local scratch
+ * install. Honest failure: nothing is faked when pi is unavailable. */
+function resolvePiCommand(): string | null {
+  const fromEnv = process.env.RT_PI_CMD;
+  if (fromEnv !== undefined && fromEnv !== "" && existsSync(fromEnv)) {
+    return fromEnv;
+  }
+  const pathProbe = spawnSync("which", ["pi"], { encoding: "utf8" });
+  if (pathProbe.status === 0 && pathProbe.stdout.trim() !== "" && existsSync(pathProbe.stdout.trim())) {
+    return pathProbe.stdout.trim();
+  }
+  const scratch = "/private/tmp/pi-host/node_modules/.bin/pi";
+  if (existsSync(scratch)) {
+    return scratch;
+  }
+  return null;
+}
 
 export class WebUIServer {
   private readonly ledger: LedgerStore;
@@ -252,6 +275,24 @@ export class WebUIServer {
     return this.options.piConfigDir;
   }
 
+  /** per-task DAG scheduler over the persisted stage table */
+  private schedulers = new Map<string, ParallelDagScheduler>();
+  private schedulerFor(taskId: string): ParallelDagScheduler {
+    let scheduler = this.schedulers.get(taskId);
+    if (scheduler === undefined) {
+      scheduler = new ParallelDagScheduler(this.ledger, { maxConcurrency: 4 });
+      this.schedulers.set(taskId, scheduler);
+    }
+    return scheduler;
+  }
+
+  /** pi binary resolution for keyed server-side calls (env → PATH → known
+   * scratch install); null when unavailable — callers fail closed. */
+  private resolvePiCommand(): string | null {
+    return resolvePiCommand();
+  }
+
+
   /** test access to the engine log (H7 telemetry assertions) */
   ledgerForTests(): LedgerStore {
     return this.ledger;
@@ -320,9 +361,22 @@ export class WebUIServer {
           kind = params.kind;
           classifiedBy = "user";
         } else {
-          const classification = pickClassifier({ ready: readPiConfig(this.options.piConfigDir).keyed_session_ready }, { runner: this.options.piRunner }).classify(text);
-          kind = classification.kind;
-          classifiedBy = classification.classified_by;
+          const summary = readPiConfig(this.options.piConfigDir);
+          if (summary.keyed_session_ready) {
+            const command = this.resolvePiCommand();
+            if (command === null) {
+              throw new ProjectHomeError(
+                "keyed session is ready but the pi binary was not found (set RT_PI_CMD) — auto-classification fails closed",
+              );
+            }
+            const classification = pickClassifier({ ready: true }, { runner: this.options.piRunner, command }).classify(text);
+            kind = classification.kind;
+            classifiedBy = classification.classified_by;
+          } else {
+            const fallback = pickClassifier({ ready: false }).classify(text);
+            kind = fallback.kind;
+            classifiedBy = fallback.classified_by;
+          }
         }
         const controller = new DialogueController(this.ledger, taskId);
         const receipt = controller.ingest({
@@ -343,9 +397,18 @@ export class WebUIServer {
             .all(String(params.task_id)) as Array<Record<string, unknown>>,
         };
       case "config.setProviderKey": {
-        // #638: write pi's OWN auth.json — the audit records the provider
-        // NAME only, never the key; the key never echoes back over the wire
-        const result = writeProviderKey(this.piConfigDir(), String(params.provider), String(params.api_key ?? ""));
+        // #638/#655: upsert INTO pi's own models.json provider registry —
+        // the audit records the provider NAME only, never the key; the key
+        // never echoes back over the wire
+        const result = writeProviderKey(this.piConfigDir(), {
+          provider: String(params.provider ?? ""),
+          api_key: String(params.api_key ?? ""),
+          name: typeof params.name === "string" ? params.name : undefined,
+          baseUrl: typeof params.baseUrl === "string" ? params.baseUrl : undefined,
+          api: typeof params.api === "string" ? params.api : undefined,
+          model_id: typeof params.model_id === "string" ? params.model_id : undefined,
+          model_name: typeof params.model_name === "string" ? params.model_name : undefined,
+        });
         this.ledger.appendGraphEvent("provider.action", {
           id: `settings-auth-${Date.now()}`,
           provider: "settings",
@@ -375,6 +438,47 @@ export class WebUIServer {
           latest: latest !== null ? { v: latest.v, verdict: latest.verdict, commit_hash: latest.commit_hash } : null,
           routed_count: this.routedCount(taskId),
         };
+      }
+      case "decompose.fromChat": {
+        // #655 REAL extraction: the hub transcript → pi session → strict
+        // six-element JSON → quotes mapped back to transcript messages →
+        // 溯源律 drops anything unmapped (honest count). Fail-closed when
+        // the keyed session is not ready — never a guessed extraction.
+        const taskId = String(params.task_id);
+        const decompositionId = String(params.decomposition_id ?? `dc-${taskId}`);
+        const summary = readPiConfig(this.options.piConfigDir);
+        if (!summary.keyed_session_ready) {
+          throw new ProjectHomeError(
+            "keyed session not ready — configure a provider key in pi (设置页) before extracting; no simulated extraction is offered",
+          );
+        }
+        const command = this.resolvePiCommand();
+        if (command === null) {
+          throw new ProjectHomeError("pi binary not found (set RT_PI_CMD) — cannot run the keyed extraction");
+        }
+        const transcript = this.ledger.connection
+          .prepare("SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? ORDER BY seq")
+          .all(taskId) as TranscriptMessage[];
+        if (transcript.filter((m) => m.role === "user").length === 0) {
+          throw new ProjectHomeError("no conversation to extract from — talk in the hub first");
+        }
+        const prompt = extractionPrompt(transcript);
+        const stdout =
+          this.options.piRunner !== undefined
+            ? this.options.piRunner(command, prompt)
+            : spawnSync(command, ["-p", prompt], { encoding: "utf8" }).stdout ?? "";
+        const extraction = parseExtraction(stdout, transcript);
+        const parsed = parseDecomposition(extraction);
+        const notes = { refusals: typeof params.refusals_note === "string" ? params.refusals_note : undefined };
+        const row = saveDraftDecomposition(this.ledger, taskId, parsed, notes, { decomposition_id: decompositionId });
+        this.ledger.appendGraphEvent("provider.action", {
+          id: `fromchat-${Date.now()}`,
+          provider: "pi-session",
+          action: "report",
+          target: `decompose:${taskId}/${decompositionId}`,
+          outcome: "ok",
+        });
+        return { checklist: row.checklist_state, elements: row.elements, dropped: parsed.dropped };
       }
       case "decompose.prepare": {
         // P3: the extraction arrives from the LLM side (pi session); parse +
@@ -442,6 +546,90 @@ export class WebUIServer {
         }
         const parsed = parseDecomposition(row.elements as DecompositionElements);
         return checklistFor(parsed, (row.checklist_state as { notes?: { refusals?: string } }).notes ?? {});
+      }
+      case "research.start": {
+        // #655 REAL start: requires a CONFIRMED decomposition; builds the
+        // mechanical plan (claims_preview → stages), registers the DAG, and
+        // walks birth→…→research. No fixtures; the verdict comes later
+        // through research.freeze (问句不是判决).
+        const taskId = String(params.task_id);
+        const decompositionId = String(params.decomposition_id ?? `dc-${taskId}`);
+        const row = this.ledger.getDecomposition(taskId, decompositionId);
+        if (row === null || row.status !== "confirmed") {
+          throw new ProjectHomeError(`research.start requires a confirmed decomposition: ${decompositionId}`);
+        }
+        const elements = row.elements as Record<string, unknown>;
+        const plan = mechanicalPlan(elements);
+        const stages: ParallelStage[] = plan.stages.map((stage) => ({
+          stage_id: `${taskId}/${stage.id}`,
+          title: stage.title,
+          status: "pending",
+          claim_ids: stage.claim_ids,
+          depends_on: stage.depends_on,
+          assigned_worker_class: "retrieval",
+          retries: 0,
+          max_retries: 2,
+          outputs: [],
+        }));
+        if (stages.length > 0) {
+          this.schedulerFor(taskId).registerStages(stages);
+        }
+        const previewClaims = Array.isArray(elements.claims_preview)
+          ? (elements.claims_preview as Array<Record<string, unknown>>)
+          : [];
+        const script: HeadlessScript = {
+          task_id: taskId,
+          pre_signed: {},
+          steps: [
+            {
+              event: "open-draft",
+              snapshot: {
+                elements: {},
+                claims: previewClaims.map((c) => ({ id: String(c.id), text: String(c.text), posterior: 0.5 })),
+                evidence_refs: [],
+                report: {},
+                deleted_nodes: [],
+              },
+              base_v: null,
+            },
+            { event: "attach", decomposition: elements, decomposition_id: decompositionId, plan },
+            { event: "confirm" },
+            { event: "sign" },
+          ],
+        };
+        const result = await runHeadless({
+          ledger: this.ledger,
+          machine: this.machine,
+          versions: this.versions,
+          script,
+          emit: (line) => {
+            for (const client of this.wss.clients) {
+              client.send(JSON.stringify({ event: "engine", line }));
+            }
+          },
+        });
+        const dispatched = stages.length > 0 ? this.schedulerFor(taskId).tick() : [];
+        return { ...result, phase: this.machine.phaseOf(taskId), stages: stages.length, dispatched: dispatched.length };
+      }
+      case "research.freeze": {
+        // 人工裁决门: the verdict is ALWAYS human-signed (问句不是判决).
+        const taskId = String(params.task_id);
+        const verdict = String(params.verdict ?? "");
+        if (!(VERDICTS as readonly string[]).includes(verdict)) {
+          throw new ProjectHomeError(`verdict must be one of ${VERDICTS.join("|")}`);
+        }
+        const phase = this.machine.phaseOf(taskId);
+        if (phase !== "research" && phase !== "converged") {
+          throw new ProjectHomeError(`freeze requires the research or converged phase, got: ${phase ?? "unknown"}`);
+        }
+        if (phase === "research") {
+          this.machine.transition(taskId, { event: "research-completed" });
+        }
+        const committed = this.machine.freezeTask(taskId, {
+          verdict,
+          summary: String(params.summary ?? `${verdict} by human sign-off`),
+        });
+        return { committed: true, v: committed.v, commit_hash: committed.commit_hash, verdict };
       }
       case "research.launch": {
         const script: HeadlessScript = {

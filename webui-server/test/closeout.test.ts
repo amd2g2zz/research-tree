@@ -193,14 +193,13 @@ describe("WebUI closeout — full 三步走 over the wire (issue #639)", () => {
       .map((e) => String((e.payload as Record<string, unknown>).target));
     expect(targets.some((t) => t.startsWith("fork:"))).toBe(true);
 
-    // settings: write key → file has it, wire/audit never do
+    // settings: write key → pi's models.json has it, wire/audit never do
     await rpc("config.setProviderKey", { provider: "zai", api_key: "sk-CO-SECRET" });
-    const raw = JSON.parse(readFileSync(join(piDir, "auth.json"), "utf8")) as Record<string, Record<string, unknown>>;
-    expect(raw.zai?.api_key).toBe("sk-CO-SECRET");
+    const raw = JSON.parse(readFileSync(join(piDir, "models.json"), "utf8")) as { providers: Record<string, { apiKey: string }> };
+    expect(raw.providers.zai?.apiKey).toBe("sk-CO-SECRET");
     expect(JSON.stringify(readPiConfig(piDir))).not.toContain("sk-CO-SECRET");
-    writeFileSync(join(piDir, "models-store.json"), JSON.stringify({ models: ["glm-5.3"], default: "glm-5.3" }));
-    await rpc("config.setDefaultModel", { model: "glm-air" });
-    expect(readPiConfig(piDir).default_model).toBe("glm-air");
+    await rpc("config.setDefaultModel", { model: "zai/m-1" });
+    expect(readPiConfig(piDir).default_model).toBe("zai/m-1");
     const audit = server
       .ledgerForTests()
       .graphEvents()

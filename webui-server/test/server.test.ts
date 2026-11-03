@@ -44,7 +44,8 @@ let nextId = 1;
 
 beforeAll(async () => {
   workspace = mkdtempSync(join(tmpdir(), "rt-webui-"));
-  server = new WebUIServer({ workspace });
+  const emptyPi = mkdtempSync(join(tmpdir(), "rt-webui-pi-"));
+  server = new WebUIServer({ workspace, piConfigDir: emptyPi });
   port = await server.listen();
 });
 afterAll(async () => {
@@ -95,15 +96,27 @@ async function rest(path: string): Promise<{ status: number; body: Record<string
 describe("webui spike (issue #632)", () => {
   it("pi config is read from pi's own directory — provider names only, key values never surface", () => {
     const dir = mkdtempSync(join(tmpdir(), "rt-piconf-"));
-    writeFileSync(join(dir, "models-store.json"), JSON.stringify({ models: ["glm-5.3", "glm-air"], default: "glm-air" }));
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "auth.json"), JSON.stringify({ "zai": { api_key: "sk-SUPER-SECRET" }, openai: {} }));
+    // pi's REAL registry: models.json providers
+    writeFileSync(
+      join(dir, "models.json"),
+      JSON.stringify({
+        providers: {
+          zai: { name: "Z", baseUrl: "https://api.z.ai/v1", api: "openai-completions", apiKey: "sk-SUPER-SECRET", models: [{ id: "glm-5.3", name: "GLM" }] },
+          openai: { apiKey: "sk-OTHER", models: [{ id: "gpt-x" }] },
+        },
+      }),
+    );
+    writeFileSync(join(dir, "models-store.json"), JSON.stringify({ default: "zai/glm-5.3" }));
     const summary = readPiConfig(dir);
     expect(summary.present).toBe(true);
-    expect(summary.default_model).toBe("glm-air");
-    expect(summary.models).toEqual(["glm-5.3", "glm-air"]);
+    expect(summary.default_model).toBe("zai/glm-5.3");
+    expect(summary.models.map((m) => m.id)).toEqual(["zai/glm-5.3", "openai/gpt-x"]);
     expect(summary.auth_providers).toEqual(["zai", "openai"]); // names only
+    expect(summary.keyed_session_ready).toBe(true);
+    expect(summary.follows_pi_default).toBe(false);
     expect(JSON.stringify(summary)).not.toContain("sk-SUPER-SECRET"); // masking red line
+    expect(JSON.stringify(summary)).not.toContain("sk-OTHER");
   });
 
   it("one full research round driven over WS/REST: project → chat → decompose → sign → commit → vitals live", async () => {
