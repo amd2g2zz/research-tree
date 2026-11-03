@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"pi-exit-settle","files":["openspec/changes/pi-exit-settle/proposal.md","openspec/changes/pi-exit-settle/tasks.md","openspec/changes/pi-exit-settle/specs/webui/spec.md","webui-server/src/pi-run.ts","webui-server/test/pi_run.test.ts"]}
