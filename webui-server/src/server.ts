@@ -48,6 +48,9 @@ import {
 import { readPiConfig, writeProviderKey, writeDefaultModel, ConfigWriteError } from "./pi-config.js";
 import { pickClassifier } from "./classify.js";
 import { extractionPrompt, parseExtraction, mechanicalPlan, type TranscriptMessage } from "./real-flow.js";
+import { buildTurnPrompt, parseTurnOutput, runRecon, reconToText } from "./chat-turn.js";
+import { AnysearchProvider } from "../../rt-core/src/providers/anysearch.js";
+import type { DataSourceProvider } from "../../rt-core/src/providers/types.js";
 
 export interface WebUIOptions {
   /** server workspace — the ledger lives here */
@@ -56,6 +59,8 @@ export interface WebUIOptions {
   piConfigDir?: string;
   /** injectable pi headless runner (contract tests; CI never spawns pi) */
   piRunner?: (command: string, prompt: string) => string;
+  /** injectable data-source provider (recon; tests) — default anysearch */
+  provider?: DataSourceProvider;
 }
 
 interface RpcMessage {
@@ -356,6 +361,60 @@ export class WebUIServer {
           this.home.registerTask(projectId, String(params.new_task_id), "fork");
         }
         return newTask;
+      }
+      case "chat.turn": {
+        // #660: the conversational loop — the agent RESPONDS (never a wall):
+        // transcript+state → pi session → {reply, questions[], recon?} →
+        // recon executes for real through the DataSourceProvider port →
+        // everything lands in chat_messages as data. Fail-closed when the
+        // keyed session is not ready; the classification receipt (#651)
+        // stays parallel and untouched.
+        const text = String(params.text ?? "");
+        const taskId = String(params.task_id);
+        const summary = readPiConfig(this.options.piConfigDir);
+        if (!summary.keyed_session_ready) {
+          throw new ProjectHomeError("keyed session not ready — configure pi (设置页) before conversational turns");
+        }
+        const command = this.resolvePiCommand();
+        if (command === null) {
+          throw new ProjectHomeError("pi binary not found (set RT_PI_CMD) — conversational turns fail closed");
+        }
+        // the user message first (so the prompt sees it), classification parallel
+        const classifier = pickClassifier({ ready: true }, { runner: this.options.piRunner, command });
+        const classification = classifier.classify(text);
+        this.appendChat(taskId, "user", classification.kind, text, { classified_by: classification.classified_by });
+        void classifier; // classification stored via appendChat payload above
+
+        const transcript = this.ledger.connection
+          .prepare("SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? ORDER BY seq")
+          .all(taskId) as TranscriptMessage[];
+        const prompt = buildTurnPrompt(transcript);
+        const stdout =
+          this.options.piRunner !== undefined
+            ? this.options.piRunner(command, prompt)
+            : spawnSync(command, ["-p", prompt], { encoding: "utf8" }).stdout ?? "";
+        const turn = parseTurnOutput(stdout);
+
+        let reconResults: Array<{ title: string; url?: string; snippet?: string }> | undefined;
+        if (turn.recon !== null && turn.recon !== undefined) {
+          const query = turn.recon.query;
+          const provider: DataSourceProvider = this.options.provider ?? new AnysearchProvider();
+          reconResults = await runRecon(provider, query);
+          this.appendChat(taskId, "rt", "recon", reconToText(reconResults), { query });
+          this.ledger.appendGraphEvent("provider.action", {
+            id: `recon-${Date.now()}`,
+            provider: "anysearch",
+            action: "search",
+            target: query,
+            outcome: "ok",
+            result_count: reconResults.length,
+          });
+        }
+        this.appendChat(taskId, "rt", "reply", turn.reply, { questions: turn.questions });
+        for (const q of turn.questions) {
+          this.appendChat(taskId, "rt", "question", q, null);
+        }
+        return { reply: turn.reply, questions: turn.questions, recon_results: reconResults ?? [], classified_by: classification.classified_by };
       }
       case "chat.ingest": {
         const text = String(params.text ?? "");

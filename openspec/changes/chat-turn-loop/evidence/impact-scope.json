@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"chat-turn-loop","files":["openspec/changes/chat-turn-loop/proposal.md","openspec/changes/chat-turn-loop/tasks.md","openspec/changes/chat-turn-loop/specs/webui/spec.md","webui-server/src/chat-turn.ts","webui-server/src/server.ts","webui-server/test/chat_turn.test.ts","webui/src/App.tsx","webui/src/styles.css"]}

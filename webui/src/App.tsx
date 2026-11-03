@@ -119,6 +119,7 @@ export function App() {
   const [status, setStatus] = useState<TaskStatus | null>(null);
   const [draft, setDraft] = useState("");
   const [kind, setKind] = useState<UtteranceKind>("auto");
+  const [thinking, setThinking] = useState(false);
   // decomp
   const [decomp, setDecomp] = useState<{
     decomposition_id: string;
@@ -249,19 +250,24 @@ export function App() {
     if (activeTaskId === null || draft.trim() === "") {
       return;
     }
+    setThinking(true);
     try {
-      const params: Record<string, unknown> = { task_id: activeTaskId, text: draft.trim() };
-      if (kind !== "auto") {
-        params.kind = kind;
+      // #660: 对话回路优先 — the agent responds; explicit kind (≠自动) keeps the
+      // lightweight routing-only path
+      if (kind === "auto") {
+        const result = await rpc(await getSocket(), "chat.turn", { task_id: activeTaskId, text: draft.trim() });
+        push("rpc", `agent 回应（侦查 ${Array.isArray(result.recon_results) ? (result.recon_results as unknown[]).length : 0} 条）`);
+      } else {
+        const result = await rpc(await getSocket(), "chat.ingest", { task_id: activeTaskId, text: draft.trim(), kind });
+        const receipt = result.receipt as ClassificationBadge;
+        push("rpc", `已路由（${CLASSIFIED_BY_LABELS[receipt.classified_by ?? ""] ?? "手动"}）→ ${receipt.routed}`);
       }
-      const result = await rpc(await getSocket(), "chat.ingest", params);
-      const receipt = result.receipt as ClassificationBadge;
-      const by = CLASSIFIED_BY_LABELS[receipt.classified_by ?? ""] ?? receipt.classified_by;
-      push("rpc", `已路由（${by ?? "自动"}）→ ${receipt.routed}`);
       setDraft("");
       await refreshHub(activeTaskId);
     } catch (error) {
       push("error", String(error));
+    } finally {
+      setThinking(false);
     }
   };
 
@@ -709,9 +715,43 @@ export function App() {
                       {m.text}
                     </div>
                   ) : m.role === "rt" ? (
-                    <div key={m.seq} className="msg-rt">
-                      <span className="rt-dot">◉</span> {m.text}
-                    </div>
+                    m.kind === "reply" ? (
+                      <div key={m.seq} className="msg-agent">
+                        <div className="agent-tag">rt</div>
+                        <div className="agent-body">{m.text}</div>
+                        {(() => {
+                          const qs = m.receipt_json !== null ? (JSON.parse(String(m.receipt_json)) as { questions?: string[] }).questions : undefined;
+                          return Array.isArray(qs) && qs.length > 0 ? (
+                            <div className="qchips">
+                              {qs.map((q, i) => (
+                                <button
+                                  key={i}
+                                  className="qchip"
+                                  onClick={() => {
+                                    setDraft(q);
+                                  }}
+                                >
+                                  {q}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null;
+                        })()}
+                      </div>
+                    ) : m.kind === "question" ? (
+                      <div key={m.seq} className="msg-question" onClick={() => setDraft(m.text)}>
+                        ❓ {m.text}
+                      </div>
+                    ) : m.kind === "recon" ? (
+                      <details key={m.seq} className="msg-recon">
+                        <summary>🔎 {m.text.slice(0, 60)}…</summary>
+                        <div>{m.text}</div>
+                      </details>
+                    ) : (
+                      <div key={m.seq} className="msg-rt">
+                        <span className="rt-dot">◉</span> {m.text}
+                      </div>
+                    )
                   ) : (
                     <div key={m.seq} className="msg-system">
                       {m.text}
@@ -747,8 +787,8 @@ export function App() {
                       }
                     }}
                   />
-                  <button className="send" onClick={() => void sendChat()} disabled={draft.trim() === ""}>
-                    ↑
+                  <button className="send" onClick={() => void sendChat()} disabled={draft.trim() === "" || thinking}>
+                    {thinking ? "…" : "↑"}
                   </button>
                 </div>
                 <div className="composer-hint">
