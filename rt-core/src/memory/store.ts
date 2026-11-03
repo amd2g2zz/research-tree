@@ -152,8 +152,12 @@ export class AutoMemory {
       throw new MemoryError(`memory scope must be "user", "project:<id>" or "task:<id>": ${query.scope}`);
     }
     const kinds = query.kinds ?? [];
+    // deterministic order: recency first; rowid (insertion order) breaks
+    // same-millisecond ties — a memory_id tieback flips with clock resolution
     const rows = (
-      this.ledger.connection.prepare("SELECT * FROM memories WHERE status = 'active' ORDER BY updated_at DESC, memory_id").all() as MemoryRow[]
+      this.ledger.connection
+        .prepare("SELECT * FROM memories WHERE status = 'active' ORDER BY updated_at DESC, rowid DESC")
+        .all() as MemoryRow[]
     ).filter((row) => scopeMatches(row.scope, query.scope) && (kinds.length === 0 || kinds.includes(row.kind as MemoryKind)));
     const limit = query.limit ?? 10;
     const index: RecallResult["index"] = [];

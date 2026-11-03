@@ -1,0 +1,1 @@
+{"schema": "impact-scope-v1", "change": "webui-chatgpt-ui", "files": ["openspec/changes/webui-chatgpt-ui/evidence/impact-scope.json", "openspec/changes/webui-chatgpt-ui/proposal.md", "openspec/changes/webui-chatgpt-ui/specs/webui/spec.md", "openspec/changes/webui-chatgpt-ui/tasks.md", "webui/src/App.tsx", "webui/src/styles.css"]}
