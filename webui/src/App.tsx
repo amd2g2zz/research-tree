@@ -1,10 +1,20 @@
-/** WebUI P0/P1 (issue #633): home = default landing with the card wall
- * (create / list-with-vitals / archive / delete-archived-only — engine red
- * lines surfaced verbatim) and the P1 sidebar tree (project → research lines
- * main/fork → version nodes with fork markers + the draft row
- * 未冻结·不可跟踪). Data comes from /api/tree assembled over #571/#548. */
+/** research-tree WebUI — ChatGPT-style layout (issue #653, user ruling
+ * 2026-11-03: 按 ChatGPT 的页面做).
+
+- **Left sidebar** (260px): 「新研究」 button; project→task list; settings +
+  pi readiness at the bottom.
+- **Main column** = the chat hub is THE product surface: centered stream
+  (user bubbles right, rt receipts full-width left), sticky composer pill
+  that spans all phases (追加信息门).
+- **Right canvas panel** slides out from the header (分解 / 研究 / 版本) —
+  like ChatGPT's canvas, the chat never leaves.
+- **Settings** = a modal over everything; pi's config stays the single
+  source (#638), keys never echo.
+*/
 
 import { useCallback, useEffect, useRef, useState } from "react";
+
+type Panel = null | "decomp" | "research" | "versions";
 
 interface ProjectCard {
   project_id: string;
@@ -20,26 +30,16 @@ interface VersionNode {
   summary: string;
   forked: boolean;
 }
-interface LineNode {
-  task_id: string;
-  role: "main" | "fork";
-  latest: { v: number; verdict: string; commit_hash: string; summary: string } | null;
-  versions: VersionNode[];
-  draft: { base_v: number | null; updated_at: string } | null;
-}
 interface TreeNode extends ProjectCard {
-  vitals: {
-    research_lines: number;
-    latest: { v: number; verdict: string; commit_hash: string } | null;
-    elapsed_ms: number;
-  };
-  lines: LineNode[];
+  vitals: { research_lines: number; latest: { v: number; verdict: string; commit_hash: string } | null; elapsed_ms: number };
+  lines: Array<{
+    task_id: string;
+    role: "main" | "fork";
+    latest: { v: number; verdict: string; commit_hash: string; summary: string } | null;
+    versions: VersionNode[];
+    draft: { base_v: number | null; updated_at: string } | null;
+  }>;
 }
-interface LogLine {
-  kind: "engine" | "rpc" | "error";
-  text: string;
-}
-type UtteranceKind = "auto" | "preference" | "claim" | "guess" | "branch";
 interface ChatMessage {
   seq: number;
   role: "user" | "rt" | "system";
@@ -53,13 +53,45 @@ interface TaskStatus {
   latest: { v: number; verdict: string; commit_hash: string } | null;
   routed_count: number;
 }
+type UtteranceKind = "auto" | "preference" | "claim" | "guess" | "branch";
+interface PiConfig {
+  present: boolean;
+  default_model: string | null;
+  models: string[];
+  auth_providers: string[];
+  config_path: string;
+  keyed_session_ready: boolean;
+  readiness: { has_provider_key: boolean; has_default_model: boolean };
+}
+interface LogLine {
+  kind: "engine" | "rpc" | "error";
+  text: string;
+}
+interface ClassificationBadge {
+  classified_by?: string;
+  routed?: string;
+}
+
 const KIND_LABELS: Record<UtteranceKind, string> = {
-  auto: "自动分类",
-  preference: "偏好/意图",
-  claim: "事实主张",
-  guess: "方案猜测",
-  branch: "分支/岔路",
+  auto: "自动",
+  preference: "偏好",
+  claim: "主张",
+  guess: "猜测",
+  branch: "岔路",
 };
+const CLASSIFIED_BY_LABELS: Record<string, string> = {
+  user: "手动",
+  "pi-session": "pi 会话",
+  heuristic: "规则回退",
+};
+const ELEMENT_META: Array<[string, string]> = [
+  ["requirements", "🎯 需求"],
+  ["constraints", "📌 条件约束"],
+  ["background", "📖 任务背景"],
+  ["intents", "💡 用户意图"],
+  ["refusals", "🚫 拒绝点"],
+  ["difficulties", "⚠ 难点→kill 候选"],
+];
 
 const WALK_STEPS = [
   {
@@ -97,35 +129,58 @@ const WALK_STEPS = [
 
 export function App() {
   const [tree, setTree] = useState<TreeNode[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [piConfig, setPiConfig] = useState<{ present: boolean; default_model: string | null; auth_providers: string[] } | null>(null);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [piConfig, setPiConfig] = useState<PiConfig | null>(null);
   const [log, setLog] = useState<LogLine[]>([]);
   const [running, setRunning] = useState(false);
-  const [name, setName] = useState("");
   const socketRef = useRef<WebSocket | null>(null);
-  // ---------------- P2 hub state ----------------
+  // UI chrome
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [panel, setPanel] = useState<Panel>(null);
+  const [modal, setModal] = useState<null | "settings" | "new" | "snapshot">(null);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  // hub
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<TaskStatus | null>(null);
   const [draft, setDraft] = useState("");
   const [kind, setKind] = useState<UtteranceKind>("auto");
+  // decomp
+  const [decomp, setDecomp] = useState<{
+    decomposition_id: string;
+    elements: Record<string, Array<Record<string, unknown>>>;
+    checklist: { complete: boolean; gaps: string[] };
+    status?: string;
+  } | null>(null);
+  // research
+  const [research, setResearch] = useState<{
+    question: { task_id: string; title: string };
+    claims: Record<string, { text: string; posterior: number; verify_tier: string; weight: string; state: string }>;
+    stages: Array<{ stage_id: string; title: string; status: string; claim_ids: string[]; depends_on: string[] }>;
+    transitions: Array<{ from: string | null; to: string }>;
+    providers: string[];
+  } | null>(null);
+  const [beats, setBeats] = useState<Array<{ seq: number; event_type: string; summary: string }>>([]);
+  const [beat, setBeat] = useState<number | null>(null);
+  const [atView, setAtView] = useState<{ console: string[]; claims: Record<string, Record<string, unknown>> } | null>(null);
+  const [drawer, setDrawer] = useState<{ claimId: string; lineage: { steps: Array<{ layer: string; detail?: string }>; raw_evidence?: string } | null } | null>(null);
+  // versions
+  const [vtl, setVtl] = useState<{
+    is_main_branch: boolean;
+    versions: VersionNode[];
+    draft: { base_v: number | null; updated_at: string } | null;
+    fork_parent: { task_id: string; v: number } | null;
+  } | null>(null);
+  const [snap, setSnap] = useState<{ banner: { v: number; commit_hash: string; verdict: string; summary: string }; report: Record<string, unknown> } | null>(null);
+  // settings
+  const [settings, setSettings] = useState<PiConfig | null>(null);
+  const [provider, setProvider] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState("");
+  const [newName, setNewName] = useState("");
 
-  const push = useCallback((kind: LogLine["kind"], text: string) => {
-    setLog((prev) => [...prev.slice(-199), { kind, text }]);
+  const push = useCallback((kindLog: LogLine["kind"], text: string) => {
+    setLog((prev) => [...prev.slice(-199), { kind: kindLog, text }]);
   }, []);
-
-  const refreshTree = useCallback(async () => {
-    const res = await fetch("/api/tree");
-    const projects = ((await res.json()) as { projects: TreeNode[] }).projects;
-    setTree(projects);
-    setSelected((current) => current ?? projects.find((p) => p.status === "active")?.project_id ?? null);
-  }, []);
-
-  useEffect(() => {
-    void refreshTree();
-    void fetch("/api/config/pi")
-      .then((r) => r.json())
-      .then((c) => setPiConfig(c as never));
-  }, [refreshTree]);
 
   const connect = useCallback((): Promise<WebSocket> => {
     return new Promise((resolve, reject) => {
@@ -135,6 +190,13 @@ export function App() {
       ws.onerror = reject;
     });
   }, []);
+
+  const getSocket = useCallback(async (): Promise<WebSocket> => {
+    if (socketRef.current === null || socketRef.current.readyState > 1) {
+      socketRef.current = await connect();
+    }
+    return socketRef.current;
+  }, [connect]);
 
   const rpc = useCallback(
     (ws: WebSocket, method: string, params: Record<string, unknown> = {}) => {
@@ -161,26 +223,86 @@ export function App() {
     [push],
   );
 
-  const getSocket = useCallback(async (): Promise<WebSocket> => {
-    if (socketRef.current === null || socketRef.current.readyState > 1) {
-      socketRef.current = await connect();
-    }
-    return socketRef.current;
-  }, [connect]);
+  const refreshTree = useCallback(async () => {
+    const projects = ((await (await fetch("/api/tree")).json()) as { projects: TreeNode[] }).projects;
+    setTree(projects);
+    setActiveTaskId((current) => {
+      if (current !== null) {
+        return current;
+      }
+      const active = projects.find((p) => p.status === "active");
+      return active?.lines.find((l) => l.role === "main")?.task_id ?? null;
+    });
+  }, []);
 
+  useEffect(() => {
+    void refreshTree();
+    void fetch("/api/config/pi")
+      .then((r) => r.json())
+      .then((c) => setPiConfig(c as never));
+  }, [refreshTree]);
+
+  // ------------- derived selection -------------
+  const activeProject = tree.find((p) => p.lines.some((l) => l.task_id === activeTaskId)) ?? null;
+  const activeTask = activeProject?.lines.find((l) => l.task_id === activeTaskId) ?? null;
+  const isCommitted = (status?.latest ?? null) !== null;
+
+  // ------------- hub -------------
+  const refreshHub = useCallback(
+    async (taskId: string) => {
+      const h = await rpc(await getSocket(), "chat.history", { task_id: taskId });
+      setMessages((h.messages as never) ?? []);
+      setStatus((await rpc(await getSocket(), "task.status", { task_id: taskId })) as never as TaskStatus);
+    },
+    [getSocket, rpc],
+  );
+
+  useEffect(() => {
+    if (activeTaskId !== null) {
+      void refreshHub(activeTaskId);
+    } else {
+      setMessages([]);
+      setStatus(null);
+    }
+    setPanel(null);
+    setDecomp(null);
+  }, [activeTaskId, refreshHub]);
+
+  const sendChat = async (): Promise<void> => {
+    if (activeTaskId === null || draft.trim() === "") {
+      return;
+    }
+    try {
+      const params: Record<string, unknown> = { task_id: activeTaskId, text: draft.trim() };
+      if (kind !== "auto") {
+        params.kind = kind;
+      }
+      const result = await rpc(await getSocket(), "chat.ingest", params);
+      const receipt = result.receipt as ClassificationBadge;
+      const by = CLASSIFIED_BY_LABELS[receipt.classified_by ?? ""] ?? receipt.classified_by;
+      push("rpc", `已路由（${by ?? "自动"}）→ ${receipt.routed}`);
+      setDraft("");
+      await refreshHub(activeTaskId);
+    } catch (error) {
+      push("error", String(error));
+    }
+  };
+
+  // ------------- project actions -------------
   const createProject = async (): Promise<void> => {
-    if (name.trim() === "") {
+    if (newName.trim() === "") {
       return;
     }
     try {
       const project_id = `p-${Date.now().toString(36)}`;
       const ws = await getSocket();
-      await rpc(ws, "project.create", { project_id, name: name.trim() });
+      await rpc(ws, "project.create", { project_id, name: newName.trim() });
       await rpc(ws, "project.registerTask", { project_id, task_id: `${project_id}-main`, role: "main" });
-      push("rpc", `项目已创建，落其首页（主线 ${project_id}-main）`);
-      setName("");
+      push("rpc", `新研究已建立（主线 ${project_id}-main）`);
+      setNewName("");
+      setModal(null);
       await refreshTree();
-      setSelected(project_id);
+      setActiveTaskId(`${project_id}-main`);
     } catch (error) {
       push("error", String(error));
     }
@@ -190,30 +312,31 @@ export function App() {
     try {
       await rpc(await getSocket(), `project.${action}`, { project_id: projectId });
       push("rpc", `project.${action} ok`);
-      if (selected === projectId) {
-        setSelected(null);
+      if (activeProject?.project_id === projectId) {
+        setActiveTaskId(null);
       }
+      setMenuFor(null);
       await refreshTree();
     } catch (error) {
-      push("error", String(error)); // engine red line surfaced verbatim
+      push("error", String(error)); // engine red line verbatim
+      setMenuFor(null);
     }
   };
 
   const runWalk = async (): Promise<void> => {
+    if (activeTaskId === null) {
+      return;
+    }
     setRunning(true);
     try {
-      const project = tree.find((p) => p.project_id === selected);
-      if (project === undefined) {
-        throw new Error("先建一个项目");
-      }
-      push("rpc", "端到端演练开始：分解 → 签署 → 研究 → 冻结提交");
+      push("rpc", "端到端演练：分解 → 签署 → 研究 → 冻结提交");
       const result = await rpc(await getSocket(), "research.launch", {
-        task_id: project.lines.find((l) => l.role === "main")?.task_id ?? `${project.project_id}-main`,
+        task_id: activeTaskId,
         pre_signed: { verdict: "GO", summary: "webui 演练提交" },
         steps: WALK_STEPS,
       });
       push("rpc", `演练完成：outcome=${String(result.outcome)} events=${String(result.events)}`);
-      await refreshTree();
+      await Promise.all([refreshTree(), refreshHub(activeTaskId)]);
     } catch (error) {
       push("error", String(error));
     } finally {
@@ -221,140 +344,148 @@ export function App() {
     }
   };
 
-  const selectedProject = tree.find((p) => p.project_id === selected) ?? null;
-
-  const mainTaskId = selectedProject?.lines.find((l) => l.role === "main")?.task_id ?? null;
-
-  // ---------------- P4 research page ----------------
-  const [research, setResearch] = useState<{
-    question: { task_id: string; title: string };
-    claims: Record<string, { text: string; posterior: number; verify_tier: string; weight: string; state: string }>;
-    stages: Array<{ stage_id: string; title: string; status: string; claim_ids: string[]; depends_on: string[] }>;
-    transitions: Array<{ from: string | null; to: string }>;
-    providers: string[];
-  } | null>(null);
-  const [beats, setBeats] = useState<Array<{ seq: number; event_type: string; summary: string }>>([]);
-  const [beat, setBeat] = useState<number | null>(null); // null = live tail
-  const [atView, setAtView] = useState<{ console: string[]; claims: Record<string, Record<string, unknown>> } | null>(null);
-  const [drawer, setDrawer] = useState<{ claimId: string; lineage: { steps: Array<{ layer: string; detail?: string }>; raw_evidence?: string } | null } | null>(null);
-
-  const refreshResearch = useCallback(
-    async (taskId: string) => {
-      const view = await (await fetch(`/api/research/${encodeURIComponent(taskId)}`)).json();
-      setResearch(view as never);
-      const b = (await (await fetch(`/api/research/${encodeURIComponent(taskId)}/beats`)).json()) as { beats: typeof beats };
-      setBeats(b.beats);
-      setBeat(null);
-      setAtView(null);
-    },
-    [],
-  );
-
-  useEffect(() => {
-    if (mainTaskId !== null) {
-      void refreshResearch(mainTaskId);
-    } else {
-      setResearch(null);
-      setBeats([]);
-    }
-  }, [mainTaskId, refreshResearch]);
-
-  const scrubTo = async (t: number): Promise<void> => {
-    if (mainTaskId === null) {
-      return;
-    }
-    setBeat(t);
-    const view = (await (await fetch(`/api/research/${encodeURIComponent(mainTaskId)}/at/${t}`)).json()) as never;
-    setAtView(view as { console: string[]; claims: Record<string, Record<string, unknown>> });
-  };
-
-  const openDrawer = async (claimId: string): Promise<void> => {
-    if (mainTaskId === null) {
-      return;
-    }
-    const res = await fetch(`/api/research/${encodeURIComponent(mainTaskId)}/lineage/0/${encodeURIComponent(claimId)}`);
-    const body = (await res.json()) as { steps?: Array<{ layer: string; detail?: string }>; raw_evidence?: string; error?: string };
-    setDrawer({ claimId, lineage: body.error !== undefined ? null : (body as never) });
-  };
-
-  // ---------------- P5 version page ----------------
-  const [vtl, setVtl] = useState<{
-    is_main_branch: boolean;
-    versions: Array<{ v: number; verdict: string; commit_hash: string; summary: string; forked: boolean }>;
-    draft: { base_v: number | null; updated_at: string } | null;
-    fork_parent: { task_id: string; v: number } | null;
-  } | null>(null);
-  const [snap, setSnap] = useState<{
-    banner: { v: number; commit_hash: string; verdict: string; summary: string };
-    report: Record<string, unknown>;
-  } | null>(null);
-  const [archiveView, setArchiveView] = useState<{ entries: Array<{ task_id: string; v: number; verdict: string; disposition: { kind: string } }> } | null>(null);
-
-  const refreshVersions = useCallback(
-    async (taskId: string) => {
-      const res = await fetch(`/api/versions/${encodeURIComponent(taskId)}`);
-      if (res.ok) {
-        setVtl((await res.json()) as never);
-      }
-    },
-    [],
-  );
-
-  useEffect(() => {
-    if (mainTaskId !== null) {
-      void refreshVersions(mainTaskId);
-    } else {
-      setVtl(null);
-    }
-  }, [mainTaskId, refreshVersions]);
-
-  const openSnapshot = async (v: number): Promise<void> => {
-    if (mainTaskId === null) {
-      return;
-    }
-    const res = await fetch(`/api/versions/${encodeURIComponent(mainTaskId)}/snapshot/${v}`);
-    if (res.ok) {
-      setSnap((await res.json()) as never);
-    }
-  };
-
-  const versionAction = async (action: "continue" | "fork"): Promise<void> => {
-    if (mainTaskId === null) {
+  // ------------- decomp panel -------------
+  const prepareDecomp = async (): Promise<void> => {
+    if (activeTaskId === null) {
       return;
     }
     try {
-      if (action === "continue") {
-        await rpc(await getSocket(), "version.continue", { task_id: mainTaskId });
-        push("rpc", "继续研究：新草稿自最新提交复制（写时复制）");
-      } else {
-        const newTaskId = `${mainTaskId}-fork-${Date.now().toString(36).slice(-4)}`;
-        await rpc(await getSocket(), "version.fork", { task_id: mainTaskId, v: vtl?.versions[0]?.v ?? 0, new_task_id: newTaskId });
-        push("rpc", `分叉 → ${newTaskId}（分叉即继承，落 chat）`);
-      }
-      await Promise.all([refreshVersions(mainTaskId), refreshTree(), refreshResearch(mainTaskId)]);
+      const result = await rpc(await getSocket(), "decompose.prepare", {
+        task_id: activeTaskId,
+        decomposition_id: `dc-${activeTaskId}`,
+        extraction: WALK_STEPS.find((s) => s.event === "attach")?.decomposition,
+        refusals_note: "none",
+      });
+      setDecomp({
+        decomposition_id: `dc-${activeTaskId}`,
+        elements: result.elements as never,
+        checklist: result.checklist as never,
+      });
+      push("rpc", `分解草稿已保存（溯源律丢弃 ${String(result.dropped)} 条无源要素）`);
     } catch (error) {
       push("error", String(error));
     }
   };
 
-  const browseArchive = async (): Promise<void> => {
-    const res = await fetch("/api/archive");
-    setArchiveView((await res.json()) as never);
+  const removeElement = async (elementClass: string, index: number): Promise<void> => {
+    if (decomp === null || activeTaskId === null) {
+      return;
+    }
+    try {
+      const result = await rpc(await getSocket(), "decompose.removeElement", {
+        task_id: activeTaskId,
+        decomposition_id: decomp.decomposition_id,
+        element_class: elementClass,
+        index,
+      });
+      setDecomp({ ...decomp, elements: result.elements as never, checklist: result.checklist as never });
+    } catch (error) {
+      push("error", String(error)); // 确认后编辑 = major pivot verbatim
+    }
   };
 
-  // ---------------- 设置页（pi 同源写路径，#638） ----------------
-  const [settings, setSettings] = useState<{ present: boolean; default_model: string | null; models: string[]; auth_providers: string[]; config_path: string } | null>(null);
-  const [provider, setProvider] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("");
+  const confirmDecomp = async (): Promise<void> => {
+    if (decomp === null || activeTaskId === null) {
+      return;
+    }
+    try {
+      await rpc(await getSocket(), "decompose.confirm", { task_id: activeTaskId, decomposition_id: decomp.decomposition_id });
+      push("rpc", "要素集已冻结为研究宪法（v0）");
+      setDecomp({ ...decomp, status: "confirmed" });
+      await refreshTree();
+    } catch (error) {
+      push("error", String(error)); // 预注册缺口 verbatim
+    }
+  };
 
+  // ------------- research panel -------------
+  const refreshResearch = useCallback(async (taskId: string) => {
+    const view = await (await fetch(`/api/research/${encodeURIComponent(taskId)}`)).json();
+    setResearch(view as never);
+    const b = (await (await fetch(`/api/research/${encodeURIComponent(taskId)}/beats`)).json()) as { beats: Array<{ seq: number; event_type: string; summary: string }> };
+    setBeats(b.beats);
+    setBeat(null);
+    setAtView(null);
+  }, []);
+
+  useEffect(() => {
+    if (panel === "research" && activeTaskId !== null) {
+      void refreshResearch(activeTaskId);
+    }
+  }, [panel, activeTaskId, refreshResearch]);
+
+  const scrubTo = async (t: number): Promise<void> => {
+    if (activeTaskId === null) {
+      return;
+    }
+    setBeat(t);
+    const view = (await (await fetch(`/api/research/${encodeURIComponent(activeTaskId)}/at/${t}`)).json()) as never;
+    setAtView(view as { console: string[]; claims: Record<string, Record<string, unknown>> });
+  };
+
+  const openDrawer = async (claimId: string): Promise<void> => {
+    if (activeTaskId === null) {
+      return;
+    }
+    const res = await fetch(`/api/research/${encodeURIComponent(activeTaskId)}/lineage/0/${encodeURIComponent(claimId)}`);
+    const body = (await res.json()) as { steps?: Array<{ layer: string; detail?: string }>; raw_evidence?: string; error?: string };
+    setDrawer({ claimId, lineage: body.error !== undefined ? null : (body as never) });
+  };
+
+  // ------------- versions panel -------------
+  const refreshVersions = useCallback(async (taskId: string) => {
+    const res = await fetch(`/api/versions/${encodeURIComponent(taskId)}`);
+    if (res.ok) {
+      setVtl((await res.json()) as never);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (panel === "versions" && activeTaskId !== null) {
+      void refreshVersions(activeTaskId);
+    }
+  }, [panel, activeTaskId, refreshVersions]);
+
+  const openSnapshot = async (v: number): Promise<void> => {
+    if (activeTaskId === null) {
+      return;
+    }
+    const res = await fetch(`/api/versions/${encodeURIComponent(activeTaskId)}/snapshot/${v}`);
+    if (res.ok) {
+      setSnap((await res.json()) as never);
+      setModal("snapshot");
+    }
+  };
+
+  const versionAction = async (action: "continue" | "fork"): Promise<void> => {
+    if (activeTaskId === null) {
+      return;
+    }
+    try {
+      if (action === "continue") {
+        await rpc(await getSocket(), "version.continue", { task_id: activeTaskId });
+        push("rpc", "继续研究：新草稿自最新提交复制（写时复制）");
+      } else {
+        const newTaskId = `${activeTaskId}-fork-${Date.now().toString(36).slice(-4)}`;
+        await rpc(await getSocket(), "version.fork", { task_id: activeTaskId, v: vtl?.versions[0]?.v ?? 0, new_task_id: newTaskId });
+        push("rpc", `分叉 → ${newTaskId}（分叉即继承，落 chat）`);
+      }
+      await Promise.all([refreshVersions(activeTaskId), refreshTree()]);
+    } catch (error) {
+      push("error", String(error));
+    }
+  };
+
+  // ------------- settings modal -------------
   const refreshSettings = useCallback(async () => {
     setSettings((await (await fetch("/api/config/pi")).json()) as never);
   }, []);
 
   useEffect(() => {
-    void refreshSettings();
-  }, [refreshSettings]);
+    if (modal === "settings") {
+      void refreshSettings();
+    }
+  }, [modal, refreshSettings]);
 
   const saveSettings = async (what: "key" | "model"): Promise<void> => {
     try {
@@ -367,284 +498,402 @@ export function App() {
         push("rpc", `默认模型 → ${model.trim()}（新开的 pi 会话生效）`);
       }
       await refreshSettings();
+      void fetch("/api/config/pi")
+        .then((r) => r.json())
+        .then((c) => setPiConfig(c as never));
     } catch (error) {
       push("error", String(error));
     }
   };
 
-  // ---------------- P3 decomposition page ----------------
-  const [decomp, setDecomp] = useState<{
-    decomposition_id: string;
-    elements: Record<string, Array<Record<string, unknown>>>;
-    checklist: { complete: boolean; gaps: string[] };
-    status?: string;
-  } | null>(null);
-
-  const prepareDecomp = async (): Promise<void> => {
-    if (mainTaskId === null) {
-      return;
-    }
-    try {
-      // 演练：extraction 由 LLM 侧（pi 会话）产出；keyed session 接入前此处注入 fixture
-      const result = await rpc(await getSocket(), "decompose.prepare", {
-        task_id: mainTaskId,
-        decomposition_id: `dc-${mainTaskId}`,
-        extraction: WALK_STEPS.find((s) => s.event === "attach")?.decomposition,
-        refusals_note: "none",
-      });
-      setDecomp({
-        decomposition_id: `dc-${mainTaskId}`,
-        elements: result.elements as never,
-        checklist: result.checklist as never,
-      });
-      push("rpc", `分解草稿已保存（溯源律丢弃 ${String(result.dropped)} 条无源要素）`);
-    } catch (error) {
-      push("error", String(error));
-    }
-  };
-
-  const removeElement = async (elementClass: string, index: number): Promise<void> => {
-    if (decomp === null || mainTaskId === null) {
-      return;
-    }
-    try {
-      const result = await rpc(await getSocket(), "decompose.removeElement", {
-        task_id: mainTaskId,
-        decomposition_id: decomp.decomposition_id,
-        element_class: elementClass,
-        index,
-      });
-      setDecomp({ ...decomp, elements: result.elements as never, checklist: result.checklist as never });
-      push("rpc", `已删除 ${elementClass}[${index}]（编辑权在确认前）`);
-    } catch (error) {
-      push("error", String(error)); // 确认后编辑 = major pivot，引擎拒绝 verbatim
-    }
-  };
-
-  const confirmDecomp = async (): Promise<void> => {
-    if (decomp === null || mainTaskId === null) {
-      return;
-    }
-    try {
-      await rpc(await getSocket(), "decompose.confirm", { task_id: mainTaskId, decomposition_id: decomp.decomposition_id });
-      push("rpc", "要素集已冻结为研究宪法（v0）；启动研究");
-      setDecomp({ ...decomp, status: "confirmed" });
-      await refreshTree();
-    } catch (error) {
-      push("error", String(error)); // 预注册缺口 verbatim
-    }
-  };
-
-  const ELEMENT_META: Array<[string, string]> = [
-    ["requirements", "🎯 需求"],
-    ["constraints", "📌 条件约束"],
-    ["background", "📖 任务背景"],
-    ["intents", "💡 用户意图"],
-    ["refusals", "🚫 拒绝点"],
-    ["difficulties", "⚠ 难点→kill 候选"],
-  ];
-
-  // ---------------- P2 hub actions ----------------
-  const refreshHub = useCallback(
-    async (taskId: string) => {
-      const h = await rpc(await getSocket(), "chat.history", { task_id: taskId });
-      setMessages((h.messages as never) ?? []);
-      setStatus((await rpc(await getSocket(), "task.status", { task_id: taskId })) as never as TaskStatus);
-    },
-    [getSocket, rpc],
-  );
-
-  useEffect(() => {
-    if (mainTaskId !== null) {
-      void refreshHub(mainTaskId);
-    } else {
-      setMessages([]);
-      setStatus(null);
-    }
-  }, [mainTaskId, refreshHub]);
-
-  const sendChat = async (): Promise<void> => {
-    if (mainTaskId === null || draft.trim() === "") {
-      return;
-    }
-    try {
-      const params: Record<string, unknown> = { task_id: mainTaskId, text: draft.trim() };
-      if (kind !== "auto") {
-        params.kind = kind;
-      }
-      const result = await rpc(await getSocket(), "chat.ingest", params);
-      const receipt = result.receipt as { routed: string; classified_by: string };
-      push("rpc", `已路由（${receipt.classified_by === "user" ? "手动" : receipt.classified_by === "pi-session" ? "pi 会话自动" : "规则回退"}）：→ ${receipt.routed}`);
-      setDraft("");
-      await refreshHub(mainTaskId);
-    } catch (error) {
-      push("error", String(error));
-    }
-  };
-
+  // ---------------------------------------------------------------- render
   return (
-    <div className="app">
-      <header>
-        <h1 onClick={() => setSelected(tree.find((p) => p.status === "active")?.project_id ?? null)}>research-tree</h1>
-        <div className="pi-config">
-          {piConfig === null
-            ? "pi 配置读取中…"
-            : piConfig.present
-              ? `pi 同源配置：默认模型 ${piConfig.default_model ?? "未设置"} · provider ${piConfig.auth_providers.join(", ") || "无"}`
-              : "未找到 pi 配置（~/.pi/agent）"}
+    <div className="app-shell">
+      {/* ============ sidebar ============ */}
+      <aside className={`sidebar ${sidebarOpen ? "" : "collapsed"}`}>
+        <div className="side-top">
+          <button className="new-chat" onClick={() => setModal("new")}>
+            <span className="plus">＋</span> 新研究
+          </button>
         </div>
-      </header>
-      <div className="layout">
-        {/* ---------------- P1 侧栏研究树 ---------------- */}
-        <nav className="sidebar card">
-          <h2>研究树</h2>
+        <nav className="side-list">
           {tree.map((project) => (
-            <div key={project.project_id} className="tree-project">
-              <div className={`tree-row project ${project.status}`} onClick={() => setSelected(project.project_id)}>
-                📁 {project.name}
-                <span className={`status ${project.status}`}>{project.status}</span>
+            <div key={project.project_id} className="side-group">
+              <div
+                className={`side-project ${project.status === "archived" ? "archived" : ""}`}
+                onClick={() => setActiveTaskId(project.lines.find((l) => l.role === "main")?.task_id ?? null)}
+              >
+                <span className="glyph">{project.status === "archived" ? "📁" : "🗂"}</span>
+                <span className="project-name">{project.name}</span>
+                <span
+                  className="side-menu"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuFor(menuFor === project.project_id ? null : project.project_id);
+                  }}
+                >
+                  ⋯
+                </span>
+                {menuFor === project.project_id && (
+                  <div className="menu" onClick={(e) => e.stopPropagation()}>
+                    {project.status === "active" ? (
+                      <button onClick={() => void manage(project.project_id, "archive")}>归档项目</button>
+                    ) : (
+                      <button className="danger" onClick={() => void manage(project.project_id, "delete")}>
+                        删除项目（仅归档可删）
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
               {project.lines.map((line) => (
-                <div key={line.task_id} className="tree-line">
-                  <div className={`tree-row line-node ${line.role}`}>
-                    {line.role === "main" ? "●" : "⑂"} {line.task_id}
-                  </div>
-                  {line.draft !== null && <div className="tree-row draft">✎ 草稿（未冻结·不可跟踪）</div>}
-                  {line.versions.map((v) => (
-                    <div key={v.v} className="tree-row version">
-                      v{v.v} · {v.verdict} · <code>{v.commit_hash.slice(0, 8)}</code>
-                      {v.forked && <span className="fork-mark">⑂ 已分叉</span>}
-                    </div>
-                  ))}
+                <div
+                  key={line.task_id}
+                  className={`side-task ${line.task_id === activeTaskId ? "active" : ""}`}
+                  onClick={() => setActiveTaskId(line.task_id)}
+                >
+                  <span className="glyph">{line.role === "main" ? "◉" : "⑂"}</span>
+                  <span className="task-name">{line.latest !== null ? `v${line.latest.v} · ${line.latest.verdict}` : "进行中"}</span>
+                  {line.draft !== null && <span className="mini">草稿</span>}
                 </div>
               ))}
             </div>
           ))}
+          {tree.length === 0 && <div className="side-empty">还没有研究——点「新研究」开始</div>}
         </nav>
-        <main>
-          {/* ---------------- P0 项目首页 ---------------- */}
-          <section className="card">
-            <h2>项目首页（应用默认落点）</h2>
-            <div className="row">
-              <input
-                placeholder="新项目名称（一个项目 = 一个研究主题）"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && name.trim() !== "" && void createProject()}
-              />
-              <button onClick={() => void createProject()} disabled={name.trim() === ""}>
-                建项目
-              </button>
+        <div className="side-bottom">
+          <div className="pi-row">
+            <span className={`dot ${piConfig?.keyed_session_ready ? "ok" : "off"}`} />
+            <span className="hint">
+              {piConfig === null
+                ? "pi 配置读取中…"
+                : piConfig.keyed_session_ready
+                  ? `keyed 就绪 · ${piConfig.default_model}`
+                  : "未配置 key（规则回退分类）"}
+            </span>
+          </div>
+          <button className="side-settings" onClick={() => setModal("settings")}>
+            ⚙ 设置
+          </button>
+        </div>
+      </aside>
+
+      {/* ============ main column ============ */}
+      <div className="main">
+        <header className="topbar">
+          {!sidebarOpen && (
+            <button className="icon-btn" onClick={() => setSidebarOpen(true)} title="展开侧栏">
+              ☰
+            </button>
+          )}
+          <div className="title-block">
+            <div className="title">
+              {activeProject !== null ? activeProject.name : "research-tree"}
+              {activeTask !== null && activeTask.role === "fork" && (
+                <span className="forkchip">⑂ 支线（fork 来源见「版本」面板）</span>
+              )}
             </div>
-            {selectedProject === null ? (
-              <p className="empty">从研究树选择项目</p>
-            ) : (
-              <>
-                <div className="card-head">
-                  <strong>{selectedProject.name}</strong>
-                  {selectedProject.attachments.map((a) => (
-                    <span key={a.id} className="chip">
-                      {a.label}
-                    </span>
-                  ))}
-                  <span className="spacer" />
-                  {selectedProject.status === "active" ? (
-                    <button className="ghost" onClick={() => void manage(selectedProject.project_id, "archive")}>
-                      归档
-                    </button>
-                  ) : (
-                    <button className="ghost danger" onClick={() => void manage(selectedProject.project_id, "delete")}>
-                      删除（仅归档可删）
-                    </button>
-                  )}
-                </div>
-                <div className="vitals">
-                  <div>研究线：{selectedProject.vitals.research_lines}</div>
-                  <div>
-                    主分支最新：{" "}
-                    {selectedProject.vitals.latest === null ? (
-                      "未提交"
-                    ) : (
-                      <code>
-                        v{selectedProject.vitals.latest.v} · {selectedProject.vitals.latest.verdict} ·{" "}
-                        {selectedProject.vitals.latest.commit_hash.slice(0, 12)}
-                      </code>
-                    )}
-                  </div>
-                  <div>已用时间：{Math.round(selectedProject.vitals.elapsed_ms / 1000)}s</div>
-                </div>
-                {selectedProject.vitals.latest !== null && <button className="ghost">查看最新报告（快照视图 #637 落地）</button>}
-                <button onClick={() => void runWalk()} disabled={running || selectedProject.status !== "active"}>
-                  {running ? "研究推进中…" : "端到端演练（分解→签署→研究→冻结提交）"}
-                </button>
-                <p className="hint">演练走 #579 headless 全链路；真实对话/分解页在 #634/#635 落地。</p>
-              </>
-            )}
-          </section>
-          {/* ---------------- P2 hub 对话页（项目主界面） ---------------- */}
-          <section className="card chat">
-            <h2>对话（hub）{mainTaskId !== null && <code className="task-id">{mainTaskId}</code>}</h2>
-            {/* 任务状态卡：运行中→查看研究；收敛→报告+冻结；提交后消失（phase 回 chat 且有 latest） */}
-            {status !== null && status.latest === null && status.phase !== "chat" && (
-              <div className="status-card">研究进行中（phase: {status.phase}）→ 查看研究</div>
-            )}
-            {status !== null && status.latest !== null && (
-              <div className="status-card aligned">
-                已提交 v{status.latest.v} · {status.latest.verdict} · <code>{status.latest.commit_hash.slice(0, 12)}</code>
-                <span className="hint">（状态卡提交后消失；继续研究=版本+1）</span>
+            {status !== null && (
+              <div className="phase">
+                {status.latest !== null ? (
+                  <span>
+                    已提交 v{status.latest.v} · {status.latest.verdict}
+                  </span>
+                ) : (
+                  <span>{status.phase === "chat" ? "对话中" : `研究进行中（${status.phase}）`}</span>
+                )}
               </div>
             )}
-            <div className="messages">
-              {messages.map((m) =>
-                m.role === "user" ? (
-                  <div key={m.seq} className="msg user">
-                    {m.text}
+          </div>
+          <div className="top-actions">
+            <button className="chip-btn" onClick={() => setPanel(panel === "decomp" ? null : "decomp")} disabled={activeTaskId === null}>
+              分解
+            </button>
+            <button className="chip-btn" onClick={() => setPanel(panel === "research" ? null : "research")} disabled={activeTaskId === null}>
+              研究
+            </button>
+            <button className="chip-btn" onClick={() => setPanel(panel === "versions" ? null : "versions")} disabled={activeTaskId === null}>
+              版本
+            </button>
+            {activeTaskId !== null && (
+              <button className="chip-btn" onClick={() => void runWalk()} disabled={running}>
+                {running ? "推进中…" : "端到端演练"}
+              </button>
+            )}
+            {sidebarOpen && (
+              <button className="icon-btn" onClick={() => setSidebarOpen(false)} title="收起侧栏">
+                ☰
+              </button>
+            )}
+          </div>
+        </header>
+
+        {activeTaskId === null ? (
+          <div className="welcome">
+            <h1>research-tree</h1>
+            <p>接住任何清晰度的想法，做一份诚实的、带反证的研究。</p>
+            <button className="primary" onClick={() => setModal("new")}>
+              ＋ 新研究
+            </button>
+          </div>
+        ) : (
+          <div className={`content ${panel !== null ? "with-panel" : ""}`}>
+            <section className="chat-col">
+              <div className="stream">
+                {messages.map((m) =>
+                  m.role === "user" ? (
+                    <div key={m.seq} className="msg-user">
+                      {m.text}
+                    </div>
+                  ) : m.role === "rt" ? (
+                    <div key={m.seq} className="msg-rt">
+                      <span className="rt-dot">◉</span> {m.text}
+                    </div>
+                  ) : (
+                    <div key={m.seq} className="msg-system">
+                      {m.text}
+                    </div>
+                  ),
+                )}
+                {messages.length === 0 && (
+                  <div className="chat-welcome">
+                    <h2>{activeProject?.name ?? "新研究"}</h2>
+                    <p>把想法倒进来——研究从对话发起、收敛后自动回到对话。</p>
                   </div>
-                ) : (
-                  <div key={m.seq} className="msg rt">
-                    {m.text}
-                  </div>
-                ),
-              )}
-              {messages.length === 0 && <div className="empty">研究从对话发起——把想法倒进来</div>}
-            </div>
-            {/* 追加信息门：输入框贯穿所有阶段 */}
-            <div className="row chat-input">
-              <select value={kind} onChange={(e) => setKind(e.target.value as UtteranceKind)}>
-                {(Object.keys(KIND_LABELS) as UtteranceKind[]).map((k) => (
-                  <option key={k} value={k}>
-                    {KIND_LABELS[k]}
-                  </option>
-                ))}
-              </select>
-              <input
-                placeholder="追加信息（贯穿所有阶段）"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && draft.trim() !== "" && void sendChat()}
-                disabled={mainTaskId === null}
-              />
-              <button onClick={() => void sendChat()} disabled={mainTaskId === null || draft.trim() === ""}>
-                发送
+                )}
+              </div>
+              {/* 追加信息门：胶囊贯穿所有阶段 */}
+              <div className="composer-wrap">
+                <div className="composer">
+                  <select value={kind} onChange={(e) => setKind(e.target.value as UtteranceKind)} className="kind-select">
+                    {(Object.keys(KIND_LABELS) as UtteranceKind[]).map((k) => (
+                      <option key={k} value={k}>
+                        {KIND_LABELS[k]}
+                      </option>
+                    ))}
+                  </select>
+                  <textarea
+                    rows={1}
+                    placeholder="追问、纠正、追加信息……（Enter 发送）"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey && draft.trim() !== "") {
+                        e.preventDefault();
+                        void sendChat();
+                      }
+                    }}
+                  />
+                  <button className="send" onClick={() => void sendChat()} disabled={draft.trim() === ""}>
+                    ↑
+                  </button>
+                </div>
+                <div className="composer-hint">
+                  分类：{KIND_LABELS[kind]}（自动 = keyed 时 pi 会话判定，否则规则回退，回执如实标注）
+                  {isCommitted && <span> · 已提交，输入框继续可用（继续研究=版本+1，见「版本」面板）</span>}
+                </div>
+              </div>
+            </section>
+
+            {/* ============ canvas panel ============ */}
+            {panel !== null && (
+              <aside className="canvas">
+                <div className="canvas-head">
+                  <strong>{panel === "decomp" ? "分解" : panel === "research" ? "研究图谱" : "版本"}</strong>
+                  <span className="spacer" />
+                  {panel === "versions" && (
+                    <>
+                      <button className="mini-btn" onClick={() => void versionAction("continue")}>
+                        继续研究 +1
+                      </button>
+                      <button className="mini-btn" onClick={() => void versionAction("fork")}>
+                        从此分叉
+                      </button>
+                    </>
+                  )}
+                  {panel === "decomp" && decomp === null && (
+                    <button className="mini-btn" onClick={() => void prepareDecomp()}>
+                      生成分解草稿
+                    </button>
+                  )}
+                  <button className="mini-btn" onClick={() => setPanel(null)}>
+                    ✕
+                  </button>
+                </div>
+                <div className="canvas-body">
+                  {panel === "decomp" &&
+                    (decomp === null ? (
+                      <p className="empty">点击上方「生成分解草稿」。extraction 由 LLM 侧产出（演练注入 fixture）。</p>
+                    ) : (
+                      <>
+                        <div className={`checklist ${decomp.checklist.complete ? "ok" : "gaps"}`}>
+                          {decomp.checklist.complete
+                            ? "充分性 checklist：六类各 ≥1 ✓"
+                            : `充分性缺口：${decomp.checklist.gaps.join("、")}——缺口阻止确认`}
+                          {decomp.status === "confirmed" && <span> · 已冻结（变更=重大转向重签）</span>}
+                        </div>
+                        {ELEMENT_META.map(([cls, label]) => (
+                          <div key={cls} className="dgroup">
+                            <h4>{label}</h4>
+                            {(decomp.elements[cls] ?? []).map((el, i) => (
+                              <div key={i} className="element">
+                                <div>{String(el.text)}</div>
+                                <div className="prov">
+                                  来自{String((el.source as Record<string, unknown>).kind) === "attachment" ? "附件" : "你的话"}：“
+                                  {String((el.source as Record<string, unknown>).quote)}”
+                                </div>
+                                {decomp.status !== "confirmed" && (
+                                  <button className="mini-btn danger" onClick={() => void removeElement(cls, i)}>
+                                    删除
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                            {(decomp.elements[cls] ?? []).length === 0 && <div className="empty">待对齐</div>}
+                          </div>
+                        ))}
+                        <button
+                          className="primary"
+                          onClick={() => void confirmDecomp()}
+                          disabled={!decomp.checklist.complete || decomp.status === "confirmed"}
+                        >
+                          确认无误，启动研究 v0
+                        </button>
+                      </>
+                    ))}
+                  {panel === "research" &&
+                    (research === null ? (
+                      <p className="empty">加载中…</p>
+                    ) : (
+                      <>
+                        <div className="gnode question">❓ {String(research.question?.title ?? activeTaskId)}</div>
+                        <div className="gnode">
+                          🧵 {activeTaskId} · {research.transitions.length} 次迁移 · providers: {research.providers.join(", ") || "—"}
+                        </div>
+                        {research.stages.map((stage) => (
+                          <div key={stage.stage_id} className="stage">
+                            <div className="stage-head">
+                              ▣ {stage.title} <span className="badge">{stage.status}</span>
+                              {stage.depends_on.length > 0 && <span className="dep">依赖: {stage.depends_on.join(", ")}</span>}
+                            </div>
+                            {stage.claim_ids.map((cid) => {
+                              const c = (atView?.claims ?? research.claims)[cid];
+                              return c === undefined ? null : (
+                                <div key={cid} className="claim-row" onClick={() => void openDrawer(cid)}>
+                                  {String(c.text)} · 后验 {Number(c.posterior).toFixed(2)} · {String(c.verify_tier)} ·{" "}
+                                  {Number(c.posterior) >= 0.9 ? "已决" : "未决"}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ))}
+                        {Object.entries(atView?.claims ?? research.claims)
+                          .filter(([cid]) => !research.stages.some((s) => s.claim_ids.includes(cid)))
+                          .map(([cid, c]) => (
+                            <div key={cid} className="claim-row" onClick={() => void openDrawer(cid)}>
+                              {String(c.text)} · 后验 {Number(c.posterior).toFixed(2)} · {String(c.verify_tier)}
+                            </div>
+                          ))}
+                        <div className="scrubber">
+                          <input
+                            type="range"
+                            min={0}
+                            max={Math.max(beats.length, 1)}
+                            value={beat ?? beats.length}
+                            onChange={(e) => void scrubTo(Number(e.target.value))}
+                          />
+                          <span className="hint">{beat === null ? `实时（${beats.length} 拍）` : `第 ${beat} 拍`}</span>
+                        </div>
+                        <div className="console-lines">
+                          {(atView?.console ?? beats.map((b) => b.summary)).map((line, i) => (
+                            <div key={i} className="cline">
+                              {beat !== null ? line : `#${beats[i]?.seq} ${line}`}
+                            </div>
+                          ))}
+                        </div>
+                        {drawer !== null && (
+                          <div className="drawer">
+                            <strong>主张抽屉：{drawer.claimId}</strong>
+                            <button className="mini-btn" onClick={() => setDrawer(null)}>
+                              ✕
+                            </button>
+                            {drawer.lineage === null ? (
+                              <div className="empty">无 lineage（不伪造溯源路径）</div>
+                            ) : (
+                              drawer.lineage.steps.map((s, i) => (
+                                <div key={i} className="cline">
+                                  {i + 1}. {s.layer} {s.detail ?? ""}
+                                </div>
+                              ))
+                            )}
+                            <p className="hint">任一结论 ≤3 次点击到达原始证据（#566）</p>
+                          </div>
+                        )}
+                      </>
+                    ))}
+                  {panel === "versions" &&
+                    (vtl === null ? (
+                      <p className="empty">加载中…</p>
+                    ) : (
+                      <>
+                        <div className="hint">
+                          {vtl.is_main_branch ? "主分支" : `⑂ 支线（fork 自 ${vtl.fork_parent?.task_id}@v${vtl.fork_parent?.v}）`}
+                        </div>
+                        {vtl.draft !== null && (
+                          <div className="draft-row">✎ 草稿（未冻结·不可跟踪）base_v={String(vtl.draft.base_v)}</div>
+                        )}
+                        {vtl.versions.map((v) => (
+                          <div key={v.v} className="vtl-row" onClick={() => void openSnapshot(v.v)}>
+                            v{v.v} · {v.verdict} · <code>{v.commit_hash.slice(0, 12)}</code> · {v.summary}
+                            {v.forked && <span className="forkchip">⑂ 已分叉</span>}
+                          </div>
+                        ))}
+                        {vtl.versions.length === 0 && <div className="empty">尚无已提交版本</div>}
+                      </>
+                    ))}
+                </div>
+              </aside>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ============ modals ============ */}
+      {modal === "new" && (
+        <div className="overlay" onClick={() => setModal(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>新研究</h3>
+            <p className="hint">一个项目 = 一个研究主题</p>
+            <input
+              autoFocus
+              placeholder="研究主题名称"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && newName.trim() !== "" && void createProject()}
+            />
+            <div className="modal-actions">
+              <button className="mini-btn" onClick={() => setModal(null)}>
+                取消
+              </button>
+              <button className="primary" onClick={() => void createProject()} disabled={newName.trim() === ""}>
+                建立研究
               </button>
             </div>
-            <p className="hint">
-              语义分类当前显式选择——LLM 分类器随 keyed-session provisioning（#588）接入后自动判定。
-              <button className="ghost inline" disabled={(status?.routed_count ?? 0) < 3}>
-                聊得差不多了 → 分解（≥3 句被路由后可用；P3 页面 #635 落地）
-              </button>
-            </p>
-          </section>
-          {/* ---------------- 设置页（pi 同源，#638） ---------------- */}
-          <section className="card settings">
-            <h2>设置 — 模型 / API（与 pi agent 同源：~/.pi/agent 是唯一事实源）</h2>
+          </div>
+        </div>
+      )}
+      {modal === "settings" && (
+        <div className="overlay" onClick={() => setModal(null)}>
+          <div className="modal wide" onClick={(e) => e.stopPropagation()}>
+            <h3>设置 — 模型 / API（与 pi agent 同源）</h3>
             {settings === null ? (
-              <p className="empty">配置读取中…</p>
+              <p className="empty">读取中…</p>
             ) : (
               <>
                 <p className="hint">
-                  当前：默认模型 {settings.default_model ?? "未设置"} · provider {settings.auth_providers.join(", ") || "无"} · 配置目录{" "}
-                  <code>{settings.config_path}</code>。此页直接读写 pi 的配置文件，rt 侧无副本；key 永不回显。
+                  唯一事实源 <code>{settings.config_path}</code> · 默认模型 {settings.default_model ?? "未设置"} · provider{" "}
+                  {settings.auth_providers.join(", ") || "无"} · keyed 会话 {settings.keyed_session_ready ? "就绪" : "未就绪"}。key 永不回显，rt
+                  侧无副本。
                 </p>
                 <div className="row">
                   <select value={model} onChange={(e) => setModel(e.target.value)}>
@@ -655,12 +904,8 @@ export function App() {
                       </option>
                     ))}
                   </select>
-                  <input
-                    placeholder="或输入模型名"
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                  />
-                  <button onClick={() => void saveSettings("model")} disabled={model.trim() === ""}>
+                  <input placeholder="或输入模型名" value={model} onChange={(e) => setModel(e.target.value)} />
+                  <button className="primary" onClick={() => void saveSettings("model")} disabled={model.trim() === ""}>
                     设为默认
                   </button>
                 </div>
@@ -672,209 +917,38 @@ export function App() {
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                   />
-                  <button onClick={() => void saveSettings("key")} disabled={provider.trim() === "" || apiKey.trim() === ""}>
+                  <button className="primary" onClick={() => void saveSettings("key")} disabled={provider.trim() === "" || apiKey.trim() === ""}>
                     保存 key
                   </button>
                 </div>
-                <p className="hint">新开的 pi 会话使用新配置；进行中的会话不被打断。变更落审计事件（只记 provider 名，不记 key）。</p>
-              </>
-            )}
-          </section>
-          {/* ---------------- P5 版本页 ---------------- */}
-          <section className="card versions">
-            <h2>版本页（时间线 · ⑂ 分叉 · 只读快照）</h2>
-            {vtl === null ? (
-              <p className="empty">选择项目查看版本时间线</p>
-            ) : (
-              <>
-                <div className="vtl-meta">
-                  {vtl.is_main_branch ? "主分支" : `⑂ 支线（fork 自 ${vtl.fork_parent?.task_id}@v${vtl.fork_parent?.v}）`}
-                  <button className="ghost inline" onClick={() => void versionAction("continue")}>
-                    继续研究（版本+1）
-                  </button>
-                  <button className="ghost inline" onClick={() => void versionAction("fork")}>
-                    从此分叉
-                  </button>
-                  <button className="ghost inline" onClick={() => void browseArchive()}>
-                    四态归档
+                <p className="hint">新开的 pi 会话生效；进行中会话不打断。变更落审计事件（只记 provider 名）。</p>
+                <div className="modal-actions">
+                  <button className="primary" onClick={() => setModal(null)}>
+                    完成
                   </button>
                 </div>
-                {vtl.draft !== null && (
-                  <div className="vtl-row draft-row">✎ 草稿（未冻结·不可跟踪）base_v={String(vtl.draft.base_v)}</div>
-                )}
-                {vtl.versions.map((v) => (
-                  <div key={v.v} className="vtl-row" onClick={() => void openSnapshot(v.v)}>
-                    v{v.v} · {v.verdict} · <code>{v.commit_hash.slice(0, 12)}</code> · {v.summary}
-                    {v.forked && <span className="fork-mark">⑂ 已分叉 → 支线</span>}
-                    <span className="hint">（点击查看只读快照）</span>
-                  </div>
-                ))}
-                {vtl.versions.length === 0 && <div className="empty">尚无已提交版本</div>}
               </>
             )}
-            {snap !== null && (
-              <div className="snapshot">
-                <div className="frozen-banner">
-                  🔒 已冻结 v{snap.banner.v} · {snap.banner.verdict} · <code>{snap.banner.commit_hash.slice(0, 12)}</code>
-                  ——不可再修改；继续研究=版本+1
-                  <button className="ghost inline" onClick={() => setSnap(null)}>
-                    回当前工作区
-                  </button>
-                </div>
-                <pre className="report">{JSON.stringify(snap.report, null, 2)}</pre>
-              </div>
-            )}
-            {archiveView !== null && (
-              <div className="snapshot">
-                <strong>四态归档（{archiveView.entries.length}）</strong>
-                <button className="ghost inline" onClick={() => setArchiveView(null)}>
-                  收起
-                </button>
-                {archiveView.entries.map((e) => (
-                  <div key={`${e.task_id}-${e.v}`} className="cline">
-                    {e.task_id}@v{e.v} · {e.verdict} · {e.disposition.kind}
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-          {/* ---------------- P4 研究页（三层图谱 + console 同步重放） ---------------- */}
-          <section className="card research">
-            <h2>研究页（信任面）{mainTaskId !== null && <code className="task-id">{mainTaskId}</code>}</h2>
-            {research === null ? (
-              <p className="empty">选择项目查看研究图谱</p>
-            ) : (
-              <>
-                <div className="graph">
-                  <div className="gnode question">❓ 研究问题：{String(research.question?.title ?? mainTaskId)}</div>
-                  <div className="gnode task">🧵 主线任务 {mainTaskId}（{research.transitions.length} 次迁移 · providers: {research.providers.join(", ") || "—"}）</div>
-                  <div className="dag">
-                    {research.stages.map((stage) => (
-                      <div key={stage.stage_id} className="stage">
-                        <div className="stage-head">
-                          ▣ {stage.title} <span className={`badge ${stage.status}`}>{stage.status}</span>
-                          {stage.depends_on.length > 0 && <span className="dep">依赖: {stage.depends_on.join(", ")}</span>}
-                        </div>
-                        {stage.claim_ids.map((cid) => {
-                          const c = (atView?.claims ?? research.claims)[cid];
-                          return c === undefined ? null : (
-                            <div key={cid} className={`claim-row ${String(c.state)}`} onClick={() => void openDrawer(cid)}>
-                              {String(c.text)} · 后验 {Number(c.posterior).toFixed(2)} · {String(c.verify_tier)}
-                              <span className={`badge ${Number(c.posterior) >= 0.9 ? "decided" : "undecided"}`}>
-                                {Number(c.posterior) >= 0.9 ? "已决" : "未决"}
-                              </span>
-                            </div>
-                          );
-                        })}
-                        {stage.claim_ids.length === 0 && <div className="empty">无主张行</div>}
-                      </div>
-                    ))}
-                    {research.stages.length === 0 && <div className="empty">调研 DAG：调度器尚未注册阶段（#565）</div>}
-                    {Object.entries(atView?.claims ?? research.claims).filter(([cid]) => !research.stages.some((s) => s.claim_ids.includes(cid))).map(([cid, c]) => (
-                      <div key={cid} className={`claim-row orphan ${String(c.state)}`} onClick={() => void openDrawer(cid)}>
-                        {String(c.text)} · 后验 {Number(c.posterior).toFixed(2)} · {String(c.verify_tier)}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                {/* 重放条：拖动 = 回到该拍，图谱与 console 同步 */}
-                <div className="scrubber">
-                  <span className="hint">重放条（#572 确定性投影）</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={Math.max(beats.length, 1)}
-                    value={beat ?? beats.length}
-                    onChange={(e) => void scrubTo(Number(e.target.value))}
-                  />
-                  <span className="hint">{beat === null ? `实时（${beats.length} 拍）` : `第 ${beat} 拍`}</span>
-                </div>
-                <div className="console-lines">
-                  {(atView?.console ?? beats.map((b) => b.summary)).map((line, i) => (
-                    <div key={i} className="cline">
-                      {beat !== null ? line : `#${beats[i]?.seq} ${line}`}
-                    </div>
-                  ))}
-                  {beats.length === 0 && <div className="empty">尚无引擎事件</div>}
-                </div>
-                {drawer !== null && (
-                  <div className="drawer">
-                    <strong>主张抽屉：{drawer.claimId}</strong>
-                    <button className="ghost tiny" onClick={() => setDrawer(null)}>
-                      关闭
-                    </button>
-                    {drawer.lineage === null ? (
-                      <div className="empty">无 lineage（不伪造溯源路径）</div>
-                    ) : (
-                      drawer.lineage.steps.map((s, i) => (
-                        <div key={i} className="cline">
-                          {i + 1}. {s.layer} {s.detail ?? ""}
-                        </div>
-                      ))
-                    )}
-                    {drawer.lineage?.raw_evidence !== undefined && <code className="cline">{String(drawer.lineage.raw_evidence).slice(0, 80)}…</code>}
-                    <p className="hint">任一结论 ≤3 次点击到达原始证据（#566）</p>
-                  </div>
-                )}
-              </>
-            )}
-          </section>
-          {/* ---------------- P3 分解页 ---------------- */}
-          <section className="card decomp">
-            <h2>分解（六要素 · 溯源律可见 · 编辑权在确认前）</h2>
-            {decomp === null ? (
-              <button onClick={() => void prepareDecomp()} disabled={mainTaskId === null}>
-                生成分解草稿（extraction 由 LLM 侧产出；演练注入 fixture）
-              </button>
-            ) : (
-              <>
-                <div className={`checklist ${decomp.checklist.complete ? "ok" : "gaps"}`}>
-                  {decomp.checklist.complete
-                    ? "充分性 checklist：六类各 ≥1 ✓（拒绝点已显式为无）"
-                    : `充分性缺口：${decomp.checklist.gaps.join("、")} —— 缺口阻止确认`}
-                  {decomp.status === "confirmed" && <span> · 已冻结（确认后变更=重大转向重签）</span>}
-                </div>
-                <div className="wall">
-                  {ELEMENT_META.map(([cls, label]) => (
-                    <div key={cls} className="cell">
-                      <h3>{label}</h3>
-                      {(decomp.elements[cls] ?? []).map((el, i) => (
-                        <div key={i} className="element">
-                          <div>{String(el.text)}</div>
-                          <div className="prov">
-                            来自{String((el.source as Record<string, unknown>).kind) === "attachment" ? "附件" : "你的话"}：
-                            “{String((el.source as Record<string, unknown>).quote)}”
-                          </div>
-                          {decomp.status !== "confirmed" && (
-                            <button className="ghost tiny" onClick={() => void removeElement(cls, i)}>
-                              删除
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                      {(decomp.elements[cls] ?? []).length === 0 && <div className="empty">待对齐</div>}
-                    </div>
-                  ))}
-                </div>
-                <button onClick={() => void confirmDecomp()} disabled={!decomp.checklist.complete || decomp.status === "confirmed"}>
-                  确认无误，启动研究 v0（缺口阻止确认）
-                </button>
-              </>
-            )}
-          </section>
-          <section className="card console">
-            <h2>引擎事件流</h2>
-            <div className="log">
-              {log.map((line, i) => (
-                <div key={i} className={`line ${line.kind}`}>
-                  {line.text}
-                </div>
-              ))}
-              {log.length === 0 && <div className="empty">等待事件…</div>}
+          </div>
+        </div>
+      )}
+      {modal === "snapshot" && snap !== null && (
+        <div className="overlay" onClick={() => setModal(null)}>
+          <div className="modal wide" onClick={(e) => e.stopPropagation()}>
+            <h3>只读快照</h3>
+            <div className="frozen-banner">
+              🔒 已冻结 v{snap.banner.v} · {snap.banner.verdict} · <code>{snap.banner.commit_hash.slice(0, 12)}</code>
+              ——不可再修改；继续研究=版本+1
             </div>
-          </section>
-        </main>
-      </div>
+            <pre className="report">{JSON.stringify(snap.report, null, 2)}</pre>
+            <div className="modal-actions">
+              <button className="primary" onClick={() => setModal(null)}>
+                回当前工作区
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
