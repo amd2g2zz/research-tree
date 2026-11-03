@@ -577,25 +577,33 @@ export class WebUIServer {
         const previewClaims = Array.isArray(elements.claims_preview)
           ? (elements.claims_preview as Array<Record<string, unknown>>)
           : [];
+        // A7 rule 3 (版本+1 = 继承 + delta): a LIVE draft is the continued
+        // working set — starting research must keep it, never reseed it with
+        // the preview claims (that would clobber inheritance and make a v+1
+        // freeze a duplicate of v0). Only a draftless task opens fresh.
+        const steps: HeadlessScript["steps"] = [];
+        if (this.versions.draftOf(taskId) === null) {
+          steps.push({
+            event: "open-draft",
+            snapshot: {
+              elements: {},
+              claims: previewClaims.map((c) => ({ id: String(c.id), text: String(c.text), posterior: 0.5 })),
+              evidence_refs: [],
+              report: {},
+              deleted_nodes: [],
+            },
+            base_v: null,
+          });
+        }
+        steps.push(
+          { event: "attach", decomposition: elements, decomposition_id: decompositionId, plan },
+          { event: "confirm" },
+          { event: "sign" },
+        );
         const script: HeadlessScript = {
           task_id: taskId,
           pre_signed: {},
-          steps: [
-            {
-              event: "open-draft",
-              snapshot: {
-                elements: {},
-                claims: previewClaims.map((c) => ({ id: String(c.id), text: String(c.text), posterior: 0.5 })),
-                evidence_refs: [],
-                report: {},
-                deleted_nodes: [],
-              },
-              base_v: null,
-            },
-            { event: "attach", decomposition: elements, decomposition_id: decompositionId, plan },
-            { event: "confirm" },
-            { event: "sign" },
-          ],
+          steps,
         };
         const result = await runHeadless({
           ledger: this.ledger,
