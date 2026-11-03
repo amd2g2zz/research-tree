@@ -209,6 +209,11 @@ export function App() {
       if (current !== null) {
         return current;
       }
+      // ChatGPT behaviour: reopening the app restores YOUR last conversation
+      const remembered = window.localStorage.getItem("rt-last-task");
+      if (remembered !== null && projects.some((p) => p.lines.some((l) => l.task_id === remembered))) {
+        return remembered;
+      }
       const active = projects.find((p) => p.status === "active");
       return active?.lines.find((l) => l.role === "main")?.task_id ?? null;
     });
@@ -238,6 +243,7 @@ export function App() {
 
   useEffect(() => {
     if (activeTaskId !== null) {
+      window.localStorage.setItem("rt-last-task", activeTaskId);
       void refreshHub(activeTaskId);
     } else {
       setMessages([]);
