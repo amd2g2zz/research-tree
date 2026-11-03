@@ -37,29 +37,29 @@ describe("keyed-session readiness + auto-classification (issue #651)", () => {
     expect(JSON.stringify(full)).not.toContain("sk-K"); // masking intact
   });
 
-  it("strategy selection follows readiness; heuristic is deterministic and disclosed", () => {
+  it("strategy selection follows readiness; heuristic is deterministic and disclosed", async () => {
     expect(pickClassifier({ ready: false }).name).toBe("heuristic");
     expect(pickClassifier({ ready: true }).name).toBe("pi-session");
 
     const heuristic = new HeuristicClassifier();
-    expect(heuristic.classify("或者我们换 4C8G？")).toMatchObject({ kind: "branch", classified_by: "heuristic" });
-    expect(heuristic.classify("2C4G 应该够用吧")).toMatchObject({ kind: "guess" });
-    expect(heuristic.classify("我希望越快越好")).toMatchObject({ kind: "preference" });
-    expect(heuristic.classify("实测 p95 已 400ms")).toMatchObject({ kind: "claim" });
+    expect(await heuristic.classify("或者我们换 4C8G？")).toMatchObject({ kind: "branch", classified_by: "heuristic" });
+    expect(await heuristic.classify("2C4G 应该够用吧")).toMatchObject({ kind: "guess" });
+    expect(await heuristic.classify("我希望越快越好")).toMatchObject({ kind: "preference" });
+    expect(await heuristic.classify("实测 p95 已 400ms")).toMatchObject({ kind: "claim" });
   });
 
-  it("pi-session contract: strict JSON parsed, unusable answers fail closed", () => {
+  it("pi-session contract: strict JSON parsed, unusable answers fail closed", async () => {
     const good = new PiSessionClassifier({ runner: () => '好的，分类如下 {"kind":"claim"} 请查收' });
-    expect(good.classify("实测 p95 已 400ms")).toEqual({ kind: "claim", classified_by: "pi-session" });
+    expect(await good.classify("实测 p95 已 400ms")).toEqual({ kind: "claim", classified_by: "pi-session" });
 
     const garbage = new PiSessionClassifier({ runner: () => "我没有理解这句话" });
-    expect(() => garbage.classify("anything")).toThrow(/no JSON/);
+    await expect(garbage.classify("anything")).rejects.toThrow(/no JSON/);
 
     const badKind = new PiSessionClassifier({ runner: () => '{"kind":"user-profile"}' });
-    expect(() => badKind.classify("anything")).toThrow(/unusable kind/); // fail closed, no silent reroute
+    await expect(badKind.classify("anything")).rejects.toThrow(/unusable kind/); // fail closed, no silent reroute
 
     const malformed = new PiSessionClassifier({ runner: () => "{kind: claim}" });
-    expect(() => malformed.classify("anything")).toThrow(/malformed JSON/);
+    await expect(malformed.classify("anything")).rejects.toThrow(/malformed JSON/);
   });
 
   it("hub: explicit kind respected (classified_by=user); omitted kind auto-classifies with disclosure", async () => {

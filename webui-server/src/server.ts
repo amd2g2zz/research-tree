@@ -46,6 +46,7 @@ import {
   checklistFor,
   type DecompositionElements,
 } from "../../rt-core/src/decomposition/engine.js";
+import { runPi } from "./pi-run.js";
 import { readPiConfig, writeProviderKey, writeDefaultModel, ConfigWriteError } from "./pi-config.js";
 import { extensionStatuses, ensurePiExtensions, DEFAULT_PI_EXTENSIONS } from "./pi-extensions.js";
 import { pickClassifier } from "./classify.js";
@@ -60,10 +61,13 @@ export interface WebUIOptions {
   workspace: string;
   /** pi config dir override (tests); default ~/.pi/agent */
   piConfigDir?: string;
-  /** injectable pi headless runner (contract tests; CI never spawns pi) */
-  piRunner?: (command: string, prompt: string) => string;
+  /** injectable pi headless runner (contract tests; CI never spawns pi);
+   * may be async — the server awaits it (issue #670) */
+  piRunner?: (command: string, prompt: string) => string | Promise<string>;
   /** injectable data-source provider (recon; tests) — default anysearch */
   provider?: DataSourceProvider;
+  /** pi headless call timeout (chat.turn/extraction/classification); default 300s/120s */
+  piTimeoutMs?: number;
 }
 
 interface RpcMessage {
@@ -398,20 +402,21 @@ export class WebUIServer {
         if (command === null) {
           throw new ProjectHomeError("pi binary not found (set RT_PI_CMD) — conversational turns fail closed");
         }
-        // the user message first (so the prompt sees it), classification parallel
-        const classifier = pickClassifier({ ready: true }, { runner: this.options.piRunner, command });
-        const classification = classifier.classify(text);
+        // the user message first (so the prompt sees it); classification is
+        // async now (issue #670) and lands with the same classified_by
+        const classifier = pickClassifier({ ready: true }, { runner: this.options.piRunner, command, timeoutMs: 120_000 });
+        const classification = await classifier.classify(text);
         this.appendChat(taskId, "user", classification.kind, text, { classified_by: classification.classified_by });
-        void classifier; // classification stored via appendChat payload above
 
         const transcript = this.ledger.connection
           .prepare("SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? ORDER BY seq")
           .all(taskId) as TranscriptMessage[];
         const prompt = buildTurnPrompt(transcript);
+        // async pi (issue #670): the event loop stays free while the model thinks
         const stdout =
           this.options.piRunner !== undefined
-            ? this.options.piRunner(command, prompt)
-            : spawnSync(command, ["-p", prompt], { encoding: "utf8" }).stdout ?? "";
+            ? await this.options.piRunner(command, prompt)
+            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000);
         const turn = parseTurnOutput(stdout);
 
         let reconResults: Array<{ title: string; url?: string; snippet?: string }> | undefined;
@@ -481,11 +486,11 @@ export class WebUIServer {
                 "keyed session is ready but the pi binary was not found (set RT_PI_CMD) — auto-classification fails closed",
               );
             }
-            const classification = pickClassifier({ ready: true }, { runner: this.options.piRunner, command }).classify(text);
+            const classification = await pickClassifier({ ready: true }, { runner: this.options.piRunner, command }).classify(text);
             kind = classification.kind;
             classifiedBy = classification.classified_by;
           } else {
-            const fallback = pickClassifier({ ready: false }).classify(text);
+            const fallback = await pickClassifier({ ready: false }).classify(text);
             kind = fallback.kind;
             classifiedBy = fallback.classified_by;
           }
@@ -590,8 +595,8 @@ export class WebUIServer {
         const prompt = extractionPrompt(transcript);
         const stdout =
           this.options.piRunner !== undefined
-            ? this.options.piRunner(command, prompt)
-            : spawnSync(command, ["-p", prompt], { encoding: "utf8" }).stdout ?? "";
+            ? await this.options.piRunner(command, prompt)
+            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000);
         const extraction = parseExtraction(stdout, transcript);
         const parsed = parseDecomposition(extraction);
         const notes = { refusals: typeof params.refusals_note === "string" ? params.refusals_note : undefined };

@@ -15,7 +15,7 @@ classification failure fails CLOSED (throws, no guessed kind); every
 receipt/transcript records classified_by so nothing pretends to be automatic.
 */
 
-import { spawnSync } from "node:child_process";
+import { runPi } from "./pi-run.js";
 
 export type UtteranceKind = "preference" | "claim" | "guess" | "constraint" | "branch";
 export type ClassifiedBy = "user" | "pi-session" | "heuristic";
@@ -27,7 +27,7 @@ export interface Classification {
 
 export interface ClassifierPort {
   readonly name: Exclude<ClassifiedBy, "user">;
-  classify(text: string): Classification;
+  classify(text: string): Promise<Classification>;
 }
 
 export const UTTERANCE_KINDS: readonly UtteranceKind[] = ["preference", "claim", "guess", "constraint", "branch"];
@@ -36,7 +36,7 @@ export const UTTERANCE_KINDS: readonly UtteranceKind[] = ["preference", "claim",
 export class HeuristicClassifier implements ClassifierPort {
   readonly name = "heuristic" as const;
 
-  classify(text: string): Classification {
+  async classify(text: string): Promise<Classification> {
     return { kind: heuristicKind(text), classified_by: "heuristic" };
   }
 }
@@ -67,16 +67,18 @@ export class PiSessionClassifier implements ClassifierPort {
   readonly name = "pi-session" as const;
 
   constructor(
-    private readonly options: { command?: string; runner?: (command: string, prompt: string) => string } = {},
+    private readonly options: { command?: string; runner?: (command: string, prompt: string) => string | Promise<string>; timeoutMs?: number } = {},
   ) {}
 
-  classify(text: string): Classification {
+  async classify(text: string): Promise<Classification> {
     const prompt =
       "将下面这句话分类为 preference|claim|guess|constraint|branch 之一。" +
       "只输出 JSON：{\"kind\":\"...\"}。句子：" +
       JSON.stringify(text);
     const command = this.options.command ?? "pi";
-    const stdout = (this.options.runner ?? ((cmd, p) => spawnSync(cmd, ["-p", p], { encoding: "utf8" }).stdout ?? ""))(
+    // async spawn (issue #670): never block the event loop; hard timeout —
+    // a hung pi fails closed instead of freezing the whole WebUI
+    const stdout = await (this.options.runner ?? ((cmd, p) => runPi(cmd, p, this.options.timeoutMs ?? 120_000)))(
       command,
       prompt,
     );
