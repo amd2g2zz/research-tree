@@ -46,7 +46,7 @@ beforeAll(async () => {
     piRunner: async (_command: string, prompt: string) => {
       // simulates a 3s model call — the OLD spawnSync server froze everything
       await new Promise((r) => setTimeout(r, 3_000));
-      return prompt.includes("preference|claim|guess|constraint|branch") ? '{"kind":"claim"}' : '{"reply":"回应","questions":[],"recon":null}';
+      return '{"kind":"claim","reply":"回应","questions":[],"recon":null}';
     },
   });
   port = await server.listen();

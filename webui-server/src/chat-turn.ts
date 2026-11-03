@@ -31,7 +31,12 @@ export interface TranscriptMessage {
   created_at: string;
 }
 
+export type TurnKind = "preference" | "claim" | "guess" | "constraint" | "branch";
+
 export interface TurnOutput {
+  /** the utterance's semantic kind — judged in the SAME pi call (issue #674:
+   * one call per turn instead of classify-then-respond) */
+  kind: TurnKind;
   reply: string;
   questions: string[];
   recon?: { query: string; kind?: string } | null;
@@ -49,10 +54,11 @@ export function buildTurnPrompt(messages: TranscriptMessage[]): string {
   return (
     "你是 rt（研究台）的对齐助手，负责在调研开始前把用户的想法从虚变实。\n" +
     "规则：\n" +
-    "1. reply 必须给实质回应：复述你理解的核心诉求、指出目前想法里虚/缺的部分、说明下一步——绝不能只复述原话。\n" +
-    "2. questions 提 1-3 个主动问题消除歧义（优先歧视性提问：这是部署环境事实还是主观估计？缺什么验收/kill 条件？预算和范围？）。\n" +
-    "3. 如果做一次简单资料搜索能让问题更清晰，给出 recon（{\"query\":\"搜索词\"}）；否则为 null。\n" +
-    '只输出 JSON：{"reply":"...","questions":["..."],"recon":null}\n\n对话：\n' +
+    '1. 先判定最后一句话的语义类型 kind ∈ preference|claim|guess|constraint|branch（偏好意图/可判定主张/方案猜测/硬约束/分支岔路）。\n' +
+    "2. reply 必须给实质回应：复述你理解的核心诉求、指出目前想法里虚/缺的部分、说明下一步——绝不能只复述原话。\n" +
+    "3. questions 提 1-3 个主动问题消除歧义（优先歧视性提问：这是部署环境事实还是主观估计？缺什么验收/kill 条件？预算和范围？）。\n" +
+    "4. 如果做一次简单资料搜索能让问题更清晰，给出 recon（{\"query\":\"搜索词\"}）；否则为 null。\n" +
+    '只输出 JSON：{"kind":"...","reply":"...","questions":["..."],"recon":null}\n\n对话：\n' +
     transcript
   );
 }
@@ -68,6 +74,11 @@ export function parseTurnOutput(stdout: string): TurnOutput {
   } catch {
     throw new Error(`turn returned malformed JSON: ${match[0].slice(0, 60)}`);
   }
+  const kind = raw.kind;
+  const KINDS = ["preference", "claim", "guess", "constraint", "branch"];
+  if (typeof kind !== "string" || !KINDS.includes(kind)) {
+    throw new Error(`turn returned an unusable kind: ${JSON.stringify(kind)}`);
+  }
   const reply = raw.reply;
   if (typeof reply !== "string" || reply.trim() === "") {
     // a turn without a substantive reply is the wall we are removing
@@ -81,7 +92,7 @@ export function parseTurnOutput(stdout: string): TurnOutput {
     typeof reconRaw === "object" && reconRaw !== null && typeof (reconRaw as Record<string, unknown>).query === "string"
       ? { query: (reconRaw as Record<string, unknown>).query as string, kind: "search" }
       : null;
-  return { reply, questions, recon };
+  return { kind: kind as TurnKind, reply, questions, recon };
 }
 
 /** Execute the recon through the DataSourceProvider port (real search). */

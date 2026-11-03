@@ -14,6 +14,7 @@ import { buildTurnPrompt, parseTurnOutput } from "../src/chat-turn.js";
 import type { DataSourceProvider, SearchResult } from "../../rt-core/src/providers/types.js";
 
 const TURN_JSON = JSON.stringify({
+  kind: "preference",
   reply: "「开数据标注公司」目前太虚：没说目标客户、标注类型和起步规模。我先把它收敛成一个可调研的命题。",
   questions: ["目标客户是AI lab还是企业内部标注需求？", "起步资金和人力规模有硬性上限吗？"],
   recon: { query: "数据标注公司 2025 市场规模" },
@@ -58,10 +59,7 @@ beforeAll(async () => {
   server = new WebUIServer({
     workspace: mkdtempSync(join(tmpdir(), "rt-ct-")),
     piConfigDir: piDir,
-    piRunner: (_command: string, prompt: string) =>
-      prompt.includes("preference|claim|guess|constraint|branch")
-        ? '{"kind":"preference"}' // classification contract
-        : TURN_JSON, // conversational turn contract
+    piRunner: () => TURN_JSON, // one call per turn (#674): kind + reply in one JSON
     provider,
   });
   port = await server.listen();
@@ -110,10 +108,12 @@ describe("chat.turn conversational loop (issue #660)", () => {
     expect(prompt).toContain('"recon"');
   });
 
-  it("parse fails closed on empty reply / garbage", () => {
-    expect(() => parseTurnOutput('{"reply":"","questions":[]}')).toThrow(/substantive reply/);
+  it("parse fails closed on empty reply / bad kind / garbage", () => {
+    expect(() => parseTurnOutput('{"kind":"claim","reply":"","questions":[]}')).toThrow(/substantive reply/);
+    expect(() => parseTurnOutput('{"reply":"x","questions":[]}')).toThrow(/unusable kind/); // kind required in the same call
     expect(() => parseTurnOutput("随便说说")).toThrow(/no JSON/);
     const ok = parseTurnOutput(TURN_JSON);
+    expect(ok.kind).toBe("preference");
     expect(ok.questions).toHaveLength(2);
     expect(ok.recon?.query).toContain("数据标注");
   });
@@ -125,6 +125,7 @@ describe("chat.turn conversational loop (issue #660)", () => {
     const result = await rpc("chat.turn", { task_id: "tT", text: "我想开个数据标注公司" });
     expect((result.reply as string)).toContain("太虚");
     expect((result.questions as string[]).length).toBe(2);
+    expect(result.classified_by).toBe("pi-session"); // single-call judgment
     expect((result.recon_results as Array<Record<string, unknown>>)[0]).toMatchObject({ title: "2025 数据标注市场报告" });
     expect(provider.queries[0]).toContain("数据标注公司"); // real provider port execution
 

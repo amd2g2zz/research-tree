@@ -402,11 +402,8 @@ export class WebUIServer {
         if (command === null) {
           throw new ProjectHomeError("pi binary not found (set RT_PI_CMD) — conversational turns fail closed");
         }
-        // the user message first (so the prompt sees it); classification is
-        // async now (issue #670) and lands with the same classified_by
-        const classifier = pickClassifier({ ready: true }, { runner: this.options.piRunner, command, timeoutMs: 300_000 });
-        const classification = await classifier.classify(text);
-        this.appendChat(taskId, "user", classification.kind, text, { classified_by: classification.classified_by });
+        // the user message is appended AFTER the turn lands (the turn itself
+        // judges the kind in the same pi call — issue #674, one call per turn)
 
         const transcript = this.ledger.connection
           .prepare("SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? ORDER BY seq")
@@ -454,16 +451,20 @@ export class WebUIServer {
             result_count: reconResults.length,
           });
         }
-        this.appendChat(taskId, "rt", "reply", turn.reply, { questions: turn.questions });
+        // user message + agent reply + questions land together with the turn
+        // output (one pi call per turn, issue #674)
+        this.appendChat(taskId, "user", turn.kind, text, { classified_by: "pi-session" });
+        this.appendChat(taskId, "rt", "reply", turn.reply, { questions: turn.questions, classified_by: "pi-session" });
         for (const q of turn.questions) {
           this.appendChat(taskId, "rt", "question", q, null);
         }
         return {
+          kind: turn.kind,
           reply: turn.reply,
           questions: turn.questions,
           recon_results: reconResults ?? [],
           recon_error: reconError,
-          classified_by: classification.classified_by,
+          classified_by: "pi-session",
         };
       }
       case "chat.ingest": {
