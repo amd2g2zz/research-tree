@@ -127,6 +127,11 @@ describe("P5 version page (issue #637)", () => {
     const forkSide = (await rest("/api/versions/tV-fork")).body;
     expect(forkSide.is_main_branch).toBe(false);
     expect(forkSide.fork_parent).toMatchObject({ task_id: "tV", v: 0 });
+    // the fork line is REGISTERED into the project (#655 e2e finding): the
+    // tree shows the支线 without a manual registerTask
+    const tree = (await rest("/api/tree")).body.projects as Array<Record<string, unknown>>;
+    const pV = tree.find((p) => p.project_id === "pV")!;
+    expect((pV.lines as Array<Record<string, unknown>>).map((l) => l.task_id)).toContain("tV-fork");
     const status = await rpc("task.status", { task_id: "tV-fork" });
     expect(status.phase).toBe("chat");
 
