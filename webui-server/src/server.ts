@@ -346,9 +346,17 @@ export class WebUIServer {
         // 继续研究 (version+1): live draft resumes, never clobbers; H7 telemetry lands
         this.timeline.continueResearch(String(params.task_id));
         return { opened: true };
-      case "version.fork":
-        // 从此分叉: new task inherits the snapshot (分叉即继承), lands in chat
-        return this.timeline.fork(String(params.task_id), Number(params.v), String(params.new_task_id));
+      case "version.fork": {
+        // 从此分叉: new task inherits the snapshot (分叉即继承), lands in chat —
+        // and is REGISTERED into the from-task's project as a fork line so the
+        // sidebar tree actually shows the支线 (#655 e2e finding)
+        const newTask = this.timeline.fork(String(params.task_id), Number(params.v), String(params.new_task_id));
+        const projectId = this.home.projectIdForTask(String(params.task_id));
+        if (projectId !== null) {
+          this.home.registerTask(projectId, String(params.new_task_id), "fork");
+        }
+        return newTask;
+      }
       case "chat.ingest": {
         const text = String(params.text ?? "");
         const taskId = String(params.task_id);

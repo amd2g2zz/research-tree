@@ -112,6 +112,15 @@ export class ProjectHomeModel {
       .run(taskId, projectId, role, new Date().toISOString());
   }
 
+  /** The project a task belongs to (null when unbound — e.g. a fork created
+   * before project registration). */
+  projectIdForTask(taskId: string): string | null {
+    const row = this.ledger.connection
+      .prepare("SELECT project_id FROM project_tasks WHERE task_id = ? LIMIT 1")
+      .get(taskId) as { project_id: string } | undefined;
+    return row !== undefined ? row.project_id : null;
+  }
+
   /** The three vitals (研究线数 / 主分支最新版本+裁决+hash / 主线已用时间). */
   vitals(projectId: string): ProjectVitals {
     const lines = this.listLines(projectId);
