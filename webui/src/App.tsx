@@ -70,6 +70,7 @@ interface PiConfig {
   keyed_session_ready: boolean;
   readiness: { has_provider_key: boolean; has_model: boolean; has_default_model: boolean };
   follows_pi_default: boolean;
+  default_extensions?: Array<{ name: string; installed: boolean }>;
 }
 interface LogLine {
   kind: "engine" | "rpc" | "error";
@@ -1092,6 +1093,32 @@ export function App() {
                   </button>
                 </div>
                 <p className="hint">写入 pi 自己的 models.json（schema 兼容）；新开的 pi 会话生效。变更落审计事件（只记 provider 名）。</p>
+                <div className="ext-block">
+                  <h4>默认 pi 扩展</h4>
+                  <div className="ext-list">
+                    {(settings.default_extensions ?? []).map((e) => (
+                      <div key={e.name} className="cline">
+                        <span className={`dot ${e.installed ? "ok" : "off"}`} /> {e.name} {e.installed ? "已安装" : "未安装"}
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    className="primary"
+                    onClick={async () => {
+                      try {
+                        const result = await rpc(await getSocket(), "config.installExtensions", {});
+                        const r = result as { installed: string[]; failed: Array<{ name: string; error: string }> };
+                        push("rpc", `扩展安装：${r.installed.length} 个新装，${r.failed.length} 个失败`);
+                        await refreshSettings();
+                      } catch (error) {
+                        push("error", String(error));
+                      }
+                    }}
+                  >
+                    安装缺失扩展
+                  </button>
+                  <p className="hint">billion-context / rpiv-ask-user-question / pi-mcp-adapter / context-mode / pi-web-access —— 默认供应清单（#664）。显式安装，绝不静默。</p>
+                </div>
                 <div className="modal-actions">
                   <button className="primary" onClick={() => setModal(null)}>
                     完成

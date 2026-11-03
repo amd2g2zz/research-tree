@@ -21,6 +21,7 @@ Surface:
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { WebSocketServer, type WebSocket } from "ws";
@@ -46,6 +47,7 @@ import {
   type DecompositionElements,
 } from "../../rt-core/src/decomposition/engine.js";
 import { readPiConfig, writeProviderKey, writeDefaultModel, ConfigWriteError } from "./pi-config.js";
+import { extensionStatuses, ensurePiExtensions, DEFAULT_PI_EXTENSIONS } from "./pi-extensions.js";
 import { pickClassifier } from "./classify.js";
 import { extractionPrompt, parseExtraction, mechanicalPlan, type TranscriptMessage } from "./real-flow.js";
 import { buildTurnPrompt, parseTurnOutput, runRecon, reconToText } from "./chat-turn.js";
@@ -176,7 +178,9 @@ export class WebUIServer {
       res.end(JSON.stringify(body));
     };
     if (req.url === "/api/config/pi") {
-      reply(200, readPiConfig(this.options.piConfigDir));
+      const summary = readPiConfig(this.options.piConfigDir) as unknown as Record<string, unknown>;
+      summary.default_extensions = extensionStatuses(this.extensionsDir());
+      reply(200, summary);
       return;
     }
     if (req.url === "/api/projects") {
@@ -278,6 +282,10 @@ export class WebUIServer {
 
   private piConfigDir(): string | undefined {
     return this.options.piConfigDir;
+  }
+
+  private extensionsDir(): string {
+    return this.options.piConfigDir ?? join(homedir(), ".pi", "agent");
   }
 
   /** per-task DAG scheduler over the persisted stage table */
@@ -484,6 +492,19 @@ export class WebUIServer {
           outcome: "ok",
         });
         return result;
+      }
+      case "config.installExtensions": {
+        // #664: explicit settings-page action (never silent) — provisions the
+        // default pi extensions and audits the outcome by name
+        const result = ensurePiExtensions({ settingsDir: this.piConfigDir() ?? undefined, piCommand: this.resolvePiCommand() });
+        this.ledger.appendGraphEvent("provider.action", {
+          id: `settings-ext-${Date.now()}`,
+          provider: "settings",
+          action: "report",
+          target: `settings:extensions:installed=[${result.installed.join(",")}] failed=${result.failed.length}`,
+          outcome: result.failed.length === 0 ? "ok" : "error",
+        });
+        return { ...result, default: DEFAULT_PI_EXTENSIONS };
       }
       case "config.setDefaultModel": {
         const result = writeDefaultModel(this.piConfigDir(), String(params.model ?? ""));
