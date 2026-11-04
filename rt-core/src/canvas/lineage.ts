@@ -16,39 +16,64 @@ source document).
 import type { VersionStore } from "../versions/store.js";
 
 export interface LineageStep {
-  layer: "canvas-node" | "detail-drawer" | "raw-evidence";
-  detail: Record<string, unknown>;
+	layer: "canvas-node" | "detail-drawer" | "raw-evidence";
+	detail: Record<string, unknown>;
 }
 
 export interface LineagePath {
-  clicks: number;
-  steps: LineageStep[];
-  raw_evidence?: { refs: string[]; report: Record<string, unknown> | null };
+	clicks: number;
+	steps: LineageStep[];
+	raw_evidence?: { refs: string[]; report: Record<string, unknown> | null };
 }
 
 export class LineageDrillDown {
-  constructor(private readonly versions: VersionStore) {}
+	constructor(private readonly versions: VersionStore) {}
 
-  /** Resolve the ≤3-click lineage path from a committed version snapshot. */
-  resolve(taskId: string, v: number, claimId: string): LineagePath | null {
-    const version = this.versions.getVersion(taskId, v);
-    if (version === null) {
-      return null;
-    }
-    const claims = (version.snapshot.claims ?? []) as Array<{ id: string; text: string; posterior?: number; [key: string]: unknown }>;
-    const claim = claims.find((c) => c.id === claimId);
-    if (claim === undefined) {
-      return null;
-    }
-    const evidenceRefs = version.snapshot.evidence_refs ?? [];
-    return {
-      clicks: 3,
-      steps: [
-        { layer: "canvas-node", detail: { claim_id: claimId, task_id: taskId, version: v } },
-        { layer: "detail-drawer", detail: { claim, posterior: claim.posterior, verify_tier: (claim as Record<string, unknown>).verify_tier ?? "unknown" } },
-        { layer: "raw-evidence", detail: { evidence_refs: evidenceRefs, report: version.snapshot.report ?? null } },
-      ],
-      raw_evidence: { refs: evidenceRefs, report: (version.snapshot.report as Record<string, unknown>) ?? null },
-    };
-  }
+	/** Resolve the ≤3-click lineage path from a committed version snapshot. */
+	resolve(taskId: string, v: number, claimId: string): LineagePath | null {
+		const version = this.versions.getVersion(taskId, v);
+		if (version === null) {
+			return null;
+		}
+		const claims = (version.snapshot.claims ?? []) as Array<{
+			id: string;
+			text: string;
+			posterior?: number;
+			[key: string]: unknown;
+		}>;
+		const claim = claims.find((c) => c.id === claimId);
+		if (claim === undefined) {
+			return null;
+		}
+		const evidenceRefs = version.snapshot.evidence_refs ?? [];
+		return {
+			clicks: 3,
+			steps: [
+				{
+					layer: "canvas-node",
+					detail: { claim_id: claimId, task_id: taskId, version: v },
+				},
+				{
+					layer: "detail-drawer",
+					detail: {
+						claim,
+						posterior: claim.posterior,
+						verify_tier:
+							(claim as Record<string, unknown>).verify_tier ?? "unknown",
+					},
+				},
+				{
+					layer: "raw-evidence",
+					detail: {
+						evidence_refs: evidenceRefs,
+						report: version.snapshot.report ?? null,
+					},
+				},
+			],
+			raw_evidence: {
+				refs: evidenceRefs,
+				report: (version.snapshot.report as Record<string, unknown>) ?? null,
+			},
+		};
+	}
 }
