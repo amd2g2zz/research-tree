@@ -8,45 +8,45 @@ events or the ledger.
 */
 
 export interface ProviderCapabilities {
-  search: boolean;
-  fetch: boolean;
+	search: boolean;
+	fetch: boolean;
 }
 
 /** Lightweight manifest — the registry unit; full usage loads on demand (#589). */
 export interface ProviderManifest {
-  name: string;
-  capabilities: ProviderCapabilities;
-  kinds: string[];
-  description: string;
-  /** pointer to the full usage guide — never auto-loaded */
-  usage: string;
+	name: string;
+	capabilities: ProviderCapabilities;
+	kinds: string[];
+	description: string;
+	/** pointer to the full usage guide — never auto-loaded */
+	usage: string;
 }
 
 export interface SearchQuery {
-  query: string;
+	query: string;
 }
 
 export interface SearchResult {
-  title: string;
-  url: string;
-  snippet: string;
+	title: string;
+	url: string;
+	snippet: string;
 }
 
 export interface ResourceRef {
-  url: string;
+	url: string;
 }
 
 export interface ProviderDocument {
-  url: string;
-  contentType: string;
-  text: string;
-  bytes: number;
-  /** deterministic extraction summary (plain text / code only; #590) */
-  summary?: unknown;
+	url: string;
+	contentType: string;
+	text: string;
+	bytes: number;
+	/** deterministic extraction summary (plain text / code only; #590) */
+	summary?: unknown;
 }
 
 export interface DataSourceProvider {
-  readonly manifest: ProviderManifest;
-  search(query: SearchQuery): Promise<SearchResult[]>;
-  fetch(ref: ResourceRef): Promise<ProviderDocument>;
+	readonly manifest: ProviderManifest;
+	search(query: SearchQuery): Promise<SearchResult[]>;
+	fetch(ref: ResourceRef): Promise<ProviderDocument>;
 }

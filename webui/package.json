@@ -6,17 +6,23 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "lint": "biome check src/ test/ --max-diagnostics 50"
   },
   "dependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.6.4",
+    "@eslint/js": "^10.0.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "eslint": "^10.14.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "typescript": "^7.0.2",
+    "typescript-eslint": "^8.72.1",
     "vite": "^6.0.0"
   }
 }
