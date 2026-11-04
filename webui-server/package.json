@@ -3,20 +3,27 @@
   "version": "0.1.0-alpha.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "check": "tsc --noEmit",
     "test": "vitest run",
-    "dev": "tsx watch src/main.ts"
+    "dev": "tsx watch src/main.ts",
+    "lint": "biome check src/ test/ --max-diagnostics 50"
   },
   "dependencies": {
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.6.4",
+    "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.5",
     "@types/ws": "^8.18.1",
+    "eslint": "^10.14.0",
     "tsx": "^4.19.0",
     "typescript": "^7.0.2",
+    "typescript-eslint": "^8.72.1",
     "vitest": "^5.0.5"
   }
 }

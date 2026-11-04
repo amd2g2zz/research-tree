@@ -11,15 +11,14 @@ verify_tier tokens map to docs/product/01-core-algorithms.md A2:
 `single-source`=单源未验, `experiment`=experiment.
 */
 
-export {
-  CLAIM_SOURCES,
-  EVENT_SPECS,
-  GRAPH_EVENT_TYPES,
-  GENESIS_HASH,
-  VERDICTS,
-  VERIFY_TIERS,
-  GraphEventError,
-  validateGraphEvent,
-} from "./schema.js";
-
 export type { EventSpec, FieldSpec, GraphEventType } from "./schema.js";
+export {
+	CLAIM_SOURCES,
+	EVENT_SPECS,
+	GENESIS_HASH,
+	GRAPH_EVENT_TYPES,
+	GraphEventError,
+	VERDICTS,
+	VERIFY_TIERS,
+	validateGraphEvent,
+} from "./schema.js";

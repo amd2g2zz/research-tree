@@ -9,7 +9,8 @@
   },
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "biome check src/ test/ --max-diagnostics 50"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
@@ -20,11 +21,15 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.6.4",
+    "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^26.6.5",
     "@types/turndown": "^5.0.6",
+    "eslint": "^10.14.0",
     "typescript": "^7.0.2",
+    "typescript-eslint": "^8.72.1",
     "vitest": "^5.0.5"
   }
 }
