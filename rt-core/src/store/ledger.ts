@@ -240,6 +240,18 @@ const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 9,
+    statements: `
+      CREATE TABLE IF NOT EXISTS mindmaps (
+          task_id TEXT PRIMARY KEY,
+          tree_json TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('draft', 'confirmed')),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 function chainHash(record: Record<string, unknown>): string {

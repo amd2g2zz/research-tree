@@ -14,6 +14,10 @@
 
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { MindmapPage } from "./MindmapPage.js";
+import { ResearchPage } from "./ResearchPage.js";
+
+type View = "chat" | "mindmap" | "research";
 
 type Panel = null | "research" | "versions";
 
@@ -103,6 +107,7 @@ export function App() {
   const [running, setRunning] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   // UI chrome
+  const [view, setView] = useState<View>("chat");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [panel, setPanel] = useState<Panel>(null);
   const [modal, setModal] = useState<null | "settings" | "new" | "snapshot">(null);
@@ -217,6 +222,12 @@ export function App() {
       .then((r) => r.json())
       .then((c) => setPiConfig(c as never));
   }, [refreshTree]);
+
+  // adapter: page components call rpcFn(method, params) without the ws arg
+  const rpcForPages = useCallback(
+    async (method: string, params?: Record<string, unknown>) => rpc(await getSocket(), method, params),
+    [getSocket, rpc],
+  );
 
   // ------------- derived selection -------------
   const activeProject = tree.find((p) => p.lines.some((l) => l.task_id === activeTaskId)) ?? null;
@@ -613,11 +624,11 @@ export function App() {
             )}
           </div>
           <div className="top-actions">
-            <button className="chip-btn" onClick={() => setPanel(panel === "research" ? null : "research")} disabled={activeTaskId === null}>
-              研究
+            <button className={`chip-btn ${view === "mindmap" ? "active-view" : ""}`} onClick={() => setView("mindmap")} disabled={activeTaskId === null}>
+              思维导图
             </button>
-            <button className="chip-btn" onClick={() => setPanel(panel === "versions" ? null : "versions")} disabled={activeTaskId === null}>
-              版本
+            <button className={`chip-btn ${view === "research" ? "active-view" : ""}`} onClick={() => setView("research")} disabled={activeTaskId === null}>
+              调研画布
             </button>
             {status !== null && status.phase === "research" && (
               <button className="chip-btn" onClick={() => setFreezeOpen(true)}>
@@ -632,7 +643,14 @@ export function App() {
           </div>
         </header>
 
-        {activeTaskId === null ? (
+        {view === "mindmap" && activeTaskId !== null && (
+          <MindmapPage taskId={activeTaskId} onBack={() => setView("chat")} onConfirmed={() => setView("research")} rpcFn={rpcForPages} pushLog={push} />
+        )}
+        {view === "research" && activeTaskId !== null && (
+          <ResearchPage taskId={activeTaskId} onFreeze={() => setFreezeOpen(true)} rpcFn={rpcForPages} />
+        )}
+
+        {view === "chat" && (activeTaskId === null ? (
           <div className="welcome">
             <h1>research-tree</h1>
             <p>接住任何清晰度的想法，做一份诚实的、带反证的研究。</p>
@@ -873,7 +891,7 @@ export function App() {
               </aside>
             )}
           </div>
-        )}
+        ))}
       </div>
 
       {/* ============ modals ============ */}
