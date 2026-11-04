@@ -59,7 +59,7 @@ export function buildTurnPrompt(messages: TranscriptMessage[]): string {
     "规则：\n" +
     '1. 先判定最后一句话的语义类型 kind ∈ preference|claim|guess|constraint|branch（偏好意图/可判定主张/方案猜测/硬约束/分支岔路）。\n' +
     "2. reply 必须给实质回应：复述你理解的核心诉求、指出目前想法里虚/缺的部分、说明下一步——绝不能只复述原话。\n" +
-    "3. questions 提 1-3 个主动问题消除歧义（优先歧视性提问：这是部署环境事实还是主观估计？缺什么验收/kill 条件？预算和范围？）。\n" +
+    "3. 仅当存在影响调研方向的关键缺口时才提问（0-3 个，歧视性优先：部署事实还是主观估计？缺什么验收/kill 条件？预算和范围？）；没有关键缺口就给空数组——不为问而问。\n" +
     "4. 如果做一次简单资料搜索能让问题更清晰，给出 recon（{\"query\":\"搜索词\"}）；否则为 null。\n" +
     "5. converged：判断想法是否已具体到可以开始调研（有明确的对象/范围/可验证的口径）；已成形=true，仍虚=false。\n" +
     '只输出 JSON：{"kind":"...","converged":false,"reply":"...","questions":["..."],"recon":null}\n\n对话：\n' +

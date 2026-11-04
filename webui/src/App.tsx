@@ -15,7 +15,7 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-type Panel = null | "decomp" | "research" | "versions";
+type Panel = null | "research" | "versions";
 
 interface ProjectCard {
   project_id: string;
@@ -93,14 +93,7 @@ const CLASSIFIED_BY_LABELS: Record<string, string> = {
   "pi-session": "pi 会话",
   heuristic: "规则回退",
 };
-const ELEMENT_META: Array<[string, string]> = [
-  ["requirements", "🎯 需求"],
-  ["constraints", "📌 条件约束"],
-  ["background", "📖 任务背景"],
-  ["intents", "💡 用户意图"],
-  ["refusals", "🚫 拒绝点"],
-  ["difficulties", "⚠ 难点→kill 候选"],
-];
+
 
 export function App() {
   const [tree, setTree] = useState<TreeNode[]>([]);
@@ -124,13 +117,6 @@ export function App() {
   const [thinkingText, setThinkingText] = useState(""); // streaming 思维链
   const thinkingRef = useRef("");
   const [lastThinking, setLastThinking] = useState<string | null>(null); // auto-collapsed after the reply
-  // decomp
-  const [decomp, setDecomp] = useState<{
-    decomposition_id: string;
-    elements: Record<string, Array<Record<string, unknown>>>;
-    checklist: { complete: boolean; gaps: string[] };
-    status?: string;
-  } | null>(null);
   // research
   const [research, setResearch] = useState<{
     question: { task_id: string; title: string };
@@ -256,7 +242,6 @@ export function App() {
       setStatus(null);
     }
     setPanel(null);
-    setDecomp(null);
   }, [activeTaskId, refreshHub]);
 
   const sendChat = async (): Promise<void> => {
@@ -348,53 +333,7 @@ export function App() {
     return null;
   };
 
-  // ------------- decomp panel (REAL: chat transcript → pi session) -------------
-  const [noRefusals, setNoRefusals] = useState(false);
-  const [extracting, setExtracting] = useState(false);
-  const [starting, setStarting] = useState(false);
-  const extractFromChat = async (): Promise<void> => {
-    if (activeTaskId === null) {
-      return;
-    }
-    setExtracting(true);
-    try {
-      const result = await rpc(await getSocket(), "decompose.fromChat", {
-        task_id: activeTaskId,
-        decomposition_id: `dc-${activeTaskId}`,
-        refusals_note: noRefusals ? "none" : undefined,
-      });
-      setDecomp({
-        decomposition_id: `dc-${activeTaskId}`,
-        elements: result.elements as never,
-        checklist: result.checklist as never,
-      });
-      push("rpc", `pi 会话提取完成（溯源律丢弃 ${String(result.dropped)} 条无源要素）`);
-    } catch (error) {
-      push("error", String(error));
-    } finally {
-      setExtracting(false);
-    }
-  };
 
-  const startResearch = async (): Promise<void> => {
-    if (activeTaskId === null || decomp === null) {
-      return;
-    }
-    setStarting(true);
-    try {
-      const result = await rpc(await getSocket(), "research.start", {
-        task_id: activeTaskId,
-        decomposition_id: decomp.decomposition_id,
-      });
-      push("rpc", `研究已启动：phase=${String(result.phase)} 阶段=${String(result.stages)} 派发=${String(result.dispatched)}`);
-      setPanel("research");
-      await refreshHub(activeTaskId);
-    } catch (error) {
-      push("error", String(error));
-    } finally {
-      setStarting(false);
-    }
-  };
 
   // ------------- freeze (human verdict gate) -------------
   const [freezeOpen, setFreezeOpen] = useState(false);
@@ -420,36 +359,7 @@ export function App() {
     }
   };
 
-  const removeElement = async (elementClass: string, index: number): Promise<void> => {
-    if (decomp === null || activeTaskId === null) {
-      return;
-    }
-    try {
-      const result = await rpc(await getSocket(), "decompose.removeElement", {
-        task_id: activeTaskId,
-        decomposition_id: decomp.decomposition_id,
-        element_class: elementClass,
-        index,
-      });
-      setDecomp({ ...decomp, elements: result.elements as never, checklist: result.checklist as never });
-    } catch (error) {
-      push("error", String(error)); // 确认后编辑 = major pivot verbatim
-    }
-  };
 
-  const confirmDecomp = async (): Promise<void> => {
-    if (decomp === null || activeTaskId === null) {
-      return;
-    }
-    try {
-      await rpc(await getSocket(), "decompose.confirm", { task_id: activeTaskId, decomposition_id: decomp.decomposition_id });
-      push("rpc", "要素集已冻结为研究宪法（v0）");
-      setDecomp({ ...decomp, status: "confirmed" });
-      await refreshTree();
-    } catch (error) {
-      push("error", String(error)); // 预注册缺口 verbatim
-    }
-  };
 
   // ------------- research panel -------------
   const refreshResearch = useCallback(async (taskId: string) => {
@@ -802,7 +712,7 @@ export function App() {
                 {(status?.routed_count ?? 0) >= 3 && !thinking && (
                   <div className="action-card">
                     <div>想法聊得差不多了——进入思维导图确认阶段？</div>
-                    <button className="mini-btn" onClick={() => { setPanel("decomp"); }}>
+                    <button className="mini-btn" onClick={() => { setPanel("research"); }}>
                       进入思维导图确认 →
                     </button>
                     <p className="hint">确认页内从对话转写提取六要素并逐级分解（树形页 #661 落地）。</p>
@@ -852,7 +762,7 @@ export function App() {
             {panel !== null && (
               <aside className="canvas">
                 <div className="canvas-head">
-                  <strong>{panel === "decomp" ? "分解" : panel === "research" ? "研究图谱" : "版本"}</strong>
+                  <strong>{panel === "research" ? "研究图谱" : "版本"}</strong>
                   <span className="spacer" />
                   {panel === "versions" && (
                     <>
@@ -864,74 +774,11 @@ export function App() {
                       </button>
                     </>
                   )}
-                  {panel === "decomp" && decomp === null && (
-                    <>
-                      <label className="mini-label">
-                        <input type="checkbox" checked={noRefusals} onChange={(e) => setNoRefusals(e.target.checked)} />
-                        无拒绝点
-                      </label>
-                      <button className="mini-btn" onClick={() => void extractFromChat()} disabled={extracting || !piConfig?.keyed_session_ready}>
-                        {extracting ? "提取中…" : "从对话提取（pi 会话）"}
-                      </button>
-                    </>
-                  )}
-                  {panel === "decomp" && decomp !== null && decomp.status === "confirmed" && (
-                    <button className="mini-btn" onClick={() => void startResearch()} disabled={starting}>
-                      {starting ? "启动中…" : "启动研究"}
-                    </button>
-                  )}
-                  <button className="mini-btn" onClick={() => setPanel(null)}>
+<button className="mini-btn" onClick={() => setPanel(null)}>
                     ✕
                   </button>
                 </div>
                 <div className="canvas-body">
-                  {panel === "decomp" &&
-                    (decomp === null ? (
-                      pConfig() ?? (
-                        <p className="empty">
-                          在 hub 里把想法说清楚，然后点上方「从对话提取」——pi 会话从对话转写提取六要素，quote 逐字回查原句（溯源律）。
-                        </p>
-                      )
-                    ) : (
-                      <>
-                        <div className={`checklist ${decomp.checklist.complete ? "ok" : "gaps"}`}>
-                          {decomp.checklist.complete
-                            ? "充分性 checklist：六类各 ≥1 ✓"
-                            : `充分性缺口：${decomp.checklist.gaps.join("、")}——缺口阻止确认`}
-                          {decomp.status === "confirmed" && <span> · 已冻结（变更=重大转向重签）</span>}
-                        </div>
-                        {ELEMENT_META.map(([cls, label]) => (
-                          <div key={cls} className="dgroup">
-                            <h4>{label}</h4>
-                            {(decomp.elements[cls] ?? []).map((el, i) => (
-                              <div key={i} className="element">
-                                <div>{String(el.text)}</div>
-                                <div className="prov">
-                                  来自{String((el.source as Record<string, unknown>).kind) === "attachment" ? "附件" : "你的话"}：“
-                                  {String((el.source as Record<string, unknown>).quote)}”
-                                </div>
-                                {decomp.status !== "confirmed" && (
-                                  <button className="mini-btn danger" onClick={() => void removeElement(cls, i)}>
-                                    删除
-                                  </button>
-                                )}
-                              </div>
-                            ))}
-                            {(decomp.elements[cls] ?? []).length === 0 && <div className="empty">待对齐</div>}
-                          </div>
-                        ))}
-                        <button
-                          className="primary"
-                          onClick={() => void confirmDecomp()}
-                          disabled={!decomp.checklist.complete || decomp.status === "confirmed"}
-                        >
-                          确认无误（要素集冻结为研究宪法）
-                        </button>
-                        {decomp.status === "confirmed" && (
-                          <p className="hint">已确认——点顶部「启动研究」把 claims_preview 变成调研 DAG。</p>
-                        )}
-                      </>
-                    ))}
                   {panel === "research" &&
                     (research === null ? (
                       <p className="empty">加载中…</p>
