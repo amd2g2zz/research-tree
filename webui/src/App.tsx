@@ -121,6 +121,9 @@ export function App() {
   const [draft, setDraft] = useState("");
   const [kind, setKind] = useState<UtteranceKind>("auto");
   const [thinking, setThinking] = useState(false);
+  const [thinkingText, setThinkingText] = useState(""); // streaming 思维链
+  const thinkingRef = useRef("");
+  const [lastThinking, setLastThinking] = useState<string | null>(null); // auto-collapsed after the reply
   // decomp
   const [decomp, setDecomp] = useState<{
     decomposition_id: string;
@@ -193,6 +196,9 @@ export function App() {
           } else if (msg.event === "engine") {
             const line = msg.line as { event_type?: string; seq?: number };
             push("engine", `#${line.seq} ${line.event_type}`);
+          } else if (msg.event === "turn-delta") {
+            thinkingRef.current += String(msg.delta ?? "");
+            setThinkingText(thinkingRef.current);
           }
         };
         ws.addEventListener("message", onMessage);
@@ -267,10 +273,18 @@ export function App() {
     setThinking(true);
     try {
       if (kind === "auto") {
-        // 对话回路：agent 回应 + 主动提问 + 侦查（一次 pi 调用，#674）
+        // 对话回路：agent 回应 + 主动提问 + 侦查（一次 pi 调用，#674）；思维链流式（#679）
+        thinkingRef.current = "";
+        setThinkingText("");
         const result = await rpc(await getSocket(), "chat.turn", { task_id: activeTaskId, text });
+        setLastThinking(thinkingRef.current);
+        setThinkingText("");
+        thinkingRef.current = "";
         const by = CLASSIFIED_BY_LABELS[result.classified_by as string] ?? "自动";
         push("rpc", `agent 回应（${by} · 侦查 ${Array.isArray(result.recon_results) ? (result.recon_results as unknown[]).length : 0} 条）`);
+        if (result.converged === true) {
+          push("rpc", "想法已成形——可进入思维导图确认");
+        }
       } else {
         const result = await rpc(await getSocket(), "chat.ingest", { task_id: activeTaskId, text, kind });
         const receipt = result.receipt as ClassificationBadge;
@@ -689,9 +703,6 @@ export function App() {
             )}
           </div>
           <div className="top-actions">
-            <button className="chip-btn" onClick={() => setPanel(panel === "decomp" ? null : "decomp")} disabled={activeTaskId === null}>
-              分解
-            </button>
             <button className="chip-btn" onClick={() => setPanel(panel === "research" ? null : "research")} disabled={activeTaskId === null}>
               研究
             </button>
@@ -773,9 +784,28 @@ export function App() {
                   ),
                 )}
                 {thinking && (
-                  <div className="msg-agent typing">
-                    <div className="agent-tag">rt</div>
-                    <div className="agent-body typing-dots"><span></span><span></span><span></span></div>
+                  <div className="msg-agent thinking">
+                    <div className="agent-tag">rt · 思考中…</div>
+                    {thinkingText !== "" ? (
+                      <pre className="cot">{thinkingText}</pre>
+                    ) : (
+                      <div className="agent-body typing-dots"><span></span><span></span><span></span></div>
+                    )}
+                  </div>
+                )}
+                {!thinking && lastThinking !== null && (
+                  <details className="cot-collapsed">
+                    <summary>思维链（已完成，点击展开）</summary>
+                    <pre className="cot">{lastThinking}</pre>
+                  </details>
+                )}
+                {(status?.routed_count ?? 0) >= 3 && !thinking && (
+                  <div className="action-card">
+                    <div>想法聊得差不多了——进入思维导图确认阶段？</div>
+                    <button className="mini-btn" onClick={() => { setPanel("decomp"); }}>
+                      进入思维导图确认 →
+                    </button>
+                    <p className="hint">确认页内从对话转写提取六要素并逐级分解（树形页 #661 落地）。</p>
                   </div>
                 )}
                 {messages.length === 0 && !thinking && (

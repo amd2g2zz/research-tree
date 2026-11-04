@@ -28,6 +28,8 @@ export function runPi(
   prompt: string,
   timeoutMs = 300_000,
   extraArgs: string[] = [],
+  /** streaming hook: fires per stdout chunk as the model generates (#679) */
+  onDelta?: (delta: string) => void,
 ): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     // detached: own process group — lets the timeout SIGKILL the whole tree
@@ -60,7 +62,11 @@ export function runPi(
     };
 
     child.stdout?.on("data", (chunk) => {
-      out += String(chunk);
+      const text = String(chunk);
+      out += text;
+      if (onDelta !== undefined && text !== "") {
+        onDelta(text);
+      }
     });
     child.on("error", (error) => {
       settle(new PiRunError(`pi spawn failed: ${String(error)}`));

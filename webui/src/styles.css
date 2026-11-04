@@ -264,3 +264,17 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: 0.92em; backgroun
 .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
 .typing-dots span:nth-child(3) { animation-delay: 0.3s; }
 @keyframes pulse { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
+/* ============ #679 streaming cot / spacing / action card ============ */
+.msg-user { margin-bottom: 18px; }
+.msg-agent { margin-bottom: 18px; }
+.cot {
+  font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #6b7280;
+  white-space: pre-wrap; max-height: 260px; overflow-y: auto; margin: 0;
+  background: #fafafa; border-radius: 8px; padding: 8px;
+}
+.cot-collapsed { margin: 0 auto 14px; max-width: 960px; font-size: 12px; color: #8f8f8f; }
+.cot-collapsed summary { cursor: pointer; }
+.action-card {
+  max-width: 960px; margin: 0 auto 16px; padding: 10px 14px;
+  border: 1px solid #d5e2fb; background: #f3f7ff; border-radius: 12px; font-size: 13.5px;
+}
