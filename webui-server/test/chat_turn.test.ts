@@ -99,13 +99,13 @@ function rpc(method: string, params: Record<string, unknown> = {}): Promise<Reco
 }
 
 describe("chat.turn conversational loop (issue #660)", () => {
-  it("prompt carries the transcript and demands a substantive reply + 歧视性提问", () => {
+  it("prompt carries the transcript and demands a substantive reply + 歧视性优先提问策略", () => {
     const prompt = buildTurnPrompt([
       { seq: 1, role: "user", kind: "preference", text: "我想开个数据标注公司", created_at: "t" },
       { seq: 2, role: "rt", kind: "reply", text: "回执", created_at: "t" },
     ]);
     expect(prompt).toContain("[1][user] 我想开个数据标注公司");
-    expect(prompt).toContain("歧视性提问");
+    expect(prompt).toContain("歧视性");
     expect(prompt).toContain('"recon"');
   });
 

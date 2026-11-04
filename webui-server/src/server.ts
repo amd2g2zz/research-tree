@@ -90,6 +90,12 @@ function resolvePiCommand(): string | null {
   if (pathProbe.status === 0 && pathProbe.stdout.trim() !== "" && existsSync(pathProbe.stdout.trim())) {
     return pathProbe.stdout.trim();
   }
+  // persistent local install (~/.pi/agent/npm — same prefix as the default
+  // extensions, #664); the /private/tmp scratch install evaporates on cleanup
+  const local = join(homedir(), ".pi", "agent", "npm", "node_modules", ".bin", "pi");
+  if (existsSync(local)) {
+    return local;
+  }
   const scratch = "/private/tmp/pi-host/node_modules/.bin/pi";
   if (existsSync(scratch)) {
     return scratch;
