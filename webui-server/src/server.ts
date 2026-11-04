@@ -46,8 +46,10 @@ import {
   checklistFor,
   type DecompositionElements,
 } from "../../rt-core/src/decomposition/engine.js";
+import type { MindNode } from "./mindmap.js";
 import { runPi } from "./pi-run.js";
 import { readPiConfig, writeProviderKey, writeDefaultModel, ConfigWriteError } from "./pi-config.js";
+import { mindmapPrompt, parseMindmap, mechanicalPlan as planFromTree, editNode, type MindTree } from "./mindmap.js";
 import { extensionStatuses, ensurePiExtensions, DEFAULT_PI_EXTENSIONS } from "./pi-extensions.js";
 import { pickClassifier } from "./classify.js";
 import { extractionPrompt, parseExtraction, mechanicalPlan, type TranscriptMessage } from "./real-flow.js";
@@ -783,6 +785,154 @@ export class WebUIServer {
           summary: String(params.summary ?? `${verdict} by human sign-off`),
         });
         return { committed: true, v: committed.v, commit_hash: committed.commit_hash, verdict };
+      }
+      case "mindmap.generate": {
+        // 确认阶段: transcript → pi → mindmap tree (quote 回查溯源), draft only
+        const taskId = String(params.task_id);
+        const summary = readPiConfig(this.options.piConfigDir);
+        if (!summary.keyed_session_ready) {
+          throw new ProjectHomeError("keyed session not ready — configure pi (设置页) before generating the mindmap");
+        }
+        const command = this.resolvePiCommand();
+        if (command === null) {
+          throw new ProjectHomeError("pi binary not found (set RT_PI_CMD) — mindmap generation fails closed");
+        }
+        const transcript = this.ledger.connection
+          .prepare("SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? ORDER BY seq")
+          .all(taskId) as TranscriptMessage[];
+        const prompt = mindmapPrompt(transcript);
+        const stdout =
+          this.options.piRunner !== undefined
+            ? await this.options.piRunner(command, prompt)
+            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000, ["-nt"]);
+        const parsed = parseMindmap(stdout, transcript);
+        const now = new Date().toISOString();
+        this.ledger.connection
+          .prepare(
+            "INSERT INTO mindmaps (task_id, tree_json, status, created_at, updated_at) VALUES (?, ?, 'draft', ?, ?) "
+            + "ON CONFLICT(task_id) DO UPDATE SET tree_json = excluded.tree_json, status = 'draft', updated_at = excluded.updated_at",
+          )
+          .run(taskId, JSON.stringify(parsed.tree), now, now);
+        return { tree: parsed.tree, dropped: parsed.dropped, depth: parsed.depth };
+      }
+      case "mindmap.get": {
+        const row = this.ledger.connection
+          .prepare("SELECT tree_json, status, updated_at FROM mindmaps WHERE task_id = ? LIMIT 1")
+          .get(String(params.task_id)) as { tree_json: string; status: string; updated_at: string } | undefined;
+        return row !== undefined ? { tree: JSON.parse(row.tree_json), status: row.status, updated_at: row.updated_at } : { tree: null, status: null };
+      }
+      case "mindmap.editNode": {
+        // 编辑权在确认前 — confirmed trees are frozen (变更=重大转向)
+        const taskId = String(params.task_id);
+        const row = this.ledger.connection
+          .prepare("SELECT tree_json, status FROM mindmaps WHERE task_id = ? LIMIT 1")
+          .get(taskId) as { tree_json: string; status: string } | undefined;
+        if (row === undefined) {
+          throw new ProjectHomeError(`no mindmap for task: ${taskId}`);
+        }
+        if (row.status === "confirmed") {
+          throw new ProjectHomeError("mindmap is confirmed; editing is a major pivot (re-confirm)");
+        }
+        const tree = JSON.parse(row.tree_json) as MindTree;
+        const op = {
+          action: String(params.action) as "rename" | "addChild" | "delete",
+          nodeId: String(params.node_id),
+          text: typeof params.text === "string" ? params.text : undefined,
+        };
+        if (!editNode(tree, op)) {
+          throw new ProjectHomeError(`edit refused: ${op.action} on ${op.nodeId}`);
+        }
+        this.ledger.connection
+          .prepare("UPDATE mindmaps SET tree_json = ?, updated_at = ? WHERE task_id = ?")
+          .run(JSON.stringify(tree), new Date().toISOString(), taskId);
+        return { tree, edited: true };
+      }
+      case "mindmap.confirm": {
+        // 确认思维导图 → 叶子=调研命题 → 机械 stages 注册 → research 相位
+        const taskId = String(params.task_id);
+        const row = this.ledger.connection
+          .prepare("SELECT tree_json, status FROM mindmaps WHERE task_id = ? LIMIT 1")
+          .get(taskId) as { tree_json: string; status: string } | undefined;
+        if (row === undefined) {
+          throw new ProjectHomeError(`no mindmap for task: ${taskId}`);
+        }
+        if (row.status === "confirmed") {
+          throw new ProjectHomeError("mindmap already confirmed");
+        }
+        const tree = JSON.parse(row.tree_json) as MindTree;
+        this.ledger.connection.prepare("UPDATE mindmaps SET status = 'confirmed', updated_at = ? WHERE task_id = ?").run(new Date().toISOString(), taskId);
+        if (this.machine.phaseOf(taskId) === undefined) {
+          this.machine.openTask(taskId); // task birth → chat (same as runHeadless)
+        }
+        // the mindmap IS the user-facing structure of the six-element
+        // decomposition (docs/product/05 §2): depth-1 branches map to classes,
+        // every node carries its provenance quote
+        const src = (node: MindNode): Array<Record<string, unknown>> =>
+          [node, ...node.children].map((n) => ({
+            text: n.text,
+            source: { kind: "chat-message", ref: `mindmap:${n.id}`, quote: n.quote ?? n.text },
+          }));
+        const branch = (name: string): Array<Record<string, unknown>> => {
+          const b = tree.root.children.find((c) => c.branch === name || c.text === name);
+          return b !== undefined ? src(b) : [];
+        };
+        const leaves: Array<Record<string, unknown>> = [];
+        const collectLeaves = (node: MindNode): void => {
+          if (node.children.length === 0) {
+            leaves.push({ text: node.text, source: { kind: "chat-message", ref: `mindmap:${node.id}`, quote: node.quote ?? node.text } });
+          }
+          for (const c of node.children) {
+            collectLeaves(c);
+          }
+        };
+        collectLeaves(tree.root);
+        const difficulties = branch("难点").length > 0
+          ? branch("难点").map((n) => ({ ...n, kill_candidates: [`verify: ${n.text}`] }))
+          : leaves.map((n) => ({ text: String(n.text), source: n.source, kill_candidates: [`verify: ${n.text}`] }));
+        const extraction: DecompositionElements = {
+          requirements: tree.root.children.flatMap((c) => src(c)),
+          constraints: branch("限制条件"),
+          background: branch("任务背景"),
+          intents: branch("调研目标"),
+          refusals: branch("拒绝点"),
+          difficulties,
+          claims_preview: [],
+        };
+        const parsed = parseDecomposition(extraction);
+        const notes = { refusals: "none" };
+        confirmDecomposition(this.ledger, taskId, parsed, notes, { decomposition_id: `dc-${taskId}` });
+        const decompositionId = `dc-${taskId}`;
+        this.machine.attachDecomposition(taskId, decompositionId);
+        const plan = planFromTree(tree);
+        this.machine.attachRunPlan(taskId, {
+          plan_id: `plan-${decompositionId}`,
+          stages: plan.map((st) => ({ id: st.id, title: st.title, claim_ids: st.claim_ids, depends_on: st.depends_on })),
+          budget: { capMs: 12 * 3600 * 1000 },
+          yaw_checks: [
+            { slot: "plan-level", mode: "auto" },
+            { slot: "problem-level", mode: "human" },
+            { slot: "knowledge-level", mode: "auto" },
+          ],
+        });
+        const dagStages: ParallelStage[] = plan.map((stage) => ({
+          stage_id: `${taskId}/${stage.id}`,
+          title: stage.title,
+          status: "pending",
+          claim_ids: stage.claim_ids,
+          depends_on: stage.depends_on,
+          assigned_worker_class: "retrieval",
+          retries: 0,
+          max_retries: 2,
+          outputs: [],
+        }));
+        if (dagStages.length > 0) {
+          this.schedulerFor(taskId).registerStages(dagStages);
+          this.schedulerFor(taskId).tick();
+        }
+        // walk: chat → decompose(语义确认) → research
+        this.machine.transition(taskId, { event: "confirm" });
+        this.machine.transition(taskId, { event: "sign" });
+        return { confirmed: true, stages: dagStages.length, phase: this.machine.phaseOf(taskId) };
       }
       case "research.launch": {
         const script: HeadlessScript = {
