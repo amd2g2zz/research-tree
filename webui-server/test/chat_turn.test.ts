@@ -15,6 +15,7 @@ import type { DataSourceProvider, SearchResult } from "../../rt-core/src/provide
 
 const TURN_JSON = JSON.stringify({
   kind: "preference",
+  converged: true,
   reply: "「开数据标注公司」目前太虚：没说目标客户、标注类型和起步规模。我先把它收敛成一个可调研的命题。",
   questions: ["目标客户是AI lab还是企业内部标注需求？", "起步资金和人力规模有硬性上限吗？"],
   recon: { query: "数据标注公司 2025 市场规模" },
@@ -114,6 +115,7 @@ describe("chat.turn conversational loop (issue #660)", () => {
     expect(() => parseTurnOutput("随便说说")).toThrow(/no JSON/);
     const ok = parseTurnOutput(TURN_JSON);
     expect(ok.kind).toBe("preference");
+    expect(ok.converged).toBe(true); // #679: 语义收敛驱动确认阶段
     expect(ok.questions).toHaveLength(2);
     expect(ok.recon?.query).toContain("数据标注");
   });

@@ -409,11 +409,18 @@ export class WebUIServer {
           .prepare("SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? ORDER BY seq")
           .all(taskId) as TranscriptMessage[];
         const prompt = buildTurnPrompt(transcript);
-        // async pi (issue #670): the event loop stays free while the model thinks
+        // async pi (issue #670) + streaming deltas (#679): 思维链先行
+        for (const client of this.wss.clients) {
+          client.send(JSON.stringify({ event: "turn-start", task_id: taskId }));
+        }
         const stdout =
           this.options.piRunner !== undefined
             ? await this.options.piRunner(command, prompt)
-            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000, ["-nt"]);
+            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000, ["-nt"], (delta) => {
+                for (const client of this.wss.clients) {
+                  client.send(JSON.stringify({ event: "turn-delta", delta }));
+                }
+              });
         const turn = parseTurnOutput(stdout);
 
         let reconResults: Array<{ title: string; url?: string; snippet?: string }> | undefined;
@@ -460,6 +467,7 @@ export class WebUIServer {
         }
         return {
           kind: turn.kind,
+          converged: turn.converged,
           reply: turn.reply,
           questions: turn.questions,
           recon_results: reconResults ?? [],
