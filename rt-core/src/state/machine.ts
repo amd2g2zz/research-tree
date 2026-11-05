@@ -103,6 +103,30 @@ export class ProductStateMachine {
 		return this.phases.get(taskId);
 	}
 
+	/** Adopt the persisted transition trail into this LIVE machine without
+	 * emitting — the events already exist in the log. Complements the static
+	 * `rehydrate` (read-only machine): embedders that restart against an
+	 * existing ledger call this once at boot so phaseOf/transition/freeze
+	 * keep working for pre-restart tasks. Later transitions append via the
+	 * real engine as normal. */
+	hydrate(events: Array<Record<string, unknown>>): void {
+		for (const event of events) {
+			if (event.event_type !== "task.transition") {
+				continue;
+			}
+			const payload = event.payload as Record<string, unknown>;
+			const taskId = String(payload.task_id);
+			const to = payload.to as Phase | undefined;
+			if (to === undefined) {
+				continue;
+			}
+			if (payload.from === null && !this.phases.has(taskId)) {
+				this.phases.set(taskId, "chat"); // task birth (fork)
+			}
+			this.phases.set(taskId, to);
+		}
+	}
+
 	events() {
 		return this.engine.graphEvents();
 	}
