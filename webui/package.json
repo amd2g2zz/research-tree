@@ -10,8 +10,12 @@
     "lint": "biome check src/ test/ --max-diagnostics 50"
   },
   "dependencies": {
+    "@ant-design/icons": "^6.3.4",
+    "antd": "^6.7.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.18.5",
+    "sass": "^1.107.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.5",

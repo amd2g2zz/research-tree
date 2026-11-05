@@ -90,6 +90,13 @@ describe("mindmap full-canvas flow (issue #683)", () => {
     expect(plan.length).toBeGreaterThan(2); // leaves → stages
   });
 
+  it("unit: fenced JSON with trailing prose still parses (issue #690 e2e blocker)", () => {
+    const noisy =
+      "好的，以下是整理结果：\n```json\n" + MINDMAP_JSON + "\n```\n以上就是思维导图，括号 } 与 { 均可能出现在说明文字里。";
+    const parsed = parseMindmap(noisy, TRANSCRIPT);
+    expect(parsed.tree.root.children).toHaveLength(3);
+  });
+
   it("full flow: generate → draft editable → confirm → stages registered → research phase", async () => {
     await rpc("project.create", { project_id: "pM", name: "思维导图" });
     await rpc("project.registerTask", { project_id: "pM", task_id: "tM", role: "main" });
@@ -112,6 +119,12 @@ describe("mindmap full-canvas flow (issue #683)", () => {
     expect(confirmed.confirmed).toBe(true);
     expect(Number(confirmed.stages)).toBeGreaterThan(0);
     expect(confirmed.phase).toBe("research");
+
+    // A7 rule 3: confirm opens a draft seeded with the leaf propositions —
+    // otherwise the flow dead-ends at freeze refused (issue #690 e2e)
+    const frozen = await rpc("research.freeze", { task_id: "tM", verdict: "GO" });
+    expect(frozen.committed).toBe(true);
+    expect(Number(frozen.v)).toBe(0);
 
     // post-confirm editing refused (major pivot)
     await expect(rpc("mindmap.editNode", { task_id: "tM", action: "rename", node_id: nodeId, text: "x" })).rejects.toThrow(

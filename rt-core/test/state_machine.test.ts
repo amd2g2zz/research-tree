@@ -138,6 +138,44 @@ describe("legal transition walk (对话→计划→研究→裁决→提交→�
 	});
 });
 
+describe("hydrate (embedder restart adoption, issue #690)", () => {
+	it("a live machine adopts the persisted trail; later transitions append via the real engine", () => {
+		versions.openDraft("tH", { snapshot: SNAPSHOT, baseV: null });
+		machine.openTask("tH");
+		machine.transition("tH", { event: "confirm" });
+		confirmDecomposition(
+			ledger,
+			"tH",
+			parseDecomposition(completeExtraction()),
+			{ refusals: "none" },
+			{ decomposition_id: "dc-tH" },
+		);
+		machine.attachDecomposition("tH", "dc-tH");
+		machine.attachRunPlan("tH", PLAN());
+		machine.transition("tH", { event: "sign" });
+		expect(machine.phaseOf("tH")).toBe("research");
+		const trail = ledger
+			.graphEvents()
+			.filter((e) => e.event_type === "task.transition");
+
+		// restart: a fresh LIVE machine on the same ledger
+		const rebooted = new ProductStateMachine(
+			new EngineCore(ledger),
+			versions,
+			store,
+		);
+		expect(rebooted.phaseOf("tH")).toBeUndefined();
+		rebooted.hydrate(trail as Array<Record<string, unknown>>);
+		expect(rebooted.phaseOf("tH")).toBe("research");
+
+		// the adopted task keeps flowing — freeze commits through the gate
+		rebooted.transition("tH", { event: "research-completed" });
+		expect(rebooted.phaseOf("tH")).toBe("converged");
+		rebooted.freezeTask("tH", { verdict: "GO", summary: "post-restart" });
+		expect(versions.latestVersion("tH")!.v).toBe(0);
+	});
+});
+
 describe("illegal transitions fail closed", () => {
 	it("rejects every off-matrix transition without mutating state", () => {
 		versions.openDraft("t1", { snapshot: SNAPSHOT, baseV: null });

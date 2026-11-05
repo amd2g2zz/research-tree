@@ -123,6 +123,9 @@ export class WebUIServer {
     this.ledger.initialize();
     this.versions = new VersionStore(this.ledger);
     this.machine = new ProductStateMachine(new EngineCore(this.ledger), this.versions);
+    // 重启适配（issue #690 e2e）：phase 图在进程内存里，重启后必须从事件日志
+    // 认领既有任务的阶段，否则 task.status / research.freeze 全部回落 unknown
+    this.machine.hydrate(this.ledger.graphEvents() as Array<Record<string, unknown>>);
     this.home = new ProjectHomeModel(this.ledger, this.versions);
     this.canvas = CanvasProjection.fromLedger(this.ledger);
     this.timeline = new VersionTimeline(this.ledger, this.versions, this.machine);
@@ -270,9 +273,11 @@ export class WebUIServer {
         state: Number(claim.posterior ?? 0) >= 0.9 ? "decided" : "undecided",
       };
     }
-    const stages = this.ledger.connection
+    // stage_id = `${taskId}/${stage.id}`（research.start / mindmap.confirm）—
+    // 只取本任务的 stage，别的任务的不得泄漏进本任务画布（issue #690 e2e）
+    const stages = (this.ledger.connection
       .prepare("SELECT stage_id, title, status, claim_ids, depends_on, assigned_worker_class FROM parallel_stages")
-      .all() as Array<Record<string, unknown>>;
+      .all() as Array<Record<string, unknown>>).filter((s) => String(s.stage_id).startsWith(`${taskId}/`));
     return {
       question: canvas.question,
       claims,
@@ -280,6 +285,21 @@ export class WebUIServer {
       providers: canvas.providers,
       stages: stages.map((s) => ({ ...s, claim_ids: JSON.parse(String(s.claim_ids)) as string[], depends_on: JSON.parse(String(s.depends_on)) as string[] })),
     };
+  }
+
+  /** Latest persisted phase for a task from the hash-chained event log.
+   * The state machine's phase map is per-process — after a server restart
+   * the ledger's task.transition trail is the only source of truth
+   * (issue #690 e2e: restart regressed every task to "chat"). */
+  private persistedPhase(taskId: string): string {
+    const row = this.ledger.connection
+      .prepare(
+        "SELECT json_extract(CAST(payload_json AS TEXT), '$.to') AS to_phase FROM graph_events "
+        + "WHERE event_type = 'task.transition' AND json_extract(CAST(payload_json AS TEXT), '$.task_id') = ? "
+        + "ORDER BY seq DESC LIMIT 1",
+      )
+      .get(taskId) as { to_phase: string | null } | undefined;
+    return row?.to_phase ?? "chat";
   }
 
   /** #572 scrubber: the canvas at any t is a pure projection of events ≤ t. */
@@ -581,7 +601,7 @@ export class WebUIServer {
         const taskId = String(params.task_id);
         const latest = this.versions.listVersions(taskId).slice().sort((a, b) => b.v - a.v)[0] ?? null;
         return {
-          phase: this.machine.phaseOf(taskId) ?? "chat",
+          phase: this.machine.phaseOf(taskId) ?? this.persistedPhase(taskId),
           latest: latest !== null ? { v: latest.v, verdict: latest.verdict, commit_hash: latest.commit_hash } : null,
           routed_count: this.routedCount(taskId),
         };
@@ -903,6 +923,29 @@ export class WebUIServer {
         confirmDecomposition(this.ledger, taskId, parsed, notes, { decomposition_id: `dc-${taskId}` });
         const decompositionId = `dc-${taskId}`;
         this.machine.attachDecomposition(taskId, decompositionId);
+        // A7 rule 3（同 research.start）：draftless 任务开一份以叶子命题为
+        // claims（posterior 0.5，id 对齐 mechanicalPlan 的 claim_ids）的
+        // 工作集——否则确认后的调研永远 freeze refused（issue #690 e2e）
+        if (this.versions.draftOf(taskId) === null) {
+          const leafClaims: Array<{ id: string; text: string; posterior: number }> = [];
+          const collect = (node: MindNode): void => {
+            if (node.children.length === 0) {
+              leafClaims.push({ id: node.id, text: node.text, posterior: 0.5 });
+            }
+            for (const child of node.children) collect(child);
+          };
+          collect(tree.root);
+          this.versions.openDraft(taskId, {
+            snapshot: {
+              elements: {},
+              claims: leafClaims,
+              evidence_refs: [],
+              report: {},
+              deleted_nodes: [],
+            },
+            baseV: null,
+          });
+        }
         const plan = planFromTree(tree);
         this.machine.attachRunPlan(taskId, {
           plan_id: `plan-${decompositionId}`,

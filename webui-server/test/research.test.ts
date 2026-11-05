@@ -149,10 +149,21 @@ describe("P4 research page (issue #636)", () => {
 		});
 		scheduler.registerStages([
 			{
-				stage_id: "s1",
+				stage_id: "tR/s1",
 				title: "recon",
 				status: "pending",
 				claim_ids: ["c-tR-1"],
+				depends_on: [],
+				assigned_worker_class: "retrieval",
+				retries: 0,
+				max_retries: 2,
+				outputs: [],
+			} satisfies ParallelStage,
+			{
+				stage_id: "tOther/sX",
+				title: "foreign stage",
+				status: "pending",
+				claim_ids: [],
 				depends_on: [],
 				assigned_worker_class: "retrieval",
 				retries: 0,
@@ -165,9 +176,12 @@ describe("P4 research page (issue #636)", () => {
 		expect(view.status).toBe(200);
 		const claims = view.body.claims as Record<string, Record<string, unknown>>;
 		expect(Object.keys(claims).length).toBeGreaterThan(0);
-		expect(
-			(view.body.stages as Array<Record<string, unknown>>).length,
-		).toBeGreaterThan(0);
+		const stageIds = (view.body.stages as Array<{ stage_id: string }>).map(
+			(s) => s.stage_id,
+		);
+		expect(stageIds.length).toBeGreaterThan(0);
+		// issue #690 e2e: 别的任务的 stage 不得泄漏进本任务的画布
+		expect(stageIds.every((id) => id.startsWith("tR/"))).toBe(true);
 		expect(
 			(view.body.transitions as Array<Record<string, unknown>>).length,
 		).toBeGreaterThan(0);
@@ -203,5 +217,62 @@ describe("P4 research page (issue #636)", () => {
 		const empty = await rest("/api/research/tEmpty");
 		expect(empty.status).toBe(200);
 		expect(empty.body.claims).toEqual({});
+	});
+
+	it("restart durability: a fresh process reports the persisted phase from the ledger (issue #690)", async () => {
+		await rpc("project.create", { project_id: "pDur", name: "重启后阶段" });
+		await rpc("project.registerTask", {
+			project_id: "pDur",
+			task_id: "tDur",
+			role: "main",
+		});
+		// simulate the transition trail the confirm flow wrote before a restart
+		const ledger = new LedgerStore(
+			join(workspaceFor(server), "ledger.sqlite"),
+		);
+		ledger.appendGraphEvent("task.transition", {
+			id: "task-transition-dur-1",
+			task_id: "tDur",
+			from: "chat",
+			to: "decompose",
+			reason: null,
+		});
+		ledger.appendGraphEvent("task.transition", {
+			id: "task-transition-dur-2",
+			task_id: "tDur",
+			from: "decompose",
+			to: "research",
+			reason: null,
+		});
+		// a cold process (restart) — its in-memory phase map is empty
+		const fresh = new WebUIServer({ workspace: workspaceFor(server) });
+		const freshPort = await fresh.listen();
+		try {
+			const socket = await new Promise<WebSocket>((resolve, reject) => {
+				const s = new WebSocket(`ws://127.0.0.1:${freshPort}/ws`);
+				s.on("open", () => resolve(s));
+				s.on("error", reject);
+			});
+			const status = await new Promise<Record<string, unknown>>(
+				(resolve, reject) => {
+					const onMessage = (data: unknown): void => {
+						const msg = JSON.parse(String(data)) as Record<string, unknown>;
+						if (msg.id === 1) {
+							socket.off("message", onMessage);
+							if (msg.ok === true) resolve(msg.result as Record<string, unknown>);
+							else reject(new Error(String(msg.error)));
+						}
+					};
+					socket.on("message", onMessage);
+					socket.send(
+						JSON.stringify({ id: 1, method: "task.status", params: { task_id: "tDur" } }),
+					);
+				},
+			);
+			socket.close();
+			expect(status.phase).toBe("research");
+		} finally {
+			await fresh.close();
+		}
 	});
 });

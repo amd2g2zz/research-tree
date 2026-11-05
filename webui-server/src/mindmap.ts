@@ -57,17 +57,44 @@ export interface ParsedMindmap {
   depth: number;
 }
 
+/** First balanced JSON object in `text` (string-aware brace-depth scan).
+ * Models wrap the JSON in fences and append prose — a greedy `\{[\s\S]*\}`
+ * match swallows those and fails JSON.parse (issue #690 e2e). */
+export function extractJsonObject(text: string): string | null {
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
 /** Parse the model's tree JSON, map quotes back to the transcript, enforce ≤5 depth. */
 export function parseMindmap(stdout: string, messages: Array<{ seq: number; role: string; text: string }>): ParsedMindmap {
-  const match = /\{[\s\S]*\}/.exec(stdout);
+  const match = extractJsonObject(stdout);
   if (match === null) {
     throw new Error("mindmap returned no JSON object");
   }
   let raw: { root?: { text?: string; children?: unknown[] } };
   try {
-    raw = JSON.parse(match[0]) as { root?: { text?: string; children?: unknown[] } };
+    raw = JSON.parse(match) as { root?: { text?: string; children?: unknown[] } };
   } catch {
-    throw new Error(`mindmap returned malformed JSON: ${match[0].slice(0, 60)}`);
+    throw new Error(`mindmap returned malformed JSON: ${match.slice(0, 60)}`);
   }
   if (raw.root === undefined || typeof raw.root.text !== "string" || raw.root.text === "") {
     throw new Error("mindmap returned no root");
