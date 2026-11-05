@@ -1,0 +1,19 @@
+{
+"schema": "impact-scope-v1",
+"change": "webui-v3-rewrite",
+"files": [
+"openspec/changes/webui-v3-rewrite/proposal.md",
+"openspec/changes/webui-v3-rewrite/specs/webui/spec.md",
+"openspec/changes/webui-v3-rewrite/tasks.md",
+"rt-core/biome.json",
+"webui-server/biome.json",
+"webui/biome.json",
+"webui/package.json",
+"webui/src/App.tsx",
+"webui/src/MindmapPage.tsx",
+"webui/src/ResearchPage.tsx",
+"webui/src/main.tsx",
+"webui/src/rpc.ts",
+"webui/src/styles.css"
+]
+}
