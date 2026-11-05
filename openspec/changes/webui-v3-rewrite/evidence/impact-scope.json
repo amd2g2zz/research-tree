@@ -1,0 +1,1 @@
+{"schema":"impact-scope-v1","change":"webui-v3-rewrite","files":["openspec/changes/webui-v3-rewrite/proposal.md","openspec/changes/webui-v3-rewrite/tasks.md","openspec/changes/webui-v3-rewrite/specs/webui/spec.md","webui/src/App.tsx","webui/src/rpc.ts","webui/src/styles.css"]}
