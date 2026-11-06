@@ -58,25 +58,35 @@ interface MindmapState {
 	status: string | null;
 }
 
-// ── 横向 tidy-tree 布局 ─────────────────────────────────────
+// ── 平衡模式布局（XMind 平衡导图）：根居中，分支按体量分左右 ──
 const NODE_W = 232;
 const NODE_H = 64;
 const GAP_X = 76;
 const GAP_Y = 16;
 
+type Side = "right" | "left";
+
 interface LaidNode {
 	node: MindNode;
 	depth: number;
-	x: number;
+	side: Side | "root";
+	x: number; // 卡片左上角，根中心为原点
 	y: number;
 	children: LaidNode[];
 	collapsedHere: boolean;
 }
 
-function layoutTree(
-	root: MindNode,
+const leafCount = (n: MindNode): number =>
+	n.children.length === 0 ? 1 : n.children.reduce((s, c) => s + leafCount(c), 0);
+
+/** 一侧分支的纵向 tidy 排布：共享叶子游标；dir=+1 右侧向外长，dir=-1 左侧镜像。 */
+function layoutSide(
+	branches: MindNode[],
 	collapsed: Set<string>,
-): { root: LaidNode; height: number; count: number } {
+	side: Side,
+): { roots: LaidNode[]; height: number; count: number } {
+	const dir = side === "right" ? 1 : -1;
+	const baseX = dir * (NODE_W / 2 + GAP_X);
 	let cursorY = 0;
 	let count = 0;
 	const walk = (node: MindNode, depth: number): LaidNode => {
@@ -85,13 +95,18 @@ function layoutTree(
 		const kids = isCollapsed
 			? []
 			: node.children.map((c) => walk(c, depth + 1));
+		const x =
+			dir === 1
+				? baseX + (depth - 1) * (NODE_W + GAP_X)
+				: baseX - NODE_W - (depth - 1) * (NODE_W + GAP_X);
 		if (kids.length === 0) {
 			const y = cursorY;
 			cursorY += NODE_H + GAP_Y;
 			return {
 				node,
 				depth,
-				x: depth * (NODE_W + GAP_X),
+				side,
+				x,
 				y,
 				children: [],
 				collapsedHere: isCollapsed,
@@ -103,14 +118,58 @@ function layoutTree(
 		return {
 			node,
 			depth,
-			x: depth * (NODE_W + GAP_X),
+			side,
+			x,
 			y,
 			children: kids,
 			collapsedHere: isCollapsed,
 		};
 	};
-	const laid = walk(root, 0);
-	return { root: laid, height: Math.max(cursorY - GAP_Y, NODE_H), count };
+	const roots = branches.map((b) => walk(b, 1));
+	return { roots, height: Math.max(cursorY - GAP_Y, NODE_H), count };
+}
+
+const shiftSide = (nodes: LaidNode[], dy: number): void => {
+	for (const n of nodes) {
+		n.y += dy;
+		shiftSide(n.children, dy);
+	}
+};
+
+/** 平衡模式：根居中 (0,0)，一级分支按子树叶子数贪心分左右，两侧各自垂直居中。 */
+function layoutBalanced(
+	root: MindNode,
+	collapsed: Set<string>,
+): { root: LaidNode; count: number } {
+	const isCollapsedRoot = collapsed.has(root.id) && root.children.length > 0;
+	const kids = isCollapsedRoot ? [] : root.children;
+	const right: MindNode[] = [];
+	const left: MindNode[] = [];
+	let rLeaves = 0;
+	let lLeaves = 0;
+	for (const k of kids) {
+		if (rLeaves <= lLeaves) {
+			right.push(k);
+			rLeaves += leafCount(k);
+		} else {
+			left.push(k);
+			lLeaves += leafCount(k);
+		}
+	}
+	const r = layoutSide(right, collapsed, "right");
+	const l = layoutSide(left, collapsed, "left");
+	shiftSide(r.roots, -r.height / 2);
+	shiftSide(l.roots, -l.height / 2);
+	const rootNode: LaidNode = {
+		node: root,
+		depth: 0,
+		side: "root",
+		x: -NODE_W / 2,
+		y: -NODE_H / 2,
+		children: [...r.roots, ...l.roots],
+		collapsedHere: isCollapsedRoot,
+	};
+	return { root: rootNode, count: 1 + r.count + l.count };
 }
 
 const flatten = (laid: LaidNode): LaidNode[] => [
@@ -129,6 +188,7 @@ interface MindData extends Record<string, unknown> {
 	text: string;
 	quote?: string;
 	depth: number;
+	side: Side | "root";
 	childCount: number;
 	collapsedHere: boolean;
 	confirmed: boolean;
@@ -145,6 +205,7 @@ function MindNodeCard({ data, selected }: NodeProps<Node<MindData>>) {
 		text,
 		quote,
 		depth,
+		side,
 		childCount,
 		collapsedHere,
 		confirmed,
@@ -155,23 +216,57 @@ function MindNodeCard({ data, selected }: NodeProps<Node<MindData>>) {
 		onToggle,
 	} = data;
 	const isRoot = depth === 0;
+	const cls = `mind-card depth-${Math.min(depth, 2)} ${side === "left" ? "side-left" : ""} ${selected ? "selected" : ""}`;
 	return (
-		<div
-			className={`mind-card depth-${Math.min(depth, 2)} ${selected ? "selected" : ""}`}
-			style={{ width: NODE_W, minHeight: NODE_H }}
-		>
-			<Handle
-				type="target"
-				position={Position.Left}
-				className="mind-handle"
-				isConnectable={false}
-			/>
-			<Handle
-				type="source"
-				position={Position.Right}
-				className="mind-handle"
-				isConnectable={false}
-			/>
+		<div className={cls} style={{ width: NODE_W, minHeight: NODE_H }}>
+			{isRoot ? (
+				<>
+					<Handle
+						type="source"
+						id="r"
+						position={Position.Right}
+						className="mind-handle"
+						isConnectable={false}
+					/>
+					<Handle
+						type="source"
+						id="l"
+						position={Position.Left}
+						className="mind-handle"
+						isConnectable={false}
+					/>
+				</>
+			) : side === "left" ? (
+				<>
+					<Handle
+						type="target"
+						position={Position.Right}
+						className="mind-handle"
+						isConnectable={false}
+					/>
+					<Handle
+						type="source"
+						position={Position.Left}
+						className="mind-handle"
+						isConnectable={false}
+					/>
+				</>
+			) : (
+				<>
+					<Handle
+						type="target"
+						position={Position.Left}
+						className="mind-handle"
+						isConnectable={false}
+					/>
+					<Handle
+						type="source"
+						position={Position.Right}
+						className="mind-handle"
+						isConnectable={false}
+					/>
+				</>
+			)}
 			<div className="mind-card-text" title={text}>
 				{text}
 			</div>
@@ -335,12 +430,11 @@ function MindmapInner({ taskId, onBack, onConfirmed, autoGenerate }: Props) {
 				laidRoot: null,
 				total: 0,
 			};
-		const { root: laid, height, count } = layoutTree(root, collapsed);
-		const offsetY = height / 2;
+		const { root: laid, count } = layoutBalanced(root, collapsed);
 		const nodes: Node<MindData>[] = flatten(laid).map((l) => ({
 			id: l.node.id,
 			type: "mind",
-			position: { x: l.x, y: l.y - offsetY },
+			position: { x: l.x, y: l.y },
 			width: NODE_W,
 			height: NODE_H,
 			data: {
@@ -348,6 +442,7 @@ function MindmapInner({ taskId, onBack, onConfirmed, autoGenerate }: Props) {
 				text: l.node.text,
 				quote: l.node.quote,
 				depth: l.depth,
+				side: l.side,
 				childCount: l.node.children.length,
 				collapsedHere: l.collapsedHere,
 				confirmed,
@@ -373,6 +468,9 @@ function MindmapInner({ taskId, onBack, onConfirmed, autoGenerate }: Props) {
 					id: `${l.node.id}->${c.node.id}`,
 					source: l.node.id,
 					target: c.node.id,
+					// 根有两个 source 句柄（r/l），必须按分支方向指定
+					sourceHandle:
+						l.depth === 0 ? (c.side === "right" ? "r" : "l") : undefined,
 					type: "default",
 					style: { stroke: "#c6c6c6", strokeWidth: 1.5 },
 				});
