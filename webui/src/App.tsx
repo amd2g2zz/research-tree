@@ -1,8 +1,10 @@
-/** research-tree WebUI — antd 版（issue #690）。
- * 三步流：①对话（流式 CoT → 折叠 → 正文）②思维导图确认 ③调研画布。 */
+/** research-tree WebUI — chat hub 为唯一入口（用户裁定 2026-11-06）。
+ * 对话对齐 ChatGPT 形态；思维导图/调研不做成 tab——
+ * 在 chat 内确认后从 context 抽取脑图，脑图确认后进调研画布；
+ * 回访入口 = 流内卡片。 */
 
 import {
-	DeploymentUnitOutlined,
+	ArrowUpOutlined,
 	NodeIndexOutlined,
 	PlusOutlined,
 	SettingOutlined,
@@ -38,18 +40,14 @@ const KINDS: Array<[Kind, string]> = [
 	["branch", "岔路"],
 ];
 
-const STEP_LABEL: Record<View, string> = {
-	chat: "① 对话",
-	mindmap: "② 思维导图",
-	research: "③ 调研",
-};
-
 function Shell() {
 	const [projects, setProjects] = useState<Project[]>([]);
 	const [taskId, setTaskId] = useState<string | null>(null);
 	const [msgs, setMsgs] = useState<ChatMsg[]>([]);
 	const [phase, setPhase] = useState<string>("chat");
+	const [mindStatus, setMindStatus] = useState<string | null>(null);
 	const [view, setView] = useState<View>("chat");
+	const [autoGen, setAutoGen] = useState(false);
 	const [draft, setDraft] = useState("");
 	const [kind, setKind] = useState<Kind>("auto");
 	const [busy, setBusy] = useState(false);
@@ -79,6 +77,8 @@ function Shell() {
 		setMsgs((h.messages ?? []) as ChatMsg[]);
 		const s = await rpc("task.status", { task_id: tid });
 		setPhase(String(s.phase ?? "chat"));
+		const m = await rpc("mindmap.get", { task_id: tid });
+		setMindStatus((m.status as string | null) ?? null);
 	}, []);
 
 	useEffect(() => {
@@ -145,22 +145,24 @@ function Shell() {
 	const proj =
 		projects.find((p) => p.lines.some((l) => l.task_id === taskId)) ?? null;
 	const canResearch = phase === "research" || phase === "converged";
-	const canMindmap =
-		taskId !== null &&
-		(phase === "decompose" || canResearch || msgs.length > 0);
+
+	const openMindmap = (auto: boolean) => {
+		setAutoGen(auto);
+		setView("mindmap");
+	};
 
 	return (
 		<Layout className="app">
-			<Layout.Sider width={248} theme="light" className="side">
+			<Layout.Sider width={260} theme="light" className="side">
 				<div className="side-head">
-					<Button
-						type="primary"
-						block
-						icon={<PlusOutlined />}
+					<button
+						type="button"
+						className="new-research-btn"
 						onClick={() => setShowNew(true)}
 					>
-						新研究
-					</Button>
+						<PlusOutlined />
+						<span>新研究</span>
+					</button>
 				</div>
 				<nav className="side-list">
 					{projects.map((p) => (
@@ -212,29 +214,6 @@ function Shell() {
 							<Typography.Title level={5} style={{ margin: 0 }}>
 								{proj?.name ?? "research-tree"}
 							</Typography.Title>
-							<div className="steps">
-								{(["chat", "mindmap", "research"] as View[]).map((v) => (
-									<Button
-										key={v}
-										size="small"
-										type={view === v ? "primary" : "text"}
-										disabled={
-											(v === "mindmap" && !canMindmap) ||
-											(v === "research" && !canResearch)
-										}
-										icon={
-											v === "research" ? (
-												<DeploymentUnitOutlined />
-											) : v === "mindmap" ? (
-												<NodeIndexOutlined />
-											) : undefined
-										}
-										onClick={() => setView(v)}
-									>
-										{STEP_LABEL[v]}
-									</Button>
-								))}
-							</div>
 							<Tag>{phase}</Tag>
 						</header>
 						{view === "chat" && (
@@ -247,7 +226,6 @@ function Shell() {
 											</div>
 										) : m.kind === "reply" ? (
 											<div key={m.seq} className="agent-msg">
-												<div className="agent-label">rt</div>
 												<div className="agent-text">{m.text}</div>
 											</div>
 										) : m.kind === "question" ? (
@@ -285,6 +263,55 @@ function Shell() {
 											)}
 										</div>
 									)}
+
+									{/* 流内入口卡片：chat hub 是唯一导航入口（无 tab） */}
+									{mindStatus === null && msgs.length > 0 && !thinking && (
+										<button
+											type="button"
+											className="hub-card"
+											onClick={() => openMindmap(true)}
+										>
+											<NodeIndexOutlined className="hub-card-ico" />
+											<span className="hub-card-main">
+												<b>上下文已就绪——生成思维导图</b>
+												<small>
+													确认后从对话 context 抽取脑图（quote
+													溯源，确认前可编辑）
+												</small>
+											</span>
+										</button>
+									)}
+									{mindStatus === "draft" && (
+										<button
+											type="button"
+											className="hub-card"
+											onClick={() => openMindmap(false)}
+										>
+											<NodeIndexOutlined className="hub-card-ico" />
+											<span className="hub-card-main">
+												<b>思维导图草稿已生成</b>
+												<small>打开画布查看、编辑并确认</small>
+											</span>
+										</button>
+									)}
+									{mindStatus === "confirmed" && (
+										<button
+											type="button"
+											className="hub-card"
+											onClick={() => setView("research")}
+										>
+											<NodeIndexOutlined className="hub-card-ico" />
+											<span className="hub-card-main">
+												<b>
+													{canResearch
+														? "调研画布进行中"
+														: "调研画布（报告已冻结）"}
+												</b>
+												<small>打开 DAG 看板与人工裁决</small>
+											</span>
+										</button>
+									)}
+
 									{msgs.length === 0 && !thinking && (
 										<div className="home-empty">
 											把想法倒进来——研究从对话发起。
@@ -292,40 +319,62 @@ function Shell() {
 									)}
 								</div>
 								<div className="composer">
-									<Select
-										value={kind}
-										onChange={(v) => setKind(v)}
-										className="kind-sel"
-										options={KINDS.map(([k, label]) => ({ value: k, label }))}
-									/>
-									<Input
-										value={draft}
-										onChange={(e) => setDraft(e.target.value)}
-										placeholder="追问、纠正、追加信息……"
-										onPressEnter={() => draft.trim() && void send(draft)}
-										disabled={taskId === null}
-									/>
-									<Button
-										type="primary"
-										onClick={() => void send(draft)}
-										disabled={!draft.trim() || busy || taskId === null}
-									>
-										发送
-									</Button>
+									<div className="composer-pill">
+										<Select
+											value={kind}
+											onChange={(v) => setKind(v)}
+											className="kind-sel"
+											popupMatchSelectWidth={false}
+											options={KINDS.map(([k, label]) => ({
+												value: k,
+												label,
+											}))}
+										/>
+										<Input
+											value={draft}
+											onChange={(e) => setDraft(e.target.value)}
+											placeholder="追问、纠正、追加信息……"
+											onPressEnter={() =>
+												draft.trim() && !busy && void send(draft)
+											}
+											disabled={taskId === null}
+											variant="borderless"
+										/>
+										<Button
+											type="primary"
+											shape="circle"
+											icon={<ArrowUpOutlined />}
+											className="send-circle"
+											onClick={() => void send(draft)}
+											disabled={!draft.trim() || busy || taskId === null}
+										/>
+									</div>
 								</div>
 							</>
 						)}
 						{view === "mindmap" && taskId !== null && (
 							<MindmapPage
 								taskId={taskId}
-								onBack={() => setView("chat")}
+								autoGenerate={autoGen}
+								onBack={() => {
+									setAutoGen(false);
+									setView("chat");
+									void refreshHub(taskId);
+								}}
 								onConfirmed={() => {
+									setAutoGen(false);
 									void refreshHub(taskId).then(() => setView("research"));
 								}}
 							/>
 						)}
 						{view === "research" && taskId !== null && (
-							<ResearchPage taskId={taskId} onBack={() => setView("chat")} />
+							<ResearchPage
+								taskId={taskId}
+								onBack={() => {
+									setView("chat");
+									void refreshHub(taskId);
+								}}
+							/>
 						)}
 					</>
 				)}
