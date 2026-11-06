@@ -1,0 +1,20 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.6.5/schema.json",
+  "overrides": [
+    {
+      "includes": ["**/*.scss", "**/*.css"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            // 覆盖 antd / React Flow 自带样式必须用 !important
+            "noImportantStyles": "off"
+          },
+          "style": {
+            // SCSS 嵌套层级与 antd/RF 覆盖选择器天然降序
+            "noDescendingSpecificity": "off"
+          }
+        }
+      }
+    }
+  ]
+}
