@@ -444,7 +444,7 @@ export class WebUIServer {
         const stdout =
           this.options.piRunner !== undefined
             ? await this.options.piRunner(command, prompt)
-            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000, ["-nt"], (delta) => {
+            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000, ["-nt", "-ne", "--no-session", "--no-skills"], (delta) => {
                 for (const client of this.wss.clients) {
                   client.send(JSON.stringify({ event: "turn-delta", delta }));
                 }
@@ -633,7 +633,7 @@ export class WebUIServer {
         const stdout =
           this.options.piRunner !== undefined
             ? await this.options.piRunner(command, prompt)
-            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000, ["-nt"]);
+            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000, ["-nt", "-ne", "--no-session", "--no-skills"]);
         const extraction = parseExtraction(stdout, transcript);
         const parsed = parseDecomposition(extraction);
         const notes = { refusals: typeof params.refusals_note === "string" ? params.refusals_note : undefined };
@@ -824,7 +824,7 @@ export class WebUIServer {
         const stdout =
           this.options.piRunner !== undefined
             ? await this.options.piRunner(command, prompt)
-            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000, ["-nt"]);
+            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000, ["-nt", "-ne", "--no-session", "--no-skills"]);
         const parsed = parseMindmap(stdout, transcript);
         const now = new Date().toISOString();
         this.ledger.connection
