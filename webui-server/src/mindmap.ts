@@ -37,16 +37,16 @@ export function mindmapPrompt(messages: Array<{ seq: number; role: string; text:
     .map((m) => `[${m.seq}][${m.role}] ${m.text}`)
     .join("\n");
   return (
-    "你是研究结构师。把下面的对话整理成思维导图 JSON（只输出 JSON）：\n" +
+    "你是研究结构师。从下面的对话中抽取思维导图 JSON（只输出 JSON）：\n" +
     '{"root":{"text":"核心问题一句话","children":' +
-    '[{"text":"限制条件","children":[{"text":"...","quote":"原话片段"}]},' +
-    '{"text":"任务背景","children":[...]},{"text":"调研目标","children":[...]},' +
-    '{"text":"…更多二级主题","children":[...]}]}}\n' +
-    "规则：\n" +
+    '[{"text":"分组","children":[{"text":"...","quote":"对话原话片段"}]}]}}\n' +
+    "规则（溯源律——导图是对话内容的抽取，不是你的创作，违者整份输出作废）：\n" +
     "1. root = 从对话提炼的核心问题（一句话）。\n" +
-    "2. 二级主题至少包含：限制条件、任务背景、调研目标（可以更多）。\n" +
-    "3. 每个二级主题向下分解，总深度 ≤5 层；quote 必须逐字来自对话原句（溯源律）。\n" +
-    "4. 叶子节点 = 未来调研要验证的具体命题。\n\n对话：\n" +
+    "2. 每个叶子节点必须携带 quote 字段 = 对话原句的逐字片段；quote 会被逐字回查，对不上的节点整节点丢弃。\n" +
+    "3. 中间节点是纯分组时可以不带 quote，但其下必须存在带 quote 的叶子。\n" +
+    "4. 只整理对话中说过的内容：对话没提到的类别、命题、数字、策略一律不得编造，也不得为凑结构填模板分支——宁可分支缺失。\n" +
+    "5. 对话信息不足以形成任何带溯源的分支时，输出 {\"root\":{\"text\":\"...\",\"children\":[]}}。\n" +
+    "6. 总深度 ≤5 层。\n\n对话：\n" +
     transcript
   );
 }
@@ -101,29 +101,51 @@ export function parseMindmap(stdout: string, messages: Array<{ seq: number; role
   }
   let dropped = 0;
 
-  const convert = (nodes: unknown[], depth: number): MindNode[] =>
+  const build = (nodes: unknown[], depth: number): MindNode[] =>
     nodes
       .filter((n): n is Record<string, unknown> => typeof n === "object" && n !== null && typeof (n as Record<string, unknown>).text === "string")
       .map((n) => {
-        const quote = typeof n.quote === "string" ? n.quote : undefined;
+        const quote = typeof n.quote === "string" && n.quote !== "" ? n.quote : undefined;
         let provenance: string | undefined;
-        if (quote !== undefined && quote !== "") {
+        if (quote !== undefined) {
           const hit = messages.find((m) => m.role === "user" && m.text.includes(quote));
           provenance = hit !== undefined ? quote : undefined;
-          if (provenance === undefined) {
-            dropped += 1;
-          }
         }
-        const kids = Array.isArray(n.children) ? convert(n.children, depth + 1) : [];
+        const kids = depth >= MAX_DEPTH ? [] : Array.isArray(n.children) ? build(n.children, depth + 1) : [];
         return {
           id: `n${depth}-${Math.abs(hash(n.text as string + depth))}`,
           text: n.text as string,
           quote: provenance,
-          children: depth >= MAX_DEPTH ? [] : kids,
+          children: kids,
         };
       });
 
-  const rootChildren = convert(Array.isArray(raw.root.children) ? raw.root.children : [], 1);
+  // 溯源律剪枝（#694 用户裁定：导图是从 context 抽取的，不能瞎编）：
+  // 节点可保留当且仅当 (a) 自带映射成功的 quote，或 (b) 其下存在可溯源后代
+  // （纯分组）。其余 = 模型编造，剪掉并如实计数。
+  const prune = (node: MindNode): MindNode | null => {
+    const tracedKids = node.children
+      .map(prune)
+      .filter((c): c is MindNode => c !== null);
+    if (node.quote !== undefined) {
+      return { id: node.id, text: node.text, quote: node.quote, children: tracedKids };
+    }
+    if (tracedKids.length > 0) {
+      return { id: node.id, text: node.text, children: tracedKids };
+    }
+    dropped += 1;
+    return null;
+  };
+
+  const rootChildren = build(Array.isArray(raw.root.children) ? raw.root.children : [], 1)
+    .map(prune)
+    .filter((c): c is MindNode => c !== null);
+  if (rootChildren.length === 0) {
+    // fail-closed：空壳导图比编造更有害——明确告诉用户上下文不够
+    throw new Error(
+      "思维导图抽取 fail-closed：所有候选节点均无法溯源（对话中没有可抽取的内容），拒绝输出编造导图——请继续补充对话信息后再生成",
+    );
+  }
   // tag depth-1 nodes with branch identity (survives renaming in the editor)
   const branchNames = ["限制条件", "任务背景", "调研目标", "拒绝点", "难点"];
   for (const [i, child] of rootChildren.entries()) {

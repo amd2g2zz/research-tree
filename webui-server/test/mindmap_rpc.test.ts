@@ -97,6 +97,39 @@ describe("mindmap full-canvas flow (issue #683)", () => {
     expect(parsed.tree.root.children).toHaveLength(3);
   });
 
+  it("unit: 溯源律剪枝——无溯源且无溯源子树的节点被丢弃（#694 用户裁定：导图是抽取不是编造）", () => {
+    const fabricated = JSON.stringify({
+      root: {
+        text: "数据标注公司如何冷启动",
+        children: [
+          {
+            text: "限制条件",
+            children: [
+              { text: "预算 50 万", quote: "预算 50 万以内" },
+              { text: "编造的约束", children: [{ text: "虚构数字 300 万" }] },
+            ],
+          },
+          { text: "无quote叶子" },
+          { text: "quote对不上", quote: "对话中不存在的原话" },
+        ],
+      },
+    });
+    const parsed = parseMindmap(fabricated, TRANSCRIPT);
+    expect(parsed.dropped).toBe(4); // 编造子树(2) + 无quote叶子 + 假quote叶子
+    expect(parsed.tree.root.children).toHaveLength(1);
+    const kept = parsed.tree.root.children[0]!;
+    expect(kept.text).toBe("限制条件"); // 纯分组节点（有可溯源后代）保留
+    expect(kept.children).toHaveLength(1);
+    expect(kept.children[0]!.quote).toBe("预算 50 万以内");
+  });
+
+  it("fail-closed: 全部节点无法溯源时报错，而不是输出编造导图", () => {
+    const allFake = JSON.stringify({
+      root: { text: "根", children: [{ text: "编造A" }, { text: "编造B", quote: "不存在" }] },
+    });
+    expect(() => parseMindmap(allFake, TRANSCRIPT)).toThrow(/无法溯源/);
+  });
+
   it("full flow: generate → draft editable → confirm → stages registered → research phase", async () => {
     await rpc("project.create", { project_id: "pM", name: "思维导图" });
     await rpc("project.registerTask", { project_id: "pM", task_id: "tM", role: "main" });
