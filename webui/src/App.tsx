@@ -374,6 +374,7 @@ function Shell() {
 									setView("chat");
 									void refreshHub(taskId);
 								}}
+								onOpenMindmap={() => setView("mindmap")}
 							/>
 						)}
 					</>

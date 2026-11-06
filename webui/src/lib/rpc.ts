@@ -85,12 +85,13 @@ export async function rest<T = Record<string, unknown>>(
 	return (await res.json()) as T;
 }
 
-/** Subscribe to raw engine events broadcast on the shared socket. */
-export async function onEngine(cb: () => void): Promise<() => void> {
+/** Subscribe to raw engine events broadcast on the shared socket.
+ * The callback receives the engine `line` payload (console stream). */
+export async function onEngine(cb: (line: string) => void): Promise<() => void> {
 	const socket = await connectWs();
 	const on = (ev: MessageEvent) => {
-		const msg = JSON.parse(ev.data) as { event?: string };
-		if (msg.event === "engine") cb();
+		const msg = JSON.parse(ev.data) as { event?: string; line?: string };
+		if (msg.event === "engine") cb(String(msg.line ?? ""));
 	};
 	socket.addEventListener("message", on);
 	return () => socket.removeEventListener("message", on);
