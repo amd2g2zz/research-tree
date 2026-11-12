@@ -25,6 +25,7 @@ import {
 import { App, Button, Empty, Select, Space, Spin, Tag, Typography } from "antd";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { onEngine, rest, rpc } from "../lib/rpc";
+import { attachWheelPanZoom } from "../lib/rfWheel";
 import type { ResearchView, StageInfo } from "../lib/types";
 
 interface Props {
@@ -140,6 +141,16 @@ function StageNodeCard({ data }: NodeProps<Node<StageData>>) {
 const stageNodeTypes = { stage: StageNodeCard };
 
 function DagInner({ view }: { view: ResearchView }) {
+	const flow = useReactFlow();
+	const wheelRef = useRef<HTMLDivElement | null>(null);
+
+	// 滚轮接管：滚轮=平移，cmd/ctrl+滚轮=缩放（RF 内建 wheel 模式不生效）
+	useEffect(() => {
+		const el = wheelRef.current;
+		if (el === null) return undefined;
+		return attachWheelPanZoom(el, flow);
+	}, [flow]);
+
 	const { nodes, edges } = useMemo(() => {
 		const cols = layer(view.stages);
 		const mkNode = (s: StageInfo, x: number, y: number): Node<StageData> => ({
@@ -203,18 +214,19 @@ function DagInner({ view }: { view: ResearchView }) {
 	}, [view]);
 
 	return (
-		<ReactFlow
-			nodes={nodes}
-			edges={edges}
-			nodeTypes={stageNodeTypes}
-			fitView
-			minZoom={0.1}
-			maxZoom={1.6}
-			nodesDraggable={false}
-			nodesConnectable={false}
-			panOnScroll
-			zoomOnScroll={false}
-			zoomOnPinch
+		<div className="dag-wheel" ref={wheelRef}>
+			<ReactFlow
+				nodes={nodes}
+				edges={edges}
+				nodeTypes={stageNodeTypes}
+				fitView
+				minZoom={0.1}
+				maxZoom={1.6}
+				nodesDraggable={false}
+				nodesConnectable={false}
+				zoomOnScroll={false}
+				panOnScroll={false}
+				zoomOnPinch={false}
 			proOptions={{ hideAttribution: true }}
 		>
 			<Background
@@ -224,7 +236,7 @@ function DagInner({ view }: { view: ResearchView }) {
 				color="#dcdcdc"
 			/>
 			<Controls showInteractive={false} position="bottom-right" />
-			<MiniMap
+				<MiniMap
 				pannable
 				zoomable
 				position="bottom-left"
@@ -241,7 +253,8 @@ function DagInner({ view }: { view: ResearchView }) {
 								: "#9db9e8";
 				}}
 			/>
-		</ReactFlow>
+			</ReactFlow>
+		</div>
 	);
 }
 
