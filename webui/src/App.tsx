@@ -5,6 +5,10 @@
 
 import {
 	ArrowUpOutlined,
+	DeleteOutlined,
+	EditOutlined,
+	InboxOutlined,
+	MoreOutlined,
 	NodeIndexOutlined,
 	PlusOutlined,
 	SettingOutlined,
@@ -12,6 +16,7 @@ import {
 import {
 	App as AntApp,
 	Button,
+	Dropdown,
 	Input,
 	Layout,
 	Modal,
@@ -40,7 +45,15 @@ const KINDS: Array<[Kind, string]> = [
 	["branch", "岔路"],
 ];
 
+/** 自动命名：第一句话提炼 5~15 字标题（去首尾标点，超长截断）。 */
+export function clipTitle(text: string): string {
+	const cleaned = text.trim().replace(/^[，。；！、\s]+|[，。；！\s]+$/g, "");
+	if (cleaned.length <= 15) return cleaned === "" ? "未命名研究" : cleaned;
+	return cleaned.slice(0, 15);
+}
+
 function Shell() {
+	const { modal } = AntApp.useApp();
 	const [projects, setProjects] = useState<Project[]>([]);
 	const [taskId, setTaskId] = useState<string | null>(null);
 	const [msgs, setMsgs] = useState<ChatMsg[]>([]);
@@ -62,6 +75,13 @@ function Shell() {
 	const [provider, setProvider] = useState("");
 	const [apiKey, setApiKey] = useState("");
 	const [modelId, setModelId] = useState("");
+	// 侧栏管理（#704）：搜索 / 惰性加载 / 行内 重命名·归档·删除
+	const [query, setQuery] = useState("");
+	const [visibleCount, setVisibleCount] = useState(10);
+	const [renameTarget, setRenameTarget] = useState<
+		{ kind: "project" | "task"; id: string; initial: string } | null
+	>(null);
+	const [renameVal, setRenameVal] = useState("");
 
 	const refresh = useCallback(async () => {
 		const d = await rest<{ projects: Project[] }>("/api/tree");
@@ -90,6 +110,24 @@ function Shell() {
 		if (taskId !== null) void refreshHub(taskId);
 	}, [taskId, refreshHub]);
 
+	// 侧栏全文搜索（#704）：query 非空走服务端跨全库匹配，空则还原全列表
+	useEffect(() => {
+		if (query.trim() === "") {
+			void refresh();
+			return undefined;
+		}
+		const timer = setTimeout(() => {
+			rest<{ projects: Project[] }>(
+				`/api/projects/search?q=${encodeURIComponent(query.trim())}`,
+			)
+				.then((d) => setProjects(d.projects))
+				.catch(() => {
+					/* 搜索失败保持现列表 */
+				});
+		}, 300);
+		return () => clearTimeout(timer);
+	}, [query, refresh]);
+
 	// 浏览器返回键 = 回对话（SPA 无路由，否则返回手势直接退出站点）
 	useEffect(() => {
 		const onPop = (): void => {
@@ -107,8 +145,9 @@ function Shell() {
 	}, [view]);
 
 	const send = useCallback(
-		async (text: string) => {
-			if (taskId === null || !text.trim()) return;
+		async (text: string, tidOverride?: string) => {
+			const target = tidOverride ?? taskId;
+			if (target === null || !text.trim()) return;
 			setBusy(true);
 			cotBuf.current = "";
 			setCot("");
@@ -121,22 +160,45 @@ function Shell() {
 						setCot(cotBuf.current);
 					});
 					await connectWs();
-					await rpc("chat.turn", { task_id: taskId, text });
+					await rpc("chat.turn", { task_id: target, text });
 				} else {
 					await connectWs();
-					await rpc("chat.ingest", { task_id: taskId, text, kind });
+					await rpc("chat.ingest", { task_id: target, text, kind });
 				}
 				setDraft("");
-				await refreshHub(taskId);
+				await refreshHub(target);
+				void refresh();
 			} catch (e) {
 				console.error(e);
+				// 失败也要刷新——用户消息与错误行已先落账（#704）
+				await refreshHub(target);
 			} finally {
 				setThinking(false);
 				if (cotBuf.current !== "") setSettledCot(cotBuf.current);
 				setCot("");
 			}
 		},
-		[taskId, kind, refreshHub],
+		[taskId, kind, refreshHub, refresh],
+	);
+
+	/** 首页即 chat 框（#704）：发送即建项目——标题=第一句话提炼 5~15 字，
+	 * 默认 v0，随后直接进入该任务对话。 */
+	const createAndSend = useCallback(
+		async (text: string) => {
+			if (!text.trim()) return;
+			const pid = `p-${Date.now().toString(36)}`;
+			await connectWs();
+			await rpc("project.create", { project_id: pid, name: clipTitle(text) });
+			await rpc("project.registerTask", {
+				project_id: pid,
+				task_id: `${pid}-main`,
+				role: "main",
+			});
+			await refresh();
+			setTaskId(`${pid}-main`);
+			await send(text, `${pid}-main`);
+		},
+		[refresh, send],
 	);
 
 	/** 导航模型：对话是每个任务的门厅——切任务永远落在对话页；
@@ -169,11 +231,119 @@ function Shell() {
 	const proj =
 		projects.find((p) => p.lines.some((l) => l.task_id === taskId)) ?? null;
 	const canResearch = phase === "research" || phase === "converged";
+	// 导图卡门控（#704）：不再"有一条消息就绪"——由模型在最近一轮 reply 的
+	// receipt 里判定的 converged 驱动（第一轮对话不诱导生成导图）
+	const lastConverged = (() => {
+		const replies = msgs.filter((m) => m.kind === "reply");
+		const last = replies.at(-1);
+		if (last?.receipt_json === null || last?.receipt_json === undefined)
+			return false;
+		try {
+			return (
+				(JSON.parse(last.receipt_json) as { converged?: boolean }).converged ===
+				true
+			);
+		} catch {
+			return false;
+		}
+	})();
 
 	const openMindmap = (auto: boolean) => {
 		setAutoGen(auto);
 		setView("mindmap");
 	};
+
+	const doRename = async () => {
+		if (renameTarget === null || !renameVal.trim()) return;
+		if (renameTarget.kind === "project") {
+			await rpc("project.rename", {
+				project_id: renameTarget.id,
+				name: renameVal.trim(),
+			});
+		} else {
+			await rpc("task.rename", { task_id: renameTarget.id, title: renameVal.trim() });
+		}
+		setRenameTarget(null);
+		setRenameVal("");
+		await refresh();
+	};
+
+	const doArchiveProject = async (id: string) => {
+		await rpc("project.archive", { project_id: id });
+		await refresh();
+	};
+
+	const doDeleteProject = async (id: string) => {
+		// 项目删除需先归档（服务端守卫）——一步到位：归档 + 删除
+		await rpc("project.archive", { project_id: id });
+		await rpc("project.delete", { project_id: id });
+		await refresh();
+	};
+
+	const doArchiveTask = async (id: string) => {
+		await rpc("task.archive", { task_id: id });
+		await refresh();
+	};
+
+	const doDeleteTask = async (id: string) => {
+		await rpc("task.archive", { task_id: id });
+		await rpc("task.delete", { task_id: id });
+		await refresh();
+	};
+
+	const rowMenu = (kind: "project" | "task", id: string, current: string): React.ReactElement => (
+		<Dropdown
+			menu={{
+				items: [
+					{
+						key: "rename",
+						icon: <EditOutlined />,
+						label: "重命名",
+						onClick: () => {
+							setRenameTarget({ kind, id, initial: current });
+							setRenameVal(current);
+						},
+					},
+					{
+						key: "archive",
+						icon: <InboxOutlined />,
+						label: "归档",
+						onClick: () => {
+							if (kind === "project") void doArchiveProject(id);
+							else void doArchiveTask(id);
+						},
+					},
+					{
+						key: "delete",
+						icon: <DeleteOutlined />,
+						label: "删除",
+						danger: true,
+						onClick: () => {
+							modal.confirm({
+								title: "删除后无法恢复（将先归档再删除），确认？",
+								okText: "删除",
+								okButtonProps: { danger: true },
+								onOk: () =>
+									kind === "project" ? doDeleteProject(id) : doDeleteTask(id),
+							});
+						},
+					},
+				],
+				onClick: ({ domEvent }) => {
+					domEvent.stopPropagation();
+				},
+			}}
+			trigger={["click"]}
+		>
+			<button
+				type="button"
+				className="row-menu"
+				onClick={(e) => e.stopPropagation()}
+			>
+				<MoreOutlined />
+			</button>
+		</Dropdown>
+	);
 
 	return (
 		<Layout className="app">
@@ -187,23 +357,51 @@ function Shell() {
 						<PlusOutlined />
 						<span>新研究</span>
 					</button>
+					<Input
+						value={query}
+						onChange={(e) => setQuery(e.target.value)}
+						placeholder="搜索项目、任务…"
+						variant="filled"
+						allowClear
+						className="side-search"
+					/>
 				</div>
-				<nav className="side-list">
-					{projects.map((p) => (
+				<nav
+					className="side-list"
+					onScroll={(e) => {
+						const el = e.currentTarget;
+						if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
+							setVisibleCount((c) => c + 10); // 惰性加载：滚到底部再取 10 条
+						}
+					}}
+				>
+					{projects
+					.filter((p) => p.status !== "archived") // 归档项目不进活跃列表
+					.slice(0, visibleCount)
+					.map((p) => (
 						<div key={p.project_id} className="proj-group">
-							<div className="proj-row">{p.name}</div>
+							<div className="proj-row">
+								<span className="proj-name">{p.name}</span>
+								{rowMenu("project", p.project_id, p.name)}
+							</div>
 							{p.lines.map((l) => (
-								<button
-									type="button"
-									key={l.task_id}
-									className={`task-row ${l.task_id === taskId ? "active" : ""}`}
-									onClick={() => selectTask(l.task_id)}
-								>
-									{l.role === "main" ? "◉" : "⑂"} {l.task_id}
-								</button>
+								<div key={l.task_id} className="task-line">
+									<button
+										type="button"
+										className={`task-row ${l.task_id === taskId ? "active" : ""}`}
+										onClick={() => selectTask(l.task_id)}
+									>
+										{l.role === "main" ? "◉" : "⑂"} {l.title ?? l.task_id}
+										<Tag className="v-badge">v{p.vitals.latest?.v ?? 0}</Tag>
+									</button>
+									{rowMenu("task", l.task_id, l.title ?? l.task_id)}
+								</div>
 							))}
 						</div>
 					))}
+					{projects.length > visibleCount && (
+						<div className="side-more">继续滚动加载…</div>
+					)}
 				</nav>
 				<div className="side-foot">
 					<Button
@@ -226,11 +424,38 @@ function Shell() {
 			</Layout.Sider>
 			<Layout.Content className="main">
 				{taskId === null ? (
-					<div className="home-empty">
-						<Typography.Title level={3}>research-tree</Typography.Title>
+					<div className="home-hero">
+						<Typography.Title level={3} style={{ marginBottom: 4 }}>
+							research-tree
+						</Typography.Title>
 						<Typography.Text type="secondary">
-							把想法倒进来——研究从对话发起，经思维导图确认，落为可执行调研。
+							发送即创建研究：自动命名（5~15 字）、版本 v0，对话开始对齐。
 						</Typography.Text>
+						<div className="composer-pill home-composer">
+							<Input
+								value={draft}
+								onChange={(e) => setDraft(e.target.value)}
+								placeholder="把想法倒进来——例如：我想开个数据标注公司"
+								onPressEnter={() => {
+									if (draft.trim() && !busy) {
+										void createAndSend(draft);
+										setDraft("");
+									}
+								}}
+								variant="borderless"
+							/>
+							<Button
+								type="primary"
+								shape="circle"
+								icon={<ArrowUpOutlined />}
+								className="send-circle"
+								disabled={!draft.trim() || busy}
+								onClick={() => {
+									void createAndSend(draft);
+									setDraft("");
+								}}
+							/>
+						</div>
 					</div>
 				) : (
 					<>
@@ -266,6 +491,11 @@ function Shell() {
 											<div key={m.seq} className="agent-msg">
 												<div className="agent-text">{m.text}</div>
 											</div>
+										) : m.kind === "plan" ? (
+											<div key={m.seq} className="plan-box">
+												<div className="plan-title">研究计划草案</div>
+												<pre>{m.text}</pre>
+											</div>
 										) : m.kind === "question" ? (
 											<div key={m.seq} className="question-row">
 												❓ {m.text}
@@ -275,6 +505,10 @@ function Shell() {
 												<summary>🔎 {m.text.slice(0, 80)}</summary>
 												<div>{m.text}</div>
 											</details>
+										) : m.kind === "error" ? (
+											<div key={m.seq} className="error-row">
+												⚠️ {m.text}
+											</div>
 										) : (
 											<div key={m.seq} className="receipt-row">
 												◉ {m.text}
@@ -302,8 +536,10 @@ function Shell() {
 										</div>
 									)}
 
-									{/* 流内入口卡片：chat hub 是唯一导航入口（无 tab） */}
-									{mindStatus === null && msgs.length > 0 && !thinking && (
+									{/* 流内入口卡片：chat hub 是唯一导航入口（无 tab）。
+											生成卡由模型判定的 converged 门控——第一轮对话
+											不再诱导生成导图（#704 用户反馈） */}
+									{mindStatus === null && lastConverged && !thinking && (
 										<button
 											type="button"
 											className="hub-card"
@@ -311,10 +547,9 @@ function Shell() {
 										>
 											<NodeIndexOutlined className="hub-card-ico" />
 											<span className="hub-card-main">
-												<b>上下文已就绪——生成思维导图</b>
+												<b>想法已成形——生成思维导图</b>
 												<small>
-													确认后从对话 context 抽取脑图（quote
-													溯源，确认前可编辑）
+													从对话 context 抽取总结脑图（quote 溯源，确认前可编辑）
 												</small>
 											</span>
 										</button>
@@ -502,12 +737,33 @@ function Shell() {
 							}
 						}}
 					>
-						保存并验证
-					</Button>
-				</div>
-			</Modal>
-		</Layout>
-	);
+					保存并验证
+				</Button>
+			</div>
+		</Modal>
+
+		<Modal
+			title={renameTarget?.kind === "project" ? "重命名项目" : "重命名任务"}
+			open={renameTarget !== null}
+			onCancel={() => setRenameTarget(null)}
+			footer={null}
+			destroyOnHidden
+		>
+			<Input
+				autoFocus
+				value={renameVal}
+				onChange={(e) => setRenameVal(e.target.value)}
+				onPressEnter={() => void doRename()}
+			/>
+			<div className="modal-actions">
+				<Button onClick={() => setRenameTarget(null)}>取消</Button>
+				<Button type="primary" disabled={!renameVal.trim()} onClick={() => void doRename()}>
+					保存
+				</Button>
+			</div>
+		</Modal>
+	</Layout>
+);
 }
 
 export default function App() {

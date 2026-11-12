@@ -251,6 +251,13 @@ const MIGRATIONS: readonly Migration[] = [
       );
     `,
 	},
+	{
+		version: 10,
+		statements: `
+      ALTER TABLE project_tasks ADD COLUMN title TEXT;
+      ALTER TABLE project_tasks ADD COLUMN status TEXT NOT NULL DEFAULT 'active';
+    `,
+	},
 ];
 
 function chainHash(record: Record<string, unknown>): string {

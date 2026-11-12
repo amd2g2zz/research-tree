@@ -135,4 +135,62 @@ describe("project home & card wall (issue #571, P0)", () => {
 	it("unknown projects throw a typed error", () => {
 		expect(() => home.vitals("ghost")).toThrow(ProjectHomeError);
 	});
+
+	it("renameProject / renameTask 更新显示名（#704 项目管理）", () => {
+		home.createProject("pR", { name: "旧标题", description: "" });
+		home.registerTask("pR", "tR", "main");
+		home.renameProject("pR", "新标题");
+		expect(home.get("pR")?.name).toBe("新标题");
+		home.renameTask("tR", "竞品情报主线");
+		expect(home.listLines("pR")[0]?.title).toBe("竞品情报主线");
+		expect(() => home.renameProject("pR", "  ")).toThrow(ProjectHomeError);
+		expect(() => home.renameTask("ghost", "x")).toThrow(ProjectHomeError);
+	});
+
+	it("archiveTask 隐藏活跃线并不计入 vitals；unarchive 恢复", () => {
+		home.createProject("pA2", { name: "n", description: "" });
+		home.registerTask("pA2", "tA", "main");
+		expect(home.vitals("pA2").research_lines).toBe(1);
+		home.archiveTask("tA");
+		expect(home.listLines("pA2")).toHaveLength(0);
+		expect(home.vitals("pA2").research_lines).toBe(0);
+		// archived line can be revived (unarchive = set back to active)
+		ledger.connection
+			.prepare(
+				"UPDATE project_tasks SET status = 'active' WHERE task_id = 'tA'",
+			)
+			.run();
+		expect(home.listLines("pA2")).toHaveLength(1);
+	});
+
+	it("deleteTask：仅归档后可硬删，工作区行清空（#704 项目管理）", () => {
+		home.createProject("pD", { name: "n", description: "" });
+		home.registerTask("pD", "tD", "main");
+		commitOne("tD");
+		expect(() => home.deleteTask("tD")).toThrow(/not archived/);
+		home.archiveTask("tD");
+		home.deleteTask("tD");
+		const count = ledger.connection
+			.prepare("SELECT COUNT(*) c FROM project_tasks WHERE task_id = 'tD'")
+			.get() as { c: number };
+		const chats = ledger.connection
+			.prepare("SELECT COUNT(*) c FROM chat_messages WHERE task_id = 'tD'")
+			.get() as { c: number };
+		const vers = ledger.connection
+			.prepare("SELECT COUNT(*) c FROM versions WHERE task_id = 'tD'")
+			.get() as { c: number };
+		expect(count.c).toBe(0);
+		expect(chats.c).toBe(0);
+		expect(vers.c).toBe(0);
+	});
+
+	it("migrated schema: 新任务 title 默认空、status 默认 active（v10）", () => {
+		home.createProject("pM2", { name: "n", description: "" });
+		home.registerTask("pM2", "tM2", "main");
+		const row = ledger.connection
+			.prepare("SELECT title, status FROM project_tasks WHERE task_id = 'tM2'")
+			.get() as { title: string | null; status: string };
+		expect(row.title).toBeNull();
+		expect(row.status).toBe("active");
+	});
 });
