@@ -36,6 +36,12 @@ interface Props {
 }
 
 const VERDICTS = ["GO", "NO-GO", "PARK", "REFRAMED"] as const;
+const VERDICT_CN: Record<string, string> = {
+	GO: "继续（GO）",
+	"NO-GO": "终止（NO-GO）",
+	PARK: "搁置（PARK）",
+	REFRAMED: "重构问题（REFRAMED）",
+};
 
 const STAGE_TAG: Record<string, { color: string; bg: string; label: string }> = {
 	pending: { color: "default", bg: "#f0f0f0", label: "待执行" },
@@ -239,18 +245,19 @@ function DagInner({ view }: { view: ResearchView }) {
 				<MiniMap
 				pannable
 				zoomable
-				position="bottom-left"
-				style={{ width: 200, height: 120 }}
-				maskColor="rgba(250,250,250,0.75)"
+				position="bottom-right"
+				style={{ width: 140, height: 90 }}
+				maskColor="rgba(250,250,250,0.8)"
+				nodeStrokeColor={() => "#9db9e8"}
 				nodeColor={(n) => {
 					const st = (n.data as StageData | undefined)?.status ?? "pending";
 					return st === "done"
-						? "#52c41a"
+						? "#d9f2dd"
 						: st === "running"
-							? "#2f9bed"
+							? "#d6f0ff"
 							: st === "failed"
-								? "#e05252"
-								: "#9db9e8";
+								? "#ffdbdb"
+								: "#f5f8ff";
 				}}
 			/>
 			</ReactFlow>
@@ -369,8 +376,8 @@ export function ResearchPage({ taskId, onBack, onOpenMindmap }: Props) {
 					<Select
 						value={verdict}
 						onChange={setVerdict}
-						style={{ width: 130 }}
-						options={VERDICTS.map((v) => ({ value: v, label: v }))}
+						style={{ width: 170 }}
+						options={VERDICTS.map((v) => ({ value: v, label: VERDICT_CN[v] ?? v }))}
 					/>
 					<Button type="primary" onClick={() => void freeze()}>
 						冻结裁决

@@ -13,6 +13,7 @@ import {
 	PlusOutlined,
 	SettingOutlined,
 } from "@ant-design/icons";
+import { ConfigProvider } from "antd";
 import {
 	App as AntApp,
 	Button,
@@ -123,6 +124,15 @@ function Shell() {
 		if (taskId !== null) void refreshHub(taskId);
 	}, [taskId, refreshHub]);
 
+	// H5（#706 UX 审计）：进入/更新会话时定位最新消息（用户未上滚回看时）
+	const streamRef = useRef<HTMLDivElement | null>(null);
+	const pinnedBottom = useRef(true);
+	useEffect(() => {
+		const el = streamRef.current;
+		if (el === null) return;
+		if (pinnedBottom.current) el.scrollTop = el.scrollHeight;
+	}, [msgs, view, taskId]);
+
 	// 侧栏全文搜索（#704）：query 非空走服务端跨全库匹配，空则还原全列表
 	useEffect(() => {
 		if (query.trim() === "") {
@@ -173,12 +183,13 @@ function Shell() {
 						setCot(cotBuf.current);
 					});
 					await connectWs();
+					setDraft(""); // 服务端已先落账用户消息——发送即清（H4）
 					await rpc("chat.turn", { task_id: target, text });
 				} else {
 					await connectWs();
+					setDraft("");
 					await rpc("chat.ingest", { task_id: target, text, kind });
 				}
-				setDraft("");
 				await refreshHub(target);
 				void refresh();
 			} catch (e) {
@@ -501,7 +512,15 @@ function Shell() {
 						</header>
 						{view === "chat" && (
 							<>
-								<div className="stream">
+								<div
+									className="stream"
+									ref={streamRef}
+									onScroll={(e) => {
+										const el = e.currentTarget;
+										pinnedBottom.current =
+											el.scrollTop + el.clientHeight >= el.scrollHeight - 60;
+									}}
+								>
 									{msgs.map((m) =>
 										m.role === "user" ? (
 											<div key={m.seq} className="bubble user">
@@ -522,7 +541,11 @@ function Shell() {
 											</div>
 										) : m.kind === "recon" ? (
 											<details key={m.seq} className="recon-box">
-												<summary>🔎 {m.text.slice(0, 80)}</summary>
+												<summary>
+												🔎 {m.text.length > 80
+													? `${m.text.slice(0, 80).replace(/\s+\S*$/, "")}…`
+													: m.text}
+											</summary>
 												<div>{m.text}</div>
 											</details>
 										) : m.kind === "error" ? (
@@ -800,8 +823,12 @@ function Shell() {
 
 export default function App() {
 	return (
-		<AntApp>
-			<Shell />
-		</AntApp>
+		// M1（#706 UX 审计）：antd 默认蓝 #1677ff 与自定义 #2f6fed 双主蓝并存
+		// borderRadiusLG: 12 = M6 设置弹窗圆角与全局体系一致
+		<ConfigProvider theme={{ token: { colorPrimary: "#2f6fed", borderRadiusLG: 12 } }}>
+			<AntApp>
+				<Shell />
+			</AntApp>
+		</ConfigProvider>
 	);
 }
