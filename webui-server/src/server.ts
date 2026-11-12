@@ -880,7 +880,9 @@ export class WebUIServer {
           throw new ProjectHomeError("mindmap already confirmed");
         }
         const tree = JSON.parse(row.tree_json) as MindTree;
-        this.ledger.connection.prepare("UPDATE mindmaps SET status = 'confirmed', updated_at = ? WHERE task_id = ?").run(new Date().toISOString(), taskId);
+        // 原子性（issue #702 走查发现）：status='confirmed' 必须**最后**写——
+        // 先翻转状态后做其余步骤，任何一步抛错都会留下半成品
+        // （confirmed 但 stages 空/相位卡死），用户永远无法重试确认
         if (this.machine.phaseOf(taskId) === undefined) {
           this.machine.openTask(taskId); // task birth → chat (same as runHeadless)
         }
@@ -919,7 +921,14 @@ export class WebUIServer {
           claims_preview: [],
         };
         const parsed = parseDecomposition(extraction);
-        const notes = { refusals: "none" };
+        // 六要素 checklist：思维导图是诚实抽取——对话中未出现的类别由确认
+        // 动作显式声明 "none"（不编造凑数），沿用 refusals:none 先例（#702）
+        const notes: Record<string, string> = { refusals: "none" };
+        for (const cls of ["constraints", "background", "intents"] as const) {
+          if ((extraction[cls] as Array<unknown>).length === 0) {
+            notes[cls] = "none";
+          }
+        }
         confirmDecomposition(this.ledger, taskId, parsed, notes, { decomposition_id: `dc-${taskId}` });
         const decompositionId = `dc-${taskId}`;
         this.machine.attachDecomposition(taskId, decompositionId);
@@ -972,9 +981,10 @@ export class WebUIServer {
           this.schedulerFor(taskId).registerStages(dagStages);
           this.schedulerFor(taskId).tick();
         }
-        // walk: chat → decompose(语义确认) → research
+        // walk: chat → decompose(语义确认) → research；全链成功后翻转导图状态
         this.machine.transition(taskId, { event: "confirm" });
         this.machine.transition(taskId, { event: "sign" });
+        this.ledger.connection.prepare("UPDATE mindmaps SET status = 'confirmed', updated_at = ? WHERE task_id = ?").run(new Date().toISOString(), taskId);
         return { confirmed: true, stages: dagStages.length, phase: this.machine.phaseOf(taskId) };
       }
       case "research.launch": {

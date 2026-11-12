@@ -110,13 +110,20 @@ body,
 	}
 }
 
-// ── 顶栏（无 tab：仅项目名 + 阶段）──────────────────────────
+// ── 顶栏（无 tab：项目名 + 阶段；深视图时项目名=回对话的家按钮）
 .topbar {
 	display: flex;
 	align-items: center;
 	gap: 12px;
 	padding: 10px 20px;
 	border-bottom: 1px solid #f0f0f0;
+
+	.topbar-home {
+		font-weight: 600;
+		font-size: 15px;
+		color: #0d0d0d;
+		padding-inline: 4px;
+	}
 }
 
 .home-empty {
