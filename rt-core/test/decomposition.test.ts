@@ -142,6 +142,23 @@ describe("sufficiency checklist (充分性)", () => {
 		expect(checklist.gaps).toContain("refusals");
 	});
 
+	it("any class may be explicitly-confirmed none (诚实抽取：对话中未出现的类别不算 gap, #702)", () => {
+		const parsed = parseDecomposition(
+			rawWith({
+				requirements: [{ text: "r", source: SOURCE }],
+				difficulties: [{ text: "d", source: SOURCE, kill_candidates: ["cp1"] }],
+			}),
+		);
+		const checklist = checklistFor(parsed, {
+			refusals: "none",
+			constraints: "none",
+			background: "none",
+			intents: "none",
+		});
+		expect(checklist.complete).toBe(true);
+		expect(checklist.gaps).toEqual([]);
+	});
+
 	it("treats a difficulty without kill-candidate mapping as a pre-registration gap", () => {
 		const parsed = parseDecomposition(
 			rawWith({

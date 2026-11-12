@@ -139,6 +139,14 @@ function Shell() {
 		[taskId, kind, refreshHub],
 	);
 
+	/** 导航模型：对话是每个任务的门厅——切任务永远落在对话页；
+	 * 画布（导图/调研）是深视图，必须显式进入。 */
+	const selectTask = useCallback((id: string) => {
+		setTaskId(id);
+		setAutoGen(false);
+		setView("chat");
+	}, []);
+
 	const create = useCallback(
 		async (name: string) => {
 			if (!name.trim()) return;
@@ -189,7 +197,7 @@ function Shell() {
 									type="button"
 									key={l.task_id}
 									className={`task-row ${l.task_id === taskId ? "active" : ""}`}
-									onClick={() => setTaskId(l.task_id)}
+									onClick={() => selectTask(l.task_id)}
 								>
 									{l.role === "main" ? "◉" : "⑂"} {l.task_id}
 								</button>
@@ -227,9 +235,23 @@ function Shell() {
 				) : (
 					<>
 						<header className="topbar">
-							<Typography.Title level={5} style={{ margin: 0 }}>
-								{proj?.name ?? "research-tree"}
-							</Typography.Title>
+							{view !== "chat" ? (
+								<Button
+									type="text"
+									size="small"
+									className="topbar-home"
+									onClick={() => {
+										setAutoGen(false);
+										setView("chat");
+									}}
+								>
+									{proj?.name ?? "research-tree"}
+								</Button>
+							) : (
+								<Typography.Title level={5} style={{ margin: 0 }}>
+									{proj?.name ?? "research-tree"}
+								</Typography.Title>
+							)}
 							<Tag>{phase}</Tag>
 						</header>
 						{view === "chat" && (

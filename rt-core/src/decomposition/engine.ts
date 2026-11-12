@@ -112,17 +112,20 @@ export function parseDecomposition(
 	return { elements, dropped };
 }
 
-/** Sufficiency checklist — mechanical, computed (never LLM-judged). */
+/** Sufficiency checklist — mechanical, computed (never LLM-judged).
+ * Any empty class may be explicitly declared "none" via notes（确认动作显式
+ * 声明"对话中未出现该类别"）——诚实抽取路径（思维导图）的对话天然可能
+ * 缺类别，缺 ≠ 编造凑数（#702）。notes 声明持久化在 checklist_state。 */
 export function checklistFor(
 	parsed: ParsedDecomposition,
-	notes: { refusals?: string },
+	notes: { refusals?: string } & Partial<Record<string, string | undefined>>,
 ): ChecklistState {
 	const gaps: string[] = [];
 	for (const cls of ELEMENT_CLASSES) {
 		const count = (parsed.elements[cls] as Array<unknown>).length;
 		if (count === 0) {
-			if (cls === "refusals" && notes.refusals === "none") {
-				continue; // explicit "no refusals" confirmation is a valid state
+			if (notes[cls] === "none") {
+				continue; // explicit "none" declaration is a valid state
 			}
 			gaps.push(cls);
 		}
