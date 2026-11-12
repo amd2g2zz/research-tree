@@ -1,0 +1,8 @@
+{
+  "plugins": {
+    "enabledPlugins": {
+      "computer-use@zcode-plugins-official": true,
+      "android-emulator@zcode-plugins-official": true
+    }
+  }
+}

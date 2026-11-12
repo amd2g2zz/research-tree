@@ -217,7 +217,7 @@ describe("real server flow: chat → extraction → confirm → start → freeze
 		});
 		await expect(
 			rpcOn(coldWs, "decompose.fromChat", { task_id: "tC" }),
-		).rejects.toThrow(/keyed session not ready/);
+		).rejects.toThrow(/密钥未配置/);
 		coldWs.close();
 		await cold.close();
 

@@ -215,7 +215,7 @@ describe("chat.turn conversational loop (issue #660)", () => {
 		});
 		await expect(
 			rpcOn(coldWs, "chat.turn", { task_id: "tC", text: "想法" }),
-		).rejects.toThrow(/keyed session not ready/);
+		).rejects.toThrow(/密钥未配置/);
 		coldWs.close();
 		await cold.close();
 	});

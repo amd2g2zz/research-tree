@@ -22,10 +22,11 @@ import {
 	Modal,
 	Select,
 	Tag,
+	Tooltip,
 	Typography,
 } from "antd";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { connectWs, onDelta, rest, rpc } from "./lib/rpc";
+import { connectWs, onDelta, onWsStatus, rest, rpc } from "./lib/rpc";
 import type {
 	ChatMsg,
 	Kind,
@@ -45,6 +46,15 @@ const KINDS: Array<[Kind, string]> = [
 	["branch", "岔路"],
 ];
 
+const PHASE_CN: Record<string, string> = {
+	chat: "对话中",
+	decompose: "待确认",
+	research: "调研中",
+	converged: "已收敛",
+	committed: "已提交",
+	paused: "已暂停",
+};
+
 /** 自动命名：第一句话提炼 5~15 字标题（去首尾标点，超长截断）。 */
 export function clipTitle(text: string): string {
 	const cleaned = text.trim().replace(/^[，。；！、\s]+|[，。；！\s]+$/g, "");
@@ -53,7 +63,7 @@ export function clipTitle(text: string): string {
 }
 
 function Shell() {
-	const { modal } = AntApp.useApp();
+	const { modal, message: messageApi } = AntApp.useApp();
 	const [projects, setProjects] = useState<Project[]>([]);
 	const [taskId, setTaskId] = useState<string | null>(null);
 	const [msgs, setMsgs] = useState<ChatMsg[]>([]);
@@ -69,6 +79,7 @@ function Shell() {
 	const [settledCot, setSettledCot] = useState<string | null>(null);
 	const cotBuf = useRef("");
 	const [piReady, setPiReady] = useState<PiConfigSummary | null>(null);
+	const [wsStatus, setWsStatus] = useState<"connecting" | "open" | "closed">("connecting");
 	const [showNew, setShowNew] = useState(false);
 	const [newName, setNewName] = useState("");
 	const [showSettings, setShowSettings] = useState(false);
@@ -100,6 +111,8 @@ function Shell() {
 		const m = await rpc("mindmap.get", { task_id: tid });
 		setMindStatus((m.status as string | null) ?? null);
 	}, []);
+
+	useEffect(() => onWsStatus(setWsStatus), []);
 
 	useEffect(() => {
 		void refresh();
@@ -169,7 +182,8 @@ function Shell() {
 				await refreshHub(target);
 				void refresh();
 			} catch (e) {
-				console.error(e);
+				// 错误必须可见（#706 onboarding 死路：pi 未配置时静默失败）
+				messageApi.error(String(e instanceof Error ? e.message : e));
 				// 失败也要刷新——用户消息与错误行已先落账（#704）
 				await refreshHub(target);
 			} finally {
@@ -391,8 +405,11 @@ function Shell() {
 										className={`task-row ${l.task_id === taskId ? "active" : ""}`}
 										onClick={() => selectTask(l.task_id)}
 									>
-										{l.role === "main" ? "◉" : "⑂"} {l.title ?? l.task_id}
-										<Tag className="v-badge">v{p.vitals.latest?.v ?? 0}</Tag>
+										{l.role === "main" ? "◉" : "⑂"}{" "}
+										{l.title ?? (l.role === "main" ? p.name : l.task_id)}
+										{p.vitals.latest !== null && (
+											<Tag className="v-badge">v{p.vitals.latest.v}</Tag>
+										)}
 									</button>
 									{rowMenu("task", l.task_id, l.title ?? l.task_id)}
 								</div>
@@ -477,7 +494,10 @@ function Shell() {
 									{proj?.name ?? "research-tree"}
 								</Typography.Title>
 							)}
-							<Tag>{phase}</Tag>
+							<Tag>{PHASE_CN[phase] ?? phase}</Tag>
+							<Tooltip title={wsStatus === "open" ? "已连接服务" : wsStatus === "connecting" ? "连接中…" : "连接断开——自动重连中"}>
+								<span className={`dot ${wsStatus === "open" ? "ok" : wsStatus === "connecting" ? "warn" : "off"}`} />
+							</Tooltip>
 						</header>
 						{view === "chat" && (
 							<>
@@ -592,17 +612,29 @@ function Shell() {
 									)}
 								</div>
 								<div className="composer">
-									<div className="composer-pill">
-										<Select
-											value={kind}
-											onChange={(v) => setKind(v)}
-											className="kind-sel"
-											popupMatchSelectWidth={false}
-											options={KINDS.map(([k, label]) => ({
-												value: k,
-												label,
-											}))}
-										/>
+								<div className="composer-pill">
+									<Select
+										value={kind}
+										onChange={(v) => setKind(v)}
+										className="kind-sel"
+										popupMatchSelectWidth={false}
+										options={KINDS.map(([k, label]) => ({
+											value: k,
+											label,
+										}))}
+									/>
+									{/* P0-4：主动入口——模型 converged 只是加速提示，不是唯一开关 */}
+									<Tooltip title={msgs.length >= 3 ? "把对话总结为思维导图（确认后进入调研）" : `再聊 ${3 - msgs.length} 条即可生成导图`}>
+										<Button
+											size="small"
+											className="mind-entry-btn"
+											icon={<NodeIndexOutlined />}
+											disabled={msgs.length < 3}
+											onClick={() => openMindmap(false)}
+										>
+											导图
+										</Button>
+									</Tooltip>
 										<Input
 											value={draft}
 											onChange={(e) => setDraft(e.target.value)}

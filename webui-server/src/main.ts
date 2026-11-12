@@ -1,12 +1,17 @@
-/** Local dev entry: `pnpm -C webui-server dev` → http://127.0.0.1:8787 */
+/** Local entry: `pnpm -C webui-server dev` → http://127.0.0.1:8787 */
 
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { WebUIServer } from "./server.js";
 
-const workspace = process.env.RT_WORKSPACE ?? mkdtempSync(join(tmpdir(), "rt-webui-"));
+// 数据目录（#706 P0-5）：默认落 ~/.research-tree——重启不丢数据；
+// 仅显式 RT_EPHEMERAL=1 时用一次性临时目录（演示/测试）
+const workspace =
+  process.env.RT_WORKSPACE ??
+  (process.env.RT_EPHEMERAL === "1"
+    ? `${import.meta.dirname ?? "."}/.ephemeral-${Date.now()}`
+    : join(homedir(), ".research-tree"));
 const port = Number(process.env.RT_PORT ?? 8787);
 const server = new WebUIServer({ workspace, piConfigDir: process.env.RT_PI_CONFIG });
 await server.listen(port);

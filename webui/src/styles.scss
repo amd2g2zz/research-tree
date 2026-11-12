@@ -166,6 +166,10 @@ body,
 		background: #52c41a;
 	}
 
+	&.warn {
+		background: #faad14;
+	}
+
 	&.off {
 		background: #d9d9d9;
 	}
@@ -457,6 +461,11 @@ body,
 
 	&:focus-within {
 		border-color: #c9c9c9;
+	}
+
+	.mind-entry-btn {
+		flex: none;
+		font-size: 12px;
 	}
 
 	.kind-sel {

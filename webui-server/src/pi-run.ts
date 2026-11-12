@@ -20,6 +20,9 @@ stdout has accumulated, and kills the whole process GROUP on timeout
 */
 
 import { spawn } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 export class PiRunError extends Error {}
 
@@ -32,9 +35,18 @@ export function runPi(
   onDelta?: (delta: string) => void,
 ): Promise<string> {
   return new Promise<string>((resolve, reject) => {
+    // cwd 隔离（#706 商业化审计）：server 从仓库目录启动时，pi 会向上读
+    // AGENTS.md / 项目上下文，把 research-tree 自己当成研究主题注入回答
+    // ——结构化调用（turn/extraction/classification）必须在一无所有的
+    // 临时目录里跑。每个调用独立临时目录，进程退出后由 OS 清理。
+    const isolatedCwd = mkdtempSync(join(tmpdir(), "rt-pi-cwd-"));
     // detached: own process group — lets the timeout SIGKILL the whole tree
     // (pi + its MCP grandchildren), not just pi
-    const child = spawn(command, [...extraArgs, "-p", prompt], { detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, [...extraArgs, "-p", prompt], {
+      detached: true,
+      cwd: isolatedCwd,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     let out = "";
     let settled = false;
     let timedOut = false;

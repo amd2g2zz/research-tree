@@ -39,4 +39,14 @@ describe("runPi (#670/#672/#676)", () => {
 			runPi("/nonexistent/pi-binary", "x", 5_000, []),
 		).rejects.toThrow(/pi spawn failed/);
 	});
+
+	it("cwd 隔离：pi 在一次性临时目录里跑，不继承仓库上下文（#706）", async () => {
+		// pi 会读启动目录向上找 AGENTS.md/项目上下文 —— runPi 必须在临时目录
+		// 里 spawn，否则 research-tree 自己会被注入成"研究主题"
+		const expr = "process.stdout.write(process.cwd())";
+		const out = await runPi(process.execPath, expr, 15_000, []);
+		expect(out).toMatch(/rt-pi-cwd-/);
+		expect(out).not.toContain("research-tree");
+		expect(out).not.toContain("webui-server");
+	});
 });

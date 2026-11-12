@@ -259,7 +259,7 @@ function DagInner({ view }: { view: ResearchView }) {
 }
 
 export function ResearchPage({ taskId, onBack, onOpenMindmap }: Props) {
-	const { message } = App.useApp();
+	const { message, modal } = App.useApp();
 	const [view, setView] = useState<ResearchView | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [verdict, setVerdict] = useState<string>("GO");
@@ -309,18 +309,28 @@ export function ResearchPage({ taskId, onBack, onOpenMindmap }: Props) {
 		if (el !== null) el.scrollTop = el.scrollHeight;
 	}, [consoleLines]);
 
-	const freeze = async () => {
-		try {
-			const r = await rpc("research.freeze", { task_id: taskId, verdict });
-			message.success(`裁决 ${r.verdict} 已签署，v${r.v} 已提交`);
-			setConsoleLines((prev) => [
-				...prev,
-				`[human] 冻结裁决 ${r.verdict} — v${r.v} 提交`,
-			]);
-			void load();
-		} catch (e) {
-			message.error(String(e instanceof Error ? e.message : e));
-		}
+	const freeze = () => {
+		// P1-2：冻结是不可逆提交（append-only）——弹确认，展示裁决与后果
+		modal.confirm({
+			title: `冻结裁决：${verdict}`,
+			content:
+				"版本 append-only，提交后不可撤销。此操作将当前调研快照签署为正式版本并回到对话阶段。",
+			okText: "签署并提交",
+			okButtonProps: { danger: true },
+			onOk: async () => {
+				try {
+					const r = await rpc("research.freeze", { task_id: taskId, verdict });
+					message.success(`裁决 ${r.verdict} 已签署，v${r.v} 已提交`);
+					setConsoleLines((prev) => [
+						...prev,
+						`[human] 冻结裁决 ${r.verdict} — v${r.v} 提交`,
+					]);
+					void load();
+				} catch (e) {
+					message.error(String(e instanceof Error ? e.message : e));
+				}
+			},
+		});
 	};
 
 	if (loading && view === null) {

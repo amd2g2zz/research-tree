@@ -1,0 +1,834 @@
+<!doctype html><html><head><meta charset="utf-8"><style>:root{color-scheme:light dark}html,body{margin:0;padding:18px;background:#f2f3f7}</style><script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script></head><body><div id="rt-proto">
+<style>
+#rt-proto{
+  position:relative;
+  --rt-bg:light-dark(#f2f3f7,#0f1115);
+  --rt-panel:light-dark(#ffffff,#1d2026);
+  --rt-panel2:light-dark(#f7f8fa,#24272e);
+  --rt-ink:light-dark(#171a20,#e9ebf0);
+  --rt-sub:light-dark(#616877,#9aa1ad);
+  --rt-line:light-dark(#d5d9e1,#2e323a);
+  --rt-green:light-dark(#12805c,#3ec283);
+  --rt-blue:light-dark(#2f5fe0,#6b93f0);
+  --rt-red:light-dark(#d24b4b,#ef7672);
+  --rt-amber:light-dark(#b07814,#d9a94a);
+  --rt-vio:light-dark(#5b4fd6,#8d84f2);
+  --rt-soft-green:light-dark(#e5f4ee,#12271e);
+  --rt-soft-vio:light-dark(#eeecfc,#252244);
+  --rt-soft-red:light-dark(#fcecec,#331a1c);
+  --rt-shadow:0 1px 2px light-dark(rgba(18,22,32,.07),rgba(0,0,0,.35)),0 4px 14px light-dark(rgba(18,22,32,.06),rgba(0,0,0,.3));
+  font-family:-apple-system,"PingFang SC","Segoe UI",sans-serif;
+  color:var(--rt-ink);background:var(--rt-bg);
+  border:1px solid var(--rt-line);border-radius:16px;overflow:hidden;
+}
+body :where(#rt-proto *){box-sizing:border-box;margin:0;padding:0}
+body #rt-proto button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;text-align:left}
+.rt-app{display:flex;height:780px}
+.rt-sidebar{width:228px;flex:0 0 228px;background:var(--rt-panel);border-right:1px solid var(--rt-line);display:flex;flex-direction:column;transition:width .15s,flex-basis .15s}
+.rt-sidebar.collapsed{width:54px;flex-basis:54px}
+.rt-sidebar.collapsed .txt,.rt-sidebar.collapsed .rt-side-label,.rt-sidebar.collapsed .rt-proj .m,.rt-sidebar.collapsed .rt-proj .bar,.rt-sidebar.collapsed .st-badge,.rt-sidebar.collapsed .rt-newbtn .txt,.rt-sidebar.collapsed .rt-side-arch .txt,.rt-sidebar.collapsed #rt-arch-list{display:none}
+.rt-sidebar.collapsed .rt-logo{padding:0 8px;justify-content:center}
+.rt-sidebar.collapsed .rt-proj{padding:9px 8px}
+.rt-sidebar.collapsed .rt-newbtn,.rt-sidebar.collapsed .rt-side-arch{justify-content:center;padding:8px 0}
+.rt-logo{display:flex;align-items:center;gap:9px;font-weight:600;font-size:13.5px;height:54px;padding:0 10px 0 14px;border-bottom:1px solid var(--rt-line);flex:0 0 auto}
+.rt-logo .mark{width:24px;height:24px;border-radius:7px;color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;background:linear-gradient(135deg,var(--rt-vio),var(--rt-blue));flex:0 0 auto}
+.rt-logo .txt{min-width:0;overflow:hidden;flex:1}
+.rt-logo .sub{font-size:9.5px;color:var(--rt-sub);font-weight:400;display:block}
+.rt-collapse{margin-left:auto;color:var(--rt-sub);padding:4px;border-radius:7px;display:flex;flex:0 0 auto}
+.rt-collapse:hover{color:var(--rt-vio);background:var(--rt-panel2)}
+.rt-side-label{font-size:9.5px;color:var(--rt-sub);padding:10px 16px 6px;letter-spacing:.1em;font-weight:500}
+.rt-proj-list{flex:1;overflow:auto;padding:0 10px}
+.rt-proj{display:block;width:100%;padding:9px 11px;border-radius:11px;margin-bottom:4px;border:1px solid transparent}
+.rt-proj:hover{background:var(--rt-panel2)}
+.rt-proj[aria-pressed="true"]{background:var(--rt-soft-vio);border-color:color-mix(in srgb,var(--rt-vio) 30%,transparent)}
+.rt-proj .n{font-size:12.5px;font-weight:500;display:flex;align-items:center;gap:7px;line-height:1.35}
+.rt-proj .n .st-badge{margin-left:auto;font-size:9px;padding:1px 6px;border-radius:99px;font-weight:500}
+.st-badge.run{background:color-mix(in srgb,var(--rt-blue) 15%,transparent);color:var(--rt-blue)}
+.st-badge.pause{background:color-mix(in srgb,var(--rt-red) 14%,transparent);color:var(--rt-red)}
+.st-badge.park{background:color-mix(in srgb,var(--rt-amber) 18%,transparent);color:var(--rt-amber)}
+.st-badge.go{background:color-mix(in srgb,var(--rt-green) 15%,transparent);color:var(--rt-green)}
+.st-badge.nogo{background:color-mix(in srgb,var(--rt-red) 14%,transparent);color:var(--rt-red)}
+.st-badge.idle{background:color-mix(in srgb,var(--rt-grey) 16%,transparent);color:var(--rt-sub)}
+.rt-proj .m{font-size:10px;color:var(--rt-sub);margin-top:3px;padding-left:14px}
+.rt-proj .bar{height:3px;border-radius:2px;background:color-mix(in srgb,var(--rt-sub) 15%,transparent);margin-top:6px;overflow:hidden}
+.rt-proj .bar i{display:block;height:100%;border-radius:2px}
+.rt-side-foot{border-top:1px solid var(--rt-line);padding:10px}
+.rt-newbtn{display:flex;align-items:center;gap:7px;width:100%;padding:9px 11px;border-radius:10px;font-size:12.5px;color:var(--rt-ink);border:1px dashed color-mix(in srgb,var(--rt-sub) 45%,transparent);background:var(--rt-panel2)}
+.rt-newbtn:hover{border-color:var(--rt-vio);color:var(--rt-vio)}
+.rt-side-arch{font-size:11px;color:var(--rt-sub);padding:6px 11px;display:flex;gap:5px;align-items:center;width:100%;border-radius:8px;margin-top:6px}
+.rt-side-arch:hover{background:var(--rt-panel2)}
+.rt-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+.rt-top{display:flex;align-items:center;gap:10px;padding:0 16px;height:54px;flex:0 0 54px;border-bottom:1px solid var(--rt-line);background:var(--rt-panel)}
+.rt-top .pname{font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:8px}
+.rt-nav{display:flex;gap:2px;margin-left:auto;background:var(--rt-panel2);border-radius:10px;padding:3px}
+.rt-nav button{display:flex;align-items:center;gap:6px;padding:5px 12px;border-radius:8px;font-size:12.5px;color:var(--rt-sub)}
+.rt-nav button[aria-pressed="true"]{background:var(--rt-panel);color:var(--rt-ink);font-weight:500;box-shadow:0 1px 3px light-dark(rgba(18,22,32,.10),rgba(0,0,0,.35))}
+.rt-pill{padding:3px 10px;border-radius:99px;border:1px solid var(--rt-line);background:var(--rt-panel2);font-size:11.5px}
+.rt-pill.live{color:var(--rt-green);border-color:color-mix(in srgb,var(--rt-green) 35%,transparent);background:color-mix(in srgb,var(--rt-green) 8%,transparent)}
+.rt-pill.warn{color:var(--rt-red);border-color:color-mix(in srgb,var(--rt-red) 35%,transparent);background:color-mix(in srgb,var(--rt-red) 7%,transparent)}
+.rt-dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:0 0 7px}
+.rt-body{flex:1;display:flex;min-height:0;position:relative}
+.rt-view{display:none;flex:1;min-height:0}
+.rt-view.active{display:flex;flex-direction:column}
+#view-canvas.active{flex-direction:row}
+.rt-vitals{width:104px;flex:0 0 104px;border-right:1px solid var(--rt-line);background:var(--rt-panel);padding:16px 12px;display:flex;flex-direction:column;gap:20px}
+.rt-vitals .v{font-size:9.5px;color:var(--rt-sub);letter-spacing:.08em;font-weight:500}
+.rt-vitals .v b{display:block;font-size:17px;color:var(--rt-ink);font-weight:600;margin-top:3px;letter-spacing:-.01em}
+.rt-vitals .v span{display:block;font-size:9.5px;opacity:.75;margin-top:1px}
+.rt-vitals .v .cap{height:3px;border-radius:2px;background:color-mix(in srgb,var(--rt-sub) 15%,transparent);margin-top:6px;overflow:hidden}
+.rt-vitals .v .cap i{display:block;height:100%;background:var(--rt-blue);border-radius:2px;transition:width .3s}
+.rt-stage-area{flex:1;position:relative;overflow:auto;min-width:0;background:
+  radial-gradient(circle at 1px 1px, color-mix(in srgb,var(--rt-sub) 10%,transparent) 1px, transparent 0);
+  background-size:18px 18px}
+#rt-viewport{position:absolute;top:0;left:0;transform-origin:0 0}
+.rt-svg{position:absolute;inset:0;width:100%;height:100%}
+.rt-edge-label{font-size:9.5px;fill:var(--rt-sub);paint-order:stroke;stroke:var(--rt-bg);stroke-width:5px;font-weight:500}
+.rt-node{position:absolute;background:var(--rt-panel);border:1px solid color-mix(in srgb,var(--rt-sub) 26%,var(--rt-line));border-radius:12px;padding:10px 12px;font-size:12px;box-shadow:0 1px 2px light-dark(rgba(18,22,32,.07),rgba(0,0,0,.35)),0 4px 14px light-dark(rgba(18,22,32,.06),rgba(0,0,0,.3));transition:transform .12s,border-color .12s}
+.rt-node:hover{transform:translateY(-1px);border-color:color-mix(in srgb,var(--rt-vio) 45%,transparent)}
+.rt-node .t{font-weight:600;font-size:13px;display:flex;align-items:center;gap:6px;line-height:1.35}
+.rt-node .s{font-size:10.5px;color:var(--rt-sub);margin-top:4px;line-height:1.5}
+.rt-node.ok{border-left:3px solid var(--rt-green)}
+.rt-node.run{border-left:3px solid var(--rt-blue)}
+.rt-node.dead{border-left:3px solid var(--rt-red)}
+.rt-node.idle{border-left:3px solid var(--rt-grey);border-style:dashed}
+.rt-node.claim{border-radius:12px}
+.rt-node .post{font-size:10px;color:var(--rt-sub);margin-top:3px}
+.rt-node.verdict{border:1.5px dashed var(--rt-vio);background:var(--rt-soft-vio)}
+.rt-node.verdict.solid{border-style:solid;border-color:var(--rt-vio)}
+.rt-pbar{height:4px;border-radius:2px;background:color-mix(in srgb,var(--rt-sub) 15%,transparent);margin-top:7px;overflow:hidden}
+.rt-pbar i{display:block;height:100%;border-radius:2px;transition:width .3s}
+.rt-drill{font-size:9.5px;color:var(--rt-vio);margin-top:6px;display:flex;gap:3px;align-items:center}
+.rt-gate-chip{font-size:9.5px;padding:2px 7px;border-radius:99px;background:var(--rt-soft-amber,#faf1dc);color:var(--rt-amber);border:1px solid color-mix(in srgb,var(--rt-amber) 30%,transparent)}
+.light-dark-fallback{display:none}
+.rt-pause-tag{position:absolute;top:-11px;right:10px;background:var(--rt-red);color:#fff;font-size:10px;padding:2px 8px;border-radius:99px;box-shadow:0 2px 6px color-mix(in srgb,var(--rt-red) 35%,transparent)}
+.rt-start-tag{position:absolute;top:-11px;left:10px;background:var(--rt-vio);color:#fff;font-size:10px;padding:2px 8px;border-radius:99px}
+.rt-layer-pills{position:absolute;top:14px;left:16px;z-index:4;display:flex;gap:2px;background:var(--rt-panel);border:1px solid var(--rt-line);border-radius:10px;padding:3px;box-shadow:var(--rt-shadow);font-weight:500}
+.rt-layer-pills button{font-size:11.5px;padding:4px 12px;border-radius:8px;color:var(--rt-sub)}
+.rt-layer-pills button[aria-pressed="true"]{background:var(--rt-soft-vio);color:var(--rt-vio)}
+.rt-phase-banner{position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:6;display:flex;gap:8px;align-items:center}
+.rt-phase-banner .ph{display:inline-flex;gap:6px;align-items:center;background:var(--rt-panel);border:1px solid var(--rt-line);border-radius:10px;padding:5px 13px;font-size:11.5px;font-weight:500;box-shadow:var(--rt-shadow)}
+.rt-phase-banner .ph.halt{border-color:color-mix(in srgb,var(--rt-red) 45%,transparent);color:var(--rt-red)}
+.rt-zoombar{position:absolute;bottom:16px;left:16px;z-index:4;display:flex;gap:2px;background:var(--rt-panel);border:1px solid var(--rt-line);border-radius:9px;padding:3px;box-shadow:var(--rt-shadow)}
+.rt-zoombar button{font-size:13px;padding:2px 11px;border-radius:7px;color:var(--rt-sub)}
+.rt-zoombar button:hover{color:var(--rt-vio);background:var(--rt-panel2)}
+.rt-advance-cta{position:absolute;top:14px;right:16px;z-index:4}
+.rt-demo-zone{position:absolute;top:58px;right:16px;z-index:4}
+.rt-demo-zone button{font-size:10px;padding:3px 8px;border-radius:7px;border:1px dashed color-mix(in srgb,var(--rt-sub) 45%,transparent);color:var(--rt-sub);background:none}
+.rt-demo-zone button:hover{color:var(--rt-vio)}
+.rt-minimap{position:absolute;right:16px;bottom:16px;width:134px;height:74px;border:1px solid var(--rt-line);border-radius:9px;background:var(--rt-panel);padding:6px;box-shadow:var(--rt-shadow);z-index:4;cursor:crosshair}
+.rt-mini-svg{position:absolute;inset:0;width:100%;height:100%}
+.mm-rect{pointer-events:none}
+.rt-console{flex:0 0 100px;border-top:1px solid var(--rt-line);background:light-dark(#14171c,#0c0e12);color:#a8d4ae;font:11px/1.7 "SF Mono",Menlo,monospace;padding:8px 14px;overflow:hidden}
+.rt-console .ln{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rt-console .warn{color:#ecc27a}.rt-console .halt{color:#ef8f8b}.rt-console .who{color:#82b4dd}
+.rt-drawer{position:absolute;top:0;right:0;bottom:0;width:330px;background:var(--rt-panel);border-left:1px solid var(--rt-line);box-shadow:-12px 0 32px light-dark(rgba(18,22,32,.12),rgba(0,0,0,.45));display:flex;flex-direction:column;z-index:5}
+.rt-drawer.hidden{display:none}
+.rt-drawer .hd{display:flex;align-items:center;gap:8px;padding:13px 15px;border-bottom:1px solid var(--rt-line);font-size:13px;font-weight:600}
+.rt-drawer .hd button{margin-left:auto;color:var(--rt-sub);padding:4px}
+.rt-drawer .tabs{display:flex;gap:2px;padding:8px 10px;border-bottom:1px solid var(--rt-line)}
+.rt-drawer .tabs button{font-size:11.5px;padding:4px 10px;border-radius:7px;color:var(--rt-sub)}
+.rt-drawer .tabs button[aria-pressed="true"]{background:var(--rt-soft-vio);color:var(--rt-vio)}
+.rt-drawer .bd{flex:1;overflow:auto;padding:12px 14px;font-size:12px;line-height:1.6}
+.rt-kv{display:flex;gap:8px;margin-bottom:9px}
+.rt-kv .k{color:var(--rt-sub);flex:0 0 78px;font-size:11px}
+.rt-evi{border:1px solid var(--rt-line);border-radius:10px;padding:9px 11px;margin-bottom:8px;background:var(--rt-panel2)}
+.rt-evi .t{font-weight:500;font-size:12px}
+.rt-evi .m{font-size:10.5px;color:var(--rt-sub);margin-top:3px}
+.rt-code{background:light-dark(#f3f4f7,#101318);border:1px solid var(--rt-line);border-radius:9px;padding:9px 11px;font:10.5px/1.7 "SF Mono",Menlo,monospace;color:var(--rt-sub);white-space:pre-wrap}
+.rt-doc{max-width:880px;margin:0 auto;padding:26px 30px;width:100%;flex:1;overflow:auto}
+.rt-doc h2{font-size:16px;font-weight:600}
+.rt-doc .sub{font-size:12px;color:var(--rt-sub);margin:4px 0 16px}
+.rt-table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--rt-panel);border:1px solid var(--rt-line);border-radius:12px;overflow:hidden}
+.rt-table th{text-align:left;font-size:11px;color:var(--rt-sub);font-weight:500;padding:10px 12px;border-bottom:1px solid var(--rt-line);background:var(--rt-panel2)}
+.rt-table td{padding:10px 12px;border-bottom:1px solid var(--rt-line);vertical-align:top}
+.rt-table tr:last-child td{border-bottom:none}
+.rt-tier{font-size:10.5px;padding:2px 8px;border-radius:99px;display:inline-block}
+.rt-tier.mob{background:color-mix(in srgb,var(--rt-red) 13%,transparent);color:var(--rt-red)}
+.rt-tier.imp{background:color-mix(in srgb,var(--rt-blue) 13%,transparent);color:var(--rt-blue)}
+.rt-tier.min{background:color-mix(in srgb,var(--rt-grey) 16%,transparent);color:var(--rt-sub)}
+.rt-actions{display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap}
+.rt-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:10px;border:1px solid var(--rt-line);background:var(--rt-panel);font-size:13px;box-shadow:var(--rt-shadow)}
+.rt-btn:hover{border-color:color-mix(in srgb,var(--rt-vio) 45%,transparent)}
+.rt-btn.pri{background:var(--rt-vio);border-color:var(--rt-vio);color:#fff;font-weight:500}
+.rt-btn.danger{color:var(--rt-red);border-color:color-mix(in srgb,var(--rt-red) 40%,transparent)}
+.rt-btn:disabled{opacity:.45}
+.rt-btn:disabled:hover{border-color:var(--rt-line)}
+.rt-check{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--rt-sub);margin-top:12px;line-height:1.5}
+.rt-sec{margin-top:24px}
+.rt-sec h3{font-size:13px;font-weight:600;margin-bottom:8px}
+.rt-vs{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.rt-vs .opt{border:1px solid var(--rt-line);border-radius:12px;padding:13px 15px;background:var(--rt-panel);font-size:12px;line-height:1.55;box-shadow:var(--rt-shadow)}
+.rt-vs .opt.win{border-color:color-mix(in srgb,var(--rt-green) 45%,transparent);background:color-mix(in srgb,var(--rt-green) 5%,var(--rt-panel))}
+.rt-vs .opt .h{font-weight:600;font-size:12.5px;display:flex;gap:6px;align-items:center;margin-bottom:5px}
+.rt-vs .opt .m{font-size:11px;color:var(--rt-sub)}
+.rt-verdict3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:16px 0}
+.rt-verdict3 .col{border:1px solid var(--rt-line);border-radius:12px;padding:13px 15px;font-size:12px;line-height:1.6;background:var(--rt-panel);box-shadow:var(--rt-shadow)}
+.rt-verdict3 .col .h{font-size:11px;color:var(--rt-sub);margin-bottom:7px;font-weight:500}
+.rt-endcard{border:1px solid var(--rt-line);border-radius:12px;padding:17px 19px;background:var(--rt-panel);margin-top:14px;font-size:12.5px;line-height:1.7;box-shadow:var(--rt-shadow)}
+.rt-endcard .h{font-weight:600;font-size:13.5px;display:flex;gap:8px;align-items:center;margin-bottom:6px}
+.rt-modal-bg{position:absolute;inset:0;background:light-dark(rgba(22,25,32,.45),rgba(0,0,0,.62));z-index:20;display:flex;align-items:center;justify-content:center}
+.rt-modal-bg[hidden]{display:none}
+.rt-modal{width:470px;background:var(--rt-panel);border:1px solid var(--rt-line);border-radius:16px;box-shadow:0 24px 64px rgba(0,0,0,.3);padding:19px 21px;max-height:86%;overflow:auto}
+.rt-modal .tag{display:inline-flex;gap:5px;align-items:center;background:var(--rt-soft-red);color:var(--rt-red);font-size:11px;padding:3px 10px;border-radius:99px;font-weight:500}
+.rt-modal .tag.vio{background:var(--rt-soft-vio);color:var(--rt-vio)}
+.rt-modal h3{font-size:15px;margin:10px 0 6px}
+.rt-modal .evi{background:var(--rt-panel2);border:1px solid var(--rt-line);border-radius:11px;padding:11px 13px;font-size:12px;margin:10px 0;line-height:1.6}
+.rt-modal .choices{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.rt-modal .choice{text-align:left;border:1px solid var(--rt-line);border-radius:11px;padding:11px 13px;font-size:12.5px;background:var(--rt-panel2)}
+.rt-modal .choice:hover{border-color:var(--rt-vio);background:var(--rt-panel)}
+.rt-modal .choice b{display:block;font-size:12.5px;margin-bottom:2px}
+.rt-modal .choice span{color:var(--rt-sub);font-size:11.5px}
+.rt-modal .choice:disabled{opacity:.45}
+.rt-field{margin-bottom:12px}
+.rt-field .lb{font-size:11px;color:var(--rt-sub);margin-bottom:4px}
+.rt-input,.rt-textarea{width:100%;padding:8px 11px;border:1px solid var(--rt-line);border-radius:10px;background:var(--rt-panel2);color:var(--rt-ink);font-size:12.5px}
+.rt-textarea{min-height:64px;resize:vertical}
+.rt-toast{position:absolute;left:50%;transform:translateX(-50%);bottom:118px;background:var(--rt-ink);color:var(--rt-bg);font-size:12px;padding:9px 17px;border-radius:10px;z-index:30;display:none;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+.rt-tl-wrap{padding:290px 40px 0}
+.rt-tl-line{position:relative;height:2px;background:var(--rt-line);border-radius:1px;margin:0 10px}
+.rt-tl-ev{position:absolute;width:136px;transform:translateX(-50%)}
+.rt-tl-ev .dot{width:12px;height:12px;border-radius:50%;border:2.5px solid var(--rt-panel);margin:0 auto;box-shadow:0 0 0 1px var(--rt-line)}
+.rt-tl-ev .ts{font-size:10px;color:var(--rt-sub);text-align:center;margin-top:7px}
+.rt-tl-ev .tx{font-size:11px;text-align:center;margin-top:3px;line-height:1.45}
+.rt-tl-ev.up{transform:translateX(-50%) translateY(-118px)}
+.rt-tl-ev.up .ts{margin:0 0 7px}
+.rt-tl-ev .now-tag{display:inline-flex;background:var(--rt-soft-red);color:var(--rt-red);font-size:9.5px;padding:1px 7px;border-radius:99px;margin-top:3px;font-weight:500}
+.rt-tl-ev.future .tx,.rt-tl-ev.future .ts{opacity:.45}
+</style>
+
+<div class="rt-app">
+<aside class="rt-sidebar" id="rt-sidebar" aria-label="研究项目管理">
+  <div class="rt-logo"><span class="mark">rt</span><span class="txt">research-tree<span class="sub">研究 · 裁决 · 开工</span></span><button type="button" class="rt-collapse" id="rt-side-collapse" aria-label="收起/展开侧边栏" data-tooltip="收起/展开侧边栏"><i data-lucide="chevrons-left" aria-hidden="true" style="width:14px;height:14px"></i></button></div>
+  <div class="rt-side-label">研究项目 · 隔离域</div>
+  <nav class="rt-proj-list" id="rt-proj-list" aria-label="项目列表"></nav>
+  <div class="rt-side-foot">
+    <button type="button" class="rt-newbtn" id="rt-new-project"><i data-lucide="plus" aria-hidden="true" style="width:14px;height:14px"></i><span class="txt">新建研究项目</span></button>
+    <button type="button" class="rt-side-arch" id="rt-arch-toggle" aria-expanded="false"><i data-lucide="archive" aria-hidden="true" style="width:12px;height:12px"></i><span class="txt">已归档（2）</span><i data-lucide="chevron-right" aria-hidden="true" style="width:12px;height:12px;margin-left:auto"></i></button>
+    <div id="rt-arch-list" hidden>
+      <button type="button" class="rt-proj" data-proj="P3"><div class="n"><span class="rt-dot" style="background:var(--rt-green)"></span><span class="txt">数据管道重写</span><span class="st-badge go">GO</span></div><div class="m">底稿已交下游开工</div></button>
+      <button type="button" class="rt-proj" data-proj="P4"><div class="n"><span class="rt-dot" style="background:var(--rt-red)"></span><span class="txt">竞品定价策略调研</span><span class="st-badge nogo">NO-GO</span></div><div class="m">墓地 · 复活：对方涨价 >15%</div></button>
+    </div>
+  </div>
+</aside>
+
+<div class="rt-main">
+  <header class="rt-top">
+    <div class="pname" id="rt-pname"><span class="rt-dot" style="background:var(--rt-blue)"></span>客服 AI 质检可行性</div>
+    <nav class="rt-nav" aria-label="项目视图" id="rt-viewnav">
+      <button type="button" data-view="canvas" aria-pressed="true"><i data-lucide="git-branch" aria-hidden="true" style="width:13px;height:13px"></i>画布</button>
+      <button type="button" data-view="plan" aria-pressed="false"><i data-lucide="clipboard-check" aria-hidden="true" style="width:13px;height:13px"></i>研究计划</button>
+      <button type="button" data-view="verdict" aria-pressed="false"><i data-lucide="scale" aria-hidden="true" style="width:13px;height:13px"></i>裁决</button>
+    </nav>
+    <span class="rt-pill" id="rt-status-pill" style="margin-left:auto"><span class="rt-dot" style="background:var(--rt-grey)"></span>待签署</span>
+    <span class="rt-pill tabular-nums" id="rt-budget-pill">帽 12h · T+0:05</span>
+  </header>
+
+  <div class="rt-body">
+    <section class="rt-view active" id="view-canvas">
+      <aside class="rt-vitals" aria-label="研究生命体征">
+        <div class="v">BURN<b id="rt-v-burn">¥1.2</b><span id="rt-v-tok">6.4k tok</span></div>
+        <div class="v">REMAINING<b id="rt-v-rem">6 / 6</b><span>未决主张</span></div>
+        <div class="v">TIME<b id="rt-v-time">T+0:05</b><div class="cap"><i id="rt-v-cap" style="width:1%"></i></div><span>帽 12h</span></div>
+        <div class="v" style="margin-top:auto;font-size:9.5px;letter-spacing:0">每项体征连着一个动作：<br>BURN→停手 · TIME→预算<br>REMAINING→等待或推进</div>
+      </aside>
+      <div class="rt-stage-area" id="rt-stage-area">
+        <div class="rt-phase-banner" id="rt-phase-banner"></div>
+        <div class="rt-layer-pills" role="tablist" aria-label="画布透镜">
+          <button type="button" data-layer="kill" aria-pressed="true">主张 kill 图</button>
+          <button type="button" data-layer="collab" aria-pressed="false">协作 DAG</button>
+          <button type="button" data-layer="replay" aria-pressed="false">轨迹回放</button>
+        </div>
+        <svg class="rt-svg" id="rt-edges" aria-hidden="true"></svg>
+        <div id="rt-nodes"></div>
+        <div class="rt-advance-cta"><button type="button" class="rt-btn pri" id="rt-advance"><i data-lucide="play" aria-hidden="true" style="width:13px;height:13px"></i><span id="rt-advance-label">推进研究 ▸</span></button></div>
+        <div class="rt-demo-zone"><button type="button" id="rt-demo-kill">原型演示：触发早终止</button></div>
+        <div class="rt-minimap" id="rt-minimap" aria-label="画布导航小地图"></div>
+      </div>
+      <aside class="rt-drawer hidden" id="rt-drawer" aria-label="节点详情">
+        <div class="hd"><span id="rt-drawer-title">节点</span><button type="button" id="rt-drawer-close" aria-label="关闭抽屉"><i data-lucide="x" aria-hidden="true" style="width:15px;height:15px"></i></button></div>
+        <div class="tabs" role="tablist" aria-label="抽屉页签">
+          <button type="button" class="rt-dtab" data-tab="ov" aria-pressed="true">概览</button>
+          <button type="button" class="rt-dtab" data-tab="evi" aria-pressed="false">证据</button>
+          <button type="button" class="rt-dtab" data-tab="dep" aria-pressed="false">依赖</button>
+          <button type="button" class="rt-dtab" data-tab="raw" aria-pressed="false">原始会话</button>
+        </div>
+        <div class="bd" id="rt-drawer-body"></div>
+      </aside>
+    </section>
+
+    <section class="rt-view" id="view-plan" hidden>
+      <div class="rt-doc">
+        <h2>研究计划确认（签署 = 授权研究开工）</h2>
+        <div class="sub">签署 = 授权。压死性主张被驳时研究将暂停问询——这是早终止的合法性来源。点击层级可切换（演示会真实改变 kill 行为）。</div>
+        <table class="rt-table">
+          <thead><tr><th style="width:44%">主张</th><th>层级（点击切换）</th><th>验证方法</th><th>状态</th></tr></thead>
+          <tbody id="rt-plan-body"></tbody>
+        </table>
+        <div class="rt-check"><input type="checkbox" id="rt-kill-ack" checked><label for="rt-kill-ack">我理解：标记为「压死性」的主张被驳时，研究将暂停并询问我——埋掉、继续挖、或切换变体。</label></div>
+        <div class="rt-sec">
+          <h3>假设账本 · 同台评审（你的建议 vs 系统变体）</h3>
+          <div class="rt-vs">
+            <div class="opt"><div class="h"><i data-lucide="user" aria-hidden="true" style="width:13px;height:13px"></i>你的建议：实时全量拦截</div>高危回复自动拦截，不进人工队列。<div class="m">评审：取决于 C3（误杀率）。若 C3 被驳此方案死亡。</div></div>
+            <div class="opt"><div class="h"><i data-lucide="sparkles" aria-hidden="true" style="width:13px;height:13px"></i>变体 V1：评分 + 人工复核队列</div>AI 只评分打标，高危进人工复核。<div class="m">评审：绕过 C3（不需要 ≤2% 误杀）。继承 C1/C2/C5 证据。成本 -60%。</div></div>
+          </div>
+        </div>
+        <div class="rt-actions">
+          <button type="button" class="rt-btn pri" id="rt-sign"><i data-lucide="pen-line" aria-hidden="true" style="width:14px;height:14px"></i>签署 kill 条件并开始研究</button>
+          <span class="text-small" style="color:var(--rt-sub)" id="rt-sign-hint">签署后引擎开始自主推进——回画布点「推进研究」逐段观察</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="rt-view" id="view-verdict" hidden>
+      <div class="rt-doc">
+        <h2>裁决 <span id="rt-verdict-phase" style="font-size:11px;color:var(--rt-sub);font-weight:400"></span></h2>
+        <div class="sub" id="rt-verdict-sub">研究进行中——裁决在研究收敛（或早终止）后开放。记分卡随研究实时更新。</div>
+        <table class="rt-table">
+          <thead><tr><th>主张</th><th>层级</th><th>结论</th><th>证据</th></tr></thead>
+          <tbody id="rt-verdict-body"></tbody>
+        </table>
+        <div class="rt-sec" id="rt-scorecard-sec" hidden>
+          <h3>研究质量记分卡（机器计算 · 随研究实时更新）</h3>
+          <table class="rt-table">
+            <thead><tr><th>层</th><th>指标</th><th>当前</th><th>判定</th></tr></thead>
+            <tbody id="rt-score-body"></tbody>
+          </table>
+        </div>
+        <div class="rt-actions" id="rt-verdict-actions" hidden>
+          <button type="button" class="rt-btn pri" data-end="go"><i data-lucide="check-circle-2" aria-hidden="true" style="width:14px;height:14px"></i>采纳 GO（变体 V1）</button>
+          <button type="button" class="rt-btn danger" data-end="nogo"><i data-lucide="skull" aria-hidden="true" style="width:14px;height:14px"></i>NO-GO（埋掉）</button>
+          <button type="button" class="rt-btn" data-end="park"><i data-lucide="pause" aria-hidden="true" style="width:14px;height:14px"></i>PARK 搁置</button>
+        </div>
+        <div id="rt-endcard"></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="rt-console" id="rt-console" aria-label="研究过程控制台"></div>
+</div>
+</div>
+
+<div class="rt-modal-bg" id="rt-kill-modal" role="dialog" aria-modal="true" aria-label="早终止裁决" hidden>
+  <div class="rt-modal">
+    <span class="tag"><i data-lucide="shield-alert" aria-hidden="true" style="width:12px;height:12px"></i>kill-gate · 早终止</span>
+    <h3>压死性主张被驳：研究已暂停</h3>
+    <div class="evi">
+      <b id="rt-kill-claim"></b><br>
+      <span id="rt-kill-evi"></span><br>
+      <span style="color:var(--rt-sub)">继续挖的每一分钟都在为一个你签过死刑条件的主张花钱——但选择是你的。</span>
+    </div>
+    <div class="choices">
+      <button type="button" class="choice" data-kill="bury"><b>☠ 埋了这个想法</b><span>NO-GO：想法本体死亡 → 墓地归档，写明复活条件</span></button>
+      <button type="button" class="choice" data-kill="dig"><b>⛏ 继续挖</b><span>扩大样本重验（花更多预算——可能翻案也可能坐实）</span></button>
+      <button type="button" class="choice" data-kill="variant"><b>⤴ 换变体 V1（推荐）</b><span>评分 + 人工复核队列——kill 图验证可立，继承已有证据</span></button>
+    </div>
+  </div>
+</div>
+
+<div class="rt-modal-bg" id="rt-new-modal" role="dialog" aria-modal="true" aria-label="新建研究项目" hidden>
+  <div class="rt-modal">
+    <span class="tag vio"><i data-lucide="plus" aria-hidden="true" style="width:12px;height:12px"></i>新建研究项目</span>
+    <h3>隔离的研究空间</h3>
+    <div class="rt-field"><div class="lb">项目名</div><input class="rt-input" id="rt-np-name" placeholder="例：供应商 SDK 迁移评估"></div>
+    <div class="rt-field"><div class="lb">一句话想法（多模糊都行——这是 rt 的活）</div><textarea class="rt-textarea" id="rt-np-idea" placeholder="把模糊的想法全倒出来，缺口对话会接住它"></textarea></div>
+    <div class="rt-field"><div class="lb">预算帽（硬上限，到时强制收敛为最诚实的当前裁决）</div>
+      <select class="rt-input" id="rt-np-budget"><option>6h</option><option selected>12h</option><option>24h</option></select>
+    </div>
+    <div class="rt-actions">
+      <button type="button" class="rt-btn pri" id="rt-np-create">创建（隔离域 #P5）</button>
+      <button type="button" class="rt-btn" id="rt-np-cancel">取消</button>
+    </div>
+  </div>
+</div>
+<div class="rt-toast" id="rt-toast" role="status" aria-live="polite"></div>
+</div>
+
+<script>
+(function(){
+  var root=document.getElementById('rt-proto');
+  var $=function(s){return root.querySelector(s)};
+  var $$=function(s){return Array.prototype.slice.call(root.querySelectorAll(s))};
+  var stColor={ok:'var(--rt-green)',run:'var(--rt-blue)',dead:'var(--rt-red)',idle:'var(--rt-grey)',mixed:'var(--rt-amber)'};
+  var stIcon={ok:'check-circle-2',run:'circle-dashed',mixed:'circle-dashed',dead:'x-circle',idle:'circle-pause'};
+
+  /* ============ 状态机（单一事实源） ============ */
+  var S={
+    project:'P1',
+    phase:'PLAN',
+    contractState:'draft',
+    verdict:null,variantOn:false,digCount:0,
+    tMin:5,burn:1.2,tok:6.4,src:0,
+    claims:[
+      {id:'C1',t:'工单数据可批量导出（近 12 个月）',tier:'mob',st:'idle',post:null,eviN:0,how:'重推导'},
+      {id:'C2',t:'LLM 评分与人工一致性 ≥0.8',tier:'mob',st:'idle',post:null,eviN:0,how:'实验·标注试跑'},
+      {id:'C3',t:'高危回复误杀率 ≤2%',tier:'mob',st:'idle',post:null,eviN:0,how:'实验·预注册',kill:true},
+      {id:'C4',t:'2C4G 私有化部署可运行',tier:'imp',st:'idle',post:null,eviN:0,how:'测算+压测',gate:true},
+      {id:'C5',t:'运营接受每周规则更新',tier:'min',st:'idle',post:null,eviN:0,how:'访谈三角化'},
+      {id:'C6',t:'复核队列吞吐可承接（变体 V1）',tier:'imp',st:'idle',post:null,eviN:0,how:'账本推算',variantOnly:true}
+    ],
+    stepIdx:0,
+    steps:[
+      {c:'C1',st:'ok',post:0.93,t:34,burn:9.2,src:2,evi:2,log:['[reader-1] C1 代码重推导 ✓ · 分页遍历可行','[verifier-2] C1 盲验：与文档不同根 → 2 独立票 → supported']},
+      {c:'C5',st:'ok',post:0.9,t:40,burn:4.1,src:3,evi:3,log:['[searcher-1] C5 三角化 ✓ · 3 独立源一致 → supported']},
+      {c:'C2',st:'mixed',post:0.72,t:52,burn:7.8,src:2,evi:2,log:['[experimenter-2] C2 复测：一致性 0.72（未达 0.8 · 对评分参考用途可控）']},
+      {c:'C3',st:'dead',post:0.07,kill:true,t:48,burn:8.6,src:2,evi:1,log:['[experimenter-1] 实验 #1 预注册·执行：误杀 7/50 = 14% >> 2%','[kill-gate] C3(make-or-break) REFUTED → 研究暂停 · 等待裁决']}
+    ],
+    events:[]
+  };
+  function fmtT(m){return 'T+'+Math.floor(m/60)+':'+('0'+(m%60)).slice(-2)}
+  function claim(id){for(var i=0;i<S.claims.length;i++)if(S.claims[i].id===id)return S.claims[i];return null}
+  function undecided(){var n=0;S.claims.forEach(function(c){if(c.st!=='hidden'&&(c.st==='idle'||c.st==='run'))n++});return n}
+  function visibleClaims(){return S.claims.filter(function(c){return c.st!=='hidden'})}
+  function log(lines){lines.forEach(function(l){var c=document.getElementById('rt-console');var d=document.createElement('div');d.className='ln';d.innerHTML=l;c.appendChild(d);c.scrollTop=c.scrollHeight})}
+  function ev(tx,color,nodeId){S.events.push({t:fmtT(S.tMin),tx:tx,color:color||'var(--rt-blue)',node:nodeId||null})}
+
+  /* ============ 引擎步进 ============ */
+  function advance(){
+    if(S.phase!=='RESEARCH'&&S.phase!=='VARIANT')return;
+    if(S.stepIdx>=S.steps.length){enterVerdict();return}
+    var s=S.steps[S.stepIdx++];
+    var c=claim(s.c);if(!c)return;
+    c.st=s.st;c.post=s.post;c.eviN=s.evi||1;
+    S.tMin+=s.t;S.burn+=s.burn;S.tok+=Math.round(s.burn*2.7);S.src+=s.src;
+    log(s.log);
+    ev(s.log[s.log.length-1].replace(/^\[[^\]]+\]\s*/,''),s.st==='dead'?'var(--rt-red)':'var(--rt-green)',s.c);
+    if(s.kill&&c.tier==='mob'){
+      S.phase='KILL_PAUSED';
+      document.getElementById('rt-kill-claim').textContent='C3「高危回复误杀率 ≤2%」→ 实测 14%（你签署的压死性条件）';
+      document.getElementById('rt-kill-evi').textContent='实验 #1（预注册判据 ≤2%）实测 50 条误杀 7 条 · 证据已入账本 · kill 图已冻结等待裁决';
+      renderAll();openKill();return;
+    }
+    renderAll();
+    if(S.stepIdx>=S.steps.length)enterVerdict();
+  }
+  function enterVerdict(){
+    if(S.phase==='VERDICT_READY'||S.phase==='ARCHIVED')return;
+    S.phase='VERDICT_READY';
+    log(['[engine] 研究收敛 · 裁决开放（GO / NO-GO / PARK）']);
+    renderAll();
+  }
+
+  /* ============ kill 选择 ============ */
+  function killChoice(k){
+    document.getElementById('rt-kill-modal').hidden=true;
+    if(k==='variant'){
+      S.variantOn=true;S.phase='VARIANT';
+      var c6=claim('C6');c6.st='idle';
+      log(['[engine] 采纳变体 V1 → C6 入账本 · kill 图继承边生效（C1/C2/C5）· C3 分支封存']);
+      ev('采纳变体 V1 · 研究继续','var(--rt-vio)','C6');
+      renderAll();
+    }else if(k==='dig'){
+      S.digCount++;S.phase='RESEARCH';S.tMin+=60;S.burn+=6;S.tok+=16;
+      var c3=claim('C3');
+      if(S.digCount===1){
+        c3.post=0.12;
+        log(['[experimenter-1] 扩样 200 条复测：误杀 9% —— 仍然 >> 2%','[kill-gate] C3 维持 REFUTED · 再次暂停']);
+        S.phase='KILL_PAUSED';renderAll();openKill();return;
+      }
+      log(['[kill-gate] 复挖上限 · C3 维持反驳']);
+      renderAll();
+    }else{
+      S.verdict='NO-GO';S.phase='ARCHIVED';
+      log(['[archive] NO-GO → 想法入墓地 · 复活条件：误杀率 ≤2% 的方案出现']);
+      renderAll();
+    }
+  }
+
+  /* ============ 渲染（全部从 S 派生） ============ */
+  var area=document.getElementById('rt-stage-area'),svg=document.getElementById('rt-edges'),nodeBox=document.getElementById('rt-nodes');
+  var curNodes=[],curLayer='kill',Z=1,BW=1200,BH=800;
+  var vp=document.getElementById('rt-viewport');
+  function phaseInfo(){
+    switch(S.phase){
+      case 'PLAN':return{label:'计划待签署 · 签署后引擎自主推进',live:false,dot:'var(--rt-grey)',pill:'待签署',pillCls:''};
+      case 'RESEARCH':return{label:'研究进行中',live:true,dot:'var(--rt-blue)',pill:'运行中',pillCls:'live'};
+      case 'KILL_PAUSED':return{label:'⏸ 早终止 · 等待你的裁决',live:false,dot:'var(--rt-red)',pill:'已暂停',pillCls:'warn',halt:true};
+      case 'VARIANT':return{label:'变体 V1 研究中',live:true,dot:'var(--rt-vio)',pill:'运行中·变体',pillCls:'live'};
+      case 'VERDICT_READY':return{label:'研究收敛 · 待裁决',live:false,dot:'var(--rt-vio)',pill:'待裁决',pillCls:'warn'};
+      case 'ARCHIVED':return{label:'已归档 · '+S.verdict,live:false,dot:S.verdict==='GO'?'var(--rt-green)':'var(--rt-red)',pill:S.verdict,pillCls:S.verdict==='GO'?'go':'nogo'};
+    }
+  }
+  function anchor(n,side){var h=n.type==='claim'?34:44;return {x:side==='r'?n.x+(n.w||200):n.x,y:n.y+h}}
+  function edgeStroke(e){
+    if(e.mob)return 'color-mix(in srgb,var(--rt-red) 38%,transparent)';
+    if(e.dead)return 'color-mix(in srgb,var(--rt-red) 55%,transparent)';
+    if(e.dep)return 'color-mix(in srgb,var(--rt-amber) 55%,transparent)';
+    if(e.inh)return 'color-mix(in srgb,var(--rt-vio) 45%,transparent)';
+    return 'color-mix(in srgb,var(--rt-sub) 30%,transparent)';
+  }
+  function renderVitals(){
+    var p=phaseInfo();
+    document.getElementById('rt-v-burn').textContent='¥'+S.burn.toFixed(1);
+    document.getElementById('rt-v-tok').textContent=S.tok.toFixed(1)+'k tok';
+    document.getElementById('rt-v-rem').textContent=undecided()+' / '+visibleClaims().length;
+    document.getElementById('rt-v-time').textContent=fmtT(S.tMin);
+    document.getElementById('rt-v-cap').style.width=Math.min(100,S.tMin/720*100)+'%';
+    var pill=document.getElementById('rt-status-pill');
+    pill.className='rt-pill '+p.pillCls;
+    pill.innerHTML='<span class="rt-dot" style="background:'+p.dot+'"></span>'+p.pill;
+    document.getElementById('rt-budget-pill').textContent='帽 12h · '+fmtT(S.tMin);
+  }
+  function renderGraph(){
+    curNodes=visibleClaims().map(function(c){
+      var pos=NODEPOS[c.id];
+      return {id:c.id,x:pos.x,y:pos.y,w:pos.w,type:'claim',st:c.st,icon:c.st==='ok'?'check-circle-2':c.st==='dead'?'x-circle':'circle-dashed',title:c.id+' '+c.t.slice(0,14),post:c.post,eviN:c.eviN};
+    });
+    curNodes.unshift({id:'brief',x:24,y:300,w:190,type:'brief',st:'idle',icon:'lightbulb',title:'起点 · '+S.projectName.slice(0,10),sub:'brief v3 · 四态结局',start:true});
+    if(S.variantOn){
+      curNodes.push({id:'V1',x:640,y:60,w:240,type:'reframe',st:'run',icon:'sparkles',title:'变体 V1 · REFRAME',sub:'多父继承 · 绕过 C3'});
+    }
+    if(S.phase==='VERDICT_READY'||S.phase==='ARCHIVED'){
+      curNodes.push({id:'VERDICT',x:920,y:340,w:170,type:'verdict',st:S.verdict?'ok':'run',icon:'scale',title:'终点 · 裁决',sub:S.verdict?S.verdict+' 已归档':'候选：GO(变体 V1)'});
+    }
+    var edges=[];
+    curNodes.forEach(function(n){if(n.type==='claim'&&n.id!=='C6'){edges.push({a:'brief',b:n.id,mob:claim(n.id).tier==='mob'})}});
+    if(S.variantOn)edges.push({a:'brief',b:'C6',thin:true,l:'变体新增'});
+    if(S.variantOn||S.phase==='VERDICT_READY'||S.phase==='ARCHIVED'){
+      visibleClaims().forEach(function(c){if(['C1','C2','C5'].indexOf(c.id)>=0&&(c.st==='ok'||c.st==='mixed'))edges.push({a:c.id,b:'V1',dash:true,inh:true})});
+      if(claim('C3').st==='dead')edges.push({a:'C3',b:'V1',dead:true,dash:true,l:'绕过'});
+      if(S.phase==='VERDICT_READY'||S.phase==='ARCHIVED'){
+        edges.push({a:'V1',b:'VERDICT',thin:true,l:'建议 GO(V1)'});
+        edges.push({a:'brief',b:'VERDICT',thin:true,dash:true,l:'起点 → 终点'});
+      }
+    }
+    if(claim('C6').st==='ok')edges.push({a:'C6',b:'C1',dash:true,dep:true,l:'kill 依赖',thin:true});
+    drawGraph(curNodes,edges);
+    layoutVP();
+  }
+  function drawGraph(nodes,edges){
+    svg.innerHTML='';nodeBox.innerHTML='';
+    edges.forEach(function(e){
+      var a=nodes.find(function(n){return n.id===e.a}),b=nodes.find(function(n){return n.id===e.b});
+      if(!a||!b)return;
+      var p1=anchor(a,'r'),p2=anchor(b,'l'),mx=(p1.x+p2.x)/2;
+      var path=document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d','M'+p1.x+' '+p1.y+' C'+mx+' '+p1.y+' '+mx+' '+p2.y+' '+p2.x+' '+p2.y);
+      path.setAttribute('fill','none');path.setAttribute('stroke',edgeStroke(e));
+      path.setAttribute('stroke-width',e.mob?1.8:e.thin?1:1.7);
+      if(e.dash)path.setAttribute('stroke-dasharray','5 4');
+      svg.appendChild(path);
+      if(e.l){var t=document.createElementNS('http://www.w3.org/2000/svg','text');t.setAttribute('x',mx);t.setAttribute('y',(p1.y+p2.y)/2-6);t.setAttribute('text-anchor','middle');t.setAttribute('class','rt-edge-label');t.textContent=e.l;svg.appendChild(t)}
+      var dot=document.createElementNS('http://www.w3.org/2000/svg','circle');
+      dot.setAttribute('cx',p2.x);dot.setAttribute('cy',p2.y);dot.setAttribute('r',3);
+      dot.setAttribute('fill',e.dead||e.mob?'var(--rt-red)':'var(--rt-sub)');
+      dot.setAttribute('opacity',e.dead||e.mob?.9:.55);
+      svg.appendChild(dot);
+    });
+    nodes.forEach(function(n){
+      var el=document.createElement('button');
+      el.type='button';
+      el.className='rt-node '+n.type+' '+(n.st==='ok'?'ok':n.st==='run'?'run':n.st==='dead'?'dead':n.st==='mixed'?'run':'idle');
+      el.style.left=n.x+'px';el.style.top=n.y+'px';el.style.width=(n.w||200)+'px';
+      el.innerHTML='<div class="t"><i data-lucide="'+(stIcon[n.st]||n.icon)+'" aria-hidden="true" style="width:13px;height:13px;color:'+stColor[n.st]+'"></i>'+n.title+'</div>'
+        +(n.start?'<span class="rt-start-tag">起点</span>':'')
+        +(n.id==='VERDICT'&&!S.verdict?'<span class="rt-pause-tag" style="background:var(--rt-vio);box-shadow:0 2px 6px color-mix(in srgb,var(--rt-vio) 35%,transparent)">终点</span>':'')
+        +(n.sub?'<div class="s">'+n.sub+'</div>':'')
+        +(n.type==='claim'&&n.post!=null?'<div class="pbar"><i style="width:'+(n.post*100)+'%;background:'+(n.post>=0.8?'var(--rt-green)':n.post>=0.3?'var(--rt-amber)':'var(--rt-red)')+'"></i></div>':'')
+        +(n.type==='claim'&&n.eviN?'<div class="rt-drill"><i data-lucide="chevron-right" aria-hidden="true" style="width:10px;height:10px"></i>证据 ×'+n.eviN+'</div>':'')
+        +(n.type==='claim'&&n.gate?'<div class="rt-drill"><i data-lucide="lock" aria-hidden="true" style="width:10px;height:10px"></i>experiment-gated</div>':'');
+      el.addEventListener('click',function(){openDrawer(n.id)});
+      nodeBox.appendChild(el);
+    });
+  }
+  function renderCollab(){
+    curNodes=[];
+    var nodes=[
+      {id:'root',x:24,y:330,w:190,type:'brief',st:'idle',icon:'workflow',title:'调度根',sub:'tick · quota · reconcile'},
+      {id:'W1',x:300,y:60,w:250,type:'worker',st:S.phase==='RESEARCH'||S.phase==='VARIANT'?'run':'idle',icon:'file-search',title:'reader-1 · 代码阅读',sub:'产出 C1 证据 ×2',wout:'本地代码库'},
+      {id:'W2',x:300,y:230,w:250,type:'worker',st:'ok',icon:'search',title:'searcher-1 · 外部检索',sub:'✓ C5 三角化 ×3',wout:'web+文档'},
+      {id:'W3',x:300,y:400,w:250,type:'worker',st:'idle',icon:'flask-conical',title:'experimenter-1 · 实验',sub:S.phase==='KILL_PAUSED'?'⏸ kill-gate 暂停':'待委派',wout:'沙箱'},
+      {id:'W4',x:300,y:570,w:250,type:'worker',st:'run',icon:'flask-conical',title:'experimenter-2 · 测算',sub:'⟳ 运行中 · C4',wout:'沙箱'},
+      {id:'W5',x:620,y:80,w:250,type:'worker',st:'ok',icon:'eye',title:'verifier-2 · 盲验',sub:'✓ fresh-context fork · C1',wout:'异源会话'},
+      {id:'LG',x:620,y:330,w:210,type:'ledger',st:'run',icon:'database',title:'主张账本',sub:'append-only · 23 源'}
+    ];
+    nodes.forEach(function(n){curNodes.push(n)});
+    drawGraph(curNodes,[
+      {a:'root',b:'W1',l:'委派'},{a:'root',b:'W2',l:'委派'},{a:'root',b:'W3',l:'委派'},{a:'root',b:'W4',l:'委派'},
+      {a:'W1',b:'W5',l:'验证回路·盲重推导',dash:true,inh:true},
+      {a:'W1',b:'LG',l:'回写·C1'},{a:'W2',b:'LG',l:'回写·C5'},{a:'W3',b:'LG',l:'回写·C3'},
+      {a:'LG',b:'root',l:'quota/门',thin:true}
+    ]);
+    layoutVP();
+  }
+  function renderTimeline(){
+    curNodes=[];
+    svg.innerHTML='';nodeBox.innerHTML='';
+    var wrap=document.createElement('div');wrap.className='rt-tl-wrap';
+    var line=document.createElement('div');line.className='rt-tl-line';
+    wrap.appendChild(line);
+    var evs=S.events;var total=evs.length;
+    evs.forEach(function(ev,i){
+      var pct=9+(i*(82/Math.max(1,total-1)));
+      var el=document.createElement('div');
+      el.className='rt-tl-ev'+(i%2?'':' up');
+      el.style.left=pct+'%';
+      el.innerHTML='<div class="dot" style="background:'+ev.color+'"></div><div class="ts tabular-nums">'+ev.t+'</div><div class="tx">'+ev.tx+'</div>';
+      line.appendChild(el);
+    });
+    if(S.phase!=='ARCHIVED'){
+      var fu=document.createElement('div');
+      fu.className='rt-tl-ev future';fu.style.left='94%';
+      fu.innerHTML='<div class="dot" style="background:var(--rt-grey)"></div><div class="ts">T+12:00</div><div class="tx">预算帽 · 强制收敛</div>';
+      line.appendChild(fu);
+    }
+    nodeBox.appendChild(wrap);
+    var note=document.createElement('div');
+    note.style.cssText='position:absolute;left:40px;bottom:130px;font-size:11px;color:var(--rt-sub);line-height:1.7';
+    note.innerHTML='轨迹 = append-only 账本的时间投影，随研究推进实时生长。<br>点击事件可查看对应节点详情。';
+    nodeBox.appendChild(note);
+    BW=area.clientWidth||1000;BH=700;Z=1;
+    vp.style.width=BW+'px';vp.style.height=BH+'px';vp.style.transform='none';
+  }
+  function renderLayer(){if(curLayer==='replay')renderTimeline();else if(curLayer==='collab')renderCollab();else renderGraph()}
+  function renderAll(){
+    renderVitals();renderSidebar();renderLayer();renderPlan();renderVerdict();
+    var p=phaseInfo();
+    var banner=document.getElementById('rt-phase-banner');
+    banner.innerHTML='<span class="ph'+(p.halt?' halt':'')+'"><i data-lucide="'+(p.halt?'shield-alert':'activity')+'" aria-hidden="true" style="width:12px;height:12px"></i>'+p.label+'</span>';
+    var adv=document.getElementById('rt-advance');
+    var canAdvance=(S.phase==='RESEARCH'||S.phase==='VARIANT');
+    adv.disabled=!canAdvance;
+    document.getElementById('rt-advance-label').textContent=canAdvance?'推进研究 ▸':(S.phase==='PLAN'?'待签署计划':S.phase==='KILL_PAUSED'?'⏸ 已暂停':S.phase==='ARCHIVED'?'已归档':'研究收敛');
+    lucide.createIcons({attrs:{width:14,height:14}});
+  }
+
+  /* ===== 导航：缩放 / 小地图 / 适配 ===== */
+  function bounds(){var w=900,h=640;curNodes.forEach(function(n){w=Math.max(w,(n.x+(n.w||200))+60);h=Math.max(h,n.y+120)});return {w:w,h:h}}
+  function layoutVP(){
+    var b=bounds();BW=b.w;BH=b.h;
+    vp.style.width=(BW*Z)+'px';vp.style.height=(BH*Z)+'px';
+    vp.style.transform='scale('+Z+')';
+    drawMini();
+  }
+  function drawMini(){
+    var mm=document.getElementById('rt-minimap');if(!mm)return;
+    mm.innerHTML='';
+    var sc=Math.min(130/Math.max(1,BW),66/Math.max(1,BH));
+    var svgm=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svgm.setAttribute('class','rt-mini-svg');
+    svgm.setAttribute('viewBox','0 0 '+BW+' '+BH);
+    svgm.setAttribute('preserveAspectRatio','xMidYMin meet');
+    if(curLayer!=='replay'){
+      curNodes.forEach(function(n){
+        var r=document.createElementNS('http://www.w3.org/2000/svg','rect');
+        r.setAttribute('x',n.x);r.setAttribute('y',n.y);
+        r.setAttribute('width',n.w||200);r.setAttribute('height',46);
+        r.setAttribute('rx',5);
+        r.setAttribute('fill',stColor[n.st]);r.setAttribute('opacity',n.st==='idle'?.3:.7);
+        svgm.appendChild(r);
+      });
+    }else{
+      var rr=document.createElementNS('http://www.w3.org/2000/svg','rect');
+      rr.setAttribute('x',0);rr.setAttribute('y',300);rr.setAttribute('width',BW);rr.setAttribute('height',4);
+      rr.setAttribute('fill','var(--rt-line)');svgm.appendChild(rr);
+      S.events.forEach(function(ev,i){
+        var d=document.createElementNS('http://www.w3.org/2000/svg','circle');
+        d.setAttribute('cx',BW*0.09+(i*(BW*0.82/Math.max(1,S.events.length-1))));d.setAttribute('cy',302);d.setAttribute('r',4);
+        d.setAttribute('fill',ev.color);svgm.appendChild(d);
+      });
+    }
+    var ar=document.getElementById('rt-stage-area');
+    var vpRect=document.createElementNS('http://www.w3.org/2000/svg','rect');
+    vpRect.setAttribute('class','mm-rect');
+    vpRect.setAttribute('x',ar.scrollLeft/Z);vpRect.setAttribute('y',ar.scrollTop/Z);
+    vpRect.setAttribute('width',ar.clientWidth/Z);vpRect.setAttribute('height',ar.clientHeight/Z);
+    vpRect.setAttribute('fill','color-mix(in srgb,var(--rt-vio) 12%,transparent)');
+    vpRect.setAttribute('stroke','var(--rt-vio)');vpRect.setAttribute('stroke-width','1.5');
+    svgm.appendChild(vpRect);
+    mm.appendChild(svgm);
+    mm.onmousedown=function(e){
+      var rb=svgm.getBoundingClientRect();
+      var gx=(e.clientX-rb.left)/rb.width*BW, gy=(e.clientY-rb.top)/rb.height*BH;
+      jumpTo(gx,gy);
+      var move=function(mv){
+        var rb2=svgm.getBoundingClientRect();
+        var gx2=(mv.clientX-rb2.left)/rb2.width*BW, gy2=(mv.clientY-rb2.top)/rb2.height*BH;
+        jumpTo(gx2,gy2);
+      };
+      var up=function(){window.removeEventListener('mousemove',move);window.removeEventListener('mouseup',up)};
+      window.addEventListener('mousemove',move);window.addEventListener('mouseup',up);
+    };
+    function jumpTo(gx,gy){
+      var ar=document.getElementById('rt-stage-area');
+      ar.scrollLeft=Math.max(0,gx*Z-ar.clientWidth/2);
+      ar.scrollTop=Math.max(0,gy*Z-ar.clientHeight/2);
+      drawMini();
+    }
+  }
+  function fitZoom(){
+    var b=bounds();
+    var ar=document.getElementById('rt-stage-area');
+    Z=Math.min(ar.clientWidth/b.w, ar.clientHeight/b.h, 1.2);
+    if(Z<0.35)Z=0.35;
+    layoutVP();
+  }
+  document.getElementById('rt-zin').addEventListener('click',function(){Z=Math.min(2.5,Z*1.25);layoutVP()});
+  document.getElementById('rt-zout').addEventListener('click',function(){Z=Math.max(0.35,Z/1.25);layoutVP()});
+  document.getElementById('rt-zfit').addEventListener('click',fitZoom);
+  document.getElementById('rt-stage-area').addEventListener('scroll',function(){drawMini()});
+
+  /* ===== 抽屉 ===== */
+  var drawer=document.getElementById('rt-drawer'),dBody=document.getElementById('rt-drawer-body'),dTitle=document.getElementById('rt-drawer-title');
+  function eviHTML(list){return list.map(function(e){return '<div class="rt-evi"><div class="t">'+e.t+'</div><div class="m">'+e.m+'</div></div>'}).join('')}
+  var DRAWERS={
+    brief:{ov:'<div class="rt-kv"><div class="k">brief</div><div>v3 · 冻结于缺口对话收敛</div></div><div class="rt-kv"><div class="k">原始想法</div><div>"把工单系统接入 AI 自动质检，自动评分并拦截高危回复"</div></div><div class="rt-kv"><div class="k">结局空间</div><div>GO / NO-GO / PARK / REFRAME</div></div>',dep:'<div class="rt-kv"><div class="k">合取结构</div><div>想法存活 ⟺ 压死性主张（C1∧C2∧C3）全部成立</div></div>'},
+    C1:{ov:'<div class="rt-kv"><div class="k">后验</div><div>P=0.93 → 已证实</div></div><div class="rt-kv"><div class="k">层级</div><div>压死性（你签署）</div></div>',evi:[{t:'工单 API 文档 v2 §4.2',m:'原文摘录 · sha256 a3f1…9c · 独立根'},{t:'ticket_service.py L210-288',m:'重推导 · fresh-context 盲验 · 2 独立票'}],dep:'<div class="rt-kv"><div class="k">下游</div><div style="color:var(--rt-amber)">C6 kill 依赖本主张</div></div>',raw:'> reader-1: scan repo/ -> ticket_service.py\n> export() pagination contract traced\n> verifier-2 (fork): independent re-derivation ✓\n> ledger write: C1 SUPPORTED'},
+    C2:{ov:'<div class="rt-kv"><div class="k">后验</div><div>P=0.72 → 对"评分参考"用途可控</div></div>',evi:[{t:'200 条标注复测',m:'一致性 0.72 · 偏差集中在情绪类工单'}],dep:'<div class="rt-kv"><div class="k">下游</div><div>V1 继承（评分参考用途）</div></div>'},
+    C3:{ov:'<div class="rt-kv"><div class="k">后验</div><div>P=0.07 → 已反驳</div></div>',evi:[{t:'实验 #1 预注册卡',m:'判据先于执行 · 设计者≠执行者'}],dep:'<div class="rt-kv"><div class="k">下游</div><div>无继承者（V1 显式绕过）</div></div>',raw:'> experimenter-1 采样 50 条人工标注\n> judge.score(batch[0:50])\n> ⚠ false_positive=7 (14%) > threshold 2%\n> kill_gate.check(claim=C3) → REFUTED\n> variant_search(C3) → V1 viable'},
+    C4:{ov:'<div class="rt-kv"><div class="k">后验</div><div>未决 · experiment-gated</div></div><div class="rt-kv"><div class="k">处置</div><div>入底稿风险登记 · 由你决定是否注资压测</div></div>'},
+    C5:{ov:'<div class="rt-kv"><div class="k">后验</div><div>supported · 三角化 ≥3 独立源</div></div>',evi:[{t:'运营负责人 A（电话）',m:'"每周更新没问题"'},{t:'质检员 B / C（书面）',m:'一致接受'}],dep:'<div class="rt-kv"><div class="k">下游</div><div>V1 继承（运营前提）</div></div>'},
+    C6:{ov:'<div class="rt-kv"><div class="k">后验</div><div>supported · 变体 V1 新增主张</div></div>',dep:'<div class="rt-kv"><div class="k">kill 依赖</div><div style="color:var(--rt-amber)">C1 死则本主张重开</div></div>'},
+    V1:{ov:'<div class="rt-kv"><div class="k">来源</div><div>kill 图变体搜索</div></div><div class="rt-kv"><div class="k">多父继承</div><div>C1 + C2 + C5 · 绕过 C3</div></div>'},
+    W1:{ov:'<div class="rt-kv"><div class="k">worker</div><div>reader-1 · pi subagent</div></div>',raw:'> reader-1: scan repo/ -> ticket_service.py\n> handoff: evidence sha256 -> ledger'},
+    W2:{},W3:{},W4:{},W5:{ov:'<div class="rt-kv"><div class="k">协议</div><div>不看作答，只看原始证据 → 独立重推导</div></div>'},LG:{ov:'<div class="rt-kv"><div class="k">结构</div><div>append-only 事件史 + 对象图</div></div>'},
+    root:{ov:'<div class="rt-kv"><div class="k">角色</div><div>调度根：tick / quota / reconcile / Thompson 预算</div></div>'}
+  };
+  function openDrawer(id){
+    var n=curNodes.find(function(x){return x.id===id});
+    var c=claim(id);var d=DRAWERS[id]||{};
+    dTitle.textContent=n?n.title:(c?c.id+' '+c.t.slice(0,14):id);
+    var c2=claim(id);
+    var eviExtra='';
+    if(c2&&c2.eviN){eviExtra='<h3 style="font-size:12px;margin:12px 0 8px">证据 ×'+c2.eviN+'</h3>'+(d.evi?eviHTML(d.evi):'')}
+    dBody.innerHTML=
+      '<div data-dtab-panel="ov">'+(d.ov||'<div style="color:var(--rt-sub)">（原型未包含该节点详情）</div>')+'</div>'
+      +'<div data-dtab-panel="evi" hidden>'+(d.evi?eviHTML(d.evi):eviExtra||'<div style="color:var(--rt-sub)">（原型未包含）</div>')+'</div>'
+      +'<div data-dtab-panel="dep" hidden>'+(d.dep||'<div style="color:var(--rt-sub)">（原型未包含依赖详情）</div>')+'</div>'
+      +'<div data-dtab-panel="raw" hidden>'+(d.raw?'<div class="rt-code">'+d.raw+'</div>':'<div style="color:var(--rt-sub)">（原型未包含该节点的原始会话）</div>')+'</div>';
+    drawer.classList.remove('hidden');
+    setTab('ov');
+  }
+  function setTab(t){
+    $$('.rt-dtab').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.tab===t))});
+    $$('[data-dtab-panel]').forEach(function(x){x.hidden=x.dataset.dtabPanel!==t});
+  }
+  $$('.rt-dtab').forEach(function(b){b.addEventListener('click',function(){setTab(b.dataset.tab)})});
+  document.getElementById('rt-drawer-close').addEventListener('click',function(){drawer.classList.add('hidden')});
+
+  /* ===== 视图/项目切换 ===== */
+  function show(v){
+    ['canvas','plan','verdict'].forEach(function(x){
+      var s=document.getElementById('view-'+x);
+      s.classList.toggle('active',x===v);s.hidden=x!==v;
+    });
+    $$('#rt-viewnav button').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.view===v))});
+    if(window.zcode&&window.zcode.setWidgetState)window.zcode.setWidgetState({privateContent:{view:v}}).catch(function(){});
+  }
+  $$('#rt-viewnav button').forEach(function(b){b.addEventListener('click',function(){show(b.dataset.view)})});
+
+  function renderSidebar(){
+    var list=document.getElementById('rt-proj-list');list.innerHTML='';
+    ['P1','P2'].forEach(function(pid){
+      var p=PROJECTS[pid];var st=(pid==='P1')?phaseInfo():p;
+      var b=document.createElement('button');
+      b.type='button';b.className='rt-proj';b.setAttribute('data-proj',pid);
+      b.setAttribute('aria-pressed',String(pid===S.project));
+      b.innerHTML='<div class="n"><span class="rt-dot" style="background:'+st.dot+'"></span><span class="txt">'+p.name+'</span><span class="st-badge '+st.pillCls+'">'+st.pill+'</span></div><div class="m">'+(pid==='P1'?'主张 '+(visibleClaims().length-undecided())+'/'+visibleClaims().length+' · '+fmtT(S.tMin):p.sub)+'</div>'
+        +(pid==='P1'?'<div class="bar"><i style="width:'+Math.min(100,S.tMin/720*100)+'%;background:'+st.dot+'"></i></div>':'');
+      b.addEventListener('click',function(){selectProject(pid)});
+      list.appendChild(b);
+    });
+  }
+  var PROJ_EMPTY={
+    P2:'<div class="rt-node idle" style="position:absolute;left:40px;top:60px;width:280px"><div class="t"><i data-lucide="pause" aria-hidden="true" style="width:13px;height:13px;color:var(--rt-amber)"></i>brief v2 · 冻结于 PARK</div><div class="s">复活条件：SDK-B v3 正式发布。<br>复活后账本从冻结点继续。</div></div><button type="button" class="rt-btn" style="position:absolute;left:40px;top:190px" id="rt-p2-resume"><i data-lucide="play" aria-hidden="true" style="width:13px;height:13px"></i>满足复活条件 · 恢复研究</button>',
+    P3:'<div class="rt-node ok" style="position:absolute;left:40px;top:60px;width:300px"><div class="t"><i data-lucide="check-circle-2" aria-hidden="true" style="width:13px;height:13px;color:var(--rt-green)"></i>GO · 底稿已交付</div><div class="s">8 主张全决 · 报告+底稿已归档。</div></div>',
+    P4:'<div class="rt-node dead" style="position:absolute;left:40px;top:60px;width:300px"><div class="t"><i data-lucide="skull" aria-hidden="true" style="width:13px;height:13px;color:var(--rt-red)"></i>NO-GO · 墓地</div><div class="s">价格战前提被 3 独立源反驳。<br>复活条件：对方涨价 >15%。</div></div>',
+    P5:'<div style="position:absolute;left:40px;top:60px;width:360px;font-size:12.5px;line-height:1.7;color:var(--rt-sub)">新项目已创建（隔离域 #P5）。<br><br>下一步：缺口对话——把你的想法全倒出来，rt 逐个补上关键缺口，然后出研究计划等你签署。</div>'
+  };
+  function selectProject(pid){
+    S.project=pid;var p=PROJECTS[pid];
+    renderSidebar();
+    document.getElementById('rt-pname').innerHTML='<span class="rt-dot" style="background:'+p.dot+'"></span>'+p.name;
+    var livePill=document.getElementById('rt-status-pill');
+    if(pid!=='P1'){
+      livePill.className='rt-pill';livePill.innerHTML='<span class="rt-dot" style="background:'+p.dot+'"></span>'+p.bl;
+      curNodes=[];svg.innerHTML='';nodeBox.innerHTML='';
+      var note=document.createElement('div');note.className='rt-empty-note';note.innerHTML=PROJ_EMPTY[pid]||PROJ_EMPTY.P5;
+      document.getElementById('rt-stage-area').appendChild(note);
+      if(pid==='P2'){var rb=document.getElementById('rt-p2-resume');if(rb)rb.addEventListener('click',function(){showToast('复活条件满足 · 账本从冻结点继续（原型演示）')})}
+    }else{
+      $$('.rt-empty-note').forEach(function(x){x.remove()});
+      renderAll();
+    }
+    if(window.zcode&&window.zcode.setWidgetState)window.zcode.setWidgetState({privateContent:{project:pid}}).catch(function(){});
+  }
+  document.getElementById('rt-arch-toggle').addEventListener('click',function(){
+    var l=document.getElementById('rt-arch-list');l.hidden=!l.hidden;
+    this.setAttribute('aria-expanded',String(!l.hidden));
+  });
+
+  /* ===== 侧边栏收起 ===== */
+  document.getElementById('rt-side-collapse').addEventListener('click',function(){
+    var sb=root.querySelector('.rt-sidebar');
+    sb.classList.toggle('collapsed');
+    var ic=this.querySelector('i');
+    ic.setAttribute('data-lucide',sb.classList.contains('collapsed')?'chevrons-right':'chevrons-left');
+    lucide.createIcons({attrs:{width:14,height:14}});
+  });
+
+  /* ===== 引擎交互 ===== */
+  var killModal=document.getElementById('rt-kill-modal'),toast=document.getElementById('rt-toast'),toastTimer;
+  function showToast(msg){toast.textContent=msg;toast.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(function(){toast.style.display='none'},2800)}
+  function openKill(){killModal.hidden=false}
+  document.getElementById('rt-advance').addEventListener('click',advance);
+  $$('#rt-kill-modal .choice').forEach(function(b){
+    b.addEventListener('click',function(){
+      killModal.hidden=true;killChoice(b.dataset.kill);
+      showToast(b.dataset.kill==='variant'?'已切换变体 V1 · 研究继续':b.dataset.kill==='bury'?'NO-GO · 已入墓地（含复活条件）':'继续挖 · C3 重新进入验证队列');
+    });
+  });
+
+  /* ===== 计划签署 ===== */
+  var tierName={mob:'压死性',imp:'重要',min:'次要'};
+  document.getElementById('rt-sign').addEventListener('click',function(){
+    if(S.phase!=='PLAN')return;
+    S.phase='RESEARCH';S.tMin+=15;S.burn+=0.8;
+    var c3=claim('C3');
+    log(['[engine] kill 条件已签署 · 研究开始 · 引擎自主推进']);
+    ev('研究计划签署 · 研究开始','var(--rt-vio)','C1');
+    renderAll();
+    showToast('已签署 · 点「推进研究 ▸」逐段观察引擎运行');
+    show('canvas');
+  });
+
+  /* ===== 裁决 ===== */
+  var ENDS={
+    go:{h:'GO · 底稿已定稿',i:'check-circle-2',c:'var(--rt-green)',b:'<b>开工底稿（交下游开工）</b>：已证实主张带证据链；unverified_assumptions：C4 部署测算；constraints：误杀率约束已移除（走复核队列）。<br><br><b>人类报告</b>：同日生成——含反证章、搜索信封、三元裁决存档、质量记分卡。'},
+    nogo:{h:'NO-GO · 墓地归档',i:'skull',c:'var(--rt-red)',b:'<b>墓地条目</b>：C3（压死性）被预注册实验驳倒且无存活变体。<br><b>复活条件</b>：误杀率 ≤2% 的拦截方案出现时自动提醒重启。'},
+    park:{h:'PARK · 搁置',i:'pause',c:'var(--rt-amber)',b:'<b>冻结 brief</b>：账本当前状态封存。<br><b>复活条件（强制）</b>：≥500 条标注样本 或 风险偏好调整。三个月后带着新证据回来。'}
+  };
+  $$('[data-end]').forEach(function(b){
+    b.addEventListener('click',function(){
+      var e=ENDS[b.dataset.end];
+      S.verdict=b.dataset.end==='go'?'GO':b.dataset.end==='nogo'?'NO-GO':'PARK';
+      S.phase='ARCHIVED';
+      document.getElementById('rt-endcard').innerHTML='<div class="rt-endcard"><div class="h"><i data-lucide="'+e.i+'" aria-hidden="true" style="width:15px;height:15px;color:'+e.c+'"></i>'+e.h+'</div>'+e.b+'</div>';
+      log(['[archive] '+e.h+' · 全套归档：报告+底稿+记分卡+轨迹']);
+      renderAll();
+      lucide.createIcons({attrs:{width:15,height:15}});
+      showToast('归档完成 · 四态结局：'+e.h.split(' ·')[0]);
+    });
+  });
+
+  /* ===== 新建项目 ===== */
+  var newModal=document.getElementById('rt-new-modal');
+  document.getElementById('rt-new-project').addEventListener('click',function(){newModal.hidden=false});
+  document.getElementById('rt-np-cancel').addEventListener('click',function(){newModal.hidden=true});
+  document.getElementById('rt-np-create').addEventListener('click',function(){
+    var name=document.getElementById('rt-np-name').value.trim()||'未命名研究';
+    PROJECTS.P5={name:name,dot:'var(--rt-grey)',bl:'待启动',badge:'park',sub:'帽 '+document.getElementById('rt-np-budget').value+' · 缺口对话待开始'};
+    selectProject('P5');
+    newModal.hidden=true;
+    showToast('项目已创建 · 隔离域 #P5 · 第一步：缺口对话接住你的想法');
+  });
+
+  /* ===== init ===== */
+  renderAll();
+  lucide.createIcons({attrs:{width:14,height:14}});
+  root.addEventListener('zcode:set_globals',function(ev){
+    var st=ev.detail&&ev.detail.globals&&ev.detail.globals.widgetState;
+    if(st&&st.privateContent&&st.privateContent.view)show(st.privateContent.view);
+  });
+})();
+</script>
+</body></html>
