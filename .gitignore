@@ -148,3 +148,4 @@ webui/dist/
 webui-server/*.sqlite*
 *.tsbuildinfo
 rt-core/pnpm-lock.yaml
+webui/pnpm-lock.yaml
