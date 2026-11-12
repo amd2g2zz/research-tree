@@ -451,18 +451,21 @@ export class WebUIServer {
         // stays parallel and untouched.
         const text = String(params.text ?? "");
         const taskId = String(params.task_id);
+        // 用户消息**最先**落账（#706 P0-3）：key 未配置/二进制缺失时也不能
+        // 静默吞掉用户的第一个想法——落账 + 中文引导错误行，然后 fail-closed
+        this.appendChat(taskId, "user", "pending", text, { classified_by: "pi-session" });
         const summary = readPiConfig(this.options.piConfigDir);
         if (!summary.keyed_session_ready) {
-          throw new ProjectHomeError("keyed session not ready — configure pi (设置页) before conversational turns");
+          const guide = "pi 密钥未配置：请点左侧「pi 已就绪」打开设置页，配置 provider key 后重新发送（这条消息已保留在对话里）。";
+          this.appendChat(taskId, "system", "error", guide, { failed: true, reason: "keyed_session_not_ready" });
+          throw new ProjectHomeError(guide);
         }
         const command = this.resolvePiCommand();
         if (command === null) {
-          throw new ProjectHomeError("pi binary not found (set RT_PI_CMD) — conversational turns fail closed");
+          const guide = "pi 程序未找到（RT_PI_CMD）：请安装 pi 或设置环境变量后重试。";
+          this.appendChat(taskId, "system", "error", guide, { failed: true, reason: "pi_binary_missing" });
+          throw new ProjectHomeError(guide);
         }
-        // the user message lands FIRST (pending kind; updated to the turn's
-        // judged kind after parse) — on turn failure the user's own words
-        // stay in the transcript instead of vanishing with the error (#704)
-        this.appendChat(taskId, "user", "pending", text, { classified_by: "pi-session" });
         const userSeq = (
           this.ledger.connection
             .prepare("SELECT MAX(seq) AS seq FROM chat_messages WHERE task_id = ?")
@@ -683,7 +686,7 @@ export class WebUIServer {
         const summary = readPiConfig(this.options.piConfigDir);
         if (!summary.keyed_session_ready) {
           throw new ProjectHomeError(
-            "keyed session not ready — configure a provider key in pi (设置页) before extracting; no simulated extraction is offered",
+            "pi 密钥未配置：请先到设置页配置 provider key，再进行要素抽取（不做模拟抽取）。",
           );
         }
         const command = this.resolvePiCommand();
@@ -878,7 +881,7 @@ export class WebUIServer {
         const taskId = String(params.task_id);
         const summary = readPiConfig(this.options.piConfigDir);
         if (!summary.keyed_session_ready) {
-          throw new ProjectHomeError("keyed session not ready — configure pi (设置页) before generating the mindmap");
+          throw new ProjectHomeError("pi 密钥未配置：请先到设置页配置 provider key，再生成思维导图。");
         }
         const command = this.resolvePiCommand();
         if (command === null) {

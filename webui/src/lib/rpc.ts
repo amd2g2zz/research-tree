@@ -1,21 +1,66 @@
 /** Shared WS-RPC + REST client (issue #690). One socket, promise RPC, and the
- * "turn-delta" stream event used for chain-of-thought streaming. */
+ * "turn-delta" stream event used for chain-of-thought streaming.
+ * P1-3（#706）：断线自动重连（指数退避，封顶 8s）+ 连接状态订阅——服务重启
+ * 不再留下僵尸 socket（挂 330s）或静默断更。 */
 
 let ws: WebSocket | undefined;
 let pending: Promise<WebSocket> | undefined;
 let rpcId = 0;
 let deltaCb: ((delta: string) => void) | undefined;
+let wsStatus: "connecting" | "open" | "closed" = "closed";
+const statusCbs = new Set<(s: "connecting" | "open" | "closed") => void>();
+let reconnectAttempt = 0;
+let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+
+function setStatus(s: "connecting" | "open" | "closed"): void {
+	wsStatus = s;
+	for (const cb of statusCbs) cb(s);
+}
+
+export function onWsStatus(
+	cb: (s: "connecting" | "open" | "closed") => void,
+): () => void {
+	statusCbs.add(cb);
+	cb(wsStatus);
+	return () => statusCbs.delete(cb);
+}
+
+function scheduleReconnect(): void {
+	if (reconnectTimer !== undefined) return;
+	const delay = Math.min(1000 * 2 ** reconnectAttempt, 8000);
+	reconnectAttempt += 1;
+	reconnectTimer = setTimeout(() => {
+		reconnectTimer = undefined;
+		pending = undefined;
+		void connectWs().catch(() => scheduleReconnect());
+	}, delay);
+}
 
 export function connectWs(): Promise<WebSocket> {
 	if (ws?.readyState === WebSocket.OPEN) return Promise.resolve(ws);
-	pending ??= new Promise((resolve, reject) => {
+	if (pending !== undefined) return pending;
+	setStatus("connecting");
+	pending = new Promise((resolve, reject) => {
 		const proto = location.protocol === "https:" ? "wss" : "ws";
 		const socket = new WebSocket(`${proto}://${location.host}/ws`);
 		socket.onopen = () => {
+			reconnectAttempt = 0;
 			ws = socket;
+			setStatus("open");
 			resolve(socket);
 		};
-		socket.onerror = () => reject(new Error("ws connect failed"));
+		socket.onclose = () => {
+			if (ws === socket) ws = undefined;
+			if (pending !== undefined) {
+				pending = undefined;
+				setStatus("closed");
+				scheduleReconnect();
+			}
+		};
+		socket.onerror = () => {
+			if (pending === undefined) return;
+			// onclose follows — reconnect scheduled there
+		};
 		socket.onmessage = (ev) => {
 			const msg = JSON.parse(ev.data) as { event?: string; delta?: string };
 			if (msg.event === "turn-delta" && deltaCb !== undefined)

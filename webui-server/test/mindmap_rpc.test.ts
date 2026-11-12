@@ -175,7 +175,7 @@ describe("mindmap full-canvas flow (issue #683)", () => {
     });
     await rpcOn(coldWs, "project.create", { project_id: "pC", name: "n" });
     await rpcOn(coldWs, "project.registerTask", { project_id: "pC", task_id: "tC", role: "main" });
-    await expect(rpcOn(coldWs, "mindmap.generate", { task_id: "tC" })).rejects.toThrow(/keyed session not ready/);
+    await expect(rpcOn(coldWs, "mindmap.generate", { task_id: "tC" })).rejects.toThrow(/密钥未配置/);
     coldWs.close();
     await cold.close();
   });

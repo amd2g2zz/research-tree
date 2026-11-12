@@ -11,6 +11,12 @@ body,
 	margin: 0;
 }
 
+// H1（#706 UX 审计）：antd <App> 包装层缺高度，100% 对 auto 父级落空
+// → 全站底部白带 + 长文档滚动
+#root > .ant-app {
+	height: 100%;
+}
+
 .app {
 	height: 100%;
 
@@ -164,6 +170,10 @@ body,
 
 	&.ok {
 		background: #52c41a;
+	}
+
+	&.warn {
+		background: #faad14;
 	}
 
 	&.off {
@@ -459,6 +469,11 @@ body,
 		border-color: #c9c9c9;
 	}
 
+	.mind-entry-btn {
+		flex: none;
+		font-size: 12px;
+	}
+
 	.kind-sel {
 		flex: none;
 		width: 74px;
@@ -577,8 +592,8 @@ body,
 
 	.mind-card-quote {
 		margin-top: 3px;
-		font-size: 11px;
-		color: #9a9a9a;
+		font-size: 12px;
+		color: #595959;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -588,7 +603,7 @@ body,
 		position: absolute;
 		right: 8px;
 		bottom: 6px;
-		font-size: 10px;
+		font-size: 11px;
 		line-height: 16px;
 		margin-inline-end: 0;
 	}
@@ -684,11 +699,11 @@ body,
 	border-radius: 10px;
 	overflow: hidden;
 	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
-	margin: 0 0 14px 14px !important;
+	margin: 0 14px 14px auto !important;
 }
 
 .react-flow__controls {
-	margin: 0 14px 14px auto !important;
+	margin: 0 14px 96px auto !important;
 	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12) !important;
 	border-radius: 10px;
 	overflow: hidden;

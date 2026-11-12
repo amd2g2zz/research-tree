@@ -36,6 +36,12 @@ interface Props {
 }
 
 const VERDICTS = ["GO", "NO-GO", "PARK", "REFRAMED"] as const;
+const VERDICT_CN: Record<string, string> = {
+	GO: "继续（GO）",
+	"NO-GO": "终止（NO-GO）",
+	PARK: "搁置（PARK）",
+	REFRAMED: "重构问题（REFRAMED）",
+};
 
 const STAGE_TAG: Record<string, { color: string; bg: string; label: string }> = {
 	pending: { color: "default", bg: "#f0f0f0", label: "待执行" },
@@ -239,18 +245,19 @@ function DagInner({ view }: { view: ResearchView }) {
 				<MiniMap
 				pannable
 				zoomable
-				position="bottom-left"
-				style={{ width: 200, height: 120 }}
-				maskColor="rgba(250,250,250,0.75)"
+				position="bottom-right"
+				style={{ width: 140, height: 90 }}
+				maskColor="rgba(250,250,250,0.8)"
+				nodeStrokeColor={() => "#9db9e8"}
 				nodeColor={(n) => {
 					const st = (n.data as StageData | undefined)?.status ?? "pending";
 					return st === "done"
-						? "#52c41a"
+						? "#d9f2dd"
 						: st === "running"
-							? "#2f9bed"
+							? "#d6f0ff"
 							: st === "failed"
-								? "#e05252"
-								: "#9db9e8";
+								? "#ffdbdb"
+								: "#f5f8ff";
 				}}
 			/>
 			</ReactFlow>
@@ -259,7 +266,7 @@ function DagInner({ view }: { view: ResearchView }) {
 }
 
 export function ResearchPage({ taskId, onBack, onOpenMindmap }: Props) {
-	const { message } = App.useApp();
+	const { message, modal } = App.useApp();
 	const [view, setView] = useState<ResearchView | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [verdict, setVerdict] = useState<string>("GO");
@@ -309,18 +316,28 @@ export function ResearchPage({ taskId, onBack, onOpenMindmap }: Props) {
 		if (el !== null) el.scrollTop = el.scrollHeight;
 	}, [consoleLines]);
 
-	const freeze = async () => {
-		try {
-			const r = await rpc("research.freeze", { task_id: taskId, verdict });
-			message.success(`裁决 ${r.verdict} 已签署，v${r.v} 已提交`);
-			setConsoleLines((prev) => [
-				...prev,
-				`[human] 冻结裁决 ${r.verdict} — v${r.v} 提交`,
-			]);
-			void load();
-		} catch (e) {
-			message.error(String(e instanceof Error ? e.message : e));
-		}
+	const freeze = () => {
+		// P1-2：冻结是不可逆提交（append-only）——弹确认，展示裁决与后果
+		modal.confirm({
+			title: `冻结裁决：${verdict}`,
+			content:
+				"版本 append-only，提交后不可撤销。此操作将当前调研快照签署为正式版本并回到对话阶段。",
+			okText: "签署并提交",
+			okButtonProps: { danger: true },
+			onOk: async () => {
+				try {
+					const r = await rpc("research.freeze", { task_id: taskId, verdict });
+					message.success(`裁决 ${r.verdict} 已签署，v${r.v} 已提交`);
+					setConsoleLines((prev) => [
+						...prev,
+						`[human] 冻结裁决 ${r.verdict} — v${r.v} 提交`,
+					]);
+					void load();
+				} catch (e) {
+					message.error(String(e instanceof Error ? e.message : e));
+				}
+			},
+		});
 	};
 
 	if (loading && view === null) {
@@ -359,8 +376,8 @@ export function ResearchPage({ taskId, onBack, onOpenMindmap }: Props) {
 					<Select
 						value={verdict}
 						onChange={setVerdict}
-						style={{ width: 130 }}
-						options={VERDICTS.map((v) => ({ value: v, label: v }))}
+						style={{ width: 170 }}
+						options={VERDICTS.map((v) => ({ value: v, label: VERDICT_CN[v] ?? v }))}
 					/>
 					<Button type="primary" onClick={() => void freeze()}>
 						冻结裁决

@@ -119,7 +119,7 @@ function rpc(
 }
 
 describe("chat.turn conversational loop (issue #660)", () => {
-	it("prompt carries the transcript and demands a substantive reply + 歧视性优先提问策略", () => {
+	it("prompt carries the transcript and demands substantive reply + 自动 planning + 克制提问", () => {
 		const prompt = buildTurnPrompt([
 			{
 				seq: 1,
@@ -131,8 +131,10 @@ describe("chat.turn conversational loop (issue #660)", () => {
 			{ seq: 2, role: "rt", kind: "reply", text: "回执", created_at: "t" },
 		]);
 		expect(prompt).toContain("[1][user] 我想开个数据标注公司");
-		expect(prompt).toContain("歧视性");
+		expect(prompt).toContain("plan");
+		expect(prompt).toContain("自动推进");
 		expect(prompt).toContain('"recon"');
+		expect(prompt).toContain("基于合理假设");
 	});
 
 	it("parse fails closed on empty reply / bad kind / garbage", () => {
@@ -213,7 +215,7 @@ describe("chat.turn conversational loop (issue #660)", () => {
 		});
 		await expect(
 			rpcOn(coldWs, "chat.turn", { task_id: "tC", text: "想法" }),
-		).rejects.toThrow(/keyed session not ready/);
+		).rejects.toThrow(/密钥未配置/);
 		coldWs.close();
 		await cold.close();
 	});

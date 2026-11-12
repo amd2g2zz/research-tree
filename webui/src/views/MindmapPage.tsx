@@ -585,12 +585,13 @@ function MindmapInner({ taskId, onBack, onConfirmed, autoGenerate }: Props) {
 						<MiniMap
 							pannable
 							zoomable
-							position="bottom-left"
-							style={{ width: 220, height: 140 }}
-							maskColor="rgba(250,250,250,0.75)"
+							position="bottom-right"
+							style={{ width: 150, height: 96 }}
+							maskColor="rgba(250,250,250,0.8)"
+							nodeStrokeColor={() => "#c9d8f5"}
 							nodeColor={(n) => {
 								const d = (n.data as MindData | undefined)?.depth ?? 0;
-								return d === 0 ? "#1c1c1c" : d === 1 ? "#9db9e8" : "#c9d8f5";
+								return d === 0 ? "#e8e8e8" : d === 1 ? "#f5f8ff" : "#ffffff";
 							}}
 						/>
 					</ReactFlow>
