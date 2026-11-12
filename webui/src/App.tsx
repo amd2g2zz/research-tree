@@ -128,6 +128,7 @@ function Shell() {
 	const streamRef = useRef<HTMLDivElement | null>(null);
 	const pinnedBottom = useRef(true);
 	useEffect(() => {
+		pinnedBottom.current = true; // UX 备注1：切任务/切视图重新定位到最新
 		const el = streamRef.current;
 		if (el === null) return;
 		if (pinnedBottom.current) el.scrollTop = el.scrollHeight;
@@ -195,6 +196,8 @@ function Shell() {
 			} catch (e) {
 				// 错误必须可见（#706 onboarding 死路：pi 未配置时静默失败）
 				messageApi.error(String(e instanceof Error ? e.message : e));
+				// UX 备注2：rpc 未达服务端时消息可能未落账——回填草稿可重发
+				if (kind !== "auto" || !navigator.onLine) setDraft(text);
 				// 失败也要刷新——用户消息与错误行已先落账（#704）
 				await refreshHub(target);
 			} finally {
@@ -209,19 +212,26 @@ function Shell() {
 	/** 首页即 chat 框（#704）：发送即建项目——标题=第一句话提炼 5~15 字，
 	 * 默认 v0，随后直接进入该任务对话。 */
 	const createAndSend = useCallback(
-		async (text: string) => {
-			if (!text.trim()) return;
-			const pid = `p-${Date.now().toString(36)}`;
-			await connectWs();
-			await rpc("project.create", { project_id: pid, name: clipTitle(text) });
-			await rpc("project.registerTask", {
-				project_id: pid,
-				task_id: `${pid}-main`,
-				role: "main",
-			});
-			await refresh();
-			setTaskId(`${pid}-main`);
-			await send(text, `${pid}-main`);
+		async (text: string): Promise<boolean> => {
+			if (!text.trim()) return false;
+			try {
+				const pid = `p-${Date.now().toString(36)}`;
+				await connectWs();
+				await rpc("project.create", { project_id: pid, name: clipTitle(text) });
+				await rpc("project.registerTask", {
+					project_id: pid,
+					task_id: `${pid}-main`,
+					role: "main",
+				});
+				await refresh();
+				setTaskId(`${pid}-main`);
+				await send(text, `${pid}-main`);
+				return true;
+			} catch (e) {
+				// PM 备注1：建项目本身失败时第一句话不能无声丢失——草稿保留
+				messageApi.error(String(e instanceof Error ? e.message : e));
+				return false;
+			}
 		},
 		[refresh, send],
 	);
@@ -466,8 +476,9 @@ function Shell() {
 								placeholder="把想法倒进来——例如：我想开个数据标注公司"
 								onPressEnter={() => {
 									if (draft.trim() && !busy) {
-										void createAndSend(draft);
-										setDraft("");
+										void createAndSend(draft).then((ok) => {
+											if (ok) setDraft("");
+										});
 									}
 								}}
 								variant="borderless"
@@ -479,8 +490,9 @@ function Shell() {
 								className="send-circle"
 								disabled={!draft.trim() || busy}
 								onClick={() => {
-									void createAndSend(draft);
-									setDraft("");
+									void createAndSend(draft).then((ok) => {
+										if (ok) setDraft("");
+									});
 								}}
 							/>
 						</div>

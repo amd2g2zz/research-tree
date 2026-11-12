@@ -149,3 +149,10 @@ webui-server/*.sqlite*
 *.tsbuildinfo
 rt-core/pnpm-lock.yaml
 webui/pnpm-lock.yaml
+
+# 团队工具卫生（#706）
+node_modules/
+.zcode/
+.zcodeignore
+webui-server/pnpm-lock.yaml
+*.ephemeral-*
