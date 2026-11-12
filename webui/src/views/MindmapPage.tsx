@@ -43,6 +43,7 @@ import {
 import type { DataNode } from "antd/es/tree";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
+import { attachWheelPanZoom } from "../lib/rfWheel";
 import type { MindNode } from "../lib/types";
 
 interface Props {
@@ -337,6 +338,14 @@ const nodeTypes = { mind: MindNodeCard };
 function MindmapInner({ taskId, onBack, onConfirmed, autoGenerate }: Props) {
 	const { message } = App.useApp();
 	const flow = useReactFlow();
+	const canvasRef = useRef<HTMLDivElement | null>(null);
+
+	// 滚轮接管：滚轮=平移，cmd/ctrl+滚轮=缩放（RF 内建 wheel 模式不生效）
+	useEffect(() => {
+		const el = canvasRef.current;
+		if (el === null) return undefined;
+		return attachWheelPanZoom(el, flow);
+	}, [flow]);
 	const [state, setState] = useState<MindmapState | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -542,7 +551,7 @@ function MindmapInner({ taskId, onBack, onConfirmed, autoGenerate }: Props) {
 					)}
 				</Space>
 			</div>
-			<div className="mind-canvas">
+			<div className="mind-canvas" ref={canvasRef}>
 				{root === undefined ? (
 					<div className="mind-empty">
 						{loading ? (
@@ -561,9 +570,9 @@ function MindmapInner({ taskId, onBack, onConfirmed, autoGenerate }: Props) {
 						maxZoom={2}
 						nodesDraggable={false}
 						nodesConnectable={false}
-						panOnScroll
 						zoomOnScroll={false}
-						zoomOnPinch
+						panOnScroll={false}
+						zoomOnPinch={false}
 						proOptions={{ hideAttribution: true }}
 					>
 						<Background

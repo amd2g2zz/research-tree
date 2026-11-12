@@ -90,6 +90,22 @@ function Shell() {
 		if (taskId !== null) void refreshHub(taskId);
 	}, [taskId, refreshHub]);
 
+	// 浏览器返回键 = 回对话（SPA 无路由，否则返回手势直接退出站点）
+	useEffect(() => {
+		const onPop = (): void => {
+			setAutoGen(false);
+			setView("chat");
+		};
+		window.addEventListener("popstate", onPop);
+		return () => window.removeEventListener("popstate", onPop);
+	}, []);
+
+	useEffect(() => {
+		if (view !== "chat") {
+			window.history.pushState({ view }, "");
+		}
+	}, [view]);
+
 	const send = useCallback(
 		async (text: string) => {
 			if (taskId === null || !text.trim()) return;
