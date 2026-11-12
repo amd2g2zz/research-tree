@@ -53,7 +53,7 @@ import { mindmapPrompt, parseMindmap, mechanicalPlan as planFromTree, editNode, 
 import { extensionStatuses, ensurePiExtensions, DEFAULT_PI_EXTENSIONS } from "./pi-extensions.js";
 import { pickClassifier } from "./classify.js";
 import { extractionPrompt, parseExtraction, mechanicalPlan, type TranscriptMessage } from "./real-flow.js";
-import { buildTurnPrompt, parseTurnOutput, runRecon, reconToText } from "./chat-turn.js";
+import { buildTurnPrompt, parseTurnOutput, runRecon, reconToText, type TurnOutput } from "./chat-turn.js";
 import { AnysearchProvider } from "../../rt-core/src/providers/anysearch.js";
 import { SkillSearchProvider } from "./skill_search.js";
 import type { DataSourceProvider } from "../../rt-core/src/providers/types.js";
@@ -165,6 +165,7 @@ export class WebUIServer {
         return {
           task_id: line.task_id,
           role: line.role,
+          title: line.title ?? null,
           latest: line.latest,
           versions,
           draft: draft !== null ? { base_v: draft.base_v, updated_at: draft.updated_at } : null,
@@ -224,6 +225,22 @@ export class WebUIServer {
     }
     if (req.url === "/api/tree") {
       reply(200, { projects: this.tree() });
+      return;
+    }
+    // 全文搜索（#704）：项目名/描述/任务 id 跨全库匹配（不受侧栏惰性加载
+    // 限制——搜索时必须能看到还没滚到的项目）
+    const search = /^\/api\/projects\/search\?q=(.+)$/.exec(req.url ?? "");
+    if (search !== null) {
+      const q = decodeURIComponent(search[1]!).toLowerCase();
+      const hits = this.tree().filter((p) => {
+        const name = String(p.name ?? "").toLowerCase();
+        const desc = String(p.description ?? "").toLowerCase();
+        const lines = (p.lines as Array<{ task_id: string; title: string | null }>).map(
+          (l) => `${l.task_id} ${l.title ?? ""}`.toLowerCase(),
+        );
+        return name.includes(q) || desc.includes(q) || lines.some((l) => l.includes(q));
+      });
+      reply(200, { projects: hits, query: q });
       return;
     }
     const vitals = /^\/api\/projects\/([^/]+)\/vitals$/.exec(req.url ?? "");
@@ -395,8 +412,20 @@ export class WebUIServer {
       case "project.archive":
         this.home.archiveProject(String(params.project_id));
         return { archived: true };
+      case "project.rename":
+        this.home.renameProject(String(params.project_id), String(params.name ?? ""));
+        return { renamed: true };
       case "project.delete":
         this.home.deleteProject(String(params.project_id));
+        return { deleted: true };
+      case "task.rename":
+        this.home.renameTask(String(params.task_id), String(params.title ?? ""));
+        return { renamed: true };
+      case "task.archive":
+        this.home.archiveTask(String(params.task_id));
+        return { archived: true };
+      case "task.delete":
+        this.home.deleteTask(String(params.task_id));
         return { deleted: true };
       case "version.continue":
         // 继续研究 (version+1): live draft resumes, never clobbers; H7 telemetry lands
@@ -430,26 +459,53 @@ export class WebUIServer {
         if (command === null) {
           throw new ProjectHomeError("pi binary not found (set RT_PI_CMD) — conversational turns fail closed");
         }
-        // the user message is appended AFTER the turn lands (the turn itself
-        // judges the kind in the same pi call — issue #674, one call per turn)
+        // the user message lands FIRST (pending kind; updated to the turn's
+        // judged kind after parse) — on turn failure the user's own words
+        // stay in the transcript instead of vanishing with the error (#704)
+        this.appendChat(taskId, "user", "pending", text, { classified_by: "pi-session" });
+        const userSeq = (
+          this.ledger.connection
+            .prepare("SELECT MAX(seq) AS seq FROM chat_messages WHERE task_id = ?")
+            .get(taskId) as { seq: number }
+        ).seq;
 
         const transcript = this.ledger.connection
-          .prepare("SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? ORDER BY seq")
-          .all(taskId) as TranscriptMessage[];
+          .prepare("SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? AND seq < ? ORDER BY seq")
+          .all(taskId, userSeq) as TranscriptMessage[];
         const prompt = buildTurnPrompt(transcript);
         // async pi (issue #670) + streaming deltas (#679): 思维链先行
         for (const client of this.wss.clients) {
           client.send(JSON.stringify({ event: "turn-start", task_id: taskId }));
         }
-        const stdout =
+        const runTurn = (): Promise<string> =>
           this.options.piRunner !== undefined
-            ? await this.options.piRunner(command, prompt)
-            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000, ["-nt", "-ne", "--no-session", "--no-skills"], (delta) => {
+            ? Promise.resolve(this.options.piRunner(command, prompt))
+            : runPi(command, prompt, this.options.piTimeoutMs ?? 300_000, ["-nt", "-ne", "--no-session", "--no-skills"], (delta) => {
                 for (const client of this.wss.clients) {
                   client.send(JSON.stringify({ event: "turn-delta", delta }));
                 }
               });
-        const turn = parseTurnOutput(stdout);
+        // 一次重试：模型偶发非 JSON 输出时补一句硬约束再试；仍失败 → 诚实
+        // 错误行落账（用户消息已先落账，不会只剩 think）并抛出（#704）
+        let stdout: string;
+        let turn: TurnOutput;
+        try {
+          stdout = await runTurn();
+          turn = parseTurnOutput(stdout);
+        } catch (firstError) {
+          const retryPrompt = `${prompt}\n\n（注意：上一次输出不可用：${String(firstError instanceof Error ? firstError.message : firstError).slice(0, 120)}。只输出一个 JSON 对象，不要输出任何其它文字。）`;
+          stdout =
+            this.options.piRunner !== undefined
+              ? await this.options.piRunner(command, retryPrompt)
+              : await runPi(command, retryPrompt, this.options.piTimeoutMs ?? 300_000, ["-nt", "-ne", "--no-session", "--no-skills"]);
+          try {
+            turn = parseTurnOutput(stdout);
+          } catch (secondError) {
+            const reason = String(secondError instanceof Error ? secondError.message : secondError);
+            this.appendChat(taskId, "system", "error", `本轮模型输出异常（${reason}）——你的消息已保留，请重新发送或稍后重试。`, { failed: true });
+            throw secondError;
+          }
+        }
 
         let reconResults: Array<{ title: string; url?: string; snippet?: string }> | undefined;
         let reconError: string | undefined;
@@ -486,10 +542,20 @@ export class WebUIServer {
             result_count: reconResults.length,
           });
         }
-        // user message + agent reply + questions land together with the turn
-        // output (one pi call per turn, issue #674)
-        this.appendChat(taskId, "user", turn.kind, text, { classified_by: "pi-session" });
-        this.appendChat(taskId, "rt", "reply", turn.reply, { questions: turn.questions, classified_by: "pi-session" });
+        // user message（先落账的 pending 行升格为判定 kind）+ reply + plan +
+        // questions 依次落账（one pi call per turn, issue #674）
+        this.ledger.connection
+          .prepare("UPDATE chat_messages SET kind = ? WHERE task_id = ? AND seq = ?")
+          .run(turn.kind, taskId, userSeq);
+        this.appendChat(taskId, "rt", "reply", turn.reply, {
+          questions: turn.questions,
+          converged: turn.converged,
+          classified_by: "pi-session",
+        });
+        if (turn.plan.length > 0) {
+          const planText = turn.plan.map((s, i) => `${i + 1}. ${s}`).join("\n");
+          this.appendChat(taskId, "rt", "plan", planText, { converged: turn.converged });
+        }
         for (const q of turn.questions) {
           this.appendChat(taskId, "rt", "question", q, null);
         }
@@ -497,6 +563,7 @@ export class WebUIServer {
           kind: turn.kind,
           converged: turn.converged,
           reply: turn.reply,
+          plan: turn.plan,
           questions: turn.questions,
           recon_results: reconResults ?? [],
           recon_error: reconError,

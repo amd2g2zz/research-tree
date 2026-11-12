@@ -41,6 +41,9 @@ export interface TurnOutput {
    * confirmation stage? (#679 — drives the in-stream action card) */
   converged: boolean;
   reply: string;
+  /** 自动 planning（用户裁定 2026-11-13）：当前研究计划草案——首轮即产出，
+   * 后续轮次更新；空数组 = 结构尚未成形 */
+  plan: string[];
   questions: string[];
   recon?: { query: string; kind?: string } | null;
 }
@@ -55,14 +58,15 @@ export function buildTurnPrompt(messages: TranscriptMessage[]): string {
     .map((m) => `[${m.seq}][${m.role}] ${m.text}`)
     .join("\n");
   return (
-    "你是 rt（研究台）的对齐助手，负责在调研开始前把用户的想法从虚变实。\n" +
+    "你是 rt（研究台）的对齐助手：根据用户意图与情景**自动推进**研究对齐，而不是反复盘问。\n" +
     "规则：\n" +
-    '1. 先判定最后一句话的语义类型 kind ∈ preference|claim|guess|constraint|branch（偏好意图/可判定主张/方案猜测/硬约束/分支岔路）。\n' +
-    "2. reply 必须给实质回应：复述你理解的核心诉求、指出目前想法里虚/缺的部分、说明下一步——绝不能只复述原话。\n" +
-    "3. 仅当存在影响调研方向的关键缺口时才提问（0-3 个，歧视性优先：部署事实还是主观估计？缺什么验收/kill 条件？预算和范围？）；没有关键缺口就给空数组——不为问而问。\n" +
-    "4. 如果做一次简单资料搜索能让问题更清晰，给出 recon（{\"query\":\"搜索词\"}）；否则为 null。\n" +
-    "5. converged：判断想法是否已具体到可以开始调研（有明确的对象/范围/可验证的口径）；已成形=true，仍虚=false。\n" +
-    '只输出 JSON：{"kind":"...","converged":false,"reply":"...","questions":["..."],"recon":null}\n\n对话：\n' +
+    '1. 判定最后一句话的语义类型 kind ∈ preference|claim|guess|constraint|branch（偏好意图/可判定主张/方案猜测/硬约束/分支岔路）。\n' +
+    "2. reply 给实质回应：复述你理解的核心诉求、指出虚/缺的部分、说明本轮做了什么、下一步是什么。语气推进，不敷衍。\n" +
+    "3. **plan = 当前研究计划草案**（3-5 条，每条一个可执行的调研动作/待验证命题）。首轮就给出初步计划（基于合理假设，标注假设处），后续轮次随新信息修订。plan 是主动产出，不是等用户问。\n" +
+    "4. 提问克制：只有当某个缺口**不补就无法推进**时才问（每轮最多 2 个，优先本轮最重要的一个；之前已经问过的问题绝不重复）；没有关键缺口就给空数组——用 plan 和 recon 推进代替提问。\n" +
+    "5. 情景合适就主动调用工具：给出 recon（{\"query\":\"搜索词\"}）做一次真实资料搜索帮助澄清；否则 null。\n" +
+    "6. converged：想法已具体到可开始调研（对象/范围/可验证口径齐备）时 true——宁缺毋滥，一两句话不足以成形时保持 false。\n" +
+    '只输出 JSON：{"kind":"...","converged":false,"reply":"...","plan":["..."],"questions":["..."],"recon":null}\n\n对话：\n' +
     transcript
   );
 }
@@ -89,6 +93,9 @@ export function parseTurnOutput(stdout: string): TurnOutput {
     // a turn without a substantive reply is the wall we are removing
     throw new Error("turn returned no substantive reply");
   }
+  const plan = Array.isArray(raw.plan)
+    ? (raw.plan.filter((s) => typeof s === "string" && s.trim() !== "") as string[])
+    : [];
   const questions = Array.isArray(raw.questions)
     ? (raw.questions.filter((q) => typeof q === "string" && q.trim() !== "") as string[])
     : [];
@@ -97,7 +104,7 @@ export function parseTurnOutput(stdout: string): TurnOutput {
     typeof reconRaw === "object" && reconRaw !== null && typeof (reconRaw as Record<string, unknown>).query === "string"
       ? { query: (reconRaw as Record<string, unknown>).query as string, kind: "search" }
       : null;
-  return { kind: kind as TurnKind, converged, reply, questions, recon };
+  return { kind: kind as TurnKind, converged, reply, plan, questions, recon };
 }
 
 /** Execute the recon through the DataSourceProvider port (real search). */

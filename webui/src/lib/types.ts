@@ -4,13 +4,14 @@
 export interface Project {
 	project_id: string;
 	name: string;
+	description: string;
 	status: string;
 	vitals: {
 		research_lines: number;
 		latest: { v: number; verdict: string; commit_hash: string } | null;
 		elapsed_ms: number;
 	};
-	lines: Array<{ task_id: string; role: string }>;
+	lines: Array<{ task_id: string; role: string; title: string | null }>;
 }
 
 export interface ChatMsg {

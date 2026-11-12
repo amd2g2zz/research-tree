@@ -36,6 +36,8 @@ export interface ProjectCard {
 export interface ResearchLine {
 	task_id: string;
 	role: "main" | "fork";
+	title: string | null;
+	status: "active" | "archived";
 	latest: {
 		v: number;
 		verdict: string;
@@ -65,6 +67,8 @@ interface TaskRow {
 	task_id: string;
 	project_id: string;
 	role: string;
+	title: string | null;
+	status: string;
 	created_at: string;
 }
 
@@ -103,6 +107,80 @@ export class ProjectHomeModel {
 				new Date().toISOString(),
 			);
 		return this.get(projectId)!;
+	}
+
+	renameProject(projectId: string, name: string): void {
+		const trimmed = name.trim();
+		if (trimmed === "") {
+			throw new ProjectHomeError("project name cannot be empty");
+		}
+		this.require(projectId);
+		this.ledger.connection
+			.prepare("UPDATE projects SET name = ? WHERE project_id = ?")
+			.run(trimmed, projectId);
+	}
+
+	renameTask(taskId: string, title: string): void {
+		const trimmed = title.trim();
+		if (trimmed === "") {
+			throw new ProjectHomeError("task title cannot be empty");
+		}
+		const row = this.ledger.connection
+			.prepare("SELECT task_id FROM project_tasks WHERE task_id = ? LIMIT 1")
+			.get(taskId) as { task_id: string } | undefined;
+		if (row === undefined) {
+			throw new ProjectHomeError(`unknown task: ${taskId}`);
+		}
+		this.ledger.connection
+			.prepare("UPDATE project_tasks SET title = ? WHERE task_id = ?")
+			.run(trimmed, taskId);
+	}
+
+	archiveTask(taskId: string): void {
+		const row = this.ledger.connection
+			.prepare("SELECT task_id FROM project_tasks WHERE task_id = ? LIMIT 1")
+			.get(taskId) as { task_id: string } | undefined;
+		if (row === undefined) {
+			throw new ProjectHomeError(`unknown task: ${taskId}`);
+		}
+		this.ledger.connection
+			.prepare("UPDATE project_tasks SET status = 'archived' WHERE task_id = ?")
+			.run(taskId);
+	}
+
+	/** Hard-delete ONE task (archived-only, same gate as projects) — wipes the
+	 * task's workspace rows: project_tasks / chat_messages / mindmaps /
+	 * parallel_stages / versions. */
+	deleteTask(taskId: string): void {
+		const row = this.ledger.connection
+			.prepare("SELECT status FROM project_tasks WHERE task_id = ? LIMIT 1")
+			.get(taskId) as { status: string } | undefined;
+		if (row === undefined) {
+			throw new ProjectHomeError(`unknown task: ${taskId}`);
+		}
+		if (row.status !== "archived") {
+			throw new ProjectHomeError(
+				`delete blocked: task is not archived (archive first): ${taskId}`,
+			);
+		}
+		const wipe = this.ledger.connection.transaction((): void => {
+			this.ledger.connection
+				.prepare("DELETE FROM project_tasks WHERE task_id = ?")
+				.run(taskId);
+			this.ledger.connection
+				.prepare("DELETE FROM chat_messages WHERE task_id = ?")
+				.run(taskId);
+			this.ledger.connection
+				.prepare("DELETE FROM mindmaps WHERE task_id = ?")
+				.run(taskId);
+			this.ledger.connection
+				.prepare("DELETE FROM parallel_stages WHERE stage_id LIKE ?")
+				.run(`${taskId}/%`);
+			this.ledger.connection
+				.prepare("DELETE FROM versions WHERE task_id = ?")
+				.run(taskId);
+		});
+		wipe();
 	}
 
 	registerTask(projectId: string, taskId: string, role: "main" | "fork"): void {
@@ -171,17 +249,20 @@ export class ProjectHomeModel {
 		};
 	}
 
-	/** Research-line list: main + forks, each with its latest commit summary. */
+	/** Research-line list: main + forks, each with its latest commit summary.
+	 * Archived lines are excluded（归档线不进活跃列表，也不计入 vitals）. */
 	listLines(projectId: string): ResearchLine[] {
 		this.require(projectId);
 		const rows = this.ledger.connection
 			.prepare(
-				"SELECT task_id, project_id, role, created_at FROM project_tasks WHERE project_id = ? ORDER BY created_at",
+				"SELECT task_id, project_id, role, title, status, created_at FROM project_tasks WHERE project_id = ? AND status = 'active' ORDER BY created_at",
 			)
 			.all(projectId) as TaskRow[];
 		return rows.map((row) => ({
 			task_id: row.task_id,
 			role: row.role as "main" | "fork",
+			title: row.title ?? null,
+			status: row.status as "active" | "archived",
 			latest: this.latestVersion(row.task_id),
 		}));
 	}
@@ -211,7 +292,8 @@ export class ProjectHomeModel {
 
 	listProjects(): ProjectCard[] {
 		const rows = this.ledger.connection
-			.prepare("SELECT * FROM projects ORDER BY created_at")
+			// 最新在前（ChatGPT 侧栏形态）——刚发起的研究不该沉到惰性加载之外
+			.prepare("SELECT * FROM projects ORDER BY created_at DESC")
 			.all() as ProjectRow[];
 		return rows.map((row) => this.toCard(row));
 	}
