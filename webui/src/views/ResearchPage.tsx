@@ -22,7 +22,7 @@ import {
 	NodeIndexOutlined,
 	ReloadOutlined,
 } from "@ant-design/icons";
-import { App, Button, Empty, Select, Space, Spin, Tag, Typography } from "antd";
+import { App, Button, Drawer, Empty, Select, Space, Spin, Tag, Typography } from "antd";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { onEngine, rest, rpc } from "../lib/rpc";
 import { attachWheelPanZoom } from "../lib/rfWheel";
@@ -104,6 +104,11 @@ interface StageData extends Record<string, unknown> {
 	status: string;
 	claims: number;
 	depends: number;
+	sources: number;
+	hasFindings: boolean;
+	findings: string | null;
+	sourceList: Array<{ title: string; url?: string; snippet?: string }>;
+	onOpen: () => void;
 }
 
 function StageNodeCard({ data }: NodeProps<Node<StageData>>) {
@@ -114,8 +119,9 @@ function StageNodeCard({ data }: NodeProps<Node<StageData>>) {
 	};
 	return (
 		<div
-			className="dag-node"
+			className="dag-node clickable"
 			style={{ width: STAGE_W, minHeight: STAGE_H }}
+			onClick={() => data.onOpen()}
 		>
 			<Handle
 				type="target"
@@ -139,6 +145,9 @@ function StageNodeCard({ data }: NodeProps<Node<StageData>>) {
 			</div>
 			<div className="dag-node-meta">
 				{data.claims} 个命题 · 依赖 {data.depends}
+				{data.hasFindings && (
+					<span className="dag-node-outputs"> · 产出 {data.sources} 来源</span>
+				)}
 			</div>
 		</div>
 	);
@@ -149,6 +158,7 @@ const stageNodeTypes = { stage: StageNodeCard };
 function DagInner({ view }: { view: ResearchView }) {
 	const flow = useReactFlow();
 	const wheelRef = useRef<HTMLDivElement | null>(null);
+	const [drawerStage, setDrawerStage] = useState<StageInfo | null>(null);
 
 	// 滚轮接管：滚轮=平移，cmd/ctrl+滚轮=缩放（RF 内建 wheel 模式不生效）
 	useEffect(() => {
@@ -170,6 +180,11 @@ function DagInner({ view }: { view: ResearchView }) {
 				status: s.status,
 				claims: s.claim_ids.length,
 				depends: s.depends_on.length,
+				sources: s.sources.length,
+				hasFindings: s.findings !== null,
+				findings: s.findings,
+				sourceList: s.sources,
+				onOpen: () => setDrawerStage(s),
 			},
 			draggable: false,
 		});
@@ -261,6 +276,40 @@ function DagInner({ view }: { view: ResearchView }) {
 				}}
 			/>
 			</ReactFlow>
+			<Drawer
+				title={drawerStage?.title ?? "阶段详情"}
+				open={drawerStage !== null}
+				onClose={() => setDrawerStage(null)}
+				width={440}
+			>
+				{drawerStage?.findings ? (
+					<div className="drawer-findings">
+						<div className="plan-title">研究发现</div>
+						<pre>{drawerStage.findings}</pre>
+					</div>
+				) : (
+					<Empty description="暂无产出——阶段由后台 worker 执行完成后此处显示研究发现。" />
+				)}
+				{drawerStage !== null && drawerStage.sources.length > 0 && (
+					<div className="drawer-sources">
+						<div className="plan-title">来源（{drawerStage.sources.length}）</div>
+						{drawerStage.sources.map((src, i) => (
+							<div key={`src-${String(i)}`} className="drawer-source">
+								{i + 1}. {src.title}
+								{src.url !== undefined && (
+									<a href={src.url} target="_blank" rel="noreferrer">
+										{" "}
+										↗
+									</a>
+								)}
+								{src.snippet !== undefined && (
+									<div className="drawer-snippet">{src.snippet}</div>
+								)}
+							</div>
+						))}
+					</div>
+				)}
+			</Drawer>
 		</div>
 	);
 }

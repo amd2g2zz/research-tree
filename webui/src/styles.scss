@@ -742,6 +742,44 @@ body,
 	}
 
 	// DAG stage 节点卡
+	.dag-node.clickable {
+		cursor: pointer;
+	}
+
+	.dag-node-outputs {
+		color: #52c41a;
+	}
+
+	.drawer-findings {
+		margin-bottom: 16px;
+
+		pre {
+			font-family: inherit;
+			font-size: 13px;
+			line-height: 1.7;
+			white-space: pre-wrap;
+			word-break: break-word;
+			background: #f7faff;
+			border-radius: 10px;
+			padding: 12px;
+			margin: 4px 0 0;
+			color: #333;
+		}
+	}
+
+	.drawer-source {
+		font-size: 13px;
+		line-height: 1.6;
+		margin-bottom: 10px;
+		color: #333;
+
+		.drawer-snippet {
+			font-size: 12px;
+			color: #8f8f8f;
+			margin-top: 2px;
+		}
+	}
+
 	.dag-node {
 		box-sizing: border-box;
 		padding: 12px 14px;

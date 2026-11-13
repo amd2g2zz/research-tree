@@ -31,6 +31,7 @@ import { EngineCore } from "../../rt-core/src/store/engine.js";
 import { VersionStore } from "../../rt-core/src/versions/store.js";
 import { ProductStateMachine } from "../../rt-core/src/state/machine.js";
 import { ProjectHomeModel, ProjectHomeError } from "../../rt-core/src/ux/project_home.js";
+import { BackgroundResearchRunner } from "./research_worker.js";
 import { DialogueController } from "../../rt-core/src/dialogue/controller.js";
 import { runHeadless, type HeadlessScript } from "../../rt-core/src/headless/runner.js";
 import { CanvasProjection } from "../../rt-core/src/canvas/projection.js";
@@ -110,6 +111,7 @@ export class WebUIServer {
   private readonly versions: VersionStore;
   private readonly machine: ProductStateMachine;
   private readonly home: ProjectHomeModel;
+  private readonly researchRunner: BackgroundResearchRunner;
   private readonly canvas: Promise<CanvasProjection>;
   private readonly timeline: VersionTimeline;
   private readonly archive: FourStateArchive;
@@ -130,6 +132,21 @@ export class WebUIServer {
     this.canvas = CanvasProjection.fromLedger(this.ledger);
     this.timeline = new VersionTimeline(this.ledger, this.versions, this.machine);
     this.archive = new FourStateArchive(this.ledger, this.versions, this.machine);
+    // 后台调研执行器（#709）：多任务并发、真实检索→综合→阶段流转；
+    // 进度落账——前端离开不影响，重开即见最新状态
+    this.researchRunner = new BackgroundResearchRunner({
+      ledger: this.ledger,
+      versions: this.versions,
+      provider: () => this.options.provider ?? this.defaultProvider(),
+      piCommand: () => this.resolvePiCommand(),
+      piRunner: this.options.piRunner,
+      piTimeoutMs: this.options.piTimeoutMs,
+      broadcast: (line) => {
+        for (const client of this.wss.clients) {
+          client.send(JSON.stringify({ event: "engine", line }));
+        }
+      },
+    });
     this.http.on("upgrade", (req, socket, head) => {
       if (req.url === "/ws") {
         this.wss.handleUpgrade(req, socket, head, (ws) => this.wss.emit("connection", ws, req));
@@ -175,12 +192,14 @@ export class WebUIServer {
   }
 
   listen(port = 0): Promise<number> {
+    this.researchRunner.start(5000);
     return new Promise((resolve) => {
       this.http.listen(port, "127.0.0.1", () => resolve((this.http.address() as { port: number }).port));
     });
   }
 
   close(): Promise<void> {
+    this.researchRunner.stop();
     return new Promise((resolve) => {
       for (const client of this.wss.clients) {
         client.close();
@@ -293,14 +312,38 @@ export class WebUIServer {
     // stage_id = `${taskId}/${stage.id}`（research.start / mindmap.confirm）—
     // 只取本任务的 stage，别的任务的不得泄漏进本任务画布（issue #690 e2e）
     const stages = (this.ledger.connection
-      .prepare("SELECT stage_id, title, status, claim_ids, depends_on, assigned_worker_class FROM parallel_stages")
+      .prepare("SELECT stage_id, title, status, claim_ids, depends_on, assigned_worker_class, outputs FROM parallel_stages")
       .all() as Array<Record<string, unknown>>).filter((s) => String(s.stage_id).startsWith(`${taskId}/`));
     return {
       question: canvas.question,
       claims,
       transitions: canvas.transitions,
       providers: canvas.providers,
-      stages: stages.map((s) => ({ ...s, claim_ids: JSON.parse(String(s.claim_ids)) as string[], depends_on: JSON.parse(String(s.depends_on)) as string[] })),
+      stages: stages.map((s) => {
+        // 产出解析（#709）：outputs[0] = {findings, sources, completed_at}
+        let findings: string | null = null;
+        let sources: Array<{ title: string; url?: string; snippet?: string }> = [];
+        try {
+          const raw = JSON.parse(String(s.outputs ?? "[]")) as string[];
+          if (raw.length > 0) {
+            const artifact = JSON.parse(raw[0] ?? "{}") as {
+              findings?: string;
+              sources?: Array<{ title: string; url?: string; snippet?: string }>;
+            };
+            findings = artifact.findings ?? null;
+            sources = artifact.sources ?? [];
+          }
+        } catch {
+          /* outputs 未就绪或格式异常——画布仍显示状态 */
+        }
+        return {
+          ...s,
+          claim_ids: JSON.parse(String(s.claim_ids)) as string[],
+          depends_on: JSON.parse(String(s.depends_on)) as string[],
+          findings,
+          sources,
+        };
+      }),
     };
   }
 
@@ -1050,6 +1093,8 @@ export class WebUIServer {
         if (dagStages.length > 0) {
           this.schedulerFor(taskId).registerStages(dagStages);
           this.schedulerFor(taskId).tick();
+          // 首轮即时触发（#709）——不等 5s 间隔泵
+          void this.researchRunner.pumpOnce().catch(() => {});
         }
         // walk: chat → decompose(语义确认) → research；全链成功后翻转导图状态
         this.machine.transition(taskId, { event: "confirm" });
