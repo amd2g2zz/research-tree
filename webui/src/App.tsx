@@ -16,14 +16,19 @@ import {
 } from "@ant-design/icons";
 import type { InputRef } from "antd";
 import {
+	Alert,
 	App as AntApp,
+	Badge,
 	Button,
+	Collapse,
 	ConfigProvider,
 	Dropdown,
 	Input,
 	Layout,
 	Modal,
 	Select,
+	Skeleton,
+	Steps,
 	Tag,
 	Tooltip,
 	Typography,
@@ -66,6 +71,13 @@ const PHASE_CN: Record<string, string> = {
 	committed: "已提交",
 	paused: "已暂停",
 };
+
+/** 阶段 → 三步流位置（0 对话 / 1 导图 / 2 调研）——Steps 进度展示用 */
+function phaseStep(phase: string): number {
+	if (phase === "chat") return 0;
+	if (phase === "decompose") return 1;
+	return 2;
+}
 
 /** 自动命名：第一句话提炼 5~15 字标题（去首尾标点，超长截断）。 */
 export function clipTitle(text: string): string {
@@ -535,7 +547,11 @@ function Shell() {
 											{l.role === "main" ? "◉" : "⑂"}{" "}
 											{l.title ?? (l.role === "main" ? p.name : l.task_id)}
 											{p.vitals.latest !== null && (
-												<Tag className="v-badge">v{p.vitals.latest.v}</Tag>
+												<Badge
+													count={`v${p.vitals.latest.v}`}
+													className="v-badge"
+													color="#999"
+												/>
 											)}
 										</button>
 										{rowMenu("task", l.task_id, l.title ?? l.task_id)}
@@ -629,7 +645,16 @@ function Shell() {
 									{proj?.name ?? "research-tree"}
 								</Typography.Title>
 							)}
-							<Tag>{PHASE_CN[phase] ?? phase}</Tag>
+							<Steps
+								size="small"
+								className="topbar-steps"
+								current={phaseStep(phase)}
+								items={[
+									{ title: "对话" },
+									{ title: "思维导图" },
+									{ title: "调研" },
+								]}
+							/>
 							<Tooltip title="复制任务链接（可分享）">
 								<Button
 									type="text"
@@ -650,8 +675,14 @@ function Shell() {
 											: "连接断开——自动重连中"
 								}
 							>
-								<span
-									className={`dot ${wsStatus === "open" ? "ok" : wsStatus === "connecting" ? "warn" : "off"}`}
+								<Badge
+									status={
+										wsStatus === "open"
+											? "success"
+											: wsStatus === "connecting"
+												? "processing"
+												: "error"
+									}
 								/>
 							</Tooltip>
 						</header>
@@ -678,15 +709,23 @@ function Shell() {
 													i === lastReplyIdx &&
 													settledCot !== null &&
 													!thinking && (
-														<details className="cot-box">
-															<summary>已深度思考</summary>
-															<div
-																className="md"
-																dangerouslySetInnerHTML={{
-																	__html: renderMd(settledCot ?? ""),
-																}}
-															/>
-														</details>
+														<Collapse
+															className="cot-box"
+															items={[
+																{
+																	key: "cot",
+																	label: "已深度思考",
+																	children: (
+																		<div
+																			className="md"
+																			dangerouslySetInnerHTML={{
+																				__html: renderMd(settledCot ?? ""),
+																			}}
+																		/>
+																	),
+																},
+															]}
+														/>
 													)}
 												{m.kind === "reply" ? (
 													<div className="agent-msg">
@@ -727,32 +766,32 @@ function Shell() {
 										),
 									)}
 									{thinking && (
-										<details
-											className="agent-msg typing"
-											open={!cotCollapsed}
-											onToggle={(e) =>
-												setCotCollapsed(!(e.target as HTMLDetailsElement).open)
-											}
-										>
-											<summary className="agent-label">
-												rt · 思考中
-												<span className="cot-collapse-hint">
-													{cotCollapsed ? "展开" : "折叠"}
-												</span>
-											</summary>
-											{cot === "" ? (
-												<div className="dots">
-													<span />
-													<span />
-													<span />
-												</div>
-											) : (
-												<div
-													className="cot-stream md"
-													dangerouslySetInnerHTML={{ __html: renderMd(cot) }}
-												/>
-											)}
-										</details>
+										<Collapse
+											className="cot-live"
+											activeKey={cotCollapsed ? [] : ["thinking"]}
+											onChange={() => setCotCollapsed((c) => !c)}
+											items={[
+												{
+													key: "thinking",
+													label: "rt · 思考中",
+													children:
+														cot === "" ? (
+															<div className="dots">
+																<span />
+																<span />
+																<span />
+															</div>
+														) : (
+															<div
+																className="cot-stream md"
+																dangerouslySetInnerHTML={{
+																	__html: renderMd(cot),
+																}}
+															/>
+														),
+												},
+											]}
+										/>
 									)}
 
 									{/* 流内入口卡片（#713）：ready = 模型判定对齐充分，给生成入口；
@@ -760,34 +799,41 @@ function Shell() {
 									{mindStatus === null &&
 										lastFlow.flow === "ready" &&
 										!thinking && (
-											<button
-												type="button"
-												className="hub-card"
-												onClick={() => openMindmap(true)}
-											>
-												<NodeIndexOutlined className="hub-card-ico" />
-												<span className="hub-card-main">
-													<b>对齐已充分——生成思维导图</b>
-													<small>
-														从对话 context 抽取总结脑图（quote
-														溯源，确认前可编辑）
-													</small>
-												</span>
-											</button>
+											<Alert
+												className="flow-alert"
+												type="success"
+												showIcon
+												message="对齐已充分——生成思维导图"
+												description="从对话 context 抽取总结脑图（quote 溯源，确认前可编辑）"
+												action={
+													<Button
+														size="small"
+														type="primary"
+														onClick={() => openMindmap(true)}
+													>
+														生成
+													</Button>
+												}
+											/>
 										)}
 									{mindStatus === null &&
 										lastFlow.flow === "blocked" &&
 										lastFlow.userConfirmed &&
 										lastFlow.blockers.length > 0 &&
 										!thinking && (
-											<div className="blockers-card">
-												<b>进入调研前需要解决</b>
-												<ul>
-													{lastFlow.blockers.map((b, i) => (
-														<li key={`blk-${String(i)}`}>{b}</li>
-													))}
-												</ul>
-											</div>
+											<Alert
+												className="flow-alert"
+												type="warning"
+												showIcon
+												message="进入调研前需要解决"
+												description={
+													<ul className="blockers-list">
+														{lastFlow.blockers.map((b, i) => (
+															<li key={`blk-${String(i)}`}>{b}</li>
+														))}
+													</ul>
+												}
+											/>
 										)}
 									{mindStatus === "draft" && (
 										<button
