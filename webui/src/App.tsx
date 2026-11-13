@@ -14,6 +14,7 @@ import {
 	PlusOutlined,
 	SettingOutlined,
 } from "@ant-design/icons";
+import type { InputRef } from "antd";
 import {
 	App as AntApp,
 	Button,
@@ -74,6 +75,20 @@ function Shell() {
 	const [view, setView] = useState<View>("chat");
 	const [autoGen, setAutoGen] = useState(false);
 	const [draft, setDraft] = useState("");
+	const chatInputRef = useRef<InputRef>(null);
+	const heroInputRef = useRef<InputRef>(null);
+	const readChatDraft = (): string => chatInputRef.current?.input?.value ?? "";
+	const clearChatDraft = (): void => {
+		const input = chatInputRef.current?.input;
+		if (input !== undefined && input !== null) input.value = "";
+		setDraft("");
+	};
+	const readHeroDraft = (): string => heroInputRef.current?.input?.value ?? "";
+	const clearHeroDraft = (): void => {
+		const input = heroInputRef.current?.input;
+		if (input !== undefined && input !== null) input.value = "";
+		setDraft("");
+	};
 	const [kind, setKind] = useState<Kind>("auto");
 	const [busy, setBusy] = useState(false);
 	const [thinking, setThinking] = useState(false);
@@ -212,8 +227,10 @@ function Shell() {
 			} catch (e) {
 				// 错误必须可见（#706 onboarding 死路：pi 未配置时静默失败）
 				messageApi.error(String(e instanceof Error ? e.message : e));
-				// UX 备注2：rpc 未达服务端时消息可能未落账——回填草稿可重发
-				if (kind !== "auto" || !navigator.onLine) setDraft(text);
+				// UX 备注2：rpc 未达服务端时消息可能未落账——回填输入框可重发
+				const input = chatInputRef.current?.input;
+				if (input !== undefined && input !== null) input.value = text;
+				setDraft(text);
 				// 失败也要刷新——用户消息与错误行已先落账（#704）
 				await refreshHub(target);
 			} finally {
@@ -287,22 +304,40 @@ function Shell() {
 		(acc, m, i) => (m.kind === "reply" ? i : acc),
 		-1,
 	);
-	// 导图卡门控（#704）：不再"有一条消息就绪"——由模型在最近一轮 reply 的
-	// receipt 里判定的 converged 驱动（第一轮对话不诱导生成导图）
-	const lastConverged = (() => {
+	// 导图门控（#713）：由模型在最近一轮 reply 的 receipt 里的 flow/blockers
+	// 驱动——ready 才给入口；blocked 把原因逐条摆给用户
+	const lastFlow = (() => {
 		const replies = msgs.filter((m) => m.kind === "reply");
 		const last = replies.at(-1);
 		if (last?.receipt_json === null || last?.receipt_json === undefined)
-			return false;
+			return {
+				flow: "blocked" as "ready" | "blocked",
+				userConfirmed: false,
+				blockers: [] as string[],
+			};
 		try {
-			return (
-				(JSON.parse(last.receipt_json) as { converged?: boolean }).converged ===
-				true
-			);
+			const parsed = JSON.parse(last.receipt_json) as {
+				flow?: string;
+				userConfirmed?: boolean;
+				blockers?: string[];
+			};
+			return {
+				flow: parsed.flow === "ready" ? "ready" : "blocked",
+				userConfirmed: parsed.userConfirmed === true,
+				blockers: Array.isArray(parsed.blockers) ? parsed.blockers : [],
+			};
 		} catch {
-			return false;
+			return {
+				flow: "blocked" as "ready" | "blocked",
+				blockers: [] as string[],
+			};
 		}
 	})();
+	// 问句只渲染最近一轮的（#713）
+	const lastReplySeq = msgs.reduce(
+		(acc, m) => (m.kind === "reply" ? Math.max(acc, m.seq) : acc),
+		-1,
+	);
 
 	const openMindmap = (auto: boolean) => {
 		setAutoGen(auto);
@@ -499,13 +534,15 @@ function Shell() {
 						</Typography.Text>
 						<div className="composer-pill home-composer">
 							<Input
-								value={draft}
+								ref={heroInputRef}
 								onChange={(e) => setDraft(e.target.value)}
 								placeholder="把想法倒进来——例如：我想开个数据标注公司"
 								onPressEnter={() => {
-									if (draft.trim() && !busy) {
-										void createAndSend(draft).then((ok) => {
-											if (ok) setDraft("");
+									const t = readHeroDraft();
+									if (t.trim() && !busy) {
+										clearHeroDraft();
+										void createAndSend(t).then((ok) => {
+											if (!ok) setDraft(t); // 失败回填可重发
 										});
 									}
 								}}
@@ -516,11 +553,15 @@ function Shell() {
 								shape="circle"
 								icon={<ArrowUpOutlined />}
 								className="send-circle"
-								disabled={!draft.trim() || busy}
+								disabled={busy}
 								onClick={() => {
-									void createAndSend(draft).then((ok) => {
-										if (ok) setDraft("");
-									});
+									const t = readHeroDraft();
+									if (t.trim() && !busy) {
+										clearHeroDraft();
+										void createAndSend(t).then((ok) => {
+											if (!ok) setDraft(t); // 失败回填可重发
+										});
+									}
 								}}
 							/>
 						</div>
@@ -603,13 +644,17 @@ function Shell() {
 													<div className="agent-msg">
 														<div className="agent-text">{m.text}</div>
 													</div>
-												) : m.kind === "plan" ? (
-													<div className="plan-box">
-														<div className="plan-title">研究计划草案</div>
-														<pre>{m.text}</pre>
-													</div>
 												) : m.kind === "question" ? (
-													<div className="question-row">❓ {m.text}</div>
+													m.seq > lastReplySeq ? (
+														<button
+															type="button"
+															className="question-row"
+															onClick={() => setDraft(m.text)}
+															title="点击填入输入框"
+														>
+															❓ {m.text}
+														</button>
+													) : null
 												) : m.kind === "recon" ? (
 													<details className="recon-box">
 														<summary>
@@ -643,25 +688,40 @@ function Shell() {
 										</div>
 									)}
 
-									{/* 流内入口卡片：chat hub 是唯一导航入口（无 tab）。
-											生成卡由模型判定的 converged 门控——第一轮对话
-											不再诱导生成导图（#704 用户反馈） */}
-									{mindStatus === null && lastConverged && !thinking && (
-										<button
-											type="button"
-											className="hub-card"
-											onClick={() => openMindmap(true)}
-										>
-											<NodeIndexOutlined className="hub-card-ico" />
-											<span className="hub-card-main">
-												<b>想法已成形——生成思维导图</b>
-												<small>
-													从对话 context 抽取总结脑图（quote
-													溯源，确认前可编辑）
-												</small>
-											</span>
-										</button>
-									)}
+									{/* 流内入口卡片（#713）：ready = 模型判定对齐充分，给生成入口；
+											blocked = 把缺口逐条摆给用户——不再藏按钮也不空转 */}
+									{mindStatus === null &&
+										lastFlow.flow === "ready" &&
+										!thinking && (
+											<button
+												type="button"
+												className="hub-card"
+												onClick={() => openMindmap(true)}
+											>
+												<NodeIndexOutlined className="hub-card-ico" />
+												<span className="hub-card-main">
+													<b>对齐已充分——生成思维导图</b>
+													<small>
+														从对话 context 抽取总结脑图（quote
+														溯源，确认前可编辑）
+													</small>
+												</span>
+											</button>
+										)}
+									{mindStatus === null &&
+										lastFlow.flow === "blocked" &&
+										lastFlow.userConfirmed &&
+										lastFlow.blockers.length > 0 &&
+										!thinking && (
+											<div className="blockers-card">
+												<b>进入调研前需要解决</b>
+												<ul>
+													{lastFlow.blockers.map((b, i) => (
+														<li key={`blk-${String(i)}`}>{b}</li>
+													))}
+												</ul>
+											</div>
+										)}
 									{mindStatus === "draft" && (
 										<button
 											type="button"
@@ -711,31 +771,17 @@ function Shell() {
 												label,
 											}))}
 										/>
-										{/* P0-4：主动入口——模型 converged 只是加速提示，不是唯一开关 */}
-										<Tooltip
-											title={
-												msgs.length >= 3
-													? "把对话总结为思维导图（确认后进入调研）"
-													: `再聊 ${3 - msgs.length} 条即可生成导图`
-											}
-										>
-											<Button
-												size="small"
-												className="mind-entry-btn"
-												icon={<NodeIndexOutlined />}
-												disabled={msgs.length < 3}
-												onClick={() => openMindmap(false)}
-											>
-												导图
-											</Button>
-										</Tooltip>
 										<Input
-											value={draft}
+											ref={chatInputRef}
 											onChange={(e) => setDraft(e.target.value)}
 											placeholder="追问、纠正、追加信息……"
-											onPressEnter={() =>
-												draft.trim() && !busy && void send(draft)
-											}
+											onPressEnter={() => {
+												const t = readChatDraft();
+												if (t.trim() && !busy) {
+													clearChatDraft();
+													void send(t);
+												}
+											}}
 											disabled={taskId === null}
 											variant="borderless"
 										/>
@@ -744,8 +790,14 @@ function Shell() {
 											shape="circle"
 											icon={<ArrowUpOutlined />}
 											className="send-circle"
-											onClick={() => void send(draft)}
-											disabled={!draft.trim() || busy || taskId === null}
+											onClick={() => {
+												const t = readChatDraft();
+												if (t.trim() && !busy) {
+													clearChatDraft();
+													void send(t);
+												}
+											}}
+											disabled={taskId === null}
 										/>
 									</div>
 								</div>

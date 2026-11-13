@@ -18,6 +18,9 @@ import { WebUIServer } from "../src/server.js";
 const TURN_JSON = JSON.stringify({
 	kind: "preference",
 	converged: true,
+	flow: "ready",
+	userConfirmed: true,
+	blockers: [],
 	reply:
 		"「开数据标注公司」目前太虚：没说目标客户、标注类型和起步规模。我先把它收敛成一个可调研的命题。",
 	questions: [
@@ -137,10 +140,11 @@ describe("chat.turn conversational loop (issue #660)", () => {
 			{ seq: 2, role: "rt", kind: "reply", text: "回执", created_at: "t" },
 		]);
 		expect(prompt).toContain("[1][user] 我想开个数据标注公司");
-		expect(prompt).toContain("plan");
-		expect(prompt).toContain("自动推进");
+		expect(prompt).toContain("flow 门控");
+		expect(prompt).toContain("问句");
+		expect(prompt).toContain("最近三轮");
 		expect(prompt).toContain('"recon"');
-		expect(prompt).toContain("基于合理假设");
+		expect(prompt).toContain("意图不明");
 	});
 
 	it("transcript 包含本轮用户输入（#711：先落账不得排除当前消息）", async () => {
@@ -242,6 +246,16 @@ describe("chat.turn conversational loop (issue #660)", () => {
 		expect(JSON.parse(String(userMsg?.receipt_json)).classified_by).toBe(
 			"pi-session",
 		);
+		// flow 语义确认门控（#713）：reply receipt 携带 flow/blockers
+		const replyMsg = history.find((m) => m.kind === "reply");
+		const replyReceipt = JSON.parse(String(replyMsg?.receipt_json)) as {
+			flow: string;
+			userConfirmed: boolean;
+			blockers: string[];
+		};
+		expect(replyReceipt.flow).toBe("ready");
+		expect(replyReceipt.userConfirmed).toBe(true);
+		expect(replyReceipt.blockers).toEqual([]);
 	});
 
 	it("fail-closed without a keyed session (no simulated conversation)", async () => {
