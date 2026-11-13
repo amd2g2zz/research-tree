@@ -29,6 +29,9 @@ export interface StageInfo {
 	claim_ids: string[];
 	depends_on: string[];
 	assigned_worker_class?: string;
+	/** 后台 worker 产出（#709）：findings 摘要 + 来源列表 */
+	findings: string | null;
+	sources: Array<{ title: string; url?: string; snippet?: string }>;
 }
 
 export interface MindNode {
