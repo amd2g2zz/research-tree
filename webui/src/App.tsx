@@ -28,8 +28,17 @@ import {
 	Tooltip,
 	Typography,
 } from "antd";
+import DOMPurify from "dompurify";
+import { marked } from "marked";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { connectWs, onDelta, onWsStatus, rest, rpc } from "./lib/rpc";
+import {
+	connectWs,
+	onDelta,
+	onTurnEvent,
+	onWsStatus,
+	rest,
+	rpc,
+} from "./lib/rpc";
 import type {
 	ChatMsg,
 	Kind,
@@ -65,6 +74,11 @@ export function clipTitle(text: string): string {
 	return cleaned.slice(0, 15);
 }
 
+/** 模型输出 markdown 渲染（sanitize 后注入）——thinking 与正文统一。 */
+function renderMd(text: string): string {
+	return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+}
+
 function Shell() {
 	const { modal, message: messageApi } = AntApp.useApp();
 	const [projects, setProjects] = useState<Project[]>([]);
@@ -94,6 +108,7 @@ function Shell() {
 	const [thinking, setThinking] = useState(false);
 	const [cot, setCot] = useState("");
 	const [settledCot, setSettledCot] = useState<string | null>(null);
+	const [cotCollapsed, setCotCollapsed] = useState(false);
 	const cotBuf = useRef("");
 	const [piReady, setPiReady] = useState<PiConfigSummary | null>(null);
 	const [wsStatus, setWsStatus] = useState<"connecting" | "open" | "closed">(
@@ -136,13 +151,40 @@ function Shell() {
 	const refreshHub = useCallback(async (tid: string) => {
 		const h = await rpc("chat.history", { task_id: tid });
 		setMsgs((h.messages ?? []) as ChatMsg[]);
-		const s = await rpc("task.status", { task_id: tid });
-		setPhase(String(s.phase ?? "chat"));
+		// #716：进行中的 turn——恢复思考流（新客户端继续接收 turn-delta）
+		const active = h.activeTurn as { thinking?: string } | null | undefined;
+		if (
+			active !== null &&
+			active !== undefined &&
+			active.thinking !== undefined &&
+			active.thinking !== ""
+		) {
+			cotBuf.current = active.thinking;
+			setCot(active.thinking);
+			setThinking(true);
+			setSettledCot(null);
+		} else {
+			setThinking(false);
+		}
+		const st = await rpc("task.status", { task_id: tid });
+		setPhase(String(st.phase ?? "chat"));
 		const m = await rpc("mindmap.get", { task_id: tid });
 		setMindStatus((m.status as string | null) ?? null);
 	}, []);
 
 	useEffect(() => onWsStatus(setWsStatus), []);
+
+	// turn 生命周期（#716）：turn-end 刷新落账消息；本任务的 turn-start 挂流
+	useEffect(() => {
+		return onTurnEvent((ev) => {
+			if (taskId === null || ev.task_id !== taskId) return;
+			if (ev.event === "turn-start") setThinking(true);
+			if (ev.event === "turn-end") {
+				setThinking(false);
+				void refreshHub(taskId);
+			}
+		});
+	}, [taskId, refreshHub]);
 
 	useEffect(() => {
 		void refresh();
@@ -213,6 +255,7 @@ function Shell() {
 					onDelta((d) => {
 						cotBuf.current += d;
 						setCot(cotBuf.current);
+						setThinking(true); // 刷新/换端后漏掉 turn-start 也能重新挂上
 					});
 					await connectWs();
 					setDraft(""); // 服务端已先落账用户消息——发送即清（H4）
@@ -637,12 +680,22 @@ function Shell() {
 													!thinking && (
 														<details className="cot-box">
 															<summary>已深度思考</summary>
-															<pre>{settledCot}</pre>
+															<div
+																className="md"
+																dangerouslySetInnerHTML={{
+																	__html: renderMd(settledCot ?? ""),
+																}}
+															/>
 														</details>
 													)}
 												{m.kind === "reply" ? (
 													<div className="agent-msg">
-														<div className="agent-text">{m.text}</div>
+														<div
+															className="agent-text md"
+															dangerouslySetInnerHTML={{
+																__html: renderMd(m.text),
+															}}
+														/>
 													</div>
 												) : m.kind === "question" ? (
 													m.seq > lastReplySeq ? (
@@ -674,8 +727,19 @@ function Shell() {
 										),
 									)}
 									{thinking && (
-										<div className="agent-msg typing">
-											<div className="agent-label">rt · 思考中</div>
+										<details
+											className="agent-msg typing"
+											open={!cotCollapsed}
+											onToggle={(e) =>
+												setCotCollapsed(!(e.target as HTMLDetailsElement).open)
+											}
+										>
+											<summary className="agent-label">
+												rt · 思考中
+												<span className="cot-collapse-hint">
+													{cotCollapsed ? "展开" : "折叠"}
+												</span>
+											</summary>
 											{cot === "" ? (
 												<div className="dots">
 													<span />
@@ -683,9 +747,12 @@ function Shell() {
 													<span />
 												</div>
 											) : (
-												<pre className="cot-stream">{cot}</pre>
+												<div
+													className="cot-stream md"
+													dangerouslySetInnerHTML={{ __html: renderMd(cot) }}
+												/>
 											)}
-										</div>
+										</details>
 									)}
 
 									{/* 流内入口卡片（#713）：ready = 模型判定对齐充分，给生成入口；

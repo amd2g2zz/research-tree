@@ -7,6 +7,15 @@ let ws: WebSocket | undefined;
 let pending: Promise<WebSocket> | undefined;
 let rpcId = 0;
 let deltaCb: ((delta: string) => void) | undefined;
+const eventCbs = new Set<(ev: { event?: string; task_id?: string }) => void>();
+
+/** 订阅 turn 生命周期事件（turn-start/turn-end）——刷新/换端后重新挂流 */
+export function onTurnEvent(
+	cb: (ev: { event?: string; task_id?: string }) => void,
+): () => void {
+	eventCbs.add(cb);
+	return () => eventCbs.delete(cb);
+}
 let wsStatus: "connecting" | "open" | "closed" = "closed";
 const statusCbs = new Set<(s: "connecting" | "open" | "closed") => void>();
 let reconnectAttempt = 0;
@@ -62,9 +71,16 @@ export function connectWs(): Promise<WebSocket> {
 			// onclose follows — reconnect scheduled there
 		};
 		socket.onmessage = (ev) => {
-			const msg = JSON.parse(ev.data) as { event?: string; delta?: string };
+			const msg = JSON.parse(ev.data) as {
+				event?: string;
+				delta?: string;
+				task_id?: string;
+			};
 			if (msg.event === "turn-delta" && deltaCb !== undefined)
 				deltaCb(msg.delta ?? "");
+			if (msg.event === "turn-start" || msg.event === "turn-end") {
+				for (const cb of eventCbs) cb(msg);
+			}
 		};
 	});
 	return pending;

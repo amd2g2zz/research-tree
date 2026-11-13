@@ -47,7 +47,14 @@ import { ProjectHomeError, ProjectHomeModel } from "../../rt-core/src/ux/project
 import { FourStateArchive } from "../../rt-core/src/versions/archive.js";
 import { VersionStore } from "../../rt-core/src/versions/store.js";
 import { VersionTimeline, VersionTimelineError } from "../../rt-core/src/versions/timeline.js";
-import { buildTurnPrompt, parseTurnOutput, reconToText, runRecon, type TurnOutput } from "./chat-turn.js";
+import {
+  buildTurnPrompt,
+  createThinkingFilter,
+  parseTurnOutput,
+  reconToText,
+  runRecon,
+  type TurnOutput,
+} from "./chat-turn.js";
 import { pickClassifier } from "./classify.js";
 import type { MindNode } from "./mindmap.js";
 import { editNode, type MindTree, mindmapPrompt, parseMindmap, mechanicalPlan as planFromTree } from "./mindmap.js";
@@ -111,6 +118,9 @@ export class WebUIServer {
   private readonly machine: ProductStateMachine;
   private readonly home: ProjectHomeModel;
   private readonly researchRunner: BackgroundResearchRunner;
+  /** 进行中的对话 turn（#716）：taskId → 已累积的 thinking 缓冲——刷新/
+   * 断线重连后从 chat.history 恢复思考流，而不是黑屏等待 */
+  private readonly activeTurns = new Map<string, { thinking: string }>;
   private readonly canvas: Promise<CanvasProjection>;
   private readonly timeline: VersionTimeline;
   private readonly archive: FourStateArchive;
@@ -559,7 +569,21 @@ export class WebUIServer {
           )
           .all(taskId, userSeq) as TranscriptMessage[];
         const prompt = buildTurnPrompt(transcript);
-        // async pi (issue #670) + streaming deltas (#679): 思维链先行
+        // async pi (issue #670) + streaming deltas (#679): 思维链先行。
+        // #716：thinking 流过滤（剥离 turn JSON）+ activeTurn 注册——刷新/
+        // 换端重连后从 chat.history 拿到进行中的思考缓冲，继续接收流
+        const thinking = createThinkingFilter();
+        this.activeTurns.set(taskId, { thinking: "" });
+        const broadcastDelta = (delta: string): void => {
+          const visible = thinking.push(delta);
+          if (visible !== "") {
+            const entry = this.activeTurns.get(taskId);
+            if (entry !== undefined) entry.thinking += visible;
+            for (const client of this.wss.clients) {
+              client.send(JSON.stringify({ event: "turn-delta", delta: visible, task_id: taskId }));
+            }
+          }
+        };
         for (const client of this.wss.clients) {
           client.send(JSON.stringify({ event: "turn-start", task_id: taskId }));
         }
@@ -571,11 +595,7 @@ export class WebUIServer {
                 prompt,
                 this.options.piTimeoutMs ?? 300_000,
                 ["-nt", "-ne", "--no-session", "--no-skills"],
-                (delta) => {
-                  for (const client of this.wss.clients) {
-                    client.send(JSON.stringify({ event: "turn-delta", delta }));
-                  }
-                },
+                broadcastDelta,
               );
         // 一次重试：模型偶发非 JSON 输出时补一句硬约束再试；仍失败 → 诚实
         // 错误行落账（用户消息已先落账，不会只剩 think）并抛出（#704）
@@ -606,6 +626,10 @@ export class WebUIServer {
               `本轮模型输出异常（${reason}）——你的消息已保留，请重新发送或稍后重试。`,
               { failed: true },
             );
+            this.activeTurns.delete(taskId);
+            for (const client of this.wss.clients) {
+              client.send(JSON.stringify({ event: "turn-end", task_id: taskId }));
+            }
             throw secondError;
           }
         }
@@ -662,6 +686,10 @@ export class WebUIServer {
         });
         for (const q of turn.questions) {
           this.appendChat(taskId, "rt", "question", q, null);
+        }
+        this.activeTurns.delete(taskId);
+        for (const client of this.wss.clients) {
+          client.send(JSON.stringify({ event: "turn-end", task_id: taskId }));
         }
         return {
           kind: turn.kind,
@@ -732,14 +760,21 @@ export class WebUIServer {
           routed_count: this.routedCount(taskId),
         };
       }
-      case "chat.history":
+      case "chat.history": {
+        const historyTaskId = String(params.task_id);
+        const messages = this.ledger.connection
+          .prepare(
+            "SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? ORDER BY seq",
+          )
+          .all(historyTaskId) as Array<Record<string, unknown>>;
+        // #716：进行中的 turn——刷新/换端重连后把已累积的思考缓冲一起带回，
+        // 新客户端继续接收 turn-delta（广播面向全部客户端）
+        const active = this.activeTurns.get(historyTaskId);
         return {
-          messages: this.ledger.connection
-            .prepare(
-              "SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? ORDER BY seq",
-            )
-            .all(String(params.task_id)) as Array<Record<string, unknown>>,
+          messages,
+          activeTurn: active !== undefined ? { thinking: active.thinking } : null,
         };
+      }
       case "config.setProviderKey": {
         // #638/#655: upsert INTO pi's own models.json provider registry —
         // the audit records the provider NAME only, never the key; the key
