@@ -96,6 +96,7 @@ function Shell() {
 	const [view, setView] = useState<View>("chat");
 	const [autoGen, setAutoGen] = useState(false);
 	const [draft, setDraft] = useState("");
+	const busyRef = useRef(false);
 	const chatInputRef = useRef<InputRef>(null);
 	const heroInputRef = useRef<InputRef>(null);
 	const readChatDraft = (): string => chatInputRef.current?.input?.value ?? "";
@@ -156,6 +157,8 @@ function Shell() {
 	}, []);
 
 	const refreshHub = useCallback(async (tid: string) => {
+		// busy 期间不覆盖流内乐观气泡（#720）——turn-end/finally 里的刷新兜底
+		if (busyRef.current) return;
 		const h = await rpc("chat.history", { task_id: tid });
 		setMsgs((h.messages ?? []) as ChatMsg[]);
 		// #716：进行中的 turn——恢复思考流（新客户端继续接收 turn-delta）
@@ -253,6 +256,19 @@ function Shell() {
 			const target = tidOverride ?? taskId;
 			if (target === null || !text.trim()) return;
 			setBusy(true);
+			busyRef.current = true;
+			// 乐观渲染（#720）：用户气泡立即出现在流内——服务端在 turn 分发时
+			// 落账同一条消息，refreshHub 同步时以服务端为准
+			setMsgs((prev) => [
+				...prev,
+				{
+					seq: -Date.now(),
+					role: "user",
+					kind: "text",
+					text,
+					receipt_json: null,
+				} as ChatMsg,
+			]);
 			cotBuf.current = "";
 			setCot("");
 			setSettledCot(null);
@@ -272,18 +288,16 @@ function Shell() {
 					setDraft("");
 					await rpc("chat.ingest", { task_id: target, text, kind });
 				}
-				await refreshHub(target);
-				void refresh();
 			} catch (e) {
 				// 错误必须可见（#706 onboarding 死路：pi 未配置时静默失败）
 				messageApi.error(String(e instanceof Error ? e.message : e));
 				// UX 备注2：rpc 未达服务端时消息可能未落账——回填输入框可重发
 				const input = chatInputRef.current?.input;
 				if (input !== undefined && input !== null) input.value = text;
-				setDraft(text);
 				// 失败也要刷新——用户消息与错误行已先落账（#704）
-				await refreshHub(target);
 			} finally {
+				busyRef.current = false;
+				await refreshHub(target); // busy 已解除，此处刷新不会被守卫拦截
 				setThinking(false);
 				if (cotBuf.current !== "") setSettledCot(cotBuf.current);
 				setCot("");
