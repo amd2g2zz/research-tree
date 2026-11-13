@@ -131,6 +131,28 @@ export function parseTurnOutput(stdout: string): TurnOutput {
   };
 }
 
+/** Thinking 流过滤器（#716）：turn-delta 直接广播 pi 的原始 stdout，而模型
+ * 输出末尾就是 turn JSON——用户会在思考流里看到裸 JSON。过滤器维护累积
+ * 缓冲，从首个 `{"kind"` 起截断（JSON 只会出现在输出末尾），只返回可见
+ * 部分的**增量**。 */
+export function createThinkingFilter(): {
+	push: (chunk: string) => string;
+} {
+	let buf = "";
+	let sent = 0;
+	return {
+		push(chunk: string): string {
+			buf += chunk;
+			const cut = buf.indexOf('{"kind"');
+			const visible = cut >= 0 ? buf.slice(0, cut) : buf;
+			if (visible.length <= sent) return "";
+			const diff = visible.slice(sent);
+			sent = visible.length;
+			return diff;
+		},
+	};
+}
+
 /** Execute the recon through the DataSourceProvider port (real search). */
 export async function runRecon(
   provider: DataSourceProvider,

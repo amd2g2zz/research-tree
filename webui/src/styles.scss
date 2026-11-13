@@ -277,13 +277,78 @@ body,
 .cot-stream {
 	max-height: 260px;
 	overflow-y: auto;
-	font-size: 12px;
-	color: #8a8a8a;
-	white-space: pre-wrap;
-	margin: 0;
-	padding: 8px 12px;
+	font-size: 12.5px;
+	color: #555;
+	white-space: normal;
+	margin: 8px 0 0;
+	padding: 10px 12px;
 	background: #fafafa;
 	border-radius: 10px;
+	line-height: 1.7;
+
+	// markdown 输出排版（#716）
+	p {
+		margin: 0 0 8px;
+	}
+	code {
+		background: #ececec;
+		border-radius: 4px;
+		padding: 1px 4px;
+		font-size: 11.5px;
+	}
+	pre code {
+		display: block;
+		padding: 8px;
+		white-space: pre-wrap;
+	}
+	ul,
+	ol {
+		margin: 4px 0 8px;
+		padding-left: 18px;
+	}
+}
+
+.cot-collapse-hint {
+	float: right;
+	font-size: 11px;
+	color: #bbb;
+}
+
+.agent-text.md {
+	p {
+		margin: 0 0 10px;
+	}
+	code {
+		background: #ececec;
+		border-radius: 4px;
+		padding: 1px 5px;
+		font-size: 13px;
+	}
+	pre {
+		background: #f6f8fa;
+		border-radius: 8px;
+		padding: 10px 12px;
+		overflow-x: auto;
+		font-size: 13px;
+	}
+	pre code {
+		background: none;
+		padding: 0;
+	}
+	ul,
+	ol {
+		margin: 0 0 10px;
+		padding-left: 20px;
+	}
+	h1,
+	h2,
+	h3,
+	h4 {
+		margin: 14px 0 8px;
+	}
+	a {
+		color: #2f6fed;
+	}
 }
 
 .cot-box {
