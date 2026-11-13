@@ -40,10 +40,15 @@ export interface TurnOutput {
   /** model-judged: is the idea concrete enough to enter the mindmap
    * confirmation stage? (#679 — drives the in-stream action card) */
   converged: boolean;
+  /** 语义确认门控（#713 用户裁定）：**只在用户表达确认/进入意图的那一轮
+   * 判定**——ready = 上下文足以形成导图；blocked = 意图不明/含糊/矛盾，
+   * blockers 是**问句**（从最近三轮的意图推导，逐条抛给用户）；
+   * none = 本轮用户没有确认意图，正常对话，不渲染任何门控卡片 */
+  flow: "ready" | "blocked" | "none";
+  blockers: string[];
+  /** 模型判定：本轮用户是否表达了确认/进入意图——blockers 卡只在此轮渲染 */
+  userConfirmed: boolean;
   reply: string;
-  /** 自动 planning（用户裁定 2026-11-13）：当前研究计划草案——首轮即产出，
-   * 后续轮次更新；空数组 = 结构尚未成形 */
-  plan: string[];
   questions: string[];
   recon?: { query: string; kind?: string } | null;
 }
@@ -62,11 +67,14 @@ export function buildTurnPrompt(messages: TranscriptMessage[]): string {
     "规则：\n" +
     '1. 判定最后一句话的语义类型 kind ∈ preference|claim|guess|constraint|branch（偏好意图/可判定主张/方案猜测/硬约束/分支岔路）。\n' +
     "2. reply 给实质回应：复述你理解的核心诉求、指出虚/缺的部分、说明本轮做了什么、下一步是什么。语气推进，不敷衍。\n" +
-    "3. **plan = 当前研究计划草案**（3-5 条，每条一个可执行的调研动作/待验证命题）。首轮就给出初步计划（基于合理假设，标注假设处），后续轮次随新信息修订。plan 是主动产出，不是等用户问。\n" +
-    "4. 提问克制：只有当某个缺口**不补就无法推进**时才问（每轮最多 2 个，优先本轮最重要的一个；之前已经问过的问题绝不重复）；没有关键缺口就给空数组——用 plan 和 recon 推进代替提问。\n" +
+    "3. **flow 门控只在用户表达确认/进入意图的那一轮判定**（如「没有什么问题了」「可以结束对话了」「按计划进入下一步」「开始调研吧」）：\n" +
+    '   - 该轮上下文足以形成导图（对象/范围/可验证口径齐备）→ flow="ready"。\n' +
+    '   - 该轮出现意图不明/内容含糊不清/逻辑矛盾/前后冲突 → flow="blocked"，且 blockers 必须是**问句**（每条一个问题，从最近三轮的意图与内容推导，逐条抛给用户让 TA 补齐——不是你的内心独白，不是陈述句）。例：「试点的具体城市/园区是哪一个？」\n' +
+    '   - 其余所有轮次（用户在正常对话/补充信息/追问）→ flow="none"，blockers=[]，不渲染任何门控。\n' +
+    "4. **questions = 意图推荐**：基于**最近三轮**的对话内容，推荐 0-2 个用户下一步最可能想问/最该问的问题（问句形式，与上下文强相关；已回答过的不重复）。没有好问题时给空数组。\n" +
     "5. 情景合适就主动调用工具：给出 recon（{\"query\":\"搜索词\"}）做一次真实资料搜索帮助澄清；否则 null。\n" +
-    "6. converged：想法已具体到可开始调研（对象/范围/可验证口径齐备）时 true——宁缺毋滥，一两句话不足以成形时保持 false。\n" +
-    '只输出 JSON：{"kind":"...","converged":false,"reply":"...","plan":["..."],"questions":["..."],"recon":null}\n\n对话：\n' +
+    "6. converged：想法已具体到可开始调研时 true——与 flow=\"ready\" 通常同时成立。\n" +
+    '只输出 JSON：{"kind":"...","converged":false,"flow":"none","userConfirmed":false,"blockers":[],"reply":"...","questions":["..."],"recon":null}\n\n对话：\n' +
     transcript
   );
 }
@@ -88,14 +96,19 @@ export function parseTurnOutput(stdout: string): TurnOutput {
     throw new Error(`turn returned an unusable kind: ${JSON.stringify(kind)}`);
   }
   const converged = raw.converged === true;
+  const flowRaw = raw.flow;
+  const flow =
+    flowRaw === "ready" || flowRaw === "blocked" ? flowRaw : "none";
+  const userConfirmed = raw.userConfirmed === true;
+  const blockers = Array.isArray(raw.blockers)
+    ? (raw.blockers.filter((b) => typeof b === "string" && b.trim() !== "") as string[])
+    : [];
   const reply = raw.reply;
   if (typeof reply !== "string" || reply.trim() === "") {
     // a turn without a substantive reply is the wall we are removing
     throw new Error("turn returned no substantive reply");
   }
-  const plan = Array.isArray(raw.plan)
-    ? (raw.plan.filter((s) => typeof s === "string" && s.trim() !== "") as string[])
-    : [];
+
   const questions = Array.isArray(raw.questions)
     ? (raw.questions.filter((q) => typeof q === "string" && q.trim() !== "") as string[])
     : [];
@@ -104,7 +117,16 @@ export function parseTurnOutput(stdout: string): TurnOutput {
     typeof reconRaw === "object" && reconRaw !== null && typeof (reconRaw as Record<string, unknown>).query === "string"
       ? { query: (reconRaw as Record<string, unknown>).query as string, kind: "search" }
       : null;
-  return { kind: kind as TurnKind, converged, reply, plan, questions, recon };
+  return {
+    kind: kind as TurnKind,
+    converged,
+    flow,
+    userConfirmed,
+    blockers: flow === "blocked" ? blockers : [],
+    reply,
+    questions,
+    recon,
+  };
 }
 
 /** Execute the recon through the DataSourceProvider port (real search). */

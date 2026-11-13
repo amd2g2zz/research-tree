@@ -598,20 +598,21 @@ export class WebUIServer {
         this.appendChat(taskId, "rt", "reply", turn.reply, {
           questions: turn.questions,
           converged: turn.converged,
+          flow: turn.flow,
+          userConfirmed: turn.userConfirmed,
+          blockers: turn.blockers,
           classified_by: "pi-session",
         });
-        if (turn.plan.length > 0) {
-          const planText = turn.plan.map((s, i) => `${i + 1}. ${s}`).join("\n");
-          this.appendChat(taskId, "rt", "plan", planText, { converged: turn.converged });
-        }
         for (const q of turn.questions) {
           this.appendChat(taskId, "rt", "question", q, null);
         }
         return {
           kind: turn.kind,
           converged: turn.converged,
+          flow: turn.flow,
+          userConfirmed: turn.userConfirmed,
+          blockers: turn.blockers,
           reply: turn.reply,
-          plan: turn.plan,
           questions: turn.questions,
           recon_results: reconResults ?? [],
           recon_error: reconError,

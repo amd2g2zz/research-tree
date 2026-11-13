@@ -318,6 +318,39 @@ body,
 	border-radius: 16px;
 	width: fit-content;
 	margin-bottom: 8px;
+	font-family: inherit;
+	background: #fff;
+
+	&:hover {
+		background: #f2f7ff;
+		border-color: #9db9e8;
+	}
+}
+
+// flow 门控卡片（#713）：blocked 缺口逐条列举
+.blockers-card {
+	width: min(#{$chat-col}, 100%);
+	margin: 0 auto 20px;
+	padding: 14px 18px;
+	border: 1px solid #ffe7ba;
+	border-radius: 12px;
+	background: #fffbe6;
+
+	b {
+		font-size: 13.5px;
+		color: #8c6a00;
+	}
+
+	ul {
+		margin: 8px 0 0;
+		padding-left: 18px;
+
+		li {
+			font-size: 13px;
+			line-height: 1.7;
+			color: #664d00;
+		}
+	}
 }
 
 .recon-box {
