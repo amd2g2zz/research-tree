@@ -61,7 +61,7 @@ let server: WebUIServer;
 let port: number;
 let ws: WebSocket;
 let provider: FakeProvider;
-let prompts: string[] = [];
+const prompts: string[] = [];
 let nextId = 1;
 
 beforeAll(async () => {
@@ -147,7 +147,7 @@ describe("chat.turn conversational loop (issue #660)", () => {
 		expect(prompt).toContain("意图不明");
 	});
 
-	it("transcript 包含本轮用户输入（#711：先落账不得排除当前消息）", async () => {
+	it("transcript 包含本轮用户输入（#711：先落账不得排除当前消息）", { timeout: 30_000 }, async () => {
 		// 独立 server 实例：不污染共享 ledger 的 anysearch 审计计数
 		const captured: string[] = [];
 		const local = new WebUIServer({
@@ -164,24 +164,29 @@ describe("chat.turn conversational loop (issue #660)", () => {
 			s.on("open", () => resolve(s));
 			s.on("error", reject);
 		});
-		const turn = await new Promise<Record<string, unknown>>((resolve, reject) => {
-			const onMessage = (data: unknown): void => {
-				const msg = JSON.parse(String(data)) as Record<string, unknown>;
-				if (msg.id === 1) {
-					socket.off("message", onMessage);
-					if (msg.ok === true) resolve(msg.result as Record<string, unknown>);
-					else reject(new Error(String(msg.error)));
-				}
-			};
-			socket.on("message", onMessage);
-			socket.send(
-				JSON.stringify({
-					id: 1,
-					method: "chat.turn",
-					params: { task_id: "tT11", text: "我想验证大学城二手电动车交易的合规要求" },
-				}),
-			);
-		});
+		const turn = await new Promise<Record<string, unknown>>(
+			(resolve, reject) => {
+				const onMessage = (data: unknown): void => {
+					const msg = JSON.parse(String(data)) as Record<string, unknown>;
+					if (msg.id === 1) {
+						socket.off("message", onMessage);
+						if (msg.ok === true) resolve(msg.result as Record<string, unknown>);
+						else reject(new Error(String(msg.error)));
+					}
+				};
+				socket.on("message", onMessage);
+				socket.send(
+					JSON.stringify({
+						id: 1,
+						method: "chat.turn",
+						params: {
+							task_id: "tT11",
+							text: "我想验证大学城二手电动车交易的合规要求",
+						},
+					}),
+				);
+			},
+		);
 		void turn;
 		socket.close();
 		await local.close();

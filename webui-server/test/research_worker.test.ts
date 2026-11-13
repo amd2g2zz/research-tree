@@ -31,6 +31,15 @@ function stageStatus(stageId: string): string {
 	return row?.status ?? "unknown";
 }
 
+function summaryStatus(taskId: string): string {
+	const row = ledger.connection
+		.prepare(
+			"SELECT status FROM parallel_stages WHERE stage_id LIKE ? AND title LIKE '汇总%'",
+		)
+		.get(`${taskId}/%`) as { status: string } | undefined;
+	return row?.status ?? "none";
+}
+
 function stageOutputs(stageId: string): string {
 	const row = ledger.connection
 		.prepare("SELECT outputs FROM parallel_stages WHERE stage_id = ?")
@@ -48,7 +57,9 @@ function makeDeps(overrides: Partial<WorkerDeps> = {}): WorkerDeps {
 			piCalls.push(prompt);
 			if (piShouldFail) return Promise.reject(new Error("pi down"));
 			return Promise.resolve(
-				JSON.stringify({ findings: `综合发现（基于检索结果，命题：${queryOf(prompt)}）` }),
+				JSON.stringify({
+					findings: `综合发现（基于检索结果，命题：${queryOf(prompt)}）`,
+				}),
 			);
 		},
 		broadcast: (line) => lines.push(line),
@@ -118,7 +129,11 @@ beforeEach(() => {
 		async search({ query }: { query: string }) {
 			if (this.failNext) throw new Error("anysearch down");
 			return [
-				{ title: `来源A：${query}`, url: "https://a.example", snippet: "摘要A" },
+				{
+					title: `来源A：${query}`,
+					url: "https://a.example",
+					snippet: "摘要A",
+				},
 				{ title: "来源B", snippet: "摘要B" },
 			];
 		},
@@ -140,32 +155,43 @@ describe("BackgroundResearchRunner (#709 多任务后台调研执行)", () => {
 		};
 		expect(artifact.findings).toContain("综合发现");
 		expect(artifact.sources).toHaveLength(2);
-		expect(lines.some((l) => l.includes("[worker]") && l.includes("完成"))).toBe(true);
+		expect(
+			lines.some((l) => l.includes("[worker]") && l.includes("完成")),
+		).toBe(true);
 	});
 
-	it("依赖链：s1 完成后 s2 自动就绪并在下一次 pump 执行", async () => {
+	it("依赖链：pumpOnce 递归排干——s2 依赖解除后同轮滚动执行，图闭合注册汇总", async () => {
 		registerTaskStages("tB");
 		const runner = new BackgroundResearchRunner(makeDeps());
 		await runner.pumpOnce();
 		await runner.waitForIdle();
 		expect(stageStatus("tB/s1")).toBe("complete");
-		expect(stageStatus("tB/s2")).toBe("pending"); // 等待依赖
+		expect(stageStatus("tB/s2")).toBe("complete"); // 依赖解除自动滚动
+		// 图闭合：全部完成 → 汇总节点注册并在下一 pump 执行
+		expect(summaryStatus("tB")).toBe("pending"); // 汇总节点
 		await runner.pumpOnce();
 		await runner.waitForIdle();
-		expect(stageStatus("tB/s2")).toBe("complete");
+		expect(summaryStatus("tB")).toBe("complete");
 	});
 
-	it("检索失败 → failStage 重试计数；下次 pump 重派；成功后完成", async () => {
+	it("检索失败 → 同轮内重试耗尽停泊（诚实）；复位重试后完成", async () => {
 		registerTaskStages("tC");
 		fakeProvider.failNext = true;
 		const runner = new BackgroundResearchRunner(makeDeps());
 		await runner.pumpOnce();
 		await runner.waitForIdle();
-		expect(stageStatus("tC/s1")).toBe("pending"); // 重试回位
+		// 同轮重试耗尽（max_retries=2）→ parked——诚实暴露失败而非假装进行中
+		expect(stageStatus("tC/s1")).toBe("parked");
 		const row = ledger.connection
 			.prepare("SELECT retries FROM parallel_stages WHERE stage_id = 'tC/s1'")
 			.get() as { retries: number };
-		expect(row.retries).toBe(1);
+		expect(row.retries).toBe(2);
+		// 人工复位（修复后重试）
+		ledger.connection
+			.prepare(
+				"UPDATE parallel_stages SET status = 'pending', retries = 0 WHERE stage_id = 'tC/s1'",
+			)
+			.run();
 		fakeProvider.failNext = false;
 		await runner.pumpOnce();
 		await runner.waitForIdle();
@@ -196,7 +222,9 @@ describe("BackgroundResearchRunner (#709 多任务后台调研执行)", () => {
 		registerTaskStages("tZ");
 		// 模拟重启残留：阶段卡在 in_progress 且无 in-flight worker
 		ledger.connection
-			.prepare("UPDATE parallel_stages SET status = 'in_progress' WHERE stage_id = 'tZ/s1'")
+			.prepare(
+				"UPDATE parallel_stages SET status = 'in_progress' WHERE stage_id = 'tZ/s1'",
+			)
 			.run();
 		const runner = new BackgroundResearchRunner(makeDeps());
 		await runner.pumpOnce(); // 同一泵内：孤儿重排 → 重派 → 执行完成

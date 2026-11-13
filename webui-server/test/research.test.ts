@@ -227,9 +227,7 @@ describe("P4 research page (issue #636)", () => {
 			role: "main",
 		});
 		// simulate the transition trail the confirm flow wrote before a restart
-		const ledger = new LedgerStore(
-			join(workspaceFor(server), "ledger.sqlite"),
-		);
+		const ledger = new LedgerStore(join(workspaceFor(server), "ledger.sqlite"));
 		ledger.appendGraphEvent("task.transition", {
 			id: "task-transition-dur-1",
 			task_id: "tDur",
@@ -259,13 +257,18 @@ describe("P4 research page (issue #636)", () => {
 						const msg = JSON.parse(String(data)) as Record<string, unknown>;
 						if (msg.id === 1) {
 							socket.off("message", onMessage);
-							if (msg.ok === true) resolve(msg.result as Record<string, unknown>);
+							if (msg.ok === true)
+								resolve(msg.result as Record<string, unknown>);
 							else reject(new Error(String(msg.error)));
 						}
 					};
 					socket.on("message", onMessage);
 					socket.send(
-						JSON.stringify({ id: 1, method: "task.status", params: { task_id: "tDur" } }),
+						JSON.stringify({
+							id: 1,
+							method: "task.status",
+							params: { task_id: "tDur" },
+						}),
 					);
 				},
 			);
