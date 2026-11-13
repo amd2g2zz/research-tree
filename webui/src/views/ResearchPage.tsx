@@ -4,28 +4,38 @@
 
 import "@xyflow/react/dist/style.css";
 import {
-	Background,
-	BackgroundVariant,
-	Controls,
-	Handle,
-	MiniMap,
-	Position,
-	ReactFlow,
-	ReactFlowProvider,
-	type Edge,
-	type Node,
-	type NodeProps,
-	useReactFlow,
-} from "@xyflow/react";
-import {
 	ArrowLeftOutlined,
 	NodeIndexOutlined,
 	ReloadOutlined,
 } from "@ant-design/icons";
-import { App, Button, Drawer, Empty, Select, Space, Spin, Tag, Typography } from "antd";
+import {
+	Background,
+	BackgroundVariant,
+	Controls,
+	type Edge,
+	Handle,
+	MiniMap,
+	type Node,
+	type NodeProps,
+	Position,
+	ReactFlow,
+	ReactFlowProvider,
+	useReactFlow,
+} from "@xyflow/react";
+import {
+	App,
+	Button,
+	Drawer,
+	Empty,
+	Select,
+	Space,
+	Spin,
+	Tag,
+	Typography,
+} from "antd";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { onEngine, rest, rpc } from "../lib/rpc";
 import { attachWheelPanZoom } from "../lib/rfWheel";
+import { onEngine, rest, rpc } from "../lib/rpc";
 import type { ResearchView, StageInfo } from "../lib/types";
 
 interface Props {
@@ -43,13 +53,14 @@ const VERDICT_CN: Record<string, string> = {
 	REFRAMED: "重构问题（REFRAMED）",
 };
 
-const STAGE_TAG: Record<string, { color: string; bg: string; label: string }> = {
-	pending: { color: "default", bg: "#f0f0f0", label: "待执行" },
-	ready: { color: "blue", bg: "#dbe8ff", label: "就绪" },
-	running: { color: "processing", bg: "#d6f0ff", label: "执行中" },
-	done: { color: "green", bg: "#d9f2dd", label: "完成" },
-	failed: { color: "red", bg: "#ffdbdb", label: "失败" },
-};
+const STAGE_TAG: Record<string, { color: string; bg: string; label: string }> =
+	{
+		pending: { color: "default", bg: "#f0f0f0", label: "待执行" },
+		ready: { color: "blue", bg: "#dbe8ff", label: "就绪" },
+		running: { color: "processing", bg: "#d6f0ff", label: "执行中" },
+		done: { color: "green", bg: "#d9f2dd", label: "完成" },
+		failed: { color: "red", bg: "#ffdbdb", label: "失败" },
+	};
 
 /** Kahn 分层：depends_on 决定列；环/缺失依赖回退单列（数据来自机械计划，正常无环）。 */
 function layer(stages: StageInfo[]): StageInfo[][] {
@@ -64,9 +75,7 @@ function layer(stages: StageInfo[]): StageInfo[][] {
 		const d =
 			s.depends_on.reduce((max, dep) => {
 				const parent = byId.get(dep);
-				return parent === undefined
-					? max
-					: Math.max(max, depthOf(parent) + 1);
+				return parent === undefined ? max : Math.max(max, depthOf(parent) + 1);
 			}, -1) + 1;
 		visiting.delete(s.stage_id);
 		depth.set(s.stage_id, d);
@@ -208,11 +217,7 @@ function DagInner({ view }: { view: ResearchView }) {
 				const colH = col.length * (STAGE_H + DGAP_Y) - DGAP_Y;
 				const y0 = -colH / 2;
 				return col.map((s, si) =>
-					mkNode(
-						s,
-						li * (STAGE_W + DGAP_X),
-						y0 + si * (STAGE_H + DGAP_Y),
-					),
+					mkNode(s, li * (STAGE_W + DGAP_X), y0 + si * (STAGE_H + DGAP_Y)),
 				);
 			});
 		}
@@ -248,33 +253,33 @@ function DagInner({ view }: { view: ResearchView }) {
 				zoomOnScroll={false}
 				panOnScroll={false}
 				zoomOnPinch={false}
-			proOptions={{ hideAttribution: true }}
-		>
-			<Background
-				variant={BackgroundVariant.Dots}
-				gap={22}
-				size={1}
-				color="#dcdcdc"
-			/>
-			<Controls showInteractive={false} position="bottom-right" />
+				proOptions={{ hideAttribution: true }}
+			>
+				<Background
+					variant={BackgroundVariant.Dots}
+					gap={22}
+					size={1}
+					color="#dcdcdc"
+				/>
+				<Controls showInteractive={false} position="bottom-right" />
 				<MiniMap
-				pannable
-				zoomable
-				position="bottom-right"
-				style={{ width: 140, height: 90 }}
-				maskColor="rgba(250,250,250,0.8)"
-				nodeStrokeColor={() => "#9db9e8"}
-				nodeColor={(n) => {
-					const st = (n.data as StageData | undefined)?.status ?? "pending";
-					return st === "done"
-						? "#d9f2dd"
-						: st === "running"
-							? "#d6f0ff"
-							: st === "failed"
-								? "#ffdbdb"
-								: "#f5f8ff";
-				}}
-			/>
+					pannable
+					zoomable
+					position="bottom-right"
+					style={{ width: 140, height: 90 }}
+					maskColor="rgba(250,250,250,0.8)"
+					nodeStrokeColor={() => "#9db9e8"}
+					nodeColor={(n) => {
+						const st = (n.data as StageData | undefined)?.status ?? "pending";
+						return st === "done"
+							? "#d9f2dd"
+							: st === "running"
+								? "#d6f0ff"
+								: st === "failed"
+									? "#ffdbdb"
+									: "#f5f8ff";
+					}}
+				/>
 			</ReactFlow>
 			<Drawer
 				title={drawerStage?.title ?? "阶段详情"}
@@ -292,7 +297,9 @@ function DagInner({ view }: { view: ResearchView }) {
 				)}
 				{drawerStage !== null && drawerStage.sources.length > 0 && (
 					<div className="drawer-sources">
-						<div className="plan-title">来源（{drawerStage.sources.length}）</div>
+						<div className="plan-title">
+							来源（{drawerStage.sources.length}）
+						</div>
 						{drawerStage.sources.map((src, i) => (
 							<div key={`src-${String(i)}`} className="drawer-source">
 								{i + 1}. {src.title}
@@ -426,7 +433,10 @@ export function ResearchPage({ taskId, onBack, onOpenMindmap }: Props) {
 						value={verdict}
 						onChange={setVerdict}
 						style={{ width: 170 }}
-						options={VERDICTS.map((v) => ({ value: v, label: VERDICT_CN[v] ?? v }))}
+						options={VERDICTS.map((v) => ({
+							value: v,
+							label: VERDICT_CN[v] ?? v,
+						}))}
 					/>
 					<Button type="primary" onClick={() => void freeze()}>
 						冻结裁决
