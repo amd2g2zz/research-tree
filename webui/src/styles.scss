@@ -189,6 +189,16 @@ body,
 	padding: 10px 20px;
 	border-bottom: 1px solid #f0f0f0;
 
+	.topbar-steps {
+		flex: 1;
+		justify-content: center;
+		max-width: 420px;
+
+		.ant-steps-item-title {
+			font-size: 12.5px !important;
+		}
+	}
+
 	.topbar-home {
 		font-weight: 600;
 		font-size: 15px;
@@ -373,6 +383,12 @@ body,
 	}
 }
 
+.flow-alert {
+	justify-self: center;
+	width: min(#{$chat-col}, 100%);
+	margin-bottom: 20px;
+}
+
 .question-row {
 	justify-self: center;
 	padding: 6px 14px;
@@ -389,32 +405,6 @@ body,
 	&:hover {
 		background: #f2f7ff;
 		border-color: #9db9e8;
-	}
-}
-
-// flow 门控卡片（#713）：blocked 缺口逐条列举
-.blockers-card {
-	width: min(#{$chat-col}, 100%);
-	margin: 0 auto 20px;
-	padding: 14px 18px;
-	border: 1px solid #ffe7ba;
-	border-radius: 12px;
-	background: #fffbe6;
-
-	b {
-		font-size: 13.5px;
-		color: #8c6a00;
-	}
-
-	ul {
-		margin: 8px 0 0;
-		padding-left: 18px;
-
-		li {
-			font-size: 13px;
-			line-height: 1.7;
-			color: #664d00;
-		}
 	}
 }
 
@@ -827,6 +817,10 @@ body,
 		display: flex;
 		align-items: center;
 		justify-content: center;
+	}
+
+	.research-skeleton {
+		padding: 40px 48px;
 	}
 
 	.dag-wheel {

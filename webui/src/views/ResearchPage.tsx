@@ -28,8 +28,8 @@ import {
 	Drawer,
 	Empty,
 	Select,
+	Skeleton,
 	Space,
-	Spin,
 	Tag,
 	Typography,
 } from "antd";
@@ -399,9 +399,11 @@ export function ResearchPage({ taskId, onBack, onOpenMindmap }: Props) {
 	if (loading && view === null) {
 		return (
 			<div className="research-page">
-				<div className="research-empty">
-					<Spin size="large" />
-				</div>
+				<Skeleton
+					active
+					paragraph={{ rows: 6 }}
+					className="research-skeleton"
+				/>
 			</div>
 		);
 	}
