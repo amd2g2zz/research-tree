@@ -33,9 +33,9 @@ import {
 	Tooltip,
 	Typography,
 } from "antd";
-import DOMPurify from "dompurify";
-import { marked } from "marked";
+import "katex/dist/katex.min.css";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { renderMd } from "./lib/md";
 import {
 	connectWs,
 	onDelta,
@@ -84,11 +84,6 @@ export function clipTitle(text: string): string {
 	const cleaned = text.trim().replace(/^[，。；！、\s]+|[，。；！\s]+$/g, "");
 	if (cleaned.length <= 15) return cleaned === "" ? "未命名研究" : cleaned;
 	return cleaned.slice(0, 15);
-}
-
-/** 模型输出 markdown 渲染（sanitize 后注入）——thinking 与正文统一。 */
-function renderMd(text: string): string {
-	return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
 }
 
 function Shell() {
