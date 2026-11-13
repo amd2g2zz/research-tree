@@ -10,43 +10,41 @@ import { describe, expect, it } from "vitest";
 import { runPi } from "../src/pi-run.js";
 
 describe("runPi (#670/#672/#676)", () => {
-	it("resolves stdout on success", async () => {
-		const out = await runPi(process.execPath, "40 + 2", 15_000, []);
-		expect(out.trim()).toBe("42");
-	});
+  it("resolves stdout on success", async () => {
+    const out = await runPi(process.execPath, "40 + 2", 15_000, []);
+    expect(out.trim()).toBe("42");
+  });
 
-	it("settle-on-exit: a grandchild holding stdio cannot hang the runner (#676)", async () => {
-		const t0 = Date.now();
-		// the expression prints its answer, spawns a GRANDCHILD that inherits
-		// stdio and lives 60s, then exits — close never fires; exit must settle
-		const expr =
-			"(function(){ process.stdout.write('answer-42');" +
-			"require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)'], { stdio: 'inherit' });" +
-			"setTimeout(() => process.exit(0), 200); })()";
-		const out = await runPi(process.execPath, expr, 30_000, []);
-		expect(out).toContain("answer-42"); // settled at pi's own exit
-		expect(Date.now() - t0).toBeLessThan(15_000); // not the grandchild's 60s
-	}, 40_000);
+  it("settle-on-exit: a grandchild holding stdio cannot hang the runner (#676)", async () => {
+    const t0 = Date.now();
+    // the expression prints its answer, spawns a GRANDCHILD that inherits
+    // stdio and lives 60s, then exits — close never fires; exit must settle
+    const expr =
+      "(function(){ process.stdout.write('answer-42');" +
+      "require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)'], { stdio: 'inherit' });" +
+      "setTimeout(() => process.exit(0), 200); })()";
+    const out = await runPi(process.execPath, expr, 30_000, []);
+    expect(out).toContain("answer-42"); // settled at pi's own exit
+    expect(Date.now() - t0).toBeLessThan(15_000); // not the grandchild's 60s
+  }, 40_000);
 
-	it("timeout SIGKILLs the whole process group with a typed error", async () => {
-		await expect(
-			runPi(process.execPath, "setTimeout(() => {}, 60_000)", 800, []),
-		).rejects.toThrow(/terminated \(timeout/);
-	}, 10_000);
+  it("timeout SIGKILLs the whole process group with a typed error", async () => {
+    await expect(runPi(process.execPath, "setTimeout(() => {}, 60_000)", 800, [])).rejects.toThrow(
+      /terminated \(timeout/,
+    );
+  }, 10_000);
 
-	it("spawn failure fails closed", async () => {
-		await expect(
-			runPi("/nonexistent/pi-binary", "x", 5_000, []),
-		).rejects.toThrow(/pi spawn failed/);
-	});
+  it("spawn failure fails closed", async () => {
+    await expect(runPi("/nonexistent/pi-binary", "x", 5_000, [])).rejects.toThrow(/pi spawn failed/);
+  });
 
-	it("cwd 隔离：pi 在一次性临时目录里跑，不继承仓库上下文（#706）", async () => {
-		// pi 会读启动目录向上找 AGENTS.md/项目上下文 —— runPi 必须在临时目录
-		// 里 spawn，否则 research-tree 自己会被注入成"研究主题"
-		const expr = "process.stdout.write(process.cwd())";
-		const out = await runPi(process.execPath, expr, 15_000, []);
-		expect(out).toMatch(/rt-pi-cwd-/);
-		expect(out).not.toContain("research-tree");
-		expect(out).not.toContain("webui-server");
-	});
+  it("cwd 隔离：pi 在一次性临时目录里跑，不继承仓库上下文（#706）", async () => {
+    // pi 会读启动目录向上找 AGENTS.md/项目上下文 —— runPi 必须在临时目录
+    // 里 spawn，否则 research-tree 自己会被注入成"研究主题"
+    const expr = "process.stdout.write(process.cwd())";
+    const out = await runPi(process.execPath, expr, 15_000, []);
+    expect(out).toMatch(/rt-pi-cwd-/);
+    expect(out).not.toContain("research-tree");
+    expect(out).not.toContain("webui-server");
+  });
 });
