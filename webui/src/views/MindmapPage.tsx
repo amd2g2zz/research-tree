@@ -42,8 +42,8 @@ import {
 } from "antd";
 import type { DataNode } from "antd/es/tree";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { rpc } from "../lib/rpc";
 import { attachWheelPanZoom } from "../lib/rfWheel";
+import { rpc } from "../lib/rpc";
 import type { MindNode } from "../lib/types";
 
 interface Props {
@@ -78,7 +78,9 @@ interface LaidNode {
 }
 
 const leafCount = (n: MindNode): number =>
-	n.children.length === 0 ? 1 : n.children.reduce((s, c) => s + leafCount(c), 0);
+	n.children.length === 0
+		? 1
+		: n.children.reduce((s, c) => s + leafCount(c), 0);
 
 /** 一侧分支的纵向 tidy 排布：共享叶子游标；dir=+1 右侧向外长，dir=-1 左侧镜像。 */
 function layoutSide(

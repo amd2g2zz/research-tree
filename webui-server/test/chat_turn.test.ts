@@ -53,14 +53,17 @@ class FakeProvider implements DataSourceProvider {
 	}
 }
 
+let piDirShared: string;
 let server: WebUIServer;
 let port: number;
 let ws: WebSocket;
 let provider: FakeProvider;
+let prompts: string[] = [];
 let nextId = 1;
 
 beforeAll(async () => {
-	const piDir = mkdtempSync(join(tmpdir(), "rt-ct-pi-"));
+	piDirShared = mkdtempSync(join(tmpdir(), "rt-ct-pi-"));
+	const piDir = piDirShared;
 	writeFileSync(
 		join(piDir, "models.json"),
 		JSON.stringify({
@@ -77,7 +80,10 @@ beforeAll(async () => {
 	server = new WebUIServer({
 		workspace: mkdtempSync(join(tmpdir(), "rt-ct-")),
 		piConfigDir: piDir,
-		piRunner: () => TURN_JSON, // one call per turn (#674): kind + reply in one JSON
+		piRunner: (command, prompt) => {
+			prompts.push(prompt); // #711: 断言模型能看到本轮用户输入
+			return TURN_JSON; // one call per turn (#674): kind + reply in one JSON
+		},
 		provider,
 	});
 	port = await server.listen();
@@ -135,6 +141,48 @@ describe("chat.turn conversational loop (issue #660)", () => {
 		expect(prompt).toContain("自动推进");
 		expect(prompt).toContain('"recon"');
 		expect(prompt).toContain("基于合理假设");
+	});
+
+	it("transcript 包含本轮用户输入（#711：先落账不得排除当前消息）", async () => {
+		// 独立 server 实例：不污染共享 ledger 的 anysearch 审计计数
+		const captured: string[] = [];
+		const local = new WebUIServer({
+			workspace: mkdtempSync(join(tmpdir(), "rt-ct-t11-")),
+			piConfigDir: piDirShared,
+			piRunner: (command, prompt) => {
+				captured.push(prompt);
+				return TURN_JSON;
+			},
+		});
+		const localPort = await local.listen();
+		const socket = await new Promise<WebSocket>((resolve, reject) => {
+			const s = new WebSocket(`ws://127.0.0.1:${localPort}/ws`);
+			s.on("open", () => resolve(s));
+			s.on("error", reject);
+		});
+		const turn = await new Promise<Record<string, unknown>>((resolve, reject) => {
+			const onMessage = (data: unknown): void => {
+				const msg = JSON.parse(String(data)) as Record<string, unknown>;
+				if (msg.id === 1) {
+					socket.off("message", onMessage);
+					if (msg.ok === true) resolve(msg.result as Record<string, unknown>);
+					else reject(new Error(String(msg.error)));
+				}
+			};
+			socket.on("message", onMessage);
+			socket.send(
+				JSON.stringify({
+					id: 1,
+					method: "chat.turn",
+					params: { task_id: "tT11", text: "我想验证大学城二手电动车交易的合规要求" },
+				}),
+			);
+		});
+		void turn;
+		socket.close();
+		await local.close();
+		const joined = captured.join("\n");
+		expect(joined).toContain("我想验证大学城二手电动车交易的合规要求");
 	});
 
 	it("parse fails closed on empty reply / bad kind / garbage", () => {

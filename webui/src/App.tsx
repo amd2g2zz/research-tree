@@ -8,15 +8,16 @@ import {
 	DeleteOutlined,
 	EditOutlined,
 	InboxOutlined,
+	LinkOutlined,
 	MoreOutlined,
 	NodeIndexOutlined,
 	PlusOutlined,
 	SettingOutlined,
 } from "@ant-design/icons";
-import { ConfigProvider } from "antd";
 import {
 	App as AntApp,
 	Button,
+	ConfigProvider,
 	Dropdown,
 	Input,
 	Layout,
@@ -26,7 +27,7 @@ import {
 	Tooltip,
 	Typography,
 } from "antd";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { connectWs, onDelta, onWsStatus, rest, rpc } from "./lib/rpc";
 import type {
 	ChatMsg,
@@ -80,7 +81,18 @@ function Shell() {
 	const [settledCot, setSettledCot] = useState<string | null>(null);
 	const cotBuf = useRef("");
 	const [piReady, setPiReady] = useState<PiConfigSummary | null>(null);
-	const [wsStatus, setWsStatus] = useState<"connecting" | "open" | "closed">("connecting");
+	const [wsStatus, setWsStatus] = useState<"connecting" | "open" | "closed">(
+		"connecting",
+	);
+
+	// URL 与状态同步（#711）：可分享的 GET 地址；pushState 保留返回手势
+	useEffect(() => {
+		if (taskId === null) return;
+		const hash = view === "chat" ? `#/t/${taskId}` : `#/t/${taskId}/${view}`;
+		if (location.hash !== hash) {
+			window.history.pushState({ taskId, view }, "", hash);
+		}
+	}, [taskId, view]);
 	const [showNew, setShowNew] = useState(false);
 	const [newName, setNewName] = useState("");
 	const [showSettings, setShowSettings] = useState(false);
@@ -90,9 +102,11 @@ function Shell() {
 	// 侧栏管理（#704）：搜索 / 惰性加载 / 行内 重命名·归档·删除
 	const [query, setQuery] = useState("");
 	const [visibleCount, setVisibleCount] = useState(10);
-	const [renameTarget, setRenameTarget] = useState<
-		{ kind: "project" | "task"; id: string; initial: string } | null
-	>(null);
+	const [renameTarget, setRenameTarget] = useState<{
+		kind: "project" | "task";
+		id: string;
+		initial: string;
+	} | null>(null);
 	const [renameVal, setRenameVal] = useState("");
 
 	const refresh = useCallback(async () => {
@@ -152,21 +166,23 @@ function Shell() {
 		return () => clearTimeout(timer);
 	}, [query, refresh]);
 
-	// 浏览器返回键 = 回对话（SPA 无路由，否则返回手势直接退出站点）
+	// hash 路由（#711）：#/t/:taskId(/:view) —— 每个 chat 任务都有 GET 可达
+	// 的分享链接；刷新/返回/直接打开 URL 均恢复到该任务该视图
 	useEffect(() => {
-		const onPop = (): void => {
-			setAutoGen(false);
-			setView("chat");
+		const applyHash = (): void => {
+			const m = /^#\/t\/([^/]+)(?:\/(mindmap|research))?/.exec(location.hash);
+			if (m !== null) {
+				setTaskId(decodeURIComponent(m[1]));
+				setAutoGen(false);
+				setView((m[2] as View) ?? "chat");
+			} else {
+				setAutoGen(false);
+				setView("chat");
+			}
 		};
-		window.addEventListener("popstate", onPop);
-		return () => window.removeEventListener("popstate", onPop);
+		if (location.hash !== "") applyHash();
+		window.addEventListener("popstate", () => applyHash());
 	}, []);
-
-	useEffect(() => {
-		if (view !== "chat") {
-			window.history.pushState({ view }, "");
-		}
-	}, [view]);
 
 	const send = useCallback(
 		async (text: string, tidOverride?: string) => {
@@ -266,6 +282,11 @@ function Shell() {
 	const proj =
 		projects.find((p) => p.lines.some((l) => l.task_id === taskId)) ?? null;
 	const canResearch = phase === "research" || phase === "converged";
+	// B（#711）：最后一条 reply 的下标——思考块插入其上方
+	const lastReplyIdx = msgs.reduce(
+		(acc, m, i) => (m.kind === "reply" ? i : acc),
+		-1,
+	);
 	// 导图卡门控（#704）：不再"有一条消息就绪"——由模型在最近一轮 reply 的
 	// receipt 里判定的 converged 驱动（第一轮对话不诱导生成导图）
 	const lastConverged = (() => {
@@ -296,7 +317,10 @@ function Shell() {
 				name: renameVal.trim(),
 			});
 		} else {
-			await rpc("task.rename", { task_id: renameTarget.id, title: renameVal.trim() });
+			await rpc("task.rename", {
+				task_id: renameTarget.id,
+				title: renameVal.trim(),
+			});
 		}
 		setRenameTarget(null);
 		setRenameVal("");
@@ -326,7 +350,11 @@ function Shell() {
 		await refresh();
 	};
 
-	const rowMenu = (kind: "project" | "task", id: string, current: string): React.ReactElement => (
+	const rowMenu = (
+		kind: "project" | "task",
+		id: string,
+		current: string,
+	): React.ReactElement => (
 		<Dropdown
 			menu={{
 				items: [
@@ -411,32 +439,32 @@ function Shell() {
 					}}
 				>
 					{projects
-					.filter((p) => p.status !== "archived") // 归档项目不进活跃列表
-					.slice(0, visibleCount)
-					.map((p) => (
-						<div key={p.project_id} className="proj-group">
-							<div className="proj-row">
-								<span className="proj-name">{p.name}</span>
-								{rowMenu("project", p.project_id, p.name)}
-							</div>
-							{p.lines.map((l) => (
-								<div key={l.task_id} className="task-line">
-									<button
-										type="button"
-										className={`task-row ${l.task_id === taskId ? "active" : ""}`}
-										onClick={() => selectTask(l.task_id)}
-									>
-										{l.role === "main" ? "◉" : "⑂"}{" "}
-										{l.title ?? (l.role === "main" ? p.name : l.task_id)}
-										{p.vitals.latest !== null && (
-											<Tag className="v-badge">v{p.vitals.latest.v}</Tag>
-										)}
-									</button>
-									{rowMenu("task", l.task_id, l.title ?? l.task_id)}
+						.filter((p) => p.status !== "archived") // 归档项目不进活跃列表
+						.slice(0, visibleCount)
+						.map((p) => (
+							<div key={p.project_id} className="proj-group">
+								<div className="proj-row">
+									<span className="proj-name">{p.name}</span>
+									{rowMenu("project", p.project_id, p.name)}
 								</div>
-							))}
-						</div>
-					))}
+								{p.lines.map((l) => (
+									<div key={l.task_id} className="task-line">
+										<button
+											type="button"
+											className={`task-row ${l.task_id === taskId ? "active" : ""}`}
+											onClick={() => selectTask(l.task_id)}
+										>
+											{l.role === "main" ? "◉" : "⑂"}{" "}
+											{l.title ?? (l.role === "main" ? p.name : l.task_id)}
+											{p.vitals.latest !== null && (
+												<Tag className="v-badge">v{p.vitals.latest.v}</Tag>
+											)}
+										</button>
+										{rowMenu("task", l.task_id, l.title ?? l.task_id)}
+									</div>
+								))}
+							</div>
+						))}
 					{projects.length > visibleCount && (
 						<div className="side-more">继续滚动加载…</div>
 					)}
@@ -518,8 +546,29 @@ function Shell() {
 								</Typography.Title>
 							)}
 							<Tag>{PHASE_CN[phase] ?? phase}</Tag>
-							<Tooltip title={wsStatus === "open" ? "已连接服务" : wsStatus === "connecting" ? "连接中…" : "连接断开——自动重连中"}>
-								<span className={`dot ${wsStatus === "open" ? "ok" : wsStatus === "connecting" ? "warn" : "off"}`} />
+							<Tooltip title="复制任务链接（可分享）">
+								<Button
+									type="text"
+									size="small"
+									icon={<LinkOutlined />}
+									onClick={() => {
+										void navigator.clipboard.writeText(location.href);
+										void messageApi.success("任务链接已复制");
+									}}
+								/>
+							</Tooltip>
+							<Tooltip
+								title={
+									wsStatus === "open"
+										? "已连接服务"
+										: wsStatus === "connecting"
+											? "连接中…"
+											: "连接断开——自动重连中"
+								}
+							>
+								<span
+									className={`dot ${wsStatus === "open" ? "ok" : wsStatus === "connecting" ? "warn" : "off"}`}
+								/>
 							</Tooltip>
 						</header>
 						{view === "chat" && (
@@ -533,48 +582,51 @@ function Shell() {
 											el.scrollTop + el.clientHeight >= el.scrollHeight - 60;
 									}}
 								>
-									{msgs.map((m) =>
+									{msgs.map((m, i) =>
 										m.role === "user" ? (
 											<div key={m.seq} className="bubble user">
 												{m.text}
 											</div>
-										) : m.kind === "reply" ? (
-											<div key={m.seq} className="agent-msg">
-												<div className="agent-text">{m.text}</div>
-											</div>
-										) : m.kind === "plan" ? (
-											<div key={m.seq} className="plan-box">
-												<div className="plan-title">研究计划草案</div>
-												<pre>{m.text}</pre>
-											</div>
-										) : m.kind === "question" ? (
-											<div key={m.seq} className="question-row">
-												❓ {m.text}
-											</div>
-										) : m.kind === "recon" ? (
-											<details key={m.seq} className="recon-box">
-												<summary>
-												🔎 {m.text.length > 80
-													? `${m.text.slice(0, 80).replace(/\s+\S*$/, "")}…`
-													: m.text}
-											</summary>
-												<div>{m.text}</div>
-											</details>
-										) : m.kind === "error" ? (
-											<div key={m.seq} className="error-row">
-												⚠️ {m.text}
-											</div>
 										) : (
-											<div key={m.seq} className="receipt-row">
-												◉ {m.text}
-											</div>
+											<Fragment key={m.seq}>
+												{/* B（#711）：思考块紧贴其回复上方——先思考后正文 */}
+												{m.kind === "reply" &&
+													i === lastReplyIdx &&
+													settledCot !== null &&
+													!thinking && (
+														<details className="cot-box">
+															<summary>已深度思考</summary>
+															<pre>{settledCot}</pre>
+														</details>
+													)}
+												{m.kind === "reply" ? (
+													<div className="agent-msg">
+														<div className="agent-text">{m.text}</div>
+													</div>
+												) : m.kind === "plan" ? (
+													<div className="plan-box">
+														<div className="plan-title">研究计划草案</div>
+														<pre>{m.text}</pre>
+													</div>
+												) : m.kind === "question" ? (
+													<div className="question-row">❓ {m.text}</div>
+												) : m.kind === "recon" ? (
+													<details className="recon-box">
+														<summary>
+															🔎{" "}
+															{m.text.length > 80
+																? `${m.text.slice(0, 80).replace(/\s+\S*$/, "")}…`
+																: m.text}
+														</summary>
+														<div>{m.text}</div>
+													</details>
+												) : m.kind === "error" ? (
+													<div className="error-row">⚠️ {m.text}</div>
+												) : (
+													<div className="receipt-row">◉ {m.text}</div>
+												)}
+											</Fragment>
 										),
-									)}
-									{settledCot !== null && !thinking && (
-										<details className="cot-box">
-											<summary>已深度思考</summary>
-											<pre>{settledCot}</pre>
-										</details>
 									)}
 									{thinking && (
 										<div className="agent-msg typing">
@@ -604,7 +656,8 @@ function Shell() {
 											<span className="hub-card-main">
 												<b>想法已成形——生成思维导图</b>
 												<small>
-													从对话 context 抽取总结脑图（quote 溯源，确认前可编辑）
+													从对话 context 抽取总结脑图（quote
+													溯源，确认前可编辑）
 												</small>
 											</span>
 										</button>
@@ -647,29 +700,35 @@ function Shell() {
 									)}
 								</div>
 								<div className="composer">
-								<div className="composer-pill">
-									<Select
-										value={kind}
-										onChange={(v) => setKind(v)}
-										className="kind-sel"
-										popupMatchSelectWidth={false}
-										options={KINDS.map(([k, label]) => ({
-											value: k,
-											label,
-										}))}
-									/>
-									{/* P0-4：主动入口——模型 converged 只是加速提示，不是唯一开关 */}
-									<Tooltip title={msgs.length >= 3 ? "把对话总结为思维导图（确认后进入调研）" : `再聊 ${3 - msgs.length} 条即可生成导图`}>
-										<Button
-											size="small"
-											className="mind-entry-btn"
-											icon={<NodeIndexOutlined />}
-											disabled={msgs.length < 3}
-											onClick={() => openMindmap(false)}
+									<div className="composer-pill">
+										<Select
+											value={kind}
+											onChange={(v) => setKind(v)}
+											className="kind-sel"
+											popupMatchSelectWidth={false}
+											options={KINDS.map(([k, label]) => ({
+												value: k,
+												label,
+											}))}
+										/>
+										{/* P0-4：主动入口——模型 converged 只是加速提示，不是唯一开关 */}
+										<Tooltip
+											title={
+												msgs.length >= 3
+													? "把对话总结为思维导图（确认后进入调研）"
+													: `再聊 ${3 - msgs.length} 条即可生成导图`
+											}
 										>
-											导图
-										</Button>
-									</Tooltip>
+											<Button
+												size="small"
+												className="mind-entry-btn"
+												icon={<NodeIndexOutlined />}
+												disabled={msgs.length < 3}
+												onClick={() => openMindmap(false)}
+											>
+												导图
+											</Button>
+										</Tooltip>
 										<Input
 											value={draft}
 											onChange={(e) => setDraft(e.target.value)}
@@ -804,40 +863,46 @@ function Shell() {
 							}
 						}}
 					>
-					保存并验证
-				</Button>
-			</div>
-		</Modal>
+						保存并验证
+					</Button>
+				</div>
+			</Modal>
 
-		<Modal
-			title={renameTarget?.kind === "project" ? "重命名项目" : "重命名任务"}
-			open={renameTarget !== null}
-			onCancel={() => setRenameTarget(null)}
-			footer={null}
-			destroyOnHidden
-		>
-			<Input
-				autoFocus
-				value={renameVal}
-				onChange={(e) => setRenameVal(e.target.value)}
-				onPressEnter={() => void doRename()}
-			/>
-			<div className="modal-actions">
-				<Button onClick={() => setRenameTarget(null)}>取消</Button>
-				<Button type="primary" disabled={!renameVal.trim()} onClick={() => void doRename()}>
-					保存
-				</Button>
-			</div>
-		</Modal>
-	</Layout>
-);
+			<Modal
+				title={renameTarget?.kind === "project" ? "重命名项目" : "重命名任务"}
+				open={renameTarget !== null}
+				onCancel={() => setRenameTarget(null)}
+				footer={null}
+				destroyOnHidden
+			>
+				<Input
+					autoFocus
+					value={renameVal}
+					onChange={(e) => setRenameVal(e.target.value)}
+					onPressEnter={() => void doRename()}
+				/>
+				<div className="modal-actions">
+					<Button onClick={() => setRenameTarget(null)}>取消</Button>
+					<Button
+						type="primary"
+						disabled={!renameVal.trim()}
+						onClick={() => void doRename()}
+					>
+						保存
+					</Button>
+				</div>
+			</Modal>
+		</Layout>
+	);
 }
 
 export default function App() {
 	return (
 		// M1（#706 UX 审计）：antd 默认蓝 #1677ff 与自定义 #2f6fed 双主蓝并存
 		// borderRadiusLG: 12 = M6 设置弹窗圆角与全局体系一致
-		<ConfigProvider theme={{ token: { colorPrimary: "#2f6fed", borderRadiusLG: 12 } }}>
+		<ConfigProvider
+			theme={{ token: { colorPrimary: "#2f6fed", borderRadiusLG: 12 } }}
+		>
 			<AntApp>
 				<Shell />
 			</AntApp>

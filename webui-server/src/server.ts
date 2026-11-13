@@ -516,7 +516,9 @@ export class WebUIServer {
         ).seq;
 
         const transcript = this.ledger.connection
-          .prepare("SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? AND seq < ? ORDER BY seq")
+          // seq <= userSeq：**包含本轮用户消息**——先落账是为了持久化，不是
+          // 为了把输入藏起来（#711：模型看不到当前输入就会答"对话是空的"）
+          .prepare("SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? AND seq <= ? ORDER BY seq")
           .all(taskId, userSeq) as TranscriptMessage[];
         const prompt = buildTurnPrompt(transcript);
         // async pi (issue #670) + streaming deltas (#679): 思维链先行
