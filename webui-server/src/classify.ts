@@ -67,21 +67,24 @@ export class PiSessionClassifier implements ClassifierPort {
   readonly name = "pi-session" as const;
 
   constructor(
-    private readonly options: { command?: string; runner?: (command: string, prompt: string) => string | Promise<string>; timeoutMs?: number } = {},
+    private readonly options: {
+      command?: string;
+      runner?: (command: string, prompt: string) => string | Promise<string>;
+      timeoutMs?: number;
+    } = {},
   ) {}
 
   async classify(text: string): Promise<Classification> {
     const prompt =
       "将下面这句话分类为 preference|claim|guess|constraint|branch 之一。" +
-      "只输出 JSON：{\"kind\":\"...\"}。句子：" +
+      '只输出 JSON：{"kind":"..."}。句子：' +
       JSON.stringify(text);
     const command = this.options.command ?? "pi";
     // async spawn (issue #670): never block the event loop; hard timeout —
     // a hung pi fails closed instead of freezing the whole WebUI
-    const stdout = await (this.options.runner ?? ((cmd, p) => runPi(cmd, p, this.options.timeoutMs ?? 300_000, ["-nt"])))(
-      command,
-      prompt,
-    );
+    const stdout = await (
+      this.options.runner ?? ((cmd, p) => runPi(cmd, p, this.options.timeoutMs ?? 300_000, ["-nt"]))
+    )(command, prompt);
     const parsed = this.parse(stdout);
     if (!UTTERANCE_KINDS.includes(parsed)) {
       // fail closed: a pi answer we cannot trust is NOT silently rerouted
@@ -105,6 +108,9 @@ export class PiSessionClassifier implements ClassifierPort {
 }
 
 /** Strategy selection keyed on the #638 single-source readiness probe. */
-export function pickClassifier(ready: { ready: boolean }, options: ConstructorParameters<typeof PiSessionClassifier>[0] = {}): ClassifierPort {
+export function pickClassifier(
+  ready: { ready: boolean },
+  options: ConstructorParameters<typeof PiSessionClassifier>[0] = {},
+): ClassifierPort {
   return ready.ready ? new PiSessionClassifier(options) : new HeuristicClassifier();
 }

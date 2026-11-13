@@ -71,7 +71,14 @@ export function parseExtraction(stdout: string, messages: TranscriptMessage[]): 
       .map((el) => {
         const seq = findSeq(el.quote);
         return seq !== null
-          ? { ...el, source: { kind: "chat-message", ref: `msg:${seq}`, quote: el.quote } }
+          ? {
+              ...el,
+              source: {
+                kind: "chat-message",
+                ref: `msg:${seq}`,
+                quote: el.quote,
+              },
+            }
           : el; // no provenance → dropped by parseDecomposition, counted
       });
   };
@@ -83,7 +90,9 @@ export function parseExtraction(stdout: string, messages: TranscriptMessage[]): 
     intents: withProvenance("intents"),
     refusals: withProvenance("refusals"),
     difficulties: withProvenance("difficulties"),
-    claims_preview: Array.isArray(preview) ? (preview.filter((el) => typeof el === "object" && el !== null) as Array<Record<string, unknown>>) : [],
+    claims_preview: Array.isArray(preview)
+      ? (preview.filter((el) => typeof el === "object" && el !== null) as Array<Record<string, unknown>>)
+      : [],
   } as DecompositionElements;
 }
 
@@ -91,11 +100,18 @@ export function parseExtraction(stdout: string, messages: TranscriptMessage[]): 
  * the DAG grows from evidence, not from invented sequencing). */
 export function mechanicalPlan(elements: Record<string, unknown>): {
   plan_id: string;
-  stages: Array<{ id: string; title: string; claim_ids: string[]; depends_on: string[] }>;
+  stages: Array<{
+    id: string;
+    title: string;
+    claim_ids: string[];
+    depends_on: string[];
+  }>;
   budget: { capMs: number };
   yaw_checks: Array<{ slot: string; mode: string }>;
 } {
-  const preview = Array.isArray(elements.claims_preview) ? (elements.claims_preview as Array<Record<string, unknown>>) : [];
+  const preview = Array.isArray(elements.claims_preview)
+    ? (elements.claims_preview as Array<Record<string, unknown>>)
+    : [];
   return {
     plan_id: `plan-${Date.now().toString(36)}`,
     stages: preview.map((claim, i) => ({

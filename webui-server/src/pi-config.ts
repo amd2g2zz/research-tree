@@ -40,7 +40,11 @@ export interface PiConfigSummary {
   /** provider ids present in models.json regardless of key */
   providers: string[];
   keyed_session_ready: boolean;
-  readiness: { has_provider_key: boolean; has_model: boolean; has_default_model: boolean };
+  readiness: {
+    has_provider_key: boolean;
+    has_model: boolean;
+    has_default_model: boolean;
+  };
   /** true when nothing is overridden rt-side — follow pi agent's own config */
   follows_pi_default: boolean;
 }
@@ -85,7 +89,11 @@ function extractFromModelsJson(modelsJson: Json | null): {
       }
       for (const model of Array.isArray(p.models) ? p.models : []) {
         if (typeof model?.id === "string") {
-          models.push({ id: `${id}/${model.id}`, name: model.name ?? model.id, provider: id });
+          models.push({
+            id: `${id}/${model.id}`,
+            name: model.name ?? model.id,
+            provider: id,
+          });
         }
       }
     }
@@ -116,7 +124,11 @@ export function readPiConfig(dir: string = join(homedir(), ".pi", "agent")): PiC
     auth_providers: keyedProviders.length > 0 ? keyedProviders : authProviders,
     providers,
     keyed_session_ready: hasProviderKey && hasModel,
-    readiness: { has_provider_key: hasProviderKey, has_model: hasModel, has_default_model: defaultModel !== null },
+    readiness: {
+      has_provider_key: hasProviderKey,
+      has_model: hasModel,
+      has_default_model: defaultModel !== null,
+    },
     follows_pi_default: defaultModel === null,
   };
 }
@@ -133,7 +145,15 @@ function atomicWrite(path: string, body: string): void {
  * with pi's provider registry). Returns what was written — never the key. */
 export function writeProviderKey(
   dir: string | undefined,
-  input: { provider: string; api_key: string; name?: string; baseUrl?: string; api?: string; model_id?: string; model_name?: string },
+  input: {
+    provider: string;
+    api_key: string;
+    name?: string;
+    baseUrl?: string;
+    api?: string;
+    model_id?: string;
+    model_name?: string;
+  },
 ): { saved: true; provider: string } {
   const base = dir ?? join(homedir(), ".pi", "agent");
   const provider = input.provider.trim();
@@ -146,13 +166,16 @@ export function writeProviderKey(
   mkdirSync(base, { recursive: true });
   const path = join(base, "models.json");
   const modelsJson = readJson(path) ?? {};
-  const providersObj = (typeof modelsJson.providers === "object" && modelsJson.providers !== null
-    ? (modelsJson.providers as Json)
-    : {}) as Record<string, unknown>;
+  const providersObj = (
+    typeof modelsJson.providers === "object" && modelsJson.providers !== null ? (modelsJson.providers as Json) : {}
+  ) as Record<string, unknown>;
   const existing = (providersObj[provider] ?? {}) as ProviderEntry;
   const models = Array.isArray(existing.models) ? existing.models : [];
   if (input.model_id !== undefined && input.model_id.trim() !== "" && !models.some((m) => m.id === input.model_id)) {
-    models.push({ id: input.model_id.trim(), name: input.model_name ?? input.model_id.trim() });
+    models.push({
+      id: input.model_id.trim(),
+      name: input.model_name ?? input.model_id.trim(),
+    });
   }
   providersObj[provider] = {
     name: input.name ?? existing.name ?? provider,

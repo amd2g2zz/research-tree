@@ -21,6 +21,9 @@ process.on("uncaughtException", (error) => {
   console.error(`[rt-webui] uncaughtException: ${String(error)}`);
 });
 const port = Number(process.env.RT_PORT ?? 8787);
-const server = new WebUIServer({ workspace, piConfigDir: process.env.RT_PI_CONFIG });
+const server = new WebUIServer({
+  workspace,
+  piConfigDir: process.env.RT_PI_CONFIG,
+});
 await server.listen(port);
 console.log(`[rt-webui] workspace=${workspace} → http://127.0.0.1:${port}`);

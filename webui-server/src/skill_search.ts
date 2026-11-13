@@ -18,7 +18,12 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import type { DataSourceProvider, ProviderManifest, SearchQuery, SearchResult } from "../../rt-core/src/providers/types.js";
+import type {
+  DataSourceProvider,
+  ProviderManifest,
+  SearchQuery,
+  SearchResult,
+} from "../../rt-core/src/providers/types.js";
 
 export function discoverSkillCli(): string | null {
   const fromEnv = process.env.RT_ANYSEARCH_CLI;
@@ -55,7 +60,9 @@ export class SkillSearchProvider implements DataSourceProvider {
       throw new Error("anysearch skill CLI not found (RT_ANYSEARCH_CLI)");
     }
     const stdout = await new Promise<string>((resolve, reject) => {
-      const child = spawn(this.nodeBin, [this.cliPath, "search", query.query, "--max_results", "5"], { timeout: 120_000 });
+      const child = spawn(this.nodeBin, [this.cliPath, "search", query.query, "--max_results", "5"], {
+        timeout: 120_000,
+      });
       let out = "";
       child.stdout?.on("data", (chunk) => {
         out += String(chunk);
@@ -92,8 +99,7 @@ export function parseMarkdownResults(stdout: string): SearchResult[] {
     }
     const urlMatch = /- \*\*URL\*\*: (\S+)/.exec(block);
     const bodyStart = block.indexOf("\n", urlMatch !== null ? urlMatch.index : 0);
-    const snippet = (bodyStart === -1 ? "" : block.slice(bodyStart + 1))
-      .split("\n### ")[0]?.trim().slice(0, 400) ?? "";
+    const snippet = (bodyStart === -1 ? "" : block.slice(bodyStart + 1)).split("\n### ")[0]?.trim().slice(0, 400) ?? "";
     results.push({
       title: titleMatch[1]!.trim(),
       url: urlMatch !== null ? urlMatch[1]! : "",

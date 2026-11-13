@@ -18,46 +18,45 @@ Surface:
   (same discipline as the headless emit stream).
 */
 
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { WebSocketServer, type WebSocket } from "ws";
-
-import { LedgerStore } from "../../rt-core/src/store/ledger.js";
-import { EngineCore } from "../../rt-core/src/store/engine.js";
-import { VersionStore } from "../../rt-core/src/versions/store.js";
-import { ProductStateMachine } from "../../rt-core/src/state/machine.js";
-import { ProjectHomeModel, ProjectHomeError } from "../../rt-core/src/ux/project_home.js";
-import { BackgroundResearchRunner } from "./research_worker.js";
-import { DialogueController } from "../../rt-core/src/dialogue/controller.js";
-import { runHeadless, type HeadlessScript } from "../../rt-core/src/headless/runner.js";
+import { type WebSocket, WebSocketServer } from "ws";
+import { LineageDrillDown } from "../../rt-core/src/canvas/lineage.js";
 import { CanvasProjection } from "../../rt-core/src/canvas/projection.js";
 import { TimelineScrubber } from "../../rt-core/src/canvas/scrubber.js";
-import { LineageDrillDown } from "../../rt-core/src/canvas/lineage.js";
-import { VersionTimeline, VersionTimelineError } from "../../rt-core/src/versions/timeline.js";
-import { FourStateArchive } from "../../rt-core/src/versions/archive.js";
-import { ParallelDagScheduler, type ParallelStage } from "../../rt-core/src/scheduler/parallel_dag.js";
 import {
+  checklistFor,
+  confirmDecomposition,
+  type DecompositionElements,
   parseDecomposition,
   saveDraftDecomposition,
-  confirmDecomposition,
-  checklistFor,
-  type DecompositionElements,
 } from "../../rt-core/src/decomposition/engine.js";
-import type { MindNode } from "./mindmap.js";
-import { runPi } from "./pi-run.js";
-import { readPiConfig, writeProviderKey, writeDefaultModel, ConfigWriteError } from "./pi-config.js";
-import { mindmapPrompt, parseMindmap, mechanicalPlan as planFromTree, editNode, type MindTree } from "./mindmap.js";
-import { extensionStatuses, ensurePiExtensions, DEFAULT_PI_EXTENSIONS } from "./pi-extensions.js";
-import { pickClassifier } from "./classify.js";
-import { extractionPrompt, parseExtraction, mechanicalPlan, type TranscriptMessage } from "./real-flow.js";
-import { buildTurnPrompt, parseTurnOutput, runRecon, reconToText, type TurnOutput } from "./chat-turn.js";
+import { DialogueController } from "../../rt-core/src/dialogue/controller.js";
+import { type HeadlessScript, runHeadless } from "../../rt-core/src/headless/runner.js";
 import { AnysearchProvider } from "../../rt-core/src/providers/anysearch.js";
-import { SkillSearchProvider } from "./skill_search.js";
 import type { DataSourceProvider } from "../../rt-core/src/providers/types.js";
+import { ParallelDagScheduler, type ParallelStage } from "../../rt-core/src/scheduler/parallel_dag.js";
+import { ProductStateMachine } from "../../rt-core/src/state/machine.js";
+import { EngineCore } from "../../rt-core/src/store/engine.js";
+import { LedgerStore } from "../../rt-core/src/store/ledger.js";
+import { ProjectHomeError, ProjectHomeModel } from "../../rt-core/src/ux/project_home.js";
+import { FourStateArchive } from "../../rt-core/src/versions/archive.js";
+import { VersionStore } from "../../rt-core/src/versions/store.js";
+import { VersionTimeline, VersionTimelineError } from "../../rt-core/src/versions/timeline.js";
+import { buildTurnPrompt, parseTurnOutput, reconToText, runRecon, type TurnOutput } from "./chat-turn.js";
+import { pickClassifier } from "./classify.js";
+import type { MindNode } from "./mindmap.js";
+import { editNode, type MindTree, mindmapPrompt, parseMindmap, mechanicalPlan as planFromTree } from "./mindmap.js";
+import { ConfigWriteError, readPiConfig, writeDefaultModel, writeProviderKey } from "./pi-config.js";
+import { DEFAULT_PI_EXTENSIONS, ensurePiExtensions, extensionStatuses } from "./pi-extensions.js";
+import { runPi } from "./pi-run.js";
+import { extractionPrompt, mechanicalPlan, parseExtraction, type TranscriptMessage } from "./real-flow.js";
+import { BackgroundResearchRunner } from "./research_worker.js";
+import { SkillSearchProvider } from "./skill_search.js";
 
 export interface WebUIOptions {
   /** server workspace — the ledger lives here */
@@ -172,12 +171,12 @@ export class WebUIServer {
           .slice()
           .sort((a, b) => b.v - a.v)
           .map((v) => ({
-          v: v.v,
-          verdict: v.verdict,
-          commit_hash: v.commit_hash,
-          summary: v.summary,
-          forked: this.versions.forkChildren(line.task_id, v.v).length > 0,
-        }));
+            v: v.v,
+            verdict: v.verdict,
+            commit_hash: v.commit_hash,
+            summary: v.summary,
+            forked: this.versions.forkChildren(line.task_id, v.v).length > 0,
+          }));
         const draft = this.versions.draftOf(line.task_id);
         return {
           task_id: line.task_id,
@@ -224,7 +223,10 @@ export class WebUIServer {
       return;
     }
     if (req.url === "/api/archive") {
-      reply(200, { entries: this.archive.list(), graveyard: this.archive.graveyard().map((e) => e.task_id) });
+      reply(200, {
+        entries: this.archive.list(),
+        graveyard: this.archive.graveyard().map((e) => e.task_id),
+      });
       return;
     }
     const versionsRoute = /^\/api\/versions\/([^/]+)(\/snapshot\/(\d+))?$/.exec(req.url ?? "");
@@ -238,7 +240,9 @@ export class WebUIServer {
           reply(200, this.timeline.timeline(taskId));
         }
       } catch (error) {
-        reply(error instanceof VersionTimelineError ? 404 : 500, { error: String(error instanceof Error ? error.message : error) });
+        reply(error instanceof VersionTimelineError ? 404 : 500, {
+          error: String(error instanceof Error ? error.message : error),
+        });
       }
       return;
     }
@@ -254,8 +258,8 @@ export class WebUIServer {
       const hits = this.tree().filter((p) => {
         const name = String(p.name ?? "").toLowerCase();
         const desc = String(p.description ?? "").toLowerCase();
-        const lines = (p.lines as Array<{ task_id: string; title: string | null }>).map(
-          (l) => `${l.task_id} ${l.title ?? ""}`.toLowerCase(),
+        const lines = (p.lines as Array<{ task_id: string; title: string | null }>).map((l) =>
+          `${l.task_id} ${l.title ?? ""}`.toLowerCase(),
         );
         return name.includes(q) || desc.includes(q) || lines.some((l) => l.includes(q));
       });
@@ -267,7 +271,9 @@ export class WebUIServer {
       try {
         reply(200, this.home.vitals(decodeURIComponent(vitals[1]!)));
       } catch (error) {
-        reply(404, { error: String(error instanceof Error ? error.message : error) });
+        reply(404, {
+          error: String(error instanceof Error ? error.message : error),
+        });
       }
       return;
     }
@@ -286,7 +292,9 @@ export class WebUIServer {
           reply(200, await this.researchView(taskId));
         }
       } catch (error) {
-        reply(500, { error: String(error instanceof Error ? error.message : error) });
+        reply(500, {
+          error: String(error instanceof Error ? error.message : error),
+        });
       }
       return;
     }
@@ -311,9 +319,13 @@ export class WebUIServer {
     }
     // stage_id = `${taskId}/${stage.id}`（research.start / mindmap.confirm）—
     // 只取本任务的 stage，别的任务的不得泄漏进本任务画布（issue #690 e2e）
-    const stages = (this.ledger.connection
-      .prepare("SELECT stage_id, title, status, claim_ids, depends_on, assigned_worker_class, outputs FROM parallel_stages")
-      .all() as Array<Record<string, unknown>>).filter((s) => String(s.stage_id).startsWith(`${taskId}/`));
+    const stages = (
+      this.ledger.connection
+        .prepare(
+          "SELECT stage_id, title, status, claim_ids, depends_on, assigned_worker_class, outputs FROM parallel_stages",
+        )
+        .all() as Array<Record<string, unknown>>
+    ).filter((s) => String(s.stage_id).startsWith(`${taskId}/`));
     return {
       question: canvas.question,
       claims,
@@ -328,7 +340,11 @@ export class WebUIServer {
           if (raw.length > 0) {
             const artifact = JSON.parse(raw[0] ?? "{}") as {
               findings?: string;
-              sources?: Array<{ title: string; url?: string; snippet?: string }>;
+              sources?: Array<{
+                title: string;
+                url?: string;
+                snippet?: string;
+              }>;
             };
             findings = artifact.findings ?? null;
             sources = artifact.sources ?? [];
@@ -354,9 +370,9 @@ export class WebUIServer {
   private persistedPhase(taskId: string): string {
     const row = this.ledger.connection
       .prepare(
-        "SELECT json_extract(CAST(payload_json AS TEXT), '$.to') AS to_phase FROM graph_events "
-        + "WHERE event_type = 'task.transition' AND json_extract(CAST(payload_json AS TEXT), '$.task_id') = ? "
-        + "ORDER BY seq DESC LIMIT 1",
+        "SELECT json_extract(CAST(payload_json AS TEXT), '$.to') AS to_phase FROM graph_events " +
+          "WHERE event_type = 'task.transition' AND json_extract(CAST(payload_json AS TEXT), '$.task_id') = ? " +
+          "ORDER BY seq DESC LIMIT 1",
       )
       .get(taskId) as { to_phase: string | null } | undefined;
     return row?.to_phase ?? "chat";
@@ -365,12 +381,14 @@ export class WebUIServer {
   /** #572 scrubber: the canvas at any t is a pure projection of events ≤ t. */
   private atBeat(taskId: string, t: number): Promise<Record<string, unknown>> {
     void taskId;
-    return this.scrubber().projectionAt(t).then((view) => ({
-      console: view.console,
-      claims: view.snapshot.Claim ?? {},
-      stages: view.snapshot.Stage ?? {},
-      beats: this.scrubber().beatCount(),
-    }));
+    return this.scrubber()
+      .projectionAt(t)
+      .then((view) => ({
+        console: view.console,
+        claims: view.snapshot.Claim ?? {},
+        stages: view.snapshot.Stage ?? {},
+        beats: this.scrubber().beatCount(),
+      }));
   }
 
   private piConfigDir(): string | undefined {
@@ -408,7 +426,6 @@ export class WebUIServer {
     return resolvePiCommand();
   }
 
-
   /** test access to the engine log (H7 telemetry assertions) */
   ledgerForTests(): LedgerStore {
     return this.ledger;
@@ -437,7 +454,13 @@ export class WebUIServer {
       .then(
         (result) => ws.send(JSON.stringify({ id: msg.id, ok: true, result })),
         (error) =>
-          ws.send(JSON.stringify({ id: msg.id, ok: false, error: String(error instanceof Error ? error.message : error) })),
+          ws.send(
+            JSON.stringify({
+              id: msg.id,
+              ok: false,
+              error: String(error instanceof Error ? error.message : error),
+            }),
+          ),
       );
   }
 
@@ -450,7 +473,11 @@ export class WebUIServer {
           attachments: Array.isArray(params.attachments) ? (params.attachments as never) : [],
         });
       case "project.registerTask":
-        this.home.registerTask(String(params.project_id), String(params.task_id), params.role === "fork" ? "fork" : "main");
+        this.home.registerTask(
+          String(params.project_id),
+          String(params.task_id),
+          params.role === "fork" ? "fork" : "main",
+        );
         return { registered: true };
       case "project.archive":
         this.home.archiveProject(String(params.project_id));
@@ -496,29 +523,40 @@ export class WebUIServer {
         const taskId = String(params.task_id);
         // 用户消息**最先**落账（#706 P0-3）：key 未配置/二进制缺失时也不能
         // 静默吞掉用户的第一个想法——落账 + 中文引导错误行，然后 fail-closed
-        this.appendChat(taskId, "user", "pending", text, { classified_by: "pi-session" });
+        this.appendChat(taskId, "user", "pending", text, {
+          classified_by: "pi-session",
+        });
         const summary = readPiConfig(this.options.piConfigDir);
         if (!summary.keyed_session_ready) {
-          const guide = "pi 密钥未配置：请点左侧「pi 已就绪」打开设置页，配置 provider key 后重新发送（这条消息已保留在对话里）。";
-          this.appendChat(taskId, "system", "error", guide, { failed: true, reason: "keyed_session_not_ready" });
+          const guide =
+            "pi 密钥未配置：请点左侧「pi 已就绪」打开设置页，配置 provider key 后重新发送（这条消息已保留在对话里）。";
+          this.appendChat(taskId, "system", "error", guide, {
+            failed: true,
+            reason: "keyed_session_not_ready",
+          });
           throw new ProjectHomeError(guide);
         }
         const command = this.resolvePiCommand();
         if (command === null) {
           const guide = "pi 程序未找到（RT_PI_CMD）：请安装 pi 或设置环境变量后重试。";
-          this.appendChat(taskId, "system", "error", guide, { failed: true, reason: "pi_binary_missing" });
+          this.appendChat(taskId, "system", "error", guide, {
+            failed: true,
+            reason: "pi_binary_missing",
+          });
           throw new ProjectHomeError(guide);
         }
         const userSeq = (
-          this.ledger.connection
-            .prepare("SELECT MAX(seq) AS seq FROM chat_messages WHERE task_id = ?")
-            .get(taskId) as { seq: number }
+          this.ledger.connection.prepare("SELECT MAX(seq) AS seq FROM chat_messages WHERE task_id = ?").get(taskId) as {
+            seq: number;
+          }
         ).seq;
 
         const transcript = this.ledger.connection
           // seq <= userSeq：**包含本轮用户消息**——先落账是为了持久化，不是
           // 为了把输入藏起来（#711：模型看不到当前输入就会答"对话是空的"）
-          .prepare("SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? AND seq <= ? ORDER BY seq")
+          .prepare(
+            "SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? AND seq <= ? ORDER BY seq",
+          )
           .all(taskId, userSeq) as TranscriptMessage[];
         const prompt = buildTurnPrompt(transcript);
         // async pi (issue #670) + streaming deltas (#679): 思维链先行
@@ -528,11 +566,17 @@ export class WebUIServer {
         const runTurn = (): Promise<string> =>
           this.options.piRunner !== undefined
             ? Promise.resolve(this.options.piRunner(command, prompt))
-            : runPi(command, prompt, this.options.piTimeoutMs ?? 300_000, ["-nt", "-ne", "--no-session", "--no-skills"], (delta) => {
-                for (const client of this.wss.clients) {
-                  client.send(JSON.stringify({ event: "turn-delta", delta }));
-                }
-              });
+            : runPi(
+                command,
+                prompt,
+                this.options.piTimeoutMs ?? 300_000,
+                ["-nt", "-ne", "--no-session", "--no-skills"],
+                (delta) => {
+                  for (const client of this.wss.clients) {
+                    client.send(JSON.stringify({ event: "turn-delta", delta }));
+                  }
+                },
+              );
         // 一次重试：模型偶发非 JSON 输出时补一句硬约束再试；仍失败 → 诚实
         // 错误行落账（用户消息已先落账，不会只剩 think）并抛出（#704）
         let stdout: string;
@@ -545,12 +589,23 @@ export class WebUIServer {
           stdout =
             this.options.piRunner !== undefined
               ? await this.options.piRunner(command, retryPrompt)
-              : await runPi(command, retryPrompt, this.options.piTimeoutMs ?? 300_000, ["-nt", "-ne", "--no-session", "--no-skills"]);
+              : await runPi(command, retryPrompt, this.options.piTimeoutMs ?? 300_000, [
+                  "-nt",
+                  "-ne",
+                  "--no-session",
+                  "--no-skills",
+                ]);
           try {
             turn = parseTurnOutput(stdout);
           } catch (secondError) {
             const reason = String(secondError instanceof Error ? secondError.message : secondError);
-            this.appendChat(taskId, "system", "error", `本轮模型输出异常（${reason}）——你的消息已保留，请重新发送或稍后重试。`, { failed: true });
+            this.appendChat(
+              taskId,
+              "system",
+              "error",
+              `本轮模型输出异常（${reason}）——你的消息已保留，请重新发送或稍后重试。`,
+              { failed: true },
+            );
             throw secondError;
           }
         }
@@ -580,7 +635,9 @@ export class WebUIServer {
         }
         if (reconResults !== undefined) {
           const query = turn.recon?.query ?? "";
-          this.appendChat(taskId, "rt", "recon", reconToText(reconResults), { query });
+          this.appendChat(taskId, "rt", "recon", reconToText(reconResults), {
+            query,
+          });
           this.ledger.appendGraphEvent("provider.action", {
             id: `recon-${Date.now()}`,
             provider: "anysearch",
@@ -639,7 +696,10 @@ export class WebUIServer {
                 "keyed session is ready but the pi binary was not found (set RT_PI_CMD) — auto-classification fails closed",
               );
             }
-            const classification = await pickClassifier({ ready: true }, { runner: this.options.piRunner, command, timeoutMs: 300_000 }).classify(text);
+            const classification = await pickClassifier(
+              { ready: true },
+              { runner: this.options.piRunner, command, timeoutMs: 300_000 },
+            ).classify(text);
             kind = classification.kind;
             classifiedBy = classification.classified_by;
           } else {
@@ -652,18 +712,32 @@ export class WebUIServer {
         const receipt = controller.ingest({
           kind: kind as never,
           text,
-          source: { kind: "chat-message", ref: `msg:${++this.msgId}`, quote: text },
+          source: {
+            kind: "chat-message",
+            ref: `msg:${++this.msgId}`,
+            quote: text,
+          },
           hardness: params.hardness === "guessed" ? "guessed" : undefined,
         });
         // P2 hub transcript: user message + rt routing receipt persisted (migration v8)
-        this.appendChat(taskId, "user", kind, text, { classified_by: classifiedBy });
-        this.appendChat(taskId, "rt", "receipt", routingLabel(receipt as never), { ...receipt, classified_by: classifiedBy });
-        return { receipt: { ...receipt, classified_by: classifiedBy }, routed_count: this.routedCount(taskId) };
+        this.appendChat(taskId, "user", kind, text, {
+          classified_by: classifiedBy,
+        });
+        this.appendChat(taskId, "rt", "receipt", routingLabel(receipt as never), {
+          ...receipt,
+          classified_by: classifiedBy,
+        });
+        return {
+          receipt: { ...receipt, classified_by: classifiedBy },
+          routed_count: this.routedCount(taskId),
+        };
       }
       case "chat.history":
         return {
           messages: this.ledger.connection
-            .prepare("SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? ORDER BY seq")
+            .prepare(
+              "SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? ORDER BY seq",
+            )
             .all(String(params.task_id)) as Array<Record<string, unknown>>,
         };
       case "config.setProviderKey": {
@@ -691,7 +765,10 @@ export class WebUIServer {
       case "config.installExtensions": {
         // #664: explicit settings-page action (never silent) — provisions the
         // default pi extensions and audits the outcome by name
-        const result = ensurePiExtensions({ settingsDir: this.piConfigDir() ?? undefined, piCommand: this.resolvePiCommand() });
+        const result = ensurePiExtensions({
+          settingsDir: this.piConfigDir() ?? undefined,
+          piCommand: this.resolvePiCommand(),
+        });
         this.ledger.appendGraphEvent("provider.action", {
           id: `settings-ext-${Date.now()}`,
           provider: "settings",
@@ -715,10 +792,21 @@ export class WebUIServer {
       case "task.status": {
         // 任务状态卡 data: phase → 下一步动作唯一化 (运行中→查看研究 / 收敛→报告+冻结 / 提交后消失)
         const taskId = String(params.task_id);
-        const latest = this.versions.listVersions(taskId).slice().sort((a, b) => b.v - a.v)[0] ?? null;
+        const latest =
+          this.versions
+            .listVersions(taskId)
+            .slice()
+            .sort((a, b) => b.v - a.v)[0] ?? null;
         return {
           phase: this.machine.phaseOf(taskId) ?? this.persistedPhase(taskId),
-          latest: latest !== null ? { v: latest.v, verdict: latest.verdict, commit_hash: latest.commit_hash } : null,
+          latest:
+            latest !== null
+              ? {
+                  v: latest.v,
+                  verdict: latest.verdict,
+                  commit_hash: latest.commit_hash,
+                }
+              : null,
           routed_count: this.routedCount(taskId),
         };
       }
@@ -731,16 +819,16 @@ export class WebUIServer {
         const decompositionId = String(params.decomposition_id ?? `dc-${taskId}`);
         const summary = readPiConfig(this.options.piConfigDir);
         if (!summary.keyed_session_ready) {
-          throw new ProjectHomeError(
-            "pi 密钥未配置：请先到设置页配置 provider key，再进行要素抽取（不做模拟抽取）。",
-          );
+          throw new ProjectHomeError("pi 密钥未配置：请先到设置页配置 provider key，再进行要素抽取（不做模拟抽取）。");
         }
         const command = this.resolvePiCommand();
         if (command === null) {
           throw new ProjectHomeError("pi binary not found (set RT_PI_CMD) — cannot run the keyed extraction");
         }
         const transcript = this.ledger.connection
-          .prepare("SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? ORDER BY seq")
+          .prepare(
+            "SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? ORDER BY seq",
+          )
           .all(taskId) as TranscriptMessage[];
         if (transcript.filter((m) => m.role === "user").length === 0) {
           throw new ProjectHomeError("no conversation to extract from — talk in the hub first");
@@ -749,11 +837,20 @@ export class WebUIServer {
         const stdout =
           this.options.piRunner !== undefined
             ? await this.options.piRunner(command, prompt)
-            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000, ["-nt", "-ne", "--no-session", "--no-skills"]);
+            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000, [
+                "-nt",
+                "-ne",
+                "--no-session",
+                "--no-skills",
+              ]);
         const extraction = parseExtraction(stdout, transcript);
         const parsed = parseDecomposition(extraction);
-        const notes = { refusals: typeof params.refusals_note === "string" ? params.refusals_note : undefined };
-        const row = saveDraftDecomposition(this.ledger, taskId, parsed, notes, { decomposition_id: decompositionId });
+        const notes = {
+          refusals: typeof params.refusals_note === "string" ? params.refusals_note : undefined,
+        };
+        const row = saveDraftDecomposition(this.ledger, taskId, parsed, notes, {
+          decomposition_id: decompositionId,
+        });
         this.ledger.appendGraphEvent("provider.action", {
           id: `fromchat-${Date.now()}`,
           provider: "pi-session",
@@ -761,7 +858,11 @@ export class WebUIServer {
           target: `decompose:${taskId}/${decompositionId}`,
           outcome: "ok",
         });
-        return { checklist: row.checklist_state, elements: row.elements, dropped: parsed.dropped };
+        return {
+          checklist: row.checklist_state,
+          elements: row.elements,
+          dropped: parsed.dropped,
+        };
       }
       case "decompose.prepare": {
         // P3: the extraction arrives from the LLM side (pi session); parse +
@@ -769,9 +870,17 @@ export class WebUIServer {
         const taskId = String(params.task_id);
         const decompositionId = String(params.decomposition_id);
         const parsed = parseDecomposition(params.extraction as DecompositionElements);
-        const notes = { refusals: typeof params.refusals_note === "string" ? params.refusals_note : undefined };
-        const row = saveDraftDecomposition(this.ledger, taskId, parsed, notes, { decomposition_id: decompositionId });
-        return { checklist: row.checklist_state, elements: row.elements, dropped: parsed.dropped };
+        const notes = {
+          refusals: typeof params.refusals_note === "string" ? params.refusals_note : undefined,
+        };
+        const row = saveDraftDecomposition(this.ledger, taskId, parsed, notes, {
+          decomposition_id: decompositionId,
+        });
+        return {
+          checklist: row.checklist_state,
+          elements: row.elements,
+          dropped: parsed.dropped,
+        };
       }
       case "decompose.get": {
         const row = this.ledger.getDecomposition(String(params.task_id), String(params.decomposition_id));
@@ -801,9 +910,15 @@ export class WebUIServer {
         }
         list.splice(index, 1);
         const parsed = parseDecomposition(elements);
-        const saved = saveDraftDecomposition(this.ledger, taskId, parsed, (row.checklist_state as { notes?: { refusals?: string } }).notes ?? {}, {
-          decomposition_id: decompositionId,
-        });
+        const saved = saveDraftDecomposition(
+          this.ledger,
+          taskId,
+          parsed,
+          (row.checklist_state as { notes?: { refusals?: string } }).notes ?? {},
+          {
+            decomposition_id: decompositionId,
+          },
+        );
         return { checklist: saved.checklist_state, elements: saved.elements };
       }
       case "decompose.confirm": {
@@ -816,7 +931,9 @@ export class WebUIServer {
         }
         const parsed = parseDecomposition(row.elements as DecompositionElements);
         const notes = (row.checklist_state as { notes?: { refusals?: string } }).notes ?? {};
-        const confirmed = confirmDecomposition(this.ledger, taskId, parsed, notes, { decomposition_id: decompositionId });
+        const confirmed = confirmDecomposition(this.ledger, taskId, parsed, notes, {
+          decomposition_id: decompositionId,
+        });
         this.machine.attachDecomposition(taskId, decompositionId);
         return { confirmed: true, checklist: confirmed.checklist_state };
       }
@@ -870,7 +987,11 @@ export class WebUIServer {
             event: "open-draft",
             snapshot: {
               elements: {},
-              claims: previewClaims.map((c) => ({ id: String(c.id), text: String(c.text), posterior: 0.5 })),
+              claims: previewClaims.map((c) => ({
+                id: String(c.id),
+                text: String(c.text),
+                posterior: 0.5,
+              })),
               evidence_refs: [],
               report: {},
               deleted_nodes: [],
@@ -879,7 +1000,12 @@ export class WebUIServer {
           });
         }
         steps.push(
-          { event: "attach", decomposition: elements, decomposition_id: decompositionId, plan },
+          {
+            event: "attach",
+            decomposition: elements,
+            decomposition_id: decompositionId,
+            plan,
+          },
           { event: "confirm" },
           { event: "sign" },
         );
@@ -900,7 +1026,12 @@ export class WebUIServer {
           },
         });
         const dispatched = stages.length > 0 ? this.schedulerFor(taskId).tick() : [];
-        return { ...result, phase: this.machine.phaseOf(taskId), stages: stages.length, dispatched: dispatched.length };
+        return {
+          ...result,
+          phase: this.machine.phaseOf(taskId),
+          stages: stages.length,
+          dispatched: dispatched.length,
+        };
       }
       case "research.freeze": {
         // 人工裁决门: the verdict is ALWAYS human-signed (问句不是判决).
@@ -920,7 +1051,12 @@ export class WebUIServer {
           verdict,
           summary: String(params.summary ?? `${verdict} by human sign-off`),
         });
-        return { committed: true, v: committed.v, commit_hash: committed.commit_hash, verdict };
+        return {
+          committed: true,
+          v: committed.v,
+          commit_hash: committed.commit_hash,
+          verdict,
+        };
       }
       case "mindmap.generate": {
         // 确认阶段: transcript → pi → mindmap tree (quote 回查溯源), draft only
@@ -934,28 +1070,45 @@ export class WebUIServer {
           throw new ProjectHomeError("pi binary not found (set RT_PI_CMD) — mindmap generation fails closed");
         }
         const transcript = this.ledger.connection
-          .prepare("SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? ORDER BY seq")
+          .prepare(
+            "SELECT seq, role, kind, text, receipt_json, created_at FROM chat_messages WHERE task_id = ? ORDER BY seq",
+          )
           .all(taskId) as TranscriptMessage[];
         const prompt = mindmapPrompt(transcript);
         const stdout =
           this.options.piRunner !== undefined
             ? await this.options.piRunner(command, prompt)
-            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000, ["-nt", "-ne", "--no-session", "--no-skills"]);
+            : await runPi(command, prompt, this.options.piTimeoutMs ?? 300_000, [
+                "-nt",
+                "-ne",
+                "--no-session",
+                "--no-skills",
+              ]);
         const parsed = parseMindmap(stdout, transcript);
         const now = new Date().toISOString();
         this.ledger.connection
           .prepare(
-            "INSERT INTO mindmaps (task_id, tree_json, status, created_at, updated_at) VALUES (?, ?, 'draft', ?, ?) "
-            + "ON CONFLICT(task_id) DO UPDATE SET tree_json = excluded.tree_json, status = 'draft', updated_at = excluded.updated_at",
+            "INSERT INTO mindmaps (task_id, tree_json, status, created_at, updated_at) VALUES (?, ?, 'draft', ?, ?) " +
+              "ON CONFLICT(task_id) DO UPDATE SET tree_json = excluded.tree_json, status = 'draft', updated_at = excluded.updated_at",
           )
           .run(taskId, JSON.stringify(parsed.tree), now, now);
-        return { tree: parsed.tree, dropped: parsed.dropped, depth: parsed.depth };
+        return {
+          tree: parsed.tree,
+          dropped: parsed.dropped,
+          depth: parsed.depth,
+        };
       }
       case "mindmap.get": {
         const row = this.ledger.connection
           .prepare("SELECT tree_json, status, updated_at FROM mindmaps WHERE task_id = ? LIMIT 1")
           .get(String(params.task_id)) as { tree_json: string; status: string; updated_at: string } | undefined;
-        return row !== undefined ? { tree: JSON.parse(row.tree_json), status: row.status, updated_at: row.updated_at } : { tree: null, status: null };
+        return row !== undefined
+          ? {
+              tree: JSON.parse(row.tree_json),
+              status: row.status,
+              updated_at: row.updated_at,
+            }
+          : { tree: null, status: null };
       }
       case "mindmap.editNode": {
         // 编辑权在确认前 — confirmed trees are frozen (变更=重大转向)
@@ -1008,7 +1161,11 @@ export class WebUIServer {
         const src = (node: MindNode): Array<Record<string, unknown>> =>
           [node, ...node.children].map((n) => ({
             text: n.text,
-            source: { kind: "chat-message", ref: `mindmap:${n.id}`, quote: n.quote ?? n.text },
+            source: {
+              kind: "chat-message",
+              ref: `mindmap:${n.id}`,
+              quote: n.quote ?? n.text,
+            },
           }));
         const branch = (name: string): Array<Record<string, unknown>> => {
           const b = tree.root.children.find((c) => c.branch === name || c.text === name);
@@ -1017,16 +1174,31 @@ export class WebUIServer {
         const leaves: Array<Record<string, unknown>> = [];
         const collectLeaves = (node: MindNode): void => {
           if (node.children.length === 0) {
-            leaves.push({ text: node.text, source: { kind: "chat-message", ref: `mindmap:${node.id}`, quote: node.quote ?? node.text } });
+            leaves.push({
+              text: node.text,
+              source: {
+                kind: "chat-message",
+                ref: `mindmap:${node.id}`,
+                quote: node.quote ?? node.text,
+              },
+            });
           }
           for (const c of node.children) {
             collectLeaves(c);
           }
         };
         collectLeaves(tree.root);
-        const difficulties = branch("难点").length > 0
-          ? branch("难点").map((n) => ({ ...n, kill_candidates: [`verify: ${n.text}`] }))
-          : leaves.map((n) => ({ text: String(n.text), source: n.source, kill_candidates: [`verify: ${n.text}`] }));
+        const difficulties =
+          branch("难点").length > 0
+            ? branch("难点").map((n) => ({
+                ...n,
+                kill_candidates: [`verify: ${n.text}`],
+              }))
+            : leaves.map((n) => ({
+                text: String(n.text),
+                source: n.source,
+                kill_candidates: [`verify: ${n.text}`],
+              }));
         const extraction: DecompositionElements = {
           requirements: tree.root.children.flatMap((c) => src(c)),
           constraints: branch("限制条件"),
@@ -1045,14 +1217,20 @@ export class WebUIServer {
             notes[cls] = "none";
           }
         }
-        confirmDecomposition(this.ledger, taskId, parsed, notes, { decomposition_id: `dc-${taskId}` });
+        confirmDecomposition(this.ledger, taskId, parsed, notes, {
+          decomposition_id: `dc-${taskId}`,
+        });
         const decompositionId = `dc-${taskId}`;
         this.machine.attachDecomposition(taskId, decompositionId);
         // A7 rule 3（同 research.start）：draftless 任务开一份以叶子命题为
         // claims（posterior 0.5，id 对齐 mechanicalPlan 的 claim_ids）的
         // 工作集——否则确认后的调研永远 freeze refused（issue #690 e2e）
         if (this.versions.draftOf(taskId) === null) {
-          const leafClaims: Array<{ id: string; text: string; posterior: number }> = [];
+          const leafClaims: Array<{
+            id: string;
+            text: string;
+            posterior: number;
+          }> = [];
           const collect = (node: MindNode): void => {
             if (node.children.length === 0) {
               leafClaims.push({ id: node.id, text: node.text, posterior: 0.5 });
@@ -1074,7 +1252,12 @@ export class WebUIServer {
         const plan = planFromTree(tree);
         this.machine.attachRunPlan(taskId, {
           plan_id: `plan-${decompositionId}`,
-          stages: plan.map((st) => ({ id: st.id, title: st.title, claim_ids: st.claim_ids, depends_on: st.depends_on })),
+          stages: plan.map((st) => ({
+            id: st.id,
+            title: st.title,
+            claim_ids: st.claim_ids,
+            depends_on: st.depends_on,
+          })),
           budget: { capMs: 12 * 3600 * 1000 },
           yaw_checks: [
             { slot: "plan-level", mode: "auto" },
@@ -1102,8 +1285,14 @@ export class WebUIServer {
         // walk: chat → decompose(语义确认) → research；全链成功后翻转导图状态
         this.machine.transition(taskId, { event: "confirm" });
         this.machine.transition(taskId, { event: "sign" });
-        this.ledger.connection.prepare("UPDATE mindmaps SET status = 'confirmed', updated_at = ? WHERE task_id = ?").run(new Date().toISOString(), taskId);
-        return { confirmed: true, stages: dagStages.length, phase: this.machine.phaseOf(taskId) };
+        this.ledger.connection
+          .prepare("UPDATE mindmaps SET status = 'confirmed', updated_at = ? WHERE task_id = ?")
+          .run(new Date().toISOString(), taskId);
+        return {
+          confirmed: true,
+          stages: dagStages.length,
+          phase: this.machine.phaseOf(taskId),
+        };
       }
       case "research.launch": {
         const script: HeadlessScript = {
@@ -1131,20 +1320,32 @@ export class WebUIServer {
     }
   }
 
-  private appendChat(taskId: string, role: "user" | "rt" | "system", kind: string, text: string, receipt: unknown): void {
+  private appendChat(
+    taskId: string,
+    role: "user" | "rt" | "system",
+    kind: string,
+    text: string,
+    receipt: unknown,
+  ): void {
     const seq = (
-      this.ledger.connection.prepare("SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM chat_messages WHERE task_id = ?").get(taskId) as {
+      this.ledger.connection
+        .prepare("SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM chat_messages WHERE task_id = ?")
+        .get(taskId) as {
         next: number;
       }
     ).next;
     this.ledger.connection
-      .prepare("INSERT INTO chat_messages (task_id, seq, role, kind, text, receipt_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .prepare(
+        "INSERT INTO chat_messages (task_id, seq, role, kind, text, receipt_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
       .run(taskId, seq, role, kind, text, receipt !== null ? JSON.stringify(receipt) : null, new Date().toISOString());
   }
 
   private routedCount(taskId: string): number {
     return (
-      this.ledger.connection.prepare("SELECT COUNT(*) AS n FROM chat_messages WHERE task_id = ? AND role = 'rt'").get(taskId) as { n: number }
+      this.ledger.connection
+        .prepare("SELECT COUNT(*) AS n FROM chat_messages WHERE task_id = ? AND role = 'rt'")
+        .get(taskId) as { n: number }
     ).n;
   }
 }

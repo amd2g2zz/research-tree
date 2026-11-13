@@ -75,7 +75,10 @@ export function localNpmPrefix(settingsDir: string): string {
 export function defaultInstaller(settingsDir: string, piCommand: string | null): ExtensionInstaller {
   return (pkg: string): { path: string } => {
     if (piCommand !== null) {
-      const result = spawnSync(piCommand, ["install", `npm:${pkg}`], { encoding: "utf8", timeout: 300_000 });
+      const result = spawnSync(piCommand, ["install", `npm:${pkg}`], {
+        encoding: "utf8",
+        timeout: 300_000,
+      });
       if (result.status === 0) {
         return { path: `npm:${pkg}` };
       }
@@ -89,7 +92,9 @@ export function defaultInstaller(settingsDir: string, piCommand: string | null):
     });
     const pkgPath = join(prefix, "node_modules", pkg);
     if (run.status !== 0 || !existsSync(pkgPath)) {
-      throw new Error(`npm install ${pkg} failed (code ${run.status ?? "?"}) — both pi install and local prefix unavailable`);
+      throw new Error(
+        `npm install ${pkg} failed (code ${run.status ?? "?"}) — both pi install and local prefix unavailable`,
+      );
     }
     return { path: pkgPath };
   };
@@ -97,13 +102,15 @@ export function defaultInstaller(settingsDir: string, piCommand: string | null):
 
 /** Idempotent provisioning: packages already referenced in settings.json are
  * skipped; missing ones are installed and their paths appended. */
-export function ensurePiExtensions(options: {
-  settingsDir?: string;
-  installer?: ExtensionInstaller;
-  piCommand?: string | null;
-  /** test isolation: run npm in a temp cwd (never the repo) */
-  cwd?: string;
-} = {}): EnsureResult {
+export function ensurePiExtensions(
+  options: {
+    settingsDir?: string;
+    installer?: ExtensionInstaller;
+    piCommand?: string | null;
+    /** test isolation: run npm in a temp cwd (never the repo) */
+    cwd?: string;
+  } = {},
+): EnsureResult {
   const settingsDir = options.settingsDir ?? join(homedir(), ".pi", "agent");
   const settingsPath = join(settingsDir, "settings.json");
   const installer = options.installer ?? defaultInstaller(settingsDir, options.piCommand ?? resolvePiCommand());
@@ -113,7 +120,9 @@ export function ensurePiExtensions(options: {
   const result: EnsureResult = { installed: [], present: [], failed: [] };
   const updated = [...packages];
   for (const name of DEFAULT_PI_EXTENSIONS) {
-    const already = packages.some((p) => p === name || p === `npm:${name}` || p.endsWith(`/${name}`) || p.endsWith(`node_modules/${name}`));
+    const already = packages.some(
+      (p) => p === name || p === `npm:${name}` || p.endsWith(`/${name}`) || p.endsWith(`node_modules/${name}`),
+    );
     if (already) {
       result.present.push(name);
       continue;
@@ -123,7 +132,10 @@ export function ensurePiExtensions(options: {
       updated.push(path);
       result.installed.push(name);
     } catch (error) {
-      result.failed.push({ name, error: String(error instanceof Error ? error.message : error) });
+      result.failed.push({
+        name,
+        error: String(error instanceof Error ? error.message : error),
+      });
     }
   }
   if (result.installed.length > 0) {
@@ -154,7 +166,13 @@ export function resolvePiCommand(): string | null {
 export function extensionStatuses(settingsDir: string = join(homedir(), ".pi", "agent")): ExtensionStatus[] {
   const packages = settingsPackages(join(settingsDir, "settings.json"));
   return DEFAULT_PI_EXTENSIONS.map((name) => {
-    const installed = packages.some((p) => p === name || p === `npm:${name}` || p.endsWith(`/${name}`) || p.endsWith(`node_modules/${name}`));
-    return { name, installed, source: installed ? ("settings-path" as const) : null };
+    const installed = packages.some(
+      (p) => p === name || p === `npm:${name}` || p.endsWith(`/${name}`) || p.endsWith(`node_modules/${name}`),
+    );
+    return {
+      name,
+      installed,
+      source: installed ? ("settings-path" as const) : null,
+    };
   });
 }
