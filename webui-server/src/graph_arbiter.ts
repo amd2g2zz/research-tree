@@ -43,7 +43,11 @@ export interface ArbiterNodeInput {
   findings: string | null;
 }
 
-/** 仲裁员 prompt（图状态 + 已完成发现 + 导图分支 → 图生长决策）。 */
+/** 仲裁员 prompt（图状态 + 已完成发现 + 导图分支 → 图生长决策）。
+
+#729 缓存前缀律：**稳定样板（角色+规则+输出格式）必须全部在 prompt
+前部**，逐 wave 变化的部分（wave 号+节点状态）压到最后——否则 wave 号
+把规则段推出共享前缀，跨 wave 调用的缓存命中率崩塌。 */
 export function buildArbiterPrompt(
   question: string,
   branches: string[],
@@ -60,6 +64,14 @@ export function buildArbiterPrompt(
     .join("\n");
   return (
     "你是 DAG 图仲裁员，负责一个调研任务图的**动态生长**——用期望信息增益决定图往哪里长。\n" +
+    "规则：\n" +
+    "1. 图必须**有向无环**：新节点的 after 只能引用本次输入列出的节点 id；\n" +
+    "2. 每个新节点 title 带类型前缀（深挖｜/分析｜/验证｜），purpose 一句话说明它回答什么；\n" +
+    "3. **expectedGain（0~1）= 该节点对回答整体问题的边际信息增益先验估计**：发现里未覆盖但关键的子问题给高分；与已有发现重复、或只是换措辞的子问题给低分——执行器会实测后验增益并压低后续分支的估值，虚报会被收益递减自然抑制；\n" +
+    "4. 当剩余的空白都已被覆盖、或新节点期望增益都很低（收益递减）→ done=true；\n" +
+    "5. 不得编造发现里没有的信息。\n" +
+    '只输出 JSON：{"done":false,"note":"一句话理由","nodes":[{"title":"深挖｜...","purpose":"...","expectedGain":0.7,"after":["<节点id>"]}]}\n' +
+    "\n【本次仲裁输入】\n" +
     "整体研究问题：" +
     question +
     "\n导图初始分支：" +
@@ -68,13 +80,7 @@ export function buildArbiterPrompt(
     wave +
     "，damping 为当前分支阻尼系数——历史收益递减的分支新节点会被压值）：\n" +
     nodeLines +
-    "\n规则：\n" +
-    "1. 图必须**有向无环**：新节点的 after 只能引用上面列出的节点 id；\n" +
-    "2. 每个新节点 title 带类型前缀（深挖｜/分析｜/验证｜），purpose 一句话说明它回答什么；\n" +
-    "3. **expectedGain（0~1）= 该节点对回答整体问题的边际信息增益先验估计**：发现里未覆盖但关键的子问题给高分；与已有发现重复、或只是换措辞的子问题给低分——执行器会实测后验增益并压低后续分支的估值，虚报会被收益递减自然抑制；\n" +
-    "4. 当剩余的空白都已被覆盖、或新节点期望增益都很低（收益递减）→ done=true；\n" +
-    "5. 不得编造发现里没有的信息。\n" +
-    '只输出 JSON：{"done":false,"note":"一句话理由","nodes":[{"title":"深挖｜...","purpose":"...","expectedGain":0.7,"after":["<节点id>"]}]}\n'
+    "\n"
   );
 }
 

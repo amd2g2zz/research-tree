@@ -20,11 +20,23 @@ stdout has accumulated, and kills the whole process GROUP on timeout
 */
 
 import { spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 export class PiRunError extends Error {}
+
+/** pi 的固定隔离 cwd（#729 缓存修复）。pi 把工作目录写进 system prompt
+ * 末尾（"Current working directory: …"）——system prompt 是请求的最前缀，
+ * #706 的每次 mkdtemp 让它逐调用变化，DeepSeek context caching 结构性
+ * 0% 命中。隔离的目的只是不让 pi 向上读到仓库的 AGENTS.md（#706），固定
+ * 的非仓库空目录完全满足；幂等 mkdir，进程与重启之间复用同一路径。 */
+const PI_ISOLATED_CWD = join(tmpdir(), "rt-pi-cwd");
+
+export function piIsolatedCwd(): string {
+  mkdirSync(PI_ISOLATED_CWD, { recursive: true });
+  return PI_ISOLATED_CWD;
+}
 
 export function runPi(
   command: string,
@@ -38,8 +50,9 @@ export function runPi(
     // cwd 隔离（#706 商业化审计）：server 从仓库目录启动时，pi 会向上读
     // AGENTS.md / 项目上下文，把 research-tree 自己当成研究主题注入回答
     // ——结构化调用（turn/extraction/classification）必须在一无所有的
-    // 临时目录里跑。每个调用独立临时目录，进程退出后由 OS 清理。
-    const isolatedCwd = mkdtempSync(join(tmpdir(), "rt-pi-cwd-"));
+    // 临时目录里跑。#729：目录固定复用（见 piIsolatedCwd），不再逐调用
+    // mkdtemp——cwd 变化会打穿 system prompt 前缀，缓存全灭。
+    const isolatedCwd = piIsolatedCwd();
     // detached: own process group — lets the timeout SIGKILL the whole tree
     // (pi + its MCP grandchildren), not just pi
     const child = spawn(command, [...extraArgs, "-p", prompt], {
