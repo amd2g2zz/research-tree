@@ -223,7 +223,8 @@ body,
 
 	> * {
 		min-width: 0;
-		margin: 0 0 20px;
+		// #736 聊天密度：消息块间距收紧（20px → 14px），对话流紧凑可读
+		margin: 0 0 14px;
 	}
 }
 
@@ -316,8 +317,16 @@ body,
 }
 
 .agent-text.md {
+	// #736 聊天密度：markdown 换行/段落/标题间距全面收紧——模型输出的
+	// markdown 分段多，旧间距下段落间空隙巨大。
+	// **white-space 必须 normal**：基类的 pre-wrap 会把 marked 输出 HTML
+	// 里的源换行渲染成可见空行（h2/ul 前后各多一行），这才是"换行离得
+	// 太远"的真凶——块级间距只由 margin 决定。
+	white-space: normal;
+	line-height: 1.62;
+
 	p {
-		margin: 0 0 10px;
+		margin: 0 0 7px;
 	}
 	code {
 		background: #ececec;
@@ -331,6 +340,7 @@ body,
 		padding: 10px 12px;
 		overflow-x: auto;
 		font-size: 13px;
+		margin: 7px 0;
 	}
 	pre code {
 		background: none;
@@ -338,14 +348,28 @@ body,
 	}
 	ul,
 	ol {
-		margin: 0 0 10px;
+		margin: 0 0 7px;
 		padding-left: 20px;
+
+		li {
+			margin: 0 0 3px;
+		}
+		li:last-child {
+			margin-bottom: 0;
+		}
+		li > p {
+			margin: 0;
+		}
 	}
 	h1,
 	h2,
 	h3,
 	h4 {
-		margin: 14px 0 8px;
+		margin: 13px 0 5px;
+
+		&:first-child {
+			margin-top: 0;
+		}
 	}
 	a {
 		color: #2f6fed;
@@ -430,7 +454,7 @@ body,
 .flow-alert {
 	justify-self: center;
 	width: min(#{$chat-col}, 100%);
-	margin-bottom: 20px;
+	margin-bottom: 12px;
 }
 
 .question-row {
