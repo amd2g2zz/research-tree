@@ -598,7 +598,24 @@ export class WebUIServer {
                 broadcastDelta,
               );
         // 一次重试：模型偶发非 JSON 输出时补一句硬约束再试；仍失败 → 诚实
-        // 错误行落账（用户消息已先落账，不会只剩 think）并抛出（#704）
+        // 错误行落账（用户消息已先落账，不会只剩 think）并抛出（#704）。
+        // #727：错误行落账必须覆盖**所有**失败路径——retry 调用本身抛错
+        // （pi 上游 402 余额不足等环境故障）曾穿透 catch 直接上抛，用户流里
+        // 连错误行都没有。failTurn 统一收口：落账 + 清 activeTurn + 广播。
+        const failTurn = (cause: unknown): void => {
+          const reason = String(cause instanceof Error ? cause.message : cause);
+          this.appendChat(
+            taskId,
+            "system",
+            "error",
+            `本轮模型输出异常（${reason}）——你的消息已保留，请重新发送或稍后重试。`,
+            { failed: true },
+          );
+          this.activeTurns.delete(taskId);
+          for (const client of this.wss.clients) {
+            client.send(JSON.stringify({ event: "turn-end", task_id: taskId }));
+          }
+        };
         let stdout: string;
         let turn: TurnOutput;
         try {
@@ -606,31 +623,20 @@ export class WebUIServer {
           turn = parseTurnOutput(stdout);
         } catch (firstError) {
           const retryPrompt = `${prompt}\n\n（注意：上一次输出不可用：${String(firstError instanceof Error ? firstError.message : firstError).slice(0, 120)}。只输出一个 JSON 对象，不要输出任何其它文字。）`;
-          stdout =
-            this.options.piRunner !== undefined
-              ? await this.options.piRunner(command, retryPrompt)
-              : await runPi(command, retryPrompt, this.options.piTimeoutMs ?? 300_000, [
-                  "-nt",
-                  "-ne",
-                  "--no-session",
-                  "--no-skills",
-                ]);
           try {
-            turn = parseTurnOutput(stdout);
-          } catch (secondError) {
-            const reason = String(secondError instanceof Error ? secondError.message : secondError);
-            this.appendChat(
-              taskId,
-              "system",
-              "error",
-              `本轮模型输出异常（${reason}）——你的消息已保留，请重新发送或稍后重试。`,
-              { failed: true },
-            );
-            this.activeTurns.delete(taskId);
-            for (const client of this.wss.clients) {
-              client.send(JSON.stringify({ event: "turn-end", task_id: taskId }));
-            }
-            throw secondError;
+            const retryStdout =
+              this.options.piRunner !== undefined
+                ? await this.options.piRunner(command, retryPrompt)
+                : await runPi(command, retryPrompt, this.options.piTimeoutMs ?? 300_000, [
+                    "-nt",
+                    "-ne",
+                    "--no-session",
+                    "--no-skills",
+                  ]);
+            turn = parseTurnOutput(retryStdout);
+          } catch (retryError) {
+            failTurn(retryError);
+            throw retryError;
           }
         }
 

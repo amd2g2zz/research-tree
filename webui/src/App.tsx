@@ -762,19 +762,31 @@ function Shell() {
 																...((reconByReplySeq.get(m.seq) ?? []).length >
 																0
 																	? [
-																			{
-																				key: "recon",
-																				label: `前期侦查（${(reconByReplySeq.get(m.seq) ?? []).length} 条来源）`,
-																				children: (
-																					<div className="md recon-md">
-																						{(
-																							reconByReplySeq.get(m.seq) ?? []
-																						).map((t, j) => (
-																							<p key={`rc-${String(j)}`}>{t}</p>
-																						))}
-																					</div>
-																				),
-																			},
+																				{
+																					key: "recon",
+																					label: `前期侦查（${(reconByReplySeq.get(m.seq) ?? []).length} 条来源）`,
+																					children: (
+																						<div
+																							className="md recon-md"
+																							dangerouslySetInnerHTML={{
+																								__html: renderMd(
+																									(
+																										reconByReplySeq.get(
+																											m.seq,
+																										) ?? []
+																								)
+																									.join("\n")
+																									// 来源以「；N. 」编号分隔——在编号边界断行；
+																									// 前缀「…来源：」后也断行，让首个编号落行首，
+																									// marked 才能渲染成有序列表（title 内部的数字
+																									// 不跟在"；/："后，不会误切）
+																									.replace(/；(?=\d+\.\s)/g, "\n")
+																									.replace(/：(?=\d+\.\s)/, "：\n"),
+																								),
+																							}}
+																						/>
+																					),
+																				},
 																		]
 																	: []),
 															]}
@@ -801,9 +813,25 @@ function Shell() {
 														</button>
 													) : null
 												) : m.kind === "recon" ? null : m.kind === "error" ? (
-													<div className="error-row">⚠️ {m.text}</div>
+													<div className="error-row">
+														<span className="row-ico">⚠️</span>
+														<span
+															className="md"
+															dangerouslySetInnerHTML={{
+																__html: renderMd(m.text),
+															}}
+														/>
+													</div>
 												) : (
-													<div className="receipt-row">◉ {m.text}</div>
+													<div className="receipt-row">
+														<span className="row-ico">◉</span>
+														<span
+															className="md"
+															dangerouslySetInnerHTML={{
+																__html: renderMd(m.text),
+															}}
+														/>
+													</div>
 												)}
 											</Fragment>
 										),

@@ -361,25 +361,78 @@ body,
 	}
 }
 
+// 二级内容弱化排版（#727）：思考/侦查面板内容明显低于正文权重
+// （正文 14.5px 黑字 → 12.5px 灰字，标题/code/链接同档降级）
 .cot-box {
 	padding: 0 16px;
 
-	summary {
+	.md {
 		font-size: 12.5px;
-		color: #8f8f8f;
-		cursor: pointer;
-		user-select: none;
+		line-height: 1.65;
+		color: #8a8a8a;
+
+		p {
+			margin: 0 0 6px;
+		}
+		h1,
+		h2,
+		h3,
+		h4 {
+			font-size: 13px;
+			margin: 10px 0 6px;
+			color: #7a7a7a;
+		}
+		code {
+			background: #f0f0f0;
+			border-radius: 4px;
+			padding: 1px 4px;
+			font-size: 11px;
+		}
+		pre {
+			background: #fafafa;
+			border-radius: 8px;
+			padding: 8px 10px;
+			font-size: 11.5px;
+			overflow-x: auto;
+			max-height: 220px;
+			overflow-y: auto;
+			margin: 6px 0;
+
+			code {
+				background: none;
+				padding: 0;
+			}
+		}
+		ul,
+		ol {
+			margin: 4px 0 6px;
+			padding-left: 18px;
+		}
+		a {
+			color: #6b93d6;
+		}
+		blockquote {
+			margin: 6px 0;
+			padding-left: 10px;
+			border-left: 3px solid #e3e3e3;
+			color: #999;
+		}
+		table {
+			font-size: 11.5px;
+			border-collapse: collapse;
+		}
+		th,
+		td {
+			border: 1px solid #e3e3e3;
+			padding: 3px 8px;
+		}
 	}
 
-	pre {
-		font-size: 12px;
-		color: #8a8a8a;
-		white-space: pre-wrap;
-		background: #fafafa;
-		border-radius: 10px;
-		padding: 10px 12px;
-		max-height: 220px;
-		overflow-y: auto;
+	.recon-md {
+		// 侦查来源逐条成段：紧凑列表感
+		p {
+			margin: 0 0 4px;
+		}
 	}
 }
 
@@ -408,24 +461,40 @@ body,
 	}
 }
 
-.recon-box {
-	padding: 6px 12px;
-	font-size: 13px;
-	color: #666;
-	border: 1px dashed #ddd;
-	border-radius: 10px;
+// 回执/错误行（#727：内容走 markdown 渲染，弱化排版）
+.receipt-row,
+.error-row {
+	display: flex;
+	gap: 6px;
+	align-items: baseline;
+	max-width: $chat-col;
+	margin: 0 auto 8px;
 
-	summary {
-		cursor: pointer;
-		user-select: none;
+	.row-ico {
+		flex: none;
+	}
+	.md {
+		font-size: 12.5px;
+		line-height: 1.6;
+		min-width: 0;
+
+		p {
+			margin: 0;
+		}
 	}
 }
 
 .receipt-row {
 	padding: 0 16px;
-	font-size: 12.5px;
 	color: #999;
-	margin-bottom: 8px;
+}
+
+.error-row {
+	padding: 8px 14px;
+	color: #b42318;
+	background: #fff1f0;
+	border: 1px solid #ffccc7;
+	border-radius: 10px;
 }
 
 // 自动 planning 提案（#704）
@@ -452,18 +521,6 @@ body,
 		margin: 0;
 		color: #333;
 	}
-}
-
-// 模型输出异常的诚实错误行（#704：不再只剩 think 没有反馈）
-.error-row {
-	max-width: $chat-col;
-	margin: 0 auto 12px;
-	padding: 8px 14px;
-	font-size: 12.5px;
-	color: #b42318;
-	background: #fff1f0;
-	border: 1px solid #ffccc7;
-	border-radius: 10px;
 }
 
 .dots span {
