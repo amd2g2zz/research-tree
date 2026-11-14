@@ -9,6 +9,8 @@ import {
 	EditOutlined,
 	InboxOutlined,
 	LinkOutlined,
+	MenuFoldOutlined,
+	MenuUnfoldOutlined,
 	MoreOutlined,
 	NodeIndexOutlined,
 	PlusOutlined,
@@ -138,7 +140,8 @@ function Shell() {
 	const [modelId, setModelId] = useState("");
 	// 侧栏管理（#704）：搜索 / 惰性加载 / 行内 重命名·归档·删除
 	const [query, setQuery] = useState("");
-	const [visibleCount, setVisibleCount] = useState(10);
+	// #740：侧栏可收起——collapsedWidth 0 折叠即全隐，切换按钮在主顶栏
+	const [sideCollapsed, setSideCollapsed] = useState(false);
 	const [renameTarget, setRenameTarget] = useState<{
 		kind: "project" | "task";
 		id: string;
@@ -522,7 +525,15 @@ function Shell() {
 
 	return (
 		<Layout className="app">
-			<Layout.Sider width={260} theme="light" className="side">
+			<Layout.Sider
+					width={260}
+					theme="light"
+					className="side"
+					collapsible
+					collapsed={sideCollapsed}
+					collapsedWidth={0}
+					trigger={null}
+				>
 				<div className="side-head">
 					<button
 						type="button"
@@ -541,18 +552,11 @@ function Shell() {
 						className="side-search"
 					/>
 				</div>
-				<nav
-					className="side-list"
-					onScroll={(e) => {
-						const el = e.currentTarget;
-						if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
-							setVisibleCount((c) => c + 10); // 惰性加载：滚到底部再取 10 条
-						}
-					}}
-				>
+				<nav className="side-list">
 					{projects
 						.filter((p) => p.status !== "archived") // 归档项目不进活跃列表
-						.slice(0, visibleCount)
+						// #740：全量渲染——展示层分页在首屏恰好填满视口时永远
+						// 无法触发（nav 不溢出就没有滚动条），死提示"继续滚动加载"
 						.map((p) => (
 							<div key={p.project_id} className="proj-group">
 								<div className="proj-row">
@@ -581,9 +585,6 @@ function Shell() {
 								))}
 							</div>
 						))}
-					{projects.length > visibleCount && (
-						<div className="side-more">继续滚动加载…</div>
-					)}
 				</nav>
 				<div className="side-foot">
 					<Button
@@ -650,6 +651,13 @@ function Shell() {
 				) : (
 					<>
 						<header className="topbar">
+							{/* #740：侧栏收起/展开切换（ChatGPT 式） */}
+							<Button
+								type="text"
+								size="small"
+								icon={sideCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+								onClick={() => setSideCollapsed((c) => !c)}
+							/>
 							{view !== "chat" ? (
 								<Button
 									type="text"
