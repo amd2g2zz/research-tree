@@ -11,6 +11,14 @@ body,
 	margin: 0;
 }
 
+// #740 字体：现代系统栈 + 抗锯齿——不再跟随浏览器默认
+body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+		"Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
+
 // H1（#706 UX 审计）：antd <App> 包装层缺高度，100% 对 auto 父级落空
 // → 全站底部白带 + 长文档滚动
 #root > .ant-app {
@@ -133,13 +141,6 @@ body,
 			.proj-row:hover .row-menu,
 			.task-line:hover .row-menu {
 				opacity: 1;
-			}
-
-			.side-more {
-				text-align: center;
-				font-size: 11px;
-				color: #bbb;
-				padding: 10px 0;
 			}
 		}
 
@@ -397,6 +398,31 @@ body,
 	}
 	a {
 		color: #2f6fed;
+	}
+	// #740 GFM 表格等：marked+DOMPurify 有生成 HTML 但无样式=视觉上没渲染
+	table {
+		border-collapse: collapse;
+		margin: 7px 0;
+		font-size: 13.5px;
+		display: block;
+		max-width: 100%;
+		overflow-x: auto;
+	}
+	th,
+	td {
+		border: 1px solid #e3e3e3;
+		padding: 5px 10px;
+		text-align: left;
+	}
+	th {
+		background: #f7f7f7;
+		font-weight: 600;
+	}
+	del {
+		color: #999;
+	}
+	input[type="checkbox"] {
+		margin-right: 5px;
 	}
 }
 
