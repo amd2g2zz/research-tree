@@ -28,7 +28,6 @@ import {
 	Modal,
 	Select,
 	Skeleton,
-	Steps,
 	Tag,
 	Tooltip,
 	Typography,
@@ -78,13 +77,6 @@ const PHASE_CN: Record<string, string> = {
 	committed: "已提交",
 	paused: "已暂停",
 };
-
-/** 阶段 → 三步流位置（0 对话 / 1 导图 / 2 调研）——Steps 进度展示用 */
-function phaseStep(phase: string): number {
-	if (phase === "chat") return 0;
-	if (phase === "decompose") return 1;
-	return 2;
-}
 
 /** 自动命名：第一句话提炼 5~15 字标题（去首尾标点，超长截断）。 */
 export function clipTitle(text: string): string {
@@ -675,16 +667,9 @@ function Shell() {
 									{proj?.name ?? "research-tree"}
 								</Typography.Title>
 							)}
-							<Steps
-								size="small"
-								className="topbar-steps"
-								current={phaseStep(phase)}
-								items={[
-									{ title: "对话" },
-									{ title: "思维导图" },
-									{ title: "调研" },
-								]}
-							/>
+							{/* #734：主 UI = 纯聊天对话界面——三阶段 Steps 向导条是
+									装饰性进度展示（导航入口本就在流内卡片），删除后
+									对话流成为绝对主体 */}
 							<Tooltip title="复制任务链接（可分享）">
 								<Button
 									type="text"
