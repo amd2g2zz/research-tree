@@ -779,12 +779,19 @@ function Shell() {
 													)}
 												{m.kind === "reply" ? (
 													<div className="agent-msg">
-														<div
-															className="agent-text md"
-															dangerouslySetInnerHTML={{
-																__html: renderMd(m.text),
-															}}
-														/>
+														{/* #738：rt 头像锚点——人发（右对齐灰气泡）vs
+																rt 发（左对齐 + 头像）一眼可辨 */}
+														<div className="rt-avatar" aria-hidden="true">
+															RT
+														</div>
+														<div className="agent-body">
+															<div
+																className="agent-text md"
+																dangerouslySetInnerHTML={{
+																	__html: renderMd(m.text),
+																}}
+															/>
+														</div>
 													</div>
 												) : m.kind === "question" ? (
 													m.seq > lastReplySeq ? (
