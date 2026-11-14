@@ -34,7 +34,14 @@ import {
 	Typography,
 } from "antd";
 import "katex/dist/katex.min.css";
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import {
+	Fragment,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { renderMd } from "./lib/md";
 import {
 	connectWs,
@@ -402,6 +409,20 @@ function Shell() {
 		(acc, m) => (m.kind === "reply" ? Math.max(acc, m.seq) : acc),
 		-1,
 	);
+	// 侦查消息归属到其后最近的 reply（#723：侦查/think 是 reply 的二级关系）
+	const reconByReplySeq = useMemo(() => {
+		const map = new Map<number, string[]>();
+		let pending: string[] = [];
+		for (const m of msgs) {
+			if (m.kind === "recon") {
+				pending.push(m.text);
+			} else if (m.kind === "reply") {
+				if (pending.length > 0) map.set(m.seq, pending);
+				pending = [];
+			}
+		}
+		return map;
+	}, [msgs]);
 
 	const openMindmap = (auto: boolean) => {
 		setAutoGen(auto);
@@ -716,23 +737,46 @@ function Shell() {
 												{/* B（#711）：思考块紧贴其回复上方——先思考后正文 */}
 												{m.kind === "reply" &&
 													i === lastReplyIdx &&
-													settledCot !== null &&
+													(settledCot !== null ||
+														(reconByReplySeq.get(m.seq) ?? []).length > 0) &&
 													!thinking && (
 														<Collapse
 															className="cot-box"
 															items={[
-																{
-																	key: "cot",
-																	label: "已深度思考",
-																	children: (
-																		<div
-																			className="md"
-																			dangerouslySetInnerHTML={{
-																				__html: renderMd(settledCot ?? ""),
-																			}}
-																		/>
-																	),
-																},
+																...(settledCot !== null
+																	? [
+																			{
+																				key: "cot",
+																				label: "深度思考",
+																				children: (
+																					<div
+																						className="md"
+																						dangerouslySetInnerHTML={{
+																							__html: renderMd(settledCot),
+																						}}
+																					/>
+																				),
+																			},
+																		]
+																	: []),
+																...((reconByReplySeq.get(m.seq) ?? []).length >
+																0
+																	? [
+																			{
+																				key: "recon",
+																				label: `前期侦查（${(reconByReplySeq.get(m.seq) ?? []).length} 条来源）`,
+																				children: (
+																					<div className="md recon-md">
+																						{(
+																							reconByReplySeq.get(m.seq) ?? []
+																						).map((t, j) => (
+																							<p key={`rc-${String(j)}`}>{t}</p>
+																						))}
+																					</div>
+																				),
+																			},
+																		]
+																	: []),
 															]}
 														/>
 													)}
@@ -756,17 +800,7 @@ function Shell() {
 															❓ {m.text}
 														</button>
 													) : null
-												) : m.kind === "recon" ? (
-													<details className="recon-box">
-														<summary>
-															🔎{" "}
-															{m.text.length > 80
-																? `${m.text.slice(0, 80).replace(/\s+\S*$/, "")}…`
-																: m.text}
-														</summary>
-														<div>{m.text}</div>
-													</details>
-												) : m.kind === "error" ? (
+												) : m.kind === "recon" ? null : m.kind === "error" ? (
 													<div className="error-row">⚠️ {m.text}</div>
 												) : (
 													<div className="receipt-row">◉ {m.text}</div>
