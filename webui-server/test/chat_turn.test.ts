@@ -260,6 +260,35 @@ describe("chat.turn conversational loop (issue #660)", () => {
     coldWs.close();
     await cold.close();
   });
+
+  it("retry 调用本身失败时也落诚实错误行（#727：异常曾穿透 catch，用户流里什么都不剩）", { timeout: 30_000 }, async () => {
+    // 模拟 pi 上游故障（402 余额不足 → spawn 秒退）：第一次与 retry 都抛错
+    const local = new WebUIServer({
+      workspace: mkdtempSync(join(tmpdir(), "rt-ct-t727-")),
+      piConfigDir: piDirShared,
+      piRunner: () => {
+        throw new Error("pi exited with code 1: ");
+      },
+    });
+    const localPort = await local.listen();
+    const socket = await new Promise<WebSocket>((resolve, reject) => {
+      const s = new WebSocket(`ws://127.0.0.1:${localPort}/ws`);
+      s.on("open", () => resolve(s));
+      s.on("error", reject);
+    });
+    await rpcOn(socket, "project.create", { project_id: "pT727", name: "n" });
+    await rpcOn(socket, "project.registerTask", { project_id: "pT727", task_id: "tT727", role: "main" });
+    // rpc 失败是预期的（fail-closed 语义不变）——断言点是错误行**落账**
+    await expect(rpcOn(socket, "chat.turn", { task_id: "tT727", text: "测试 retry 失败也要落错误行" })).rejects.toThrow(/模型输出异常|exited/);
+    const history = (await rpcOn(socket, "chat.history", { task_id: "tT727" })) as {
+      messages: Array<{ kind: string; text: string }>;
+    };
+    socket.close();
+    await local.close();
+    const errorRow = history.messages.find((m) => m.kind === "error");
+    expect(errorRow).toBeDefined();
+    expect(errorRow?.text).toContain("本轮模型输出异常");
+  });
 });
 
 function rpcOn(ws: WebSocket, method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
