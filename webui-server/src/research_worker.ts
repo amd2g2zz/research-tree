@@ -42,6 +42,32 @@ interface StageRow {
   claim_ids: string;
 }
 
+/** 综合员 prompt（#729 缓存前缀律）：稳定规则+输出格式在前，任务级上下文
+ * （命题+上游发现，同任务跨节点共享）居中，逐节点变化的检索词+检索结果
+ * 压到最后——跨节点调用共享长前缀，DeepSeek context caching 才有收益。 */
+export function buildSynthPrompt(
+  query: string,
+  claims: string[],
+  upstream: string,
+  sources: Array<{ title: string; url?: string; snippet?: string }>,
+): string {
+  return (
+    "你是研究综合员。把检索结果归纳成对命题的回答：只依据资料本身，资料不直接相关时如实说明，不得编造。\n" +
+    '只输出 JSON：{"findings":"用 3-5 条要点归纳上述资料对该命题的回答；资料不直接相关时如实说明，不得编造。","relevance":0.5,"coverage":0.5}（relevance/coverage = 你对相关度与覆盖度的诚实自评，0~1）\n' +
+    "\n【本次综合输入】\n" +
+    "命题：" +
+    claims.join("；") +
+    (upstream !== "" ? `\n上游阶段发现（供参考）：\n${upstream}` : "") +
+    "\n检索词：" +
+    query +
+    "\n检索结果：\n" +
+    sources
+      .map((s, i) => `${i + 1}. ${s.title}${s.snippet ? ` — ${s.snippet}` : ""}`)
+      .join("\n") +
+    "\n"
+  );
+}
+
 function clamp01(v: number): number {
   return Math.min(Math.max(v, 0), 1);
 }
@@ -148,7 +174,11 @@ export class BackgroundResearchRunner {
   /** 仲裁 wave：收集图状态与发现 → 仲裁 subagent → 校验注册新节点。 */
   private async arbiterWave(): Promise<void> {
     const rows = this.deps.ledger.connection
-      .prepare("SELECT stage_id, title, status, outputs FROM parallel_stages WHERE title NOT LIKE '汇总%'")
+      .prepare(
+        // ORDER BY stage_id（#729）：跨 wave 顺序稳定——既有节点在 prompt 里
+        // 位置不变、新节点只追加尾部，arbiter prompt 的共享前缀不被重排打断
+        "SELECT stage_id, title, status, outputs FROM parallel_stages WHERE title NOT LIKE '汇总%' ORDER BY stage_id",
+      )
       .all() as Array<{
       stage_id: string;
       title: string;
@@ -319,15 +349,9 @@ export class BackgroundResearchRunner {
       // 上游发现作为上下文（#715：导图/依赖驱动的调研——不是孤立检索）
       const upstream = this.upstreamFindings(taskId, stageId);
       try {
-        const prompt =
-          "你是研究综合员。检索词：" +
-          query +
-          "\n命题：" +
-          claimTexts.join("；") +
-          (upstream !== "" ? `\n上游阶段发现（供参考）：\n${upstream}` : "") +
-          "\n检索结果：\n" +
-          sources.map((s, i) => `${i + 1}. ${s.title}${s.snippet ? ` — ${s.snippet}` : ""}`).join("\n") +
-          '\n只输出 JSON：{"findings":"用 3-5 条要点归纳上述资料对该命题的回答；资料不直接相关时如实说明，不得编造。","relevance":0.5,"coverage":0.5}（relevance/coverage = 你对相关度与覆盖度的诚实自评，0~1）';
+        // #729 缓存前缀律：稳定规则在前，任务级上下文居中，逐节点变化的
+        // 检索词+结果压尾（buildSynthPrompt）——跨节点调用共享长前缀
+        const prompt = buildSynthPrompt(query, claimTexts, upstream, sources);
         const stdout =
           this.deps.piRunner !== undefined
             ? await this.deps.piRunner(command, prompt)

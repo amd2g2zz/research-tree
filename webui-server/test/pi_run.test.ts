@@ -38,13 +38,19 @@ describe("runPi (#670/#672/#676)", () => {
     await expect(runPi("/nonexistent/pi-binary", "x", 5_000, [])).rejects.toThrow(/pi spawn failed/);
   });
 
-  it("cwd 隔离：pi 在一次性临时目录里跑，不继承仓库上下文（#706）", async () => {
+  it("cwd 隔离：pi 在固定的非仓库临时目录里跑，不继承仓库上下文（#706/#729）", async () => {
     // pi 会读启动目录向上找 AGENTS.md/项目上下文 —— runPi 必须在临时目录
-    // 里 spawn，否则 research-tree 自己会被注入成"研究主题"
+    // 里 spawn，否则 research-tree 自己会被注入成"研究主题"。
+    // #729：目录固定复用——pi 把 cwd 写进 system prompt 末尾，逐次换目录
+    // 会打穿 DeepSeek context caching 的最前缀（结构性 0% 命中）。
     const expr = "process.stdout.write(process.cwd())";
-    const out = await runPi(process.execPath, expr, 15_000, []);
-    expect(out).toMatch(/rt-pi-cwd-/);
-    expect(out).not.toContain("research-tree");
-    expect(out).not.toContain("webui-server");
+    const out1 = await runPi(process.execPath, expr, 15_000, []);
+    const out2 = await runPi(process.execPath, expr, 15_000, []);
+    // 固定路径（无 mkdtemp 随机后缀）且两次一致；"true" 是 -p 打印的表达式返回值
+    expect(out1).toMatch(/rt-pi-cwd/);
+    expect(out1).not.toMatch(/rt-pi-cwd-/);
+    expect(out1).toBe(out2);
+    expect(out1).not.toContain("research-tree");
+    expect(out1).not.toContain("webui-server");
   });
 });
