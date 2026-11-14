@@ -181,23 +181,14 @@ body,
 	}
 }
 
-// ── 顶栏（无 tab：项目名 + 阶段；深视图时项目名=回对话的家按钮）
+// ── 顶栏（#734 纯聊天化：项目名 + 复制链接 + 连接点；Steps 向导条已删，
+// 深视图时项目名=回对话的家按钮）
 .topbar {
 	display: flex;
 	align-items: center;
 	gap: 12px;
 	padding: 10px 20px;
 	border-bottom: 1px solid #f0f0f0;
-
-	.topbar-steps {
-		flex: 1;
-		justify-content: center;
-		max-width: 420px;
-
-		.ant-steps-item-title {
-			font-size: 12.5px !important;
-		}
-	}
 
 	.topbar-home {
 		font-weight: 600;
