@@ -2,6 +2,7 @@
  "schema": "impact-scope-v1",
  "change": "add-task-control-plane",
  "files": [
+  "openspec/changes/add-task-control-plane/evidence/impact-scope.json",
   "openspec/changes/add-task-control-plane/proposal.md",
   "openspec/changes/add-task-control-plane/specs/research-control-plane/spec.md",
   "openspec/changes/add-task-control-plane/tasks.md",
