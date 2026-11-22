@@ -304,6 +304,7 @@ body {
 .cot-stream {
 	max-height: 260px;
 	overflow-y: auto;
+	overflow-x: hidden;
 	font-size: 12.5px;
 	color: #555;
 	white-space: normal;
@@ -312,6 +313,10 @@ body {
 	background: #fafafa;
 	border-radius: 10px;
 	line-height: 1.7;
+	// #742：长串断行，横向不撑破
+	overflow-wrap: anywhere;
+	word-break: break-word;
+	min-width: 0;
 
 	// markdown 输出排版（#716）
 	p {
@@ -349,6 +354,12 @@ body {
 	// 太远"的真凶——块级间距只由 margin 决定。
 	white-space: normal;
 	line-height: 1.62;
+	// #742：长无空格串（URL/token/代码）横向撑破布局——滚轮滚动时整页
+	// 被撑宽。断行钳制 + 溢出收纳。
+	overflow-wrap: anywhere;
+	word-break: break-word;
+	min-width: 0;
+	overflow-x: hidden;
 
 	p {
 		margin: 0 0 7px;
@@ -435,6 +446,9 @@ body {
 		font-size: 12.5px;
 		line-height: 1.65;
 		color: #8a8a8a;
+		overflow-wrap: anywhere;
+		word-break: break-word;
+		min-width: 0;
 
 		p {
 			margin: 0 0 6px;
