@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "check": "tsc --noEmit",
-    "lint": "biome check src/ test/ --max-diagnostics 50"
+    "lint": "biome check src/ test/ --max-diagnostics 50",
+    "test": "vitest run"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.4",
@@ -36,6 +37,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "typescript": "^7.0.2",
     "typescript-eslint": "^8.72.1",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "5.1.0"
   }
 }
