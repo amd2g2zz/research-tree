@@ -12,7 +12,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { runPi } from "../src/pi-run.js";
+import { runPi, runPiCancellable } from "../src/pi-run.js";
 
 const STREAM_PARTS = ["思考A。", "思考B。", "思考C。"];
 
@@ -112,5 +112,29 @@ describe("runPi (#670/#672/#676/#731 rpc streaming)", () => {
     expect(out1).toBe(out2);
     expect(out1).not.toContain("research-tree");
     expect(out1).not.toContain("webui-server");
+  }, 20_000);
+});
+
+describe("runPiCancellable (#742 任务级取消：SIGTERM→宽限→SIGKILL)", () => {
+  const fakeSleep = makeFakePi("sleep");
+  const fake = makeFakePi("stream");
+
+  const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+  it("cancel：挂起中的 pi 进程被杀，promise 以显式 cancelled 错误拒绝（不是 timeout）", async () => {
+    const handle = runPiCancellable(process.execPath, "测试 prompt", 15_000, [fakeSleep]);
+    await delay(300); // spawn + prompt 已送达
+    const t0 = Date.now();
+    handle.cancel("task stop");
+    await expect(handle.promise).rejects.toThrow(/cancelled \(task stop\)/);
+    // 取消立即生效——不等 15s 超时
+    expect(Date.now() - t0).toBeLessThan(5_000);
+  }, 10_000);
+
+  it("正常完成后再 cancel 是 no-op（不抛错、不影响已 resolve 的结果）", async () => {
+    const handle = runPiCancellable(process.execPath, "测试 prompt", 15_000, [fake]);
+    const out = await handle.promise;
+    expect(out).toContain("思考C。");
+    expect(() => handle.cancel("late click")).not.toThrow();
   }, 20_000);
 });
