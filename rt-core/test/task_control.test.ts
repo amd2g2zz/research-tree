@@ -1,8 +1,6 @@
 /** TaskControlPlane tests (issue #742): 任务级 stop 控制面——持久化状态机
- * running→stopping→stopped 单向、幂等、重启 hydrate。
- *
- * 篡改检测式断言（engine.test.ts 模式）：绕过状态机直写 SQL 必须被
- * CHECK 约束/状态机拒绝或可检出，而不是静默接受。 */
+ * running→stopping→stopped 单向、幂等、重启 hydrate。篡改检测式断言
+ * （engine.test.ts 模式）：绕过状态机直写 SQL 被 CHECK 约束/状态机拒绝。 */
 
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -45,26 +43,19 @@ describe("TaskControlPlane (#742 任务级 stop 状态机)", () => {
     expect(plane.stateOf("t-legacy")).toBeNull();
   });
 
-  it("requestStop：running → stopping，持久化行带 stop_requested_at 与 reason", () => {
+  it("requestStop：running → stopping 持久化；重复调用幂等（单行、时间戳不刷新）", () => {
     const plane = new TaskControlPlane(ledger);
-    const state = plane.requestStop("tA", "user stop");
-    expect(state.status).toBe("stopping");
-    expect(state.stopReason).toBe("user stop");
-    expect(state.stopRequestedAt).not.toBeNull();
+    const first = plane.requestStop("tA", "first");
+    expect(first.status).toBe("stopping");
+    expect(first.stopRequestedAt).not.toBeNull();
     const row = ledger.connection
       .prepare("SELECT status, stop_reason FROM task_control WHERE task_id = ?")
       .get("tA") as { status: string; stop_reason: string };
     expect(row.status).toBe("stopping");
-    expect(row.stop_reason).toBe("user stop");
-  });
-
-  it("重复 requestStop 幂等：状态不变、仍只有一行、stop_requested_at 不刷新", () => {
-    const plane = new TaskControlPlane(ledger);
-    const first = plane.requestStop("tA", "first");
+    expect(row.stop_reason).toBe("first");
+    // 幂等：状态不变、时间戳不刷新、首个理由保留、仍只有一行
     const second = plane.requestStop("tA", "second");
-    expect(second.status).toBe("stopping");
-    expect(second.stopRequestedAt).toBe(first.stopRequestedAt); // 幂等：时间戳不刷新
-    expect(second.stopReason).toBe("first"); // 首个理由保留
+    expect(second).toEqual(first);
     const count = ledger.connection
       .prepare("SELECT COUNT(*) AS n FROM task_control WHERE task_id = ?")
       .get("tA") as { n: number };

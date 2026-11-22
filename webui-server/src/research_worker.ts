@@ -2,26 +2,19 @@
 
 确认导图后注册的阶段此前只被 tick() 翻转到 in_progress 就永远停住——
 前端离开等于调研结束。本 runner 在**服务端进程**里跑一个后台循环：
+每 pump：孤儿重排 → tick 分发 → 检索（真实 provider）→ 综合（piRunner，
+失败诚实降级）→ completeStage 落账；检索失败重试计数、耗尽停泊。进度全部
+在 ledger——前端离开不影响，重开即见最新状态。
 
-- 每 pump：tick() 全局分发就绪阶段（跨任务——多个调研后台任务并发），
-  in-flight 集合防重入；重启残留的 in_progress 孤儿经 failStage 自动重排
-- 每个 worker = **真实检索**（DataSourceProvider / anysearch）→ **模型综合**
-  （piRunner，可降级）→ completeStage 落账产出 → broadcast 事件行
-- 检索失败 → failStage 重试计数（耗尽自动停泊）；综合失败 → 诚实降级，
-  原始检索结果即为产出
-- 进度全部在 ledger：前端离开不影响，重开即见最新状态
-
-并发由 tick() 的 maxConcurrency 与 in-flight 集合共同约束。
-
-#742 任务级 stop 控制面：每个派发/完成边界检查 TaskControlPlane——
-stopped/stopping 任务零新派发、零重试、零生长；可取消的 in-flight 调用
-（pi 综合/仲裁）经取消注册表取消（真 pi 进程 SIGTERM→宽限→SIGKILL）；
-不可取消的检索调用**如实广播上报**，其迟到结果被完成前检查点丢弃（阶段落
-cancelled 终态，产出永不落账）。stop 幂等；stopping 排干（in-flight 归零）
-后落 stopped 并持久化——重启后由 plane hydrate 恢复，重新注册不复燃。 */
+#742 任务级 stop：每个派发/完成边界检查 TaskControlPlane——stopped/stopping
+任务零新派发、零重试、零生长；可取消的 in-flight 调用（pi 综合/仲裁）经
+取消注册表取消（真 pi 进程 SIGTERM→宽限→SIGKILL）；不可取消的检索**如实
+广播上报**，迟到结果被检查点丢弃（阶段落 cancelled 终态，产出永不落账）。
+stop 幂等；stopping 排干后落 stopped 并持久化——重启 hydrate 恢复，重新
+注册不复燃。 */
 
 import type { DataSourceProvider } from "../../rt-core/src/providers/types.js";
-import { ParallelDagScheduler } from "../../rt-core/src/scheduler/parallel_dag.js";
+import { ParallelDagScheduler, type DispatchRecord } from "../../rt-core/src/scheduler/parallel_dag.js";
 import { TaskControlPlane } from "../../rt-core/src/state/task_control.js";
 import type { LedgerStore } from "../../rt-core/src/store/ledger.js";
 import type { VersionStore } from "../../rt-core/src/versions/store.js";
@@ -288,20 +281,24 @@ export class BackgroundResearchRunner {
     });
   }
 
-  /** 单次泵：孤儿重排 → tick 分发 → 派发执行。测试与即时触发用。 */
-  async pumpOnce(): Promise<void> {
-    this.requeueOrphans();
-    // #742 派发边界：stopped/stopping 任务的阶段不参与派发（其它任务不受扰）
-    const dispatched = this.scheduler.tick({ excludeTaskIds: this.control.controlledTaskIds() });
-    for (const record of dispatched) {
+  /** 派发一批就绪阶段（in-flight 防重入；完成时做该任务的排干检查）。 */
+  private dispatch(records: DispatchRecord[]): void {
+    for (const record of records) {
       if (this.inFlight.has(record.stage_id)) continue;
       const taskId = taskPrefixOf(record.stage_id);
       const task = this.execute(record.stage_id).finally(() => {
         this.inFlight.delete(record.stage_id);
-        this.maybeDrain(taskId); // 排干检查（in-flight 归零 → stopped）
+        this.maybeDrain(taskId); // in-flight 归零 → stopping 落 stopped
       });
       this.inFlight.set(record.stage_id, task);
     }
+  }
+
+  /** 单次泵：孤儿重排 → tick 分发 → 派发执行。测试与即时触发用。 */
+  async pumpOnce(): Promise<void> {
+    this.requeueOrphans();
+    // #742 派发边界：stopped/stopping 任务的阶段不参与派发（其它任务不受扰）
+    this.dispatch(this.scheduler.tick({ excludeTaskIds: this.control.controlledTaskIds() }));
     await this.waitForIdle();
     this.drainStoppingTasks();
 
@@ -322,15 +319,7 @@ export class BackgroundResearchRunner {
     const nextWave = this.scheduler.tick({ excludeTaskIds: this.control.controlledTaskIds() });
     if (nextWave.length > 0) {
       // 依赖已解除的节点自动滚入下一 stage——无需仲裁
-      for (const record of nextWave) {
-        if (this.inFlight.has(record.stage_id)) continue;
-        const taskId = taskPrefixOf(record.stage_id);
-        const task = this.execute(record.stage_id).finally(() => {
-          this.inFlight.delete(record.stage_id);
-          this.maybeDrain(taskId);
-        });
-        this.inFlight.set(record.stage_id, task);
-      }
+      this.dispatch(nextWave);
       await this.waitForIdle();
       this.drainStoppingTasks();
       this.closeCompleteGraphs(this.stageRows());

@@ -205,7 +205,7 @@ describe("任务级 stop TDD 矩阵（#742）", () => {
     expect(control.statusOf("tB")).toBe("running");
   });
 
-  it("重复 stop 幂等：状态/行数/广播不重复", async () => {
+  it("重复 stop 幂等：stopping 保持、行数/广播不重复；排干后 stopped（再 stop 是 no-op）", async () => {
     registerStages("tD", [{ id: "s1", title: "verify: 阻塞命题甲" }]);
     const { runner, control, blocked } = makeHarness();
     const pump = runner.pumpOnce();
@@ -227,6 +227,11 @@ describe("任务级 stop TDD 矩阵（#742）", () => {
     blocked.release();
     await pump;
     expect(control.statusOf("tD")).toBe("stopped"); // 排干后 stopped
+    // stopped 后再 stop：幂等 no-op（状态不变、广播不重复）
+    const linesAfterStopped = [...lines];
+    expect(control.requestStop("tD", "late").status).toBe("stopped");
+    runner.handleStop("tD");
+    expect(lines).toEqual(linesAfterStopped);
   });
 
   it("重启后 stopped 保持：新 runner/plane 在同一 ledger 上不派发、不复活", async () => {
@@ -248,18 +253,5 @@ describe("任务级 stop TDD 矩阵（#742）", () => {
     await rebooted.runner.pumpOnce();
     expect(stageStatus("tE/s2")).toBe("pending"); // 停止任务零派发
     expect(rebooted.control.statusOf("tE")).toBe("stopped");
-  });
-
-  it("stopped 后 requestStop 是幂等 no-op（重复点击不产生副作用）", async () => {
-    registerStages("tF", [{ id: "s1", title: "verify: 即时命题己" }]);
-    const { runner, control } = makeHarness();
-    control.requestStop("tF");
-    runner.handleStop("tF");
-    expect(control.statusOf("tF")).toBe("stopped");
-    const linesBefore = [...lines];
-    const again = control.requestStop("tF", "late");
-    runner.handleStop("tF");
-    expect(again.status).toBe("stopped");
-    expect(lines).toEqual(linesBefore);
   });
 });

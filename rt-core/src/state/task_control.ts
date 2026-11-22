@@ -1,23 +1,16 @@
 /** Task control plane — per-task stop state machine (issue #742).
 
 #742 根因：BackgroundResearchRunner.stop() 只停泵（clearInterval），既不按
-taskId 取消进行中的工作，也不持久化——用户离开等于调研永远停不下来。
-
-本模块是控制面的**权威状态机**（machine.ts 转换矩阵同款模式）：
+taskId 取消进行中的工作，也不持久化。本模块是控制面的**权威状态机**
+（machine.ts 转换矩阵同款模式）：
 
     running（无行 ≡ running，存量任务兼容）→(requestStop) stopping
     stopping →(markStopped, 仅当 in-flight 排干) stopped
 
-不变量：
-- **单向**：stopping 不可回 running；markStopped 仅自 stopping 合法
-  （从 running 直接落 stopped = 跳过状态，fail-closed 拒绝）。
-- **幂等**：重复 requestStop 返回现状、不刷新时间戳、不覆盖首个 reason；
-  stopped 后 requestStop 是 no-op。
-- **持久化**：每次转换即时落 task_control 表（migration v11），构造时
-  hydrate——进程重启后状态保持（issue 验收原文）。
-
-表是操作面权威（stages 表同级），无行任务 = running；CHECK 约束拒绝域外
-状态值，转换方向由本类在代码层强制。
+不变量：**单向**（markStopped 仅自 stopping 合法，跳过状态 fail-closed 拒绝）、
+**幂等**（重复 requestStop 返回现状、不刷新时间戳、不覆盖首个 reason）、
+**持久化**（每次转换即时落 task_control 表 migration v11，构造时 hydrate——
+进程重启后状态保持）。CHECK 约束拒绝域外状态值，转换方向由代码层强制。
 */
 
 import { LedgerIntegrityError } from "../store/integrity.js";
