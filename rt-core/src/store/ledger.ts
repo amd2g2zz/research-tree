@@ -258,6 +258,20 @@ const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE project_tasks ADD COLUMN status TEXT NOT NULL DEFAULT 'active';
     `,
 	},
+	{
+		// #742 控制面：持久化状态机（单向；无行 ≡ running）。CHECK 拒域外值，
+		// 转换方向由 TaskControlPlane 在代码层强制。
+		version: 11,
+		statements: `
+      CREATE TABLE IF NOT EXISTS task_control (
+          task_id TEXT PRIMARY KEY,
+          status TEXT NOT NULL CHECK (status IN ('running', 'stopping', 'stopped')),
+          stop_reason TEXT,
+          stop_requested_at TEXT,
+          updated_at TEXT NOT NULL
+      );
+    `,
+	},
 ];
 
 function chainHash(record: Record<string, unknown>): string {

@@ -48,6 +48,12 @@ interface PiRpcEvent {
   assistantMessageEvent?: { type?: string; delta?: string };
 }
 
+export interface PiRunHandle {
+  promise: Promise<string>;
+  /** 请求取消：SIGTERM→宽限→SIGKILL，显式 cancelled 拒绝；settle 后 no-op。 */
+  cancel: (reason?: string) => void;
+}
+
 export function runPi(
   command: string,
   prompt: string,
@@ -57,7 +63,21 @@ export function runPi(
    * (#679/#731 — was stdout-based, dead since pi print buffers stdout) */
   onDelta?: (delta: string) => void,
 ): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
+  return runPiCancellable(command, prompt, timeoutMs, extraArgs, onDelta).promise;
+}
+
+/** 可取消版 runPi（#742）：stop 取消在飞综合/仲裁——SIGTERM 进程组，宽限
+ * （默认 3s）后 SIGKILL；拒绝显式 "cancelled (reason)"，与超时可区分。 */
+export function runPiCancellable(
+  command: string,
+  prompt: string,
+  timeoutMs = 300_000,
+  extraArgs: string[] = [],
+  onDelta?: (delta: string) => void,
+  cancelGraceMs = 3_000,
+): PiRunHandle {
+  let requestCancel: (reason?: string) => void = () => {};
+  const promise = new Promise<string>((resolve, reject) => {
     // cwd 隔离（#706 商业化审计）：server 从仓库目录启动时，pi 会向上读
     // AGENTS.md / 项目上下文，把 research-tree 自己当成研究主题注入回答
     // ——结构化调用（turn/extraction/classification）必须在一无所有的
@@ -73,23 +93,39 @@ export function runPi(
     let out = ""; // 最终文本 = assistant message_end 的 thinking+text 块拼接
     let settled = false;
     let timedOut = false;
+    let cancelledReason: string | null = null;
+    let cancelGrace: ReturnType<typeof setTimeout> | undefined;
     let buf = "";
+
+    const killGroup = (sig: NodeJS.Signals): void => {
+      try {
+        if (child.pid !== undefined) {
+          process.kill(-child.pid, sig); // whole group
+        }
+      } catch {
+        child.kill(sig);
+      }
+    };
 
     const timer = setTimeout(() => {
       timedOut = true;
-      try {
-        if (child.pid !== undefined) {
-          process.kill(-child.pid, "SIGKILL"); // whole group
-        }
-      } catch {
-        child.kill("SIGKILL");
-      }
+      killGroup("SIGKILL");
     }, timeoutMs);
+
+    // #742 任务级取消：SIGTERM 先行（给 pi 优雅退出的机会），宽限后 SIGKILL
+    requestCancel = (reason?: string): void => {
+      if (settled || cancelledReason !== null) return;
+      cancelledReason = reason ?? "task stop";
+      killGroup("SIGTERM");
+      cancelGrace = setTimeout(() => killGroup("SIGKILL"), cancelGraceMs);
+      cancelGrace.unref?.();
+    };
 
     const settle = (error?: Error): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (cancelGrace !== undefined) clearTimeout(cancelGrace);
       if (error !== undefined) {
         reject(error);
       } else {
@@ -140,6 +176,12 @@ export function runPi(
     // settle on EXIT (pi itself is done) — never on `close`, which waits for
     // inherited stdio pipes held by outliving extension children
     child.on("exit", (code, signal) => {
+      if (cancelledReason !== null) {
+        // #742：显式取消优先于超时/信号——调用方（runner 守卫）据此走
+        // "任务停止、结果丢弃"的诚实路径
+        settle(new PiRunError(`pi call cancelled (${cancelledReason})`));
+        return;
+      }
       if (timedOut) {
         settle(
           new PiRunError(
@@ -159,4 +201,5 @@ export function runPi(
       }
     });
   });
+  return { promise, cancel: (reason?: string) => requestCancel(reason) };
 }

@@ -23,13 +23,19 @@ export type WorkerClass =
 export interface ParallelStage {
 	stage_id: string;
 	title: string;
-	status: "pending" | "in_progress" | "complete" | "parked";
+	// #742：cancelled 为任务级 stop 的终态——tick 永不派发、不重试、不复活
+	status: "pending" | "in_progress" | "complete" | "parked" | "cancelled";
 	claim_ids: string[];
 	depends_on: string[];
 	assigned_worker_class: WorkerClass;
 	retries: number;
 	max_retries: number;
 	outputs: string[];
+}
+
+/** tick 任务级过滤（#742）：excludeTaskIds 的任务零新派发，其它任务不受扰。 */
+export interface TickFilter {
+	excludeTaskIds?: readonly string[];
 }
 
 export interface DispatchRecord {
@@ -83,10 +89,19 @@ export class ParallelDagScheduler {
 		}
 	}
 
-	tick(): DispatchRecord[] {
-		const rows = this.ledger.connection
-			.prepare("SELECT * FROM parallel_stages ORDER BY stage_id")
-			.all() as Array<Record<string, unknown>>;
+	tick(filter: TickFilter = {}): DispatchRecord[] {
+		// #742：按任务过滤派发集（原查全表——跨任务耦合让 stopped 任务
+		// 继续被派发；排除集是"其它任务保持运行"的前提）
+		const excluded = filter.excludeTaskIds ?? [];
+		const rows = (
+			excluded.length === 0
+				? this.ledger.connection.prepare("SELECT * FROM parallel_stages ORDER BY stage_id").all()
+				: this.ledger.connection
+						.prepare(
+							`SELECT * FROM parallel_stages WHERE ${excluded.map(() => "stage_id NOT LIKE ?").join(" AND ")} ORDER BY stage_id`,
+						)
+						.all(...excluded.map((taskId) => `${escapeLike(taskId)}/%`))
+		) as Array<Record<string, unknown>>;
 		const statusById = new Map(
 			rows.map((row) => [String(row.stage_id), String(row.status)]),
 		);
@@ -168,6 +183,20 @@ export class ParallelDagScheduler {
 		void reason;
 	}
 
+	/** #742 取消终态：落 cancelled（tick 永不派发/重试/复活）；重复取消幂等。 */
+	cancelStage(stageId: string): void {
+		const row = this.getRow(stageId);
+		if (row === undefined) {
+			throw new LedgerIntegrityError(`unknown stage: ${stageId}`);
+		}
+		if (String(row.status) === "cancelled") {
+			return;
+		}
+		this.ledger.connection
+			.prepare("UPDATE parallel_stages SET status = 'cancelled' WHERE stage_id = ?")
+			.run(stageId);
+	}
+
 	stageStatus(stageId: string): string {
 		return String(this.getRow(stageId)?.status ?? "unknown");
 	}
@@ -187,4 +216,9 @@ export class ParallelDagScheduler {
 			.prepare("UPDATE parallel_stages SET status = ? WHERE stage_id = ?")
 			.run(status, stageId);
 	}
+}
+
+/** LIKE 模式转义（%/_）——task_id 是用户可见数据，不能当通配符注入过滤。 */
+function escapeLike(value: string): string {
+	return value.replace(/[%_]/g, (c) => `\\${c}`);
 }

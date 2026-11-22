@@ -1,11 +1,14 @@
 /** 调研画布页（issue #694）：主区 = React Flow DAG（stage 节点 + depends_on
  * 连线），底部 = 引擎事件 console（实时流）。数据源 /api/research/:taskId
- * （#559 三层投影 + parallel_stages 表），人工裁决冻结。 */
+ * （#559 三层投影 + parallel_stages 表），人工裁决冻结。
+ * #742：画布工具栏任务级 Stop——running→stopping→stopped 状态持久化，
+ * 刷新/重启后保持；不可取消的调用由服务端如实上报。 */
 
 import "@xyflow/react/dist/style.css";
 import {
 	ArrowLeftOutlined,
 	NodeIndexOutlined,
+	PauseCircleOutlined,
 	ReloadOutlined,
 } from "@ant-design/icons";
 import {
@@ -60,7 +63,14 @@ const STAGE_TAG: Record<string, { color: string; bg: string; label: string }> =
 		running: { color: "processing", bg: "#d6f0ff", label: "执行中" },
 		done: { color: "green", bg: "#d9f2dd", label: "完成" },
 		failed: { color: "red", bg: "#ffdbdb", label: "失败" },
+		cancelled: { color: "default", bg: "#e8e8e8", label: "已取消" },
 	};
+
+/** #742 控制状态 → 工具栏徽标文案 */
+const CONTROL_TAG: Record<string, { color: string; label: string }> = {
+	stopping: { color: "warning", label: "停止中" },
+	stopped: { color: "error", label: "已停止" },
+};
 
 /** Kahn 分层：depends_on 决定列；环/缺失依赖回退单列（数据来自机械计划，正常无环）。 */
 function layer(stages: StageInfo[]): StageInfo[][] {
@@ -396,6 +406,36 @@ export function ResearchPage({ taskId, onBack, onOpenMindmap }: Props) {
 		});
 	};
 
+	// #742 任务级 stop：单向持久化——零新派发/可取消取消/不可取消如实上报
+	const stopTask = () => {
+		modal.confirm({
+			title: "停止调研任务",
+			content:
+				"停止后该任务不再派发新的检索/综合/仲裁调用或重试；进行中的可取消调用将被取消，不可取消的调用会如实上报并丢弃结果。状态在刷新与重启后保持，且不可恢复（如需继续请分叉新任务）。",
+			okText: "停止任务",
+			okButtonProps: { danger: true },
+			onOk: async () => {
+				try {
+					const r = await rpc("research.stop", { task_id: taskId });
+					const status = String(
+						(r.control as { status?: string } | undefined)?.status ?? "",
+					);
+					message.success(
+						status === "stopped"
+							? "任务已停止"
+							: "停止已确认——等待进行中的调用排干",
+					);
+					setConsoleLines((prev) => [...prev, "[human] 停止任务（任务级 stop）"]);
+					void load();
+				} catch (e) {
+					message.error(String(e instanceof Error ? e.message : e));
+				}
+			},
+		});
+	};
+
+	const controlState = view?.control ?? null; // #742：null = running（存量兼容）
+
 	if (loading && view === null) {
 		return (
 			<div className="research-page">
@@ -431,6 +471,14 @@ export function ResearchPage({ taskId, onBack, onOpenMindmap }: Props) {
 				</Space>
 				<Space>
 					<Button icon={<ReloadOutlined />} onClick={() => void load()} />
+					{controlState !== null && CONTROL_TAG[controlState.status] !== undefined && (
+						<Tag color={CONTROL_TAG[controlState.status]!.color}>{CONTROL_TAG[controlState.status]!.label}</Tag>
+					)}
+					{controlState === null && (
+						<Button icon={<PauseCircleOutlined />} onClick={stopTask} danger>
+							停止
+						</Button>
+					)}
 					<Select
 						value={verdict}
 						onChange={setVerdict}
