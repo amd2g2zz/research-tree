@@ -33,8 +33,7 @@ export interface ParallelStage {
 	outputs: string[];
 }
 
-/** tick 的任务级过滤（#742 派发隔离）：excludeTaskIds 里的任务的阶段
- * 一律不参与派发（stopped/stopping 任务零新工作），其它任务不受扰。 */
+/** tick 任务级过滤（#742）：excludeTaskIds 的任务零新派发，其它任务不受扰。 */
 export interface TickFilter {
 	excludeTaskIds?: readonly string[];
 }
@@ -91,8 +90,8 @@ export class ParallelDagScheduler {
 	}
 
 	tick(filter: TickFilter = {}): DispatchRecord[] {
-		// #742：按任务过滤派发集（原来查全表——跨任务耦合让 stopped 任务
-		// 继续被派发；排除集是"其它任务保持运行"的机械前提）
+		// #742：按任务过滤派发集（原查全表——跨任务耦合让 stopped 任务
+		// 继续被派发；排除集是"其它任务保持运行"的前提）
 		const excluded = filter.excludeTaskIds ?? [];
 		const rows = (
 			excluded.length === 0
@@ -184,8 +183,7 @@ export class ParallelDagScheduler {
 		void reason;
 	}
 
-	/** #742：取消终态——任务级 stop 把阶段落 cancelled（tick 永不派发、
-	 * 不重试、不复活）。重复取消幂等（已是 cancelled 时 no-op）。 */
+	/** #742 取消终态：落 cancelled（tick 永不派发/重试/复活）；重复取消幂等。 */
 	cancelStage(stageId: string): void {
 		const row = this.getRow(stageId);
 		if (row === undefined) {

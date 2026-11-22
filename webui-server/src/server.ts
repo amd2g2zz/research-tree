@@ -78,7 +78,7 @@ export interface WebUIOptions {
   provider?: DataSourceProvider;
   /** pi headless call timeout (chat.turn/extraction/classification); default 300s/120s */
   piTimeoutMs?: number;
-  /** 后台 runner 泵间隔（#709；默认 5000ms）——测试注入短间隔确定性驱动 */
+  /** 后台 runner 泵间隔（#709 默认 5000ms）——测试注入短间隔确定性驱动 */
   runnerIntervalMs?: number;
 }
 
@@ -206,6 +206,16 @@ export class WebUIServer {
         };
       }),
     }));
+  }
+
+  /** #742：停止中/已停止任务拒绝一切复燃入口（research.start / mindmap.confirm）。 */
+  private rejectIfStopped(taskId: string): void {
+    const state = this.control.stateOf(taskId);
+    if (state !== null && state.status !== "running") {
+      throw new ProjectHomeError(
+        `task is ${state.status} (stop acknowledged) — a stopped task does not resume; fork or start a new task instead`,
+      );
+    }
   }
 
   listen(port = 0): Promise<number> {
@@ -1006,13 +1016,7 @@ export class WebUIServer {
         // walks birth→…→research. No fixtures; the verdict comes later
         // through research.freeze (问句不是判决).
         const taskId = String(params.task_id);
-        // #742：停止中/已停止的任务拒绝重启研究——模式切换/重新注册不复燃
-        const controlState = this.control.stateOf(taskId);
-        if (controlState !== null && controlState.status !== "running") {
-          throw new ProjectHomeError(
-            `task is ${controlState.status} (stop acknowledged) — a stopped task does not resume; fork or start a new task instead`,
-          );
-        }
+        this.rejectIfStopped(taskId); // #742：模式切换/重新注册不复燃
         const decompositionId = String(params.decomposition_id ?? `dc-${taskId}`);
         const row = this.ledger.getDecomposition(taskId, decompositionId);
         if (row === null || row.status !== "confirmed") {
@@ -1119,23 +1123,13 @@ export class WebUIServer {
         };
       }
       case "research.stop": {
-        // #742 任务级 stop：按 taskId 持久化 running→stopping→stopped（单向、
-        // 幂等）。立即触发 runner 取消（不等 5s 泵）：可取消调用（pi 综合/
-        // 仲裁）SIGTERM→宽限→SIGKILL，不可取消的检索如实上报、迟到结果丢弃；
-        // pending/in_progress 阶段落 cancelled 终态。注意与 close() 里的
-        // 进程级停泵（runner.stop()）语义不同——那是 shutdown 专用。
+        // #742 任务级 stop：持久化 running→stopping→stopped（单向/幂等），
+        // 立即取消可取消调用、如实上报不可取消检索、阶段落 cancelled。
+        // 与 close() 的进程级停泵（shutdown 专用）语义不同。
         const taskId = String(params.task_id);
-        const reason = typeof params.reason === "string" ? params.reason : undefined;
-        const state = this.control.requestStop(taskId, reason);
+        const state = this.control.requestStop(taskId, typeof params.reason === "string" ? params.reason : undefined);
         this.researchRunner.handleStop(taskId);
-        return {
-          task_id: taskId,
-          control: {
-            status: state.status,
-            stop_reason: state.stopReason,
-            stop_requested_at: state.stopRequestedAt,
-          },
-        };
+        return { task_id: taskId, control: { status: state.status, stop_reason: state.stopReason, stop_requested_at: state.stopRequestedAt } };
       }
       case "mindmap.generate": {
         // 确认阶段: transcript → pi → mindmap tree (quote 回查溯源), draft only
@@ -1218,13 +1212,7 @@ export class WebUIServer {
       case "mindmap.confirm": {
         // 确认思维导图 → 叶子=调研命题 → 机械 stages 注册 → research 相位
         const taskId = String(params.task_id);
-        // #742：停止中/已停止的任务拒绝重新确认——不复燃
-        const stoppedState = this.control.stateOf(taskId);
-        if (stoppedState !== null && stoppedState.status !== "running") {
-          throw new ProjectHomeError(
-            `task is ${stoppedState.status} (stop acknowledged) — a stopped task does not resume; fork or start a new task instead`,
-          );
-        }
+        this.rejectIfStopped(taskId); // #742：重新确认不复燃
         const row = this.ledger.connection
           .prepare("SELECT tree_json, status FROM mindmaps WHERE task_id = ? LIMIT 1")
           .get(taskId) as { tree_json: string; status: string } | undefined;

@@ -1,16 +1,7 @@
-/** 脚本化 fake pi runner（WS-F fixture 基建，#742 与 #744 共用）。
-
-原则（plan §5 WS-F）：fixture 是数据+脚本，不是 mock 框架——照既有
-mkdtemp+依赖注入风格（pi_extensions.test.ts 的 installer 注入），测试
-持引用手工释放阻塞调用，断言行为而非断言 stub。
-
-可编程响应序列：每次调用消费脚本的下一项：
-- string                     → 原样返回（文本）
-- Record<string, unknown>    → JSON.stringify 返回
-- { block: true }            → 挂起不返回，直到 release()（stop 竞态/迟到完成测试）
-- { slowMs, then }           → 延迟后返回（事件循环不冻结证明等）
-- { error: string }          → reject（综合失败路径）
-- 脚本耗尽                   → 兜底 defaultResponse */
+/** 脚本化 fake pi runner（WS-F 基建，#742/#744 共用）——数据+脚本而非 mock
+ * 框架（plan §5），断言行为非 stub。脚本每次调用消费一项：string 原样返回；
+ * object JSON 化；{block:true} 挂起至 release()；{slowMs,then} 延迟；{error}
+ * reject；耗尽走 defaultResponse。 */
 
 export type ScriptedResponse =
 	| string
@@ -24,9 +15,8 @@ export interface FakePiRunner {
 	runner: (command: string, prompt: string) => Promise<string>;
 	/** 收到的全部 prompt（调用序） */
 	calls: string[];
-	/** 释放挂起的阻塞调用（FIFO）；无挂起时 no-op */
+	/** 释放挂起的阻塞调用（FIFO）；无挂起 no-op；pendingBlocks = 在飞阻塞数 */
 	release(): void;
-	/** 已派发且未释放的阻塞调用数 */
 	pendingBlocks(): number;
 }
 

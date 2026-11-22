@@ -2,16 +2,18 @@
 
 确认导图后注册的阶段此前只被 tick() 翻转到 in_progress 就永远停住——
 前端离开等于调研结束。本 runner 在**服务端进程**里跑一个后台循环：
-每 pump：孤儿重排 → tick 分发 → 检索（真实 provider）→ 综合（piRunner，
-失败诚实降级）→ completeStage 落账；检索失败重试计数、耗尽停泊。进度全部
-在 ledger——前端离开不影响，重开即见最新状态。
 
-#742 任务级 stop：每个派发/完成边界检查 TaskControlPlane——stopped/stopping
-任务零新派发、零重试、零生长；可取消的 in-flight 调用（pi 综合/仲裁）经
-取消注册表取消（真 pi 进程 SIGTERM→宽限→SIGKILL）；不可取消的检索**如实
-广播上报**，迟到结果被检查点丢弃（阶段落 cancelled 终态，产出永不落账）。
-stop 幂等；stopping 排干后落 stopped 并持久化——重启 hydrate 恢复，重新
-注册不复燃。 */
+- 每 pump：孤儿重排 → tick 分发 → 执行（检索→综合→落账）→ 仲裁生长
+- 每个 worker = **真实检索**（DataSourceProvider / anysearch）→ **模型综合**
+  （piRunner，可降级）→ completeStage 落账产出 → broadcast 事件行
+- 检索失败 → failStage 重试计数（耗尽自动停泊）；综合失败 → 诚实降级，
+  原始检索结果即为产出
+- 进度全部在 ledger：前端离开不结束，重开即见最新状态
+
+#742 任务级 stop：派发/完成边界检查 TaskControlPlane——stopped/stopping
+零新派发/重试/生长；可取消调用（pi 综合/仲裁）经取消注册表取消；不可
+取消检索如实广播、迟到结果丢弃（阶段落 cancelled，产出不落账）。stop 幂
+等；stopping 排干落 stopped 持久化——重启 hydrate，重新注册不复燃。 */
 
 import type { DataSourceProvider } from "../../rt-core/src/providers/types.js";
 import { ParallelDagScheduler, type DispatchRecord } from "../../rt-core/src/scheduler/parallel_dag.js";
@@ -116,8 +118,8 @@ function groupByTask<T extends { stage_id: string }>(rows: T[]): Array<[string, 
   return [...map.entries()];
 }
 
-/** 可取消包装：stop 时对注册中的调用触发 cancel（注入式 runner 的取消
- * 是包装层拒绝；真 pi 进程走 runPiCancellable 的 SIGTERM→宽限→SIGKILL）。 */
+/** 可取消包装：stop 触发 cancel（注入式 runner 是包装层拒绝；真 pi 走
+ * runPiCancellable 的 SIGTERM→宽限→SIGKILL）。 */
 function makeCancellable<T>(p: Promise<T>): { promise: Promise<T>; cancel: (reason: string) => void } {
   let doReject: ((e: Error) => void) | null = null;
   const promise = new Promise<T>((resolve, reject) => {
@@ -176,9 +178,9 @@ export class BackgroundResearchRunner {
     }
   }
 
-  /** 任务级 stop 的即时响应（research.stop RPC 触发，不等 5s 泵）：
-   * 取消可取消 in-flight 调用；不可取消的检索如实上报；pending/in_progress
-   * 阶段落 cancelled 终态；无 in-flight 时立即排干落 stopped。幂等。 */
+  /** 任务级 stop 即时响应（research.stop 触发，不等 5s 泵）：取消可取消
+   * in-flight；不可取消检索如实上报；pending/in_progress 落 cancelled；
+   * 无 in-flight 立即排干落 stopped。幂等。 */
   handleStop(taskId: string): void {
     if (this.control.statusOf(taskId) === "running") return;
     if (this.stopHandled.has(taskId)) return; // 幂等：不重复广播/翻转
@@ -209,8 +211,8 @@ export class BackgroundResearchRunner {
     this.maybeDrain(taskId);
   }
 
-  /** stopping → stopped 仅当该任务全部 in-flight 工作排干（#742：
-   * stopping 状态保持到可取消的取消、不可取消的返回并丢弃）。 */
+  /** stopping → stopped 仅当该任务 in-flight 全排干（不可取消的返回并
+   * 丢弃、可取消的已取消）。 */
   private maybeDrain(taskId: string): void {
     if (this.control.statusOf(taskId) !== "stopping") return;
     for (const stageId of this.inFlight.keys()) {
@@ -228,8 +230,7 @@ export class BackgroundResearchRunner {
     }
   }
 
-  /** 在飞可取消调用：注册进取消注册表，stop 触发句柄；注册前的取消请求
-   * 在句柄就位时补触发（无竞态窗口）。 */
+  /** 在飞可取消调用注册；注册前的取消请求在句柄就位时补触发（无竞态）。 */
   private async cancellableCall<T>(
     taskId: string,
     start: (registerCancel: (cancel: (reason: string) => void) => void) => Promise<T>,

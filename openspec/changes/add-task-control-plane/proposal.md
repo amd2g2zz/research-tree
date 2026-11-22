@@ -11,8 +11,8 @@ Issue #742（P0）：调研画布没有停止控制。`BackgroundResearchRunner.
 - **`research.stop` RPC**（server.ts 新 case，switch 模式）：按 taskId 持久化 stopping → 触发 runner 立即取消（不等 5s 泵）→ 返回状态。`task.status` / research 视图携带 control 状态（刷新/重启后保持）。
 - **派发边界守卫**：pumpOnce 派发/滚动派发、execute 入口与 completeStage 前检查点、requeueOrphans、arbiterWave、closeGraphIfComplete 一律按控制状态过滤——stopped/stopping 任务零新派发、零重试、零生长；`parallel_dag.ts` tick() 增排除过滤（修 :88 全表跨任务耦合的机械前提）、增 `cancelled` 终态与 cancelStage()。
 - **pi 取消**：runPi 拆出 runPiCancellable（SIGTERM→宽限→SIGKILL，拒绝消息显式 "cancelled"）；注入式 runner 经可取消包装走同一路径；不可取消的调用（recon provider 检索）**如实广播上报**并丢弃迟到结果。
-- **重启 hydrate**：进程重启后 plane 从 task_control 表恢复；stopped 任务 research.start/mindmap.confirm 拒绝（模式切换不复燃）；其它任务不受任何影响。
-- **UI**：画布工具栏 Stop 按钮（running 可见）+ running→stopping→stopped 状态显示，刷新后保持。
+- **重启 hydrate**：重启后 plane 从表恢复；stopped 任务 research.start/mindmap.confirm 拒绝（不复燃）；其它任务不受影响。
+- **UI**：画布工具栏 Stop 按钮（running 可见）+ 状态显示，刷新后保持。
 - **WS-F fixture 基建**：`webui-server/test/fixtures/`——脚本化 fake pi runner（正常/阻塞/慢/取消）+ 可阻塞 fake provider（本 PR 与 #744 复用）。
 
 ## impact_scope

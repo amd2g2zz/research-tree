@@ -1,9 +1,6 @@
-/** 可阻塞 fake DataSourceProvider（WS-F fixture 基建，#742 与 #744 共用）。
-
-真实检索（runRecon → provider.search）**不可取消**——#742 验收要求 stop 后
-不可取消调用"如实上报、结果丢弃"。本 fixture 让 search 挂起直到测试手工
-release，从而机械地构造"stop 于检索中 → 迟到完成被拒"的确定性场景。
-同时支持瞬时失败（failNext，mirror research_worker.test.ts 的 anysearch down）。 */
+/** 可阻塞 fake DataSourceProvider（WS-F 基建，#742/#744 共用）：真实检索不可
+ * 取消（#742 验收：stop 后如实上报、结果丢弃）——search 挂起至手工 release，
+ * 机械构造"stop 于检索中→迟到完成被拒"；failNext 支持瞬时失败。 */
 
 import type { DataSourceProvider } from "../../../rt-core/src/providers/types.js";
 
@@ -18,9 +15,8 @@ export interface BlockedProvider extends DataSourceProvider {
 	queries: string[];
 	/** 下一次 search 是否抛错（mirror research_worker.test.ts） */
 	failNext: boolean;
-	/** 释放一个挂起的 search（FIFO），返回 results 副本 */
+	/** release = 释放一个挂起 search（FIFO）返回副本；pendingSearches = 在飞数 */
 	release(): void;
-	/** 已派发且未释放的 search 数 */
 	pendingSearches(): number;
 }
 

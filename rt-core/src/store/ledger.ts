@@ -259,8 +259,7 @@ const MIGRATIONS: readonly Migration[] = [
     `,
 	},
 	{
-		// issue #742 任务级 stop 控制面：持久化状态机 running→stopping→stopped
-		// （单向；无行 ≡ running，存量任务兼容）。CHECK 约束拒绝域外状态值，
+		// #742 控制面：持久化状态机（单向；无行 ≡ running）。CHECK 拒域外值，
 		// 转换方向由 TaskControlPlane 在代码层强制。
 		version: 11,
 		statements: `

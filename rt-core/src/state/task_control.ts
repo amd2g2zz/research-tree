@@ -1,17 +1,8 @@
-/** Task control plane — per-task stop state machine (issue #742).
-
-#742 根因：BackgroundResearchRunner.stop() 只停泵（clearInterval），既不按
-taskId 取消进行中的工作，也不持久化。本模块是控制面的**权威状态机**
-（machine.ts 转换矩阵同款模式）：
-
-    running（无行 ≡ running，存量任务兼容）→(requestStop) stopping
-    stopping →(markStopped, 仅当 in-flight 排干) stopped
-
-不变量：**单向**（markStopped 仅自 stopping 合法，跳过状态 fail-closed 拒绝）、
-**幂等**（重复 requestStop 返回现状、不刷新时间戳、不覆盖首个 reason）、
-**持久化**（每次转换即时落 task_control 表 migration v11，构造时 hydrate——
-进程重启后状态保持）。CHECK 约束拒绝域外状态值，转换方向由代码层强制。
-*/
+/** Task control plane — per-task stop 状态机（issue #742，machine.ts 矩阵
+ * 同款）：running（无行 ≡ running）→requestStop→ stopping →markStopped(排干后)→
+ * stopped。不变量：单向（跳过状态 fail-closed 拒）、幂等（不刷新时间戳/
+ * 不覆盖首个 reason）、持久化（即时落 v11 表 + 构造 hydrate）。CHECK 拒
+ * 域外值，方向由代码层强制。 */
 
 import { LedgerIntegrityError } from "../store/integrity.js";
 import type { LedgerStore } from "../store/ledger.js";
@@ -59,7 +50,7 @@ export class TaskControlPlane {
 		}
 	}
 
-	// ------------------------------------------------------------------ queries
+	// -- queries ------------------------------------------------------------
 
 	statusOf(taskId: string): TaskControlStatus {
 		return this.states.get(taskId)?.status ?? "running";
@@ -76,10 +67,10 @@ export class TaskControlPlane {
 			.map((s) => s.taskId);
 	}
 
-	// ------------------------------------------------------------------ transitions
+	// -- transitions ----------------------------------------------------------
 
-	/** stop 请求：running → stopping。幂等：stopping/stopped 原样返回，
-	 * 不刷新 stop_requested_at、不覆盖首个 stop_reason（#742 验收）。 */
+	/** stop 请求：running → stopping。幂等：原样返回，不刷新时间戳、
+	 * 不覆盖首个 reason（#742 验收）。 */
 	requestStop(taskId: string, reason?: string): TaskControlState {
 		const current = this.states.get(taskId);
 		if (current !== undefined) {
@@ -98,8 +89,8 @@ export class TaskControlPlane {
 		return state;
 	}
 
-	/** stopping → stopped（in-flight 排干后由 runner 调用）。
-	 * 从 running 直接调用 = 跳过状态，fail-closed 拒绝；stopped 重复调用幂等。 */
+	/** stopping → stopped（排干后由 runner 调用）；running 直调 = 跳过状态
+	 * fail-closed 拒绝；stopped 重复调用幂等。 */
 	markStopped(taskId: string, reason?: string): TaskControlState {
 		const current = this.states.get(taskId);
 		if (current !== undefined && current.status === "stopped") {
@@ -121,7 +112,7 @@ export class TaskControlPlane {
 		return state;
 	}
 
-	// ------------------------------------------------------------------ persistence
+	// -- persistence --------------------------------------------------------
 
 	private persist(state: TaskControlState): void {
 		this.ledger.connection

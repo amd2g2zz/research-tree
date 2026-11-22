@@ -406,8 +406,7 @@ export function ResearchPage({ taskId, onBack, onOpenMindmap }: Props) {
 		});
 	};
 
-	// #742 任务级 stop：running→stopping→stopped 单向持久化——停止后不再
-	// 派发新调用，进行中的可取消调用被取消，不可取消的如实上报；重启后保持
+	// #742 任务级 stop：单向持久化——零新派发/可取消取消/不可取消如实上报
 	const stopTask = () => {
 		modal.confirm({
 			title: "停止调研任务",
@@ -434,6 +433,8 @@ export function ResearchPage({ taskId, onBack, onOpenMindmap }: Props) {
 			},
 		});
 	};
+
+	const controlState = view?.control ?? null; // #742：null = running（存量兼容）
 
 	if (loading && view === null) {
 		return (
@@ -470,19 +471,11 @@ export function ResearchPage({ taskId, onBack, onOpenMindmap }: Props) {
 				</Space>
 				<Space>
 					<Button icon={<ReloadOutlined />} onClick={() => void load()} />
-					{view?.control !== undefined &&
-						view.control !== null &&
-						CONTROL_TAG[view.control.status] !== undefined && (
-							<Tag color={CONTROL_TAG[view.control.status]!.color}>
-								{CONTROL_TAG[view.control.status]!.label}
-							</Tag>
-						)}
-					{(view?.control === undefined || view.control === null) && (
-						<Button
-							icon={<PauseCircleOutlined />}
-							onClick={stopTask}
-							danger
-						>
+					{controlState !== null && CONTROL_TAG[controlState.status] !== undefined && (
+						<Tag color={CONTROL_TAG[controlState.status]!.color}>{CONTROL_TAG[controlState.status]!.label}</Tag>
+					)}
+					{controlState === null && (
+						<Button icon={<PauseCircleOutlined />} onClick={stopTask} danger>
 							停止
 						</Button>
 					)}

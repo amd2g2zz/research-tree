@@ -1,7 +1,6 @@
-/** research.stop RPC over-the-wire tests（issue #742）：真实 WS 流量——
- * stop 状态持久化、重复 stop 幂等、stopped 后 research.start 拒绝（模式
- * 切换不复燃）、重启 hydrate 后保持。fake blocked provider 确定性驱动
- * （检索在飞 → stop → 迟到结果丢弃 → 排干落 stopped）。 */
+/** research.stop over-the-wire（#742）：WS 过线证明——全链路 stop→排干落
+ * stopped + 幂等 + 冷进程重启 hydrate + start 拒绝。runner 层完整矩阵见
+ * task_stop.test.ts，此处只证 RPC/服务器接线。 */
 
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,15 +8,10 @@ import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { LedgerStore } from "../../rt-core/src/store/ledger.js";
 import { createBlockedProvider } from "./fixtures/blocked_provider.js";
 import { WebUIServer } from "../src/server.js";
 
-const SOURCE = {
-  kind: "chat-message" as const,
-  ref: "msg:1",
-  quote: "2C4G 越快上越好",
-};
+const SOURCE = { kind: "chat-message" as const, ref: "msg:1", quote: "2C4G 越快上越好" };
 const EXTRACTION = {
   requirements: [{ text: "deploy on 2C4G fast", source: SOURCE }],
   constraints: [{ text: "2C4G is a guess", source: SOURCE, hardness: "guessed" }],
@@ -46,9 +40,27 @@ async function until(cond: () => boolean | Promise<boolean>, timeoutMs = 5000): 
   }
 }
 
+function rpcOn(socket: WebSocket, method: string, params: Record<string, unknown> = {}, id?: number) {
+  const msgId = id ?? nextId++;
+  return new Promise<Record<string, unknown>>((resolve, reject) => {
+    const onMessage = (data: unknown): void => {
+      const msg = JSON.parse(String(data)) as Record<string, unknown>;
+      if (msg.id === msgId) {
+        socket.off("message", onMessage);
+        if (msg.ok === true) resolve(msg.result as Record<string, unknown>);
+        else reject(new Error(String(msg.error)));
+      }
+    };
+    socket.on("message", onMessage);
+    socket.send(JSON.stringify({ id: msgId, method, params }));
+  });
+}
+
+const rpc = (method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> =>
+  rpcOn(ws, method, params);
+
 async function restJson(path: string): Promise<Record<string, unknown>> {
-  const res = await fetch(`http://127.0.0.1:${port}${path}`);
-  return (await res.json()) as Record<string, unknown>;
+  return (await (await fetch(`http://127.0.0.1:${port}${path}`)).json()) as Record<string, unknown>;
 }
 
 beforeAll(async () => {
@@ -72,25 +84,6 @@ afterAll(async () => {
   ws?.close();
 });
 
-function rpc(method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
-  const id = nextId++;
-  return new Promise((resolve, reject) => {
-    const onMessage = (data: unknown): void => {
-      const msg = JSON.parse(String(data)) as Record<string, unknown>;
-      if (msg.id === id) {
-        ws.off("message", onMessage);
-        if (msg.ok === true) {
-          resolve(msg.result as Record<string, unknown>);
-        } else {
-          reject(new Error(String(msg.error)));
-        }
-      }
-    };
-    ws.on("message", onMessage);
-    ws.send(JSON.stringify({ id, method, params }));
-  });
-}
-
 async function setupResearchTask(taskId: string): Promise<void> {
   await rpc("project.create", { project_id: `p-${taskId}`, name: "stop 项目" });
   await rpc("project.registerTask", { project_id: `p-${taskId}`, task_id: taskId, role: "main" });
@@ -107,80 +100,45 @@ async function setupResearchTask(taskId: string): Promise<void> {
 }
 
 describe("research.stop 任务级停止（#742 over the wire）", () => {
-  it("stop：stopping 持久化、阶段取消、不可取消如实上报、排干落 stopped", async () => {
+  it("stop 全链路：stopping 持久化→阶段取消→不可取消如实上报→幂等→排干落 stopped", async () => {
     await setupResearchTask("tStop");
     const stop = await rpc("research.stop", { task_id: "tStop", reason: "user stop" });
     expect((stop.control as Record<string, unknown>).status).toBe("stopping");
     expect((stop.control as Record<string, unknown>).stop_reason).toBe("user stop");
 
-    // 阶段取消（画布可见的终态）
     const view = await restJson("/api/research/tStop");
-    const stages = view.stages as Array<{ status: string }>;
-    expect(stages).toHaveLength(1);
-    expect(stages[0]!.status).toBe("cancelled");
-    // task.status / researchView 携带 control
-    const viewControl = view.control as Record<string, unknown> | null;
-    expect(viewControl?.status).toBe("stopping");
+    expect((view.stages as Array<{ status: string }>)[0]!.status).toBe("cancelled");
+    expect(((view.control as Record<string, unknown> | null) ?? {}).status).toBe("stopping");
+    // 重复 stop 幂等：状态与时间戳不刷新
+    const again = await rpc("research.stop", { task_id: "tStop", reason: "double click" });
+    expect((again.control as Record<string, unknown>).stop_requested_at).toBe(
+      (stop.control as Record<string, unknown>).stop_requested_at,
+    );
 
-    // 迟到检索结果返回 → 排干 → stopped
-    blocked.release();
-    await until(async () => {
-      const status = await rpc("task.status", { task_id: "tStop" });
-      return ((status.control as Record<string, unknown> | null)?.status) === "stopped";
-    });
-    const status = await rpc("task.status", { task_id: "tStop" });
-    const control = status.control as Record<string, unknown>;
+    blocked.release(); // 迟到检索结果 → 排干 → stopped
+    await until(async () =>
+      ((await rpc("task.status", { task_id: "tStop" })).control as Record<string, unknown> | null)?.status ===
+        "stopped",
+    );
+    const control = (await rpc("task.status", { task_id: "tStop" })).control as Record<string, unknown>;
     expect(control.status).toBe("stopped");
     expect(control.stop_requested_at).not.toBeNull();
   });
 
-  it("重复 stop 幂等：状态不变，阶段不重复翻转", async () => {
-    await setupResearchTask("tAgain");
-    const first = await rpc("research.stop", { task_id: "tAgain" });
-    const second = await rpc("research.stop", { task_id: "tAgain", reason: "double click" });
-    expect((second.control as Record<string, unknown>).status).toBe(
-      (first.control as Record<string, unknown>).status,
-    );
-    expect((second.control as Record<string, unknown>).stop_requested_at).toBe(
-      (first.control as Record<string, unknown>).stop_requested_at, // 时间戳不刷新
-    );
-    blocked.release(); // 排干
-    await until(async () => {
-      const status = await rpc("task.status", { task_id: "tAgain" });
-      return ((status.control as Record<string, unknown> | null)?.status) === "stopped";
-    });
-  });
-
-  it("stopped 后 research.start 拒绝——模式切换不复燃", async () => {
-    await setupResearchTask("tNoResume");
-    await rpc("research.stop", { task_id: "tNoResume" });
-    blocked.release();
-    await until(async () => {
-      const status = await rpc("task.status", { task_id: "tNoResume" });
-      return ((status.control as Record<string, unknown> | null)?.status) === "stopped";
-    });
-    await expect(rpc("research.start", { task_id: "tNoResume", decomposition_id: "dc-tNoResume" })).rejects.toThrow(
-      /stopped|stopping/,
-    );
-    // 阶段未被复活/新增
-    const ledger = new LedgerStore(join(workspaceFor(server), "ledger.sqlite"));
-    const stages = ledger.connection
-      .prepare("SELECT status FROM parallel_stages WHERE stage_id LIKE 'tNoResume/%'")
-      .all() as Array<{ status: string }>;
-    expect(stages.every((s) => s.status === "cancelled")).toBe(true);
-  });
-
-  it("重启 hydrate：fresh server 从 ledger 恢复 stopped 并拒绝重启研究", async () => {
+  it("冷进程重启 hydrate：fresh server 恢复 stopped、拒绝 research.start 复燃", async () => {
     await setupResearchTask("tDur");
     await rpc("research.stop", { task_id: "tDur" });
     blocked.release();
-    await until(async () => {
-      const status = await rpc("task.status", { task_id: "tDur" });
-      return ((status.control as Record<string, unknown> | null)?.status) === "stopped";
-    });
+    await until(async () =>
+      ((await rpc("task.status", { task_id: "tDur" })).control as Record<string, unknown> | null)?.status ===
+        "stopped",
+    );
 
     // 冷进程：全新 WebUIServer 读同一 workspace
-    const fresh = new WebUIServer({ workspace: workspaceFor(server), piConfigDir: mkdtempSync(join(tmpdir(), "rt-stop-fresh-")) });
+    const fresh = new WebUIServer({
+      workspace: workspaceFor(server),
+      piConfigDir: mkdtempSync(join(tmpdir(), "rt-stop-fresh-")),
+    });
     const freshPort = await fresh.listen();
     try {
       const socket = await new Promise<WebSocket>((resolve, reject) => {
@@ -188,20 +146,11 @@ describe("research.stop 任务级停止（#742 over the wire）", () => {
         s.on("open", () => resolve(s));
         s.on("error", reject);
       });
-      const status = await new Promise<Record<string, unknown>>((resolve, reject) => {
-        const onMessage = (data: unknown): void => {
-          const msg = JSON.parse(String(data)) as Record<string, unknown>;
-          if (msg.id === 1) {
-            socket.off("message", onMessage);
-            if (msg.ok === true) resolve(msg.result as Record<string, unknown>);
-            else reject(new Error(String(msg.error)));
-          }
-        };
-        socket.on("message", onMessage);
-        socket.send(JSON.stringify({ id: 1, method: "task.status", params: { task_id: "tDur" } }));
-      });
-      const control = status.control as Record<string, unknown> | null;
-      expect(control?.status).toBe("stopped"); // 重启后保持（issue 验收原文）
+      const status = await rpcOn(socket, "task.status", { task_id: "tDur" }, 1);
+      expect(((status.control as Record<string, unknown> | null) ?? {}).status).toBe("stopped"); // hydrate
+      await expect(rpcOn(socket, "research.start", { task_id: "tDur", decomposition_id: "dc-tDur" }, 2)).rejects.toThrow(
+        /stopped|stopping/,
+      );
       socket.close();
     } finally {
       await fresh.close();

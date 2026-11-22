@@ -50,8 +50,7 @@ interface PiRpcEvent {
 
 export interface PiRunHandle {
   promise: Promise<string>;
-  /** 请求取消（#742 任务级 stop）：SIGTERM → 宽限 → SIGKILL；promise 以
-   * 显式 cancelled 错误拒绝。settle 后调用是 no-op。 */
+  /** 请求取消：SIGTERM→宽限→SIGKILL，显式 cancelled 拒绝；settle 后 no-op。 */
   cancel: (reason?: string) => void;
 }
 
@@ -67,9 +66,8 @@ export function runPi(
   return runPiCancellable(command, prompt, timeoutMs, extraArgs, onDelta).promise;
 }
 
-/** 可取消版 runPi（#742）：任务级 stop 取消在飞的综合/仲裁调用——
- * SIGTERM 整个进程组，宽限（默认 3s）后 SIGKILL；拒绝消息显式
- * "cancelled (reason)"，与超时终止可区分。 */
+/** 可取消版 runPi（#742）：stop 取消在飞综合/仲裁——SIGTERM 进程组，宽限
+ * （默认 3s）后 SIGKILL；拒绝显式 "cancelled (reason)"，与超时可区分。 */
 export function runPiCancellable(
   command: string,
   prompt: string,

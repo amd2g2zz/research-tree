@@ -63,8 +63,7 @@ export interface ResearchView {
 	question: unknown;
 	claims: Record<string, ClaimView>;
 	stages: StageInfo[];
-	/** #742：任务级 stop 控制状态（running = null） */
-	control?: TaskControlInfo | null;
+	control?: TaskControlInfo | null; // #742：任务级 stop 控制状态（running = null）
 }
 
 /** GET /api/config/pi — pi config readiness (no key material). */

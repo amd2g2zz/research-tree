@@ -1,9 +1,6 @@
-/** 任务级 stop TDD 矩阵（issue #742）：fake blocked provider / runner 覆盖
- * stop 于各相位（检索中/综合中/仲裁中）、重启后保持、并发他任务不受扰、
- * 迟到完成被拒、重复 stop 幂等、模式切换不复燃。
- *
- * fixture（WS-F）：createFakePiRunner 可编程响应序列 + createBlockedProvider
- * 可阻塞检索——真实文件系统 mkdtemp + 依赖注入，篡改/行为断言而非 stub 断言。 */
+/** 任务级 stop TDD 矩阵（issue #742）：runner 层六场景——各相位 stop、
+ * 重启保持、他任务不受扰、幂等、不复燃。fixture：WS-F 可编程 fake pi +
+ * 可阻塞 provider（mkdtemp + DI，行为断言非 stub 断言）。 */
 
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -38,10 +35,9 @@ function stageCount(taskId: string): number {
   return row.n;
 }
 
-/** 注册一个任务的阶段（可带依赖/查询词），任务前缀即 task_id。 */
+/** 注册一个任务的阶段（可带依赖），任务前缀即 task_id。 */
 function registerStages(taskId: string, stages: Array<Partial<ParallelStage> & { id: string }>): void {
-  const sched = new ParallelDagScheduler(ledger);
-  sched.registerStages(
+  new ParallelDagScheduler(ledger).registerStages(
     stages.map((s) => ({
       stage_id: `${taskId}/${s.id}`,
       title: s.title ?? `verify: ${taskId} 的命题 ${s.id}`,
@@ -55,13 +51,7 @@ function registerStages(taskId: string, stages: Array<Partial<ParallelStage> & {
     })),
   );
   versions.openDraft(taskId, {
-    snapshot: {
-      elements: {},
-      claims: [{ id: `c-${taskId}`, text: `${taskId} 的命题`, posterior: 0.5 }],
-      evidence_refs: [],
-      report: {},
-      deleted_nodes: [],
-    },
+    snapshot: { elements: {}, claims: [{ id: `c-${taskId}`, text: `${taskId} 的命题`, posterior: 0.5 }], evidence_refs: [], report: {}, deleted_nodes: [] },
     baseV: null,
   });
 }
@@ -87,7 +77,6 @@ interface StopHarness {
 function makeHarness(piScript?: Parameters<typeof createFakePiRunner>[0]): StopHarness {
   const blocked = createBlockedProvider([{ title: "阻塞来源", snippet: "阻塞摘要" }]);
   const instant = createInstantProvider([{ title: "即时来源", snippet: "即时摘要" }]);
-  // 按查询词路由：含「甲」走阻塞 provider（检索中 stop 场景），否则即时
   const provider = {
     async search(args: { query: string }) {
       if (args.query.includes("甲")) return blocked.search(args);
@@ -123,7 +112,6 @@ describe("任务级 stop TDD 矩阵（#742）", () => {
     const { runner, control, blocked } = makeHarness();
     const pump = runner.pumpOnce();
     await until(() => blocked.pendingSearches() === 1); // 检索在飞
-
     control.requestStop("tA", "user");
     runner.handleStop("tA");
     // 如实上报：检索不可取消、结果将被丢弃；阶段已取消
@@ -133,13 +121,11 @@ describe("任务级 stop TDD 矩阵（#742）", () => {
 
     blocked.release(); // 迟到的检索结果返回
     await pump;
-    expect(control.statusOf("tA")).toBe("stopped"); // 排干后 stopped
+    expect(control.statusOf("tA")).toBe("stopped");
     // 迟到完成被拒：无综合调用、无产出落账
     expect(stageStatus("tA/s1")).toBe("cancelled");
-    const row = ledger.connection
-      .prepare("SELECT outputs FROM parallel_stages WHERE stage_id = 'tA/s1'")
-      .get() as { outputs: string };
-    expect(row.outputs).toBe("[]");
+    const row = ledger.connection.prepare("SELECT outputs FROM parallel_stages WHERE stage_id = 'tA/s1'").get() as { outputs: string };
+    expect(row.outputs).toBe("[]"); // 迟到完成被拒：无产出落账
     expect(lines.some((l) => l.includes("丢弃"))).toBe(true);
   });
 
@@ -154,9 +140,7 @@ describe("任务级 stop TDD 矩阵（#742）", () => {
     await pump;
     expect(control.statusOf("tB")).toBe("stopped");
     expect(stageStatus("tB/s1")).toBe("cancelled");
-    const row = ledger.connection
-      .prepare("SELECT outputs FROM parallel_stages WHERE stage_id = 'tB/s1'")
-      .get() as { outputs: string };
+    const row = ledger.connection.prepare("SELECT outputs FROM parallel_stages WHERE stage_id = 'tB/s1'").get() as { outputs: string };
     expect(row.outputs).toBe("[]"); // 综合未落账
   });
 
@@ -175,7 +159,6 @@ describe("任务级 stop TDD 矩阵（#742）", () => {
     expect(stageStatus("tC/s1")).toBe("cancelled");
     expect(lines.some((l) => l.includes("仲裁员不可用"))).toBe(true);
   });
-
   it("并发他任务不受扰：tA 停止期间 tB 正常派发、完成、闭合", async () => {
     registerStages("tA", [{ id: "s1", title: "verify: 阻塞命题甲" }]);
     registerStages("tB", [{ id: "s1", title: "verify: 即时命题乙" }]);
@@ -219,9 +202,7 @@ describe("任务级 stop TDD 矩阵（#742）", () => {
     runner.handleStop("tD");
     expect(second).toEqual(first); // 幂等：状态不变、时间戳不刷新、首个理由保留
     expect(lines).toEqual(linesAfterFirst); // 广播不重复
-    const count = ledger.connection
-      .prepare("SELECT COUNT(*) AS n FROM task_control WHERE task_id = ?")
-      .get("tD") as { n: number };
+    const count = ledger.connection.prepare("SELECT COUNT(*) AS n FROM task_control WHERE task_id = ?").get("tD") as { n: number };
     expect(count.n).toBe(1);
 
     blocked.release();

@@ -1,6 +1,5 @@
-/** TaskControlPlane tests (issue #742): 任务级 stop 控制面——持久化状态机
- * running→stopping→stopped 单向、幂等、重启 hydrate。篡改检测式断言
- * （engine.test.ts 模式）：绕过状态机直写 SQL 被 CHECK 约束/状态机拒绝。 */
+/** TaskControlPlane tests (#742)：持久化状态机单向/幂等/hydrate。篡改检测式
+ * 断言（engine.test.ts 模式）：绕过状态机直写 SQL 被 CHECK 约束/状态机拒绝。 */
 
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -62,46 +61,28 @@ describe("TaskControlPlane (#742 任务级 stop 状态机)", () => {
     expect(count.n).toBe(1);
   });
 
-  it("markStopped：stopping → stopped（单向可达终态）", () => {
+  it("markStopped：running 直调 fail-closed 拒；stopping → stopped 终态；stopped 后 requestStop no-op", () => {
     const plane = new TaskControlPlane(ledger);
+    expect(() => plane.markStopped("tA")).toThrow(LedgerIntegrityError); // 单向不可跳过
     plane.requestStop("tA");
-    const state = plane.markStopped("tA");
-    expect(state.status).toBe("stopped");
+    expect(plane.markStopped("tA").status).toBe("stopped");
     expect(plane.statusOf("tA")).toBe("stopped");
-  });
-
-  it("markStopped 从 running 直接调用被拒——单向不可跳过（fail-closed）", () => {
-    const plane = new TaskControlPlane(ledger);
-    expect(() => plane.markStopped("tA")).toThrow(LedgerIntegrityError);
-  });
-
-  it("stopped 后 requestStop 是 no-op（返回 stopped，行不变）", () => {
-    const plane = new TaskControlPlane(ledger);
-    plane.requestStop("tA");
-    plane.markStopped("tA");
-    const again = plane.requestStop("tA", "late click");
+    const again = plane.requestStop("tA", "late click"); // 终态后请求是 no-op
     expect(again.status).toBe("stopped");
     expect(again.stopReason).toBeNull(); // 原状态未被污染
   });
 
-  it("重启 hydrate：新 plane 在同一 ledger 上恢复 stopped（issue 验收：重启后保持）", () => {
+  it("重启 hydrate + controlledTaskIds：新 plane 同一 ledger 恢复两态；排除集列全部非 running", () => {
     const plane = new TaskControlPlane(ledger);
     plane.requestStop("tA");
     plane.markStopped("tA");
     plane.requestStop("tB");
-    // 模拟进程重启：全新 plane 实例读同一 ledger
+    // 模拟进程重启：全新 plane 实例读同一 ledger（issue 验收：重启后保持）
     const rebooted = new TaskControlPlane(ledger);
     expect(rebooted.statusOf("tA")).toBe("stopped");
     expect(rebooted.statusOf("tB")).toBe("stopping");
     expect(rebooted.statusOf("tC")).toBe("running"); // 无行 = running
-  });
-
-  it("controlledTaskIds 列出全部非 running 任务（派发守卫的排除集）", () => {
-    const plane = new TaskControlPlane(ledger);
-    plane.requestStop("tA");
-    plane.markStopped("tA");
-    plane.requestStop("tB");
-    const ids = plane.controlledTaskIds();
+    const ids = rebooted.controlledTaskIds(); // 派发守卫的排除集
     expect(ids).toContain("tA");
     expect(ids).toContain("tB");
     expect(ids).not.toContain("tC");

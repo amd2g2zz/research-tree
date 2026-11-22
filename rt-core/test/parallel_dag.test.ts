@@ -120,18 +120,10 @@ describe("task-level stop control (#742 cancelled 终态 + 派发隔离)", () =>
 		expect(scheduler.tick()).toEqual([]); // cancelled 终态零派发
 	});
 
-	it("cancelStage 对未知阶段 fail-closed（与 failStage 同律）", () => {
+	it("cancelStage 未知阶段 fail-closed；tick 按 excludeTaskIds 过滤（其它任务不受扰）", () => {
 		const scheduler = new ParallelDagScheduler(ledger, { maxConcurrency: 4 });
 		expect(() => scheduler.cancelStage("nope")).toThrow(LedgerIntegrityError);
-	});
-
-	it("tick 按 excludeTaskIds 过滤：stopped 任务的阶段零派发，其它任务不受扰", () => {
-		const scheduler = new ParallelDagScheduler(ledger, { maxConcurrency: 4 });
-		scheduler.registerStages([
-			stage("tA/s1"),
-			stage("tA/s2"),
-			stage("tB/s1"),
-		]);
+		scheduler.registerStages([stage("tA/s1"), stage("tA/s2"), stage("tB/s1")]);
 		const dispatched = scheduler.tick({ excludeTaskIds: ["tA"] });
 		expect(dispatched.map((d) => d.stage_id)).toEqual(["tB/s1"]);
 		// 排除任务的阶段保持 pending（未被动过）
