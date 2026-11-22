@@ -145,6 +145,17 @@ jobs:
           pnpm -C rt-core install
           pnpm -C webui-server install
 
+      - name: Provide pi binary stub for tests
+        # webui-server tests inject a fake piRunner (never execute pi), but the
+        # server fails closed unless a pi binary resolves (server.ts
+        # resolvePiCommand: RT_PI_CMD → PATH → ~/.pi/agent). Dev machines meet
+        # this via the local pi install; CI mirrors that path with a stub that
+        # fails loudly if ever executed, keeping the honest-failure contract.
+        run: |
+          mkdir -p "$HOME/.pi/agent/npm/node_modules/.bin"
+          printf '#!/bin/sh\necho "CI stub pi: tests must inject piRunner; executing pi is unsupported here" >&2\nexit 1\n' > "$HOME/.pi/agent/npm/node_modules/.bin/pi"
+          chmod +x "$HOME/.pi/agent/npm/node_modules/.bin/pi"
+
       - name: Typecheck (tsc --noEmit, strict)
         run: pnpm -C webui-server check
 
