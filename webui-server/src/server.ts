@@ -41,6 +41,7 @@ import { AnysearchProvider } from "../../rt-core/src/providers/anysearch.js";
 import type { DataSourceProvider } from "../../rt-core/src/providers/types.js";
 import { ParallelDagScheduler, type ParallelStage } from "../../rt-core/src/scheduler/parallel_dag.js";
 import { ProductStateMachine } from "../../rt-core/src/state/machine.js";
+import { TaskControlPlane } from "../../rt-core/src/state/task_control.js";
 import { EngineCore } from "../../rt-core/src/store/engine.js";
 import { LedgerStore } from "../../rt-core/src/store/ledger.js";
 import { ProjectHomeError, ProjectHomeModel } from "../../rt-core/src/ux/project_home.js";
@@ -77,6 +78,8 @@ export interface WebUIOptions {
   provider?: DataSourceProvider;
   /** pi headless call timeout (chat.turn/extraction/classification); default 300s/120s */
   piTimeoutMs?: number;
+  /** 后台 runner 泵间隔（#709；默认 5000ms）——测试注入短间隔确定性驱动 */
+  runnerIntervalMs?: number;
 }
 
 interface RpcMessage {
@@ -117,6 +120,8 @@ export class WebUIServer {
   private readonly versions: VersionStore;
   private readonly machine: ProductStateMachine;
   private readonly home: ProjectHomeModel;
+  /** 任务级 stop 控制面（#742）：server 与 runner 共享同一实例（状态权威） */
+  private readonly control: TaskControlPlane;
   private readonly researchRunner: BackgroundResearchRunner;
   /** 进行中的对话 turn（#716）：taskId → 已累积的 thinking 缓冲——刷新/
    * 断线重连后从 chat.history 恢复思考流，而不是黑屏等待 */
@@ -141,11 +146,14 @@ export class WebUIServer {
     this.canvas = CanvasProjection.fromLedger(this.ledger);
     this.timeline = new VersionTimeline(this.ledger, this.versions, this.machine);
     this.archive = new FourStateArchive(this.ledger, this.versions, this.machine);
+    // 任务级 stop 控制面（#742）：构造时 hydrate——重启后 stopped 状态保持
+    this.control = new TaskControlPlane(this.ledger);
     // 后台调研执行器（#709）：多任务并发、真实检索→综合→阶段流转；
     // 进度落账——前端离开不影响，重开即见最新状态
     this.researchRunner = new BackgroundResearchRunner({
       ledger: this.ledger,
       versions: this.versions,
+      control: this.control,
       provider: () => this.options.provider ?? this.defaultProvider(),
       piCommand: () => this.resolvePiCommand(),
       piRunner: this.options.piRunner,
@@ -201,7 +209,7 @@ export class WebUIServer {
   }
 
   listen(port = 0): Promise<number> {
-    this.researchRunner.start(5000);
+    this.researchRunner.start(this.options.runnerIntervalMs ?? 5000);
     return new Promise((resolve) => {
       this.http.listen(port, "127.0.0.1", () => resolve((this.http.address() as { port: number }).port));
     });
@@ -341,6 +349,8 @@ export class WebUIServer {
       claims,
       transitions: canvas.transitions,
       providers: canvas.providers,
+      // #742：任务级 stop 控制状态（null = running）——画布工具栏停止态渲染
+      control: this.control.stateOf(taskId),
       stages: stages.map((s) => {
         // 产出解析（#709）：outputs[0] = {findings, sources, completed_at}
         let findings: string | null = null;
@@ -849,6 +859,8 @@ export class WebUIServer {
                 }
               : null,
           routed_count: this.routedCount(taskId),
+          // #742：任务级 stop 控制状态（null = running）——刷新/重启后保持
+          control: this.control.stateOf(taskId),
         };
       }
       case "decompose.fromChat": {
@@ -994,6 +1006,13 @@ export class WebUIServer {
         // walks birth→…→research. No fixtures; the verdict comes later
         // through research.freeze (问句不是判决).
         const taskId = String(params.task_id);
+        // #742：停止中/已停止的任务拒绝重启研究——模式切换/重新注册不复燃
+        const controlState = this.control.stateOf(taskId);
+        if (controlState !== null && controlState.status !== "running") {
+          throw new ProjectHomeError(
+            `task is ${controlState.status} (stop acknowledged) — a stopped task does not resume; fork or start a new task instead`,
+          );
+        }
         const decompositionId = String(params.decomposition_id ?? `dc-${taskId}`);
         const row = this.ledger.getDecomposition(taskId, decompositionId);
         if (row === null || row.status !== "confirmed") {
@@ -1099,6 +1118,25 @@ export class WebUIServer {
           verdict,
         };
       }
+      case "research.stop": {
+        // #742 任务级 stop：按 taskId 持久化 running→stopping→stopped（单向、
+        // 幂等）。立即触发 runner 取消（不等 5s 泵）：可取消调用（pi 综合/
+        // 仲裁）SIGTERM→宽限→SIGKILL，不可取消的检索如实上报、迟到结果丢弃；
+        // pending/in_progress 阶段落 cancelled 终态。注意与 close() 里的
+        // 进程级停泵（runner.stop()）语义不同——那是 shutdown 专用。
+        const taskId = String(params.task_id);
+        const reason = typeof params.reason === "string" ? params.reason : undefined;
+        const state = this.control.requestStop(taskId, reason);
+        this.researchRunner.handleStop(taskId);
+        return {
+          task_id: taskId,
+          control: {
+            status: state.status,
+            stop_reason: state.stopReason,
+            stop_requested_at: state.stopRequestedAt,
+          },
+        };
+      }
       case "mindmap.generate": {
         // 确认阶段: transcript → pi → mindmap tree (quote 回查溯源), draft only
         const taskId = String(params.task_id);
@@ -1180,6 +1218,13 @@ export class WebUIServer {
       case "mindmap.confirm": {
         // 确认思维导图 → 叶子=调研命题 → 机械 stages 注册 → research 相位
         const taskId = String(params.task_id);
+        // #742：停止中/已停止的任务拒绝重新确认——不复燃
+        const stoppedState = this.control.stateOf(taskId);
+        if (stoppedState !== null && stoppedState.status !== "running") {
+          throw new ProjectHomeError(
+            `task is ${stoppedState.status} (stop acknowledged) — a stopped task does not resume; fork or start a new task instead`,
+          );
+        }
         const row = this.ledger.connection
           .prepare("SELECT tree_json, status FROM mindmaps WHERE task_id = ? LIMIT 1")
           .get(taskId) as { tree_json: string; status: string } | undefined;
