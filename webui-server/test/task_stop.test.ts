@@ -13,7 +13,7 @@ import { LedgerStore } from "../../rt-core/src/store/ledger.js";
 import type { DataSourceProvider } from "../../rt-core/src/providers/types.js";
 import { TaskControlPlane } from "../../rt-core/src/state/task_control.js";
 import { VersionStore } from "../../rt-core/src/versions/store.js";
-import { createBlockedProvider, createInstantProvider, type BlockedProvider } from "./fixtures/blocked_provider.js";
+import { createBlockedProvider, createInstantProvider, until, type BlockedProvider } from "./fixtures/blocked_provider.js";
 import { createFakePiRunner, type FakePiRunner } from "./fixtures/fake_pi_runner.js";
 import { BackgroundResearchRunner, type WorkerDeps } from "../src/research_worker.js";
 
@@ -26,13 +26,6 @@ function stageStatus(stageId: string): string {
     | { status: string }
     | undefined;
   return row?.status ?? "unknown";
-}
-
-function stageCount(taskId: string): number {
-  const row = ledger.connection
-    .prepare("SELECT COUNT(*) AS n FROM parallel_stages WHERE stage_id LIKE ?")
-    .get(`${taskId}/%`) as { n: number };
-  return row.n;
 }
 
 /** 注册一个任务的阶段（可带依赖），任务前缀即 task_id。 */
@@ -54,15 +47,6 @@ function registerStages(taskId: string, stages: Array<Partial<ParallelStage> & {
     snapshot: { elements: {}, claims: [{ id: `c-${taskId}`, text: `${taskId} 的命题`, posterior: 0.5 }], evidence_refs: [], report: {}, deleted_nodes: [] },
     baseV: null,
   });
-}
-
-/** 轮询条件成立（fixture 阻塞调用已派发）——不 sleep 猜时序。 */
-async function until(cond: () => boolean, timeoutMs = 3000): Promise<void> {
-  const start = Date.now();
-  while (!cond()) {
-    if (Date.now() - start > timeoutMs) throw new Error("condition not met within timeout");
-    await new Promise((r) => setTimeout(r, 10));
-  }
 }
 
 interface StopHarness {
@@ -155,7 +139,8 @@ describe("任务级 stop TDD 矩阵（#742）", () => {
     runner.handleStop("tC"); // 取消仲裁调用
     await pump;
     expect(control.statusOf("tC")).toBe("stopped");
-    expect(stageCount("tC")).toBe(1); // 图未生长（无新节点）
+    const cnt = ledger.connection.prepare("SELECT COUNT(*) AS n FROM parallel_stages WHERE stage_id LIKE 'tC/%'").get() as { n: number };
+    expect(cnt.n).toBe(1); // 图未生长（无新节点）
     expect(stageStatus("tC/s1")).toBe("cancelled");
     expect(lines.some((l) => l.includes("仲裁员不可用"))).toBe(true);
   });

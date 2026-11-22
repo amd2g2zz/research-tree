@@ -17,14 +17,10 @@ Issue #742（P0）：调研画布没有停止控制。`BackgroundResearchRunner.
 
 ## impact_scope
 
-- `rt-core/src/store/ledger.ts`（migration v11）
-- `rt-core/src/state/task_control.ts` (new)
-- `rt-core/src/scheduler/parallel_dag.ts`（tick 排除过滤 + cancelled 终态）
-- `webui-server/src/research_worker.ts`（守卫 + 取消注册 + 逐任务分组）
-- `webui-server/src/pi-run.ts`（runPiCancellable）
-- `webui-server/src/server.ts`（research.stop case + control 状态透出）
-- `webui/src/views/ResearchPage.tsx`（Stop 按钮 + 状态）
-- tests: `webui-server/test/fixtures/` (new), `webui-server/test/task_stop.test.ts` (new), `webui-server/test/pi_run.test.ts`（取消用例）, `rt-core/test/task_control.test.ts` (new), `rt-core/test/parallel_dag.test.ts`（排除/取消用例）
+- rt-core：`store/ledger.ts`（migration v11）、`state/task_control.ts` (new)、`scheduler/parallel_dag.ts`（tick 过滤 + cancelled）
+- webui-server：`research_worker.ts`（守卫/取消注册/逐任务分组）、`pi-run.ts`（runPiCancellable）、`server.ts`（research.stop + control 透出）
+- webui：`views/ResearchPage.tsx`（Stop 按钮 + 状态）
+- tests：`webui-server/test/fixtures/` (new)、`task_stop.test.ts` (new)、`research_stop.test.ts` (new)、`pi_run.test.ts`（取消用例）、`rt-core/test/task_control.test.ts` (new)、`parallel_dag.test.ts`（排除/取消用例）
 
 ## Non-goals
 

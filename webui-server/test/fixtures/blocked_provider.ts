@@ -58,3 +58,12 @@ export function createInstantProvider(results: FakeSource[] = [{ title: "来源A
 		},
 	} as DataSourceProvider;
 }
+
+/** 轮询条件成立（fixture 阻塞调用已派发）——不 sleep 猜时序（#742/#744 共用）。 */
+export async function until(cond: () => boolean | Promise<boolean>, timeoutMs = 5000): Promise<void> {
+	const start = Date.now();
+	while (!(await cond())) {
+		if (Date.now() - start > timeoutMs) throw new Error("condition not met within timeout");
+		await new Promise((r) => setTimeout(r, 10));
+	}
+}

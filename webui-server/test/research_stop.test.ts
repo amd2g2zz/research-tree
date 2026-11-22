@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { createBlockedProvider } from "./fixtures/blocked_provider.js";
+import { createBlockedProvider, until } from "./fixtures/blocked_provider.js";
 import { WebUIServer } from "../src/server.js";
 
 const SOURCE = { kind: "chat-message" as const, ref: "msg:1", quote: "2C4G 越快上越好" };
@@ -30,14 +30,6 @@ let blocked: ReturnType<typeof createBlockedProvider>;
 
 function workspaceFor(s: WebUIServer): string {
   return (s as unknown as { options: { workspace: string } }).options.workspace;
-}
-
-async function until(cond: () => boolean | Promise<boolean>, timeoutMs = 5000): Promise<void> {
-  const start = Date.now();
-  while (!(await cond())) {
-    if (Date.now() - start > timeoutMs) throw new Error("condition not met within timeout");
-    await new Promise((r) => setTimeout(r, 20));
-  }
 }
 
 function rpcOn(socket: WebSocket, method: string, params: Record<string, unknown> = {}, id?: number) {
