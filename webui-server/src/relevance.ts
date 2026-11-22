@@ -32,20 +32,28 @@ export interface RelevanceThresholds {
   uncertain: number;
 }
 
-/** 阈值由 E2 黄金集校准（design.md 数据表）：relevant ≥0.20、uncertain
- * ≥0.05，低于即 irrelevant。 */
+/** 阈值由 E2 黄金集校准（design.md 数据表）：relevant ≥0.15 且命中字符组
+ * ≥2（union 去重）、uncertain ≥0.05，低于即 irrelevant。 */
 export const DEFAULT_RELEVANCE_THRESHOLDS: RelevanceThresholds = {
-  relevant: 0.2,
+  relevant: 0.15,
   uncertain: 0.05,
 };
 
-/** 二元字符组（无嵌入的机械重叠信号；沿用 maxJaccard 的既有模式）。 */
+/** 二元字符组（无嵌入的机械重叠信号；沿用 maxJaccard 的既有模式）。
+ * 虚词字符组（含 的/是/了 等单虚词字的组）剔除——"的任务"这类跨虚词滑窗
+ * 会用相邻重叠组击穿命中数守卫（E2 黄金集实测假阳性根因）。 */
+const STOPWORD_CHARS = new Set([..."的了是在和与对为及或等之其这那由从被按据向于把个也很就很"]);
+
 function bigrams(text: string): Set<string> {
   const s = text
     .toLowerCase()
     .replace(/[\s\p{P}\p{S}]+/gu, "");
   const out = new Set<string>();
-  for (let i = 0; i + 2 <= s.length; i += 1) out.add(s.slice(i, i + 2));
+  for (let i = 0; i + 2 <= s.length; i += 1) {
+    const gram = s.slice(i, i + 2);
+    if (STOPWORD_CHARS.has(gram[0]!) || STOPWORD_CHARS.has(gram[1]!)) continue;
+    out.add(gram);
+  }
   return out;
 }
 

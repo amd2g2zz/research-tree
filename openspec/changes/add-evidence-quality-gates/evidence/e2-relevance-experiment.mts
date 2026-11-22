@@ -63,7 +63,9 @@ if (totalSources > 0) {
 }
 
 // ── 方案 b：pi 单批判定（真实采样） ─────────────────────────────
+// RT_E2_SKIP_PI=1 跳过（pi 采样依赖模型 API 余额——402 时挂起到超时）
 const PI = join(process.env.HOME ?? "", ".pi/agent/npm/node_modules/.bin/pi");
+const skipPi = process.env.RT_E2_SKIP_PI === "1";
 const { runPi } = await import("../../../../webui-server/src/pi-run.ts");
 
 function buildVerdictPrompt(fx: Fixture): string {
@@ -93,6 +95,9 @@ console.log("| case | 逐来源 verdict（golden→实测） | 延迟 | usage | 
 console.log("|---|---|---|---|---|");
 let piTotal = 0;
 let piCorrect = 0;
+if (skipPi) {
+  console.log("（RT_E2_SKIP_PI=1：跳过 pi 采样——2026-11-23 环境模型 API 返回 402 Insufficient Balance，两轮采样（120s×3、300s×2）全部挂起无响应，usage 全 0。方案 b 记录为后续。）");
+} else
 for (const fx of fixtures) {
   if (fx.sources.length === 0) {
     console.log(`| ${fx.case} | —（空结果机械判定，无判定调用） | — | — | — |`);
