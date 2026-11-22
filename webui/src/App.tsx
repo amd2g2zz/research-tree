@@ -52,6 +52,7 @@ import {
 	rest,
 	rpc,
 } from "./lib/rpc";
+import { thinkingLabel } from "./lib/thinkingStall";
 import type {
 	ChatMsg,
 	Kind,
@@ -117,7 +118,18 @@ function Shell() {
 	const [thinking, setThinking] = useState(false);
 	const [cot, setCot] = useState("");
 	const [settledCot, setSettledCot] = useState<string | null>(null);
+	useEffect(() => {
+		if (!thinking) return;
+		if (thinkStartRef.current === 0) thinkStartRef.current = Date.now();
+		const t = setInterval(() => setThinkTick((x) => x + 1), 1000);
+		return () => clearInterval(t);
+	}, [thinking]);
 	const [cotCollapsed, setCotCollapsed] = useState(false);
+	// #742：思考停滞可见性——面板静止时用户无法分辨"还在想"还是"死了"。
+	// 计时 + 停滞提示：>90s 无新 delta 标注响应缓慢。
+	const [, setThinkTick] = useState(0); // 每秒跳一次触发重渲染刷新计时 label
+	const thinkStartRef = useRef(0);
+	const lastDeltaRef = useRef(0);
 	const cotBuf = useRef("");
 	const [piReady, setPiReady] = useState<PiConfigSummary | null>(null);
 	const [wsStatus, setWsStatus] = useState<"connecting" | "open" | "closed">(
@@ -275,12 +287,16 @@ function Shell() {
 			setCot("");
 			setSettledCot(null);
 			setThinking(true);
+			thinkStartRef.current = Date.now();
+			lastDeltaRef.current = Date.now();
 			try {
 				if (kind === "auto") {
 					onDelta((d) => {
 						cotBuf.current += d;
 						setCot(cotBuf.current);
 						setThinking(true); // 刷新/换端后漏掉 turn-start 也能重新挂上
+						if (thinkStartRef.current === 0) thinkStartRef.current = Date.now();
+						lastDeltaRef.current = Date.now();
 					});
 					await connectWs();
 					setDraft(""); // 服务端已先落账用户消息——发送即清（H4）
@@ -526,14 +542,14 @@ function Shell() {
 	return (
 		<Layout className="app">
 			<Layout.Sider
-					width={260}
-					theme="light"
-					className="side"
-					collapsible
-					collapsed={sideCollapsed}
-					collapsedWidth={0}
-					trigger={null}
-				>
+				width={260}
+				theme="light"
+				className="side"
+				collapsible
+				collapsed={sideCollapsed}
+				collapsedWidth={0}
+				trigger={null}
+			>
 				<div className="side-head">
 					<button
 						type="button"
@@ -655,7 +671,9 @@ function Shell() {
 							<Button
 								type="text"
 								size="small"
-								icon={sideCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+								icon={
+									sideCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />
+								}
 								onClick={() => setSideCollapsed((c) => !c)}
 							/>
 							{view !== "chat" ? (
@@ -755,31 +773,36 @@ function Shell() {
 																...((reconByReplySeq.get(m.seq) ?? []).length >
 																0
 																	? [
-																				{
-																					key: "recon",
-																					label: `前期侦查（${(reconByReplySeq.get(m.seq) ?? []).length} 条来源）`,
-																					children: (
-																						<div
-																							className="md recon-md"
-																							dangerouslySetInnerHTML={{
-																								__html: renderMd(
-																									(
-																										reconByReplySeq.get(
-																											m.seq,
-																										) ?? []
+																			{
+																				key: "recon",
+																				label: `前期侦查（${(reconByReplySeq.get(m.seq) ?? []).length} 条来源）`,
+																				children: (
+																					<div
+																						className="md recon-md"
+																						dangerouslySetInnerHTML={{
+																							__html: renderMd(
+																								(
+																									reconByReplySeq.get(m.seq) ??
+																									[]
 																								)
 																									.join("\n")
 																									// 来源以「；N. 」编号分隔——在编号边界断行；
 																									// 前缀「…来源：」后也断行，让首个编号落行首，
 																									// marked 才能渲染成有序列表（title 内部的数字
 																									// 不跟在"；/："后，不会误切）
-																									.replace(/；(?=\d+\.\s)/g, "\n")
-																									.replace(/：(?=\d+\.\s)/, "：\n"),
-																								),
-																							}}
-																						/>
-																					),
-																				},
+																									.replace(
+																										/；(?=\d+\.\s)/g,
+																										"\n",
+																									)
+																									.replace(
+																										/：(?=\d+\.\s)/,
+																										"：\n",
+																									),
+																							),
+																						}}
+																					/>
+																				),
+																			},
 																		]
 																	: []),
 															]}
@@ -844,7 +867,14 @@ function Shell() {
 											items={[
 												{
 													key: "thinking",
-													label: "rt · 思考中",
+													label:
+														cot === "" && thinkStartRef.current === 0
+															? "rt · 思考中"
+															: thinkingLabel(
+																	Date.now() -
+																		(thinkStartRef.current || Date.now()),
+																	Date.now() - lastDeltaRef.current,
+																),
 													children:
 														cot === "" ? (
 															<div className="dots">
