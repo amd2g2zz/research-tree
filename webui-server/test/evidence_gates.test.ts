@@ -47,6 +47,11 @@ function stageStatus(stageId: string): string {
   return row?.status ?? "unknown";
 }
 
+function queryOf(prompt: string): string {
+  const m = /检索词：(.+)$/m.exec(prompt);
+  return m !== null ? m[1]!.slice(0, 12) : "?";
+}
+
 function outcomeOf(stageId: string): ReturnType<typeof parseStageOutputs> {
   const row = ledger.connection.prepare("SELECT outputs FROM parallel_stages WHERE stage_id = ?").get(stageId) as
     | { outputs: string }
@@ -336,5 +341,204 @@ describe("无进展停（issue #744：机械停条件）", () => {
       .get() as { n: number };
     expect(grown.n).toBe(0);
     expect(lines.some((l) => l.includes("无进展"))).toBe(true);
+  });
+});
+
+describe("汇总覆盖语义（issue #744 / dogfood ISSUE-006）", () => {
+  function registerBranchTask(taskId: string, branches: string[], root: string): void {
+    const sched = new ParallelDagScheduler(ledger);
+    sched.registerStages(
+      branches.map((b) => ({
+        stage_id: `${taskId}/${b}`,
+        title: `探索｜${b}`,
+        status: "pending" as const,
+        claim_ids: [],
+        depends_on: [] as string[],
+        assigned_worker_class: "retrieval" as const,
+        retries: 0,
+        max_retries: 2,
+        outputs: [],
+      })),
+    );
+    versions.openDraft(taskId, {
+      snapshot: { elements: {}, claims: [], evidence_refs: [], report: {}, deleted_nodes: [] },
+      baseV: null,
+    });
+    const runner = new BackgroundResearchRunner(
+      makeDeps({ piCommand: () => null, piRunner: undefined }),
+    );
+    runner.seedTaskContext(taskId, { rootQuestion: root, branches });
+  }
+
+  function summaryRow(taskId: string): { stage_id: string; title: string; status: string } | undefined {
+    return (
+      ledger.connection
+        .prepare("SELECT stage_id, title, status FROM parallel_stages WHERE stage_id LIKE ? AND title LIKE '汇总｜%'")
+        .get(`${taskId}/%`) as { stage_id: string; title: string; status: string } | undefined
+    );
+  }
+
+  it("汇总标题=根问题（首分支 ≠ 根问题——ISSUE-006 错命名回归钉）", async () => {
+    registerBranchTask("tS1", ["限制条件", "任务背景", "调研目标"], "小型医院 AI 病历摘要试点");
+    providerSources = fixtureByCase.get("relevant-hospital")!.sources;
+    const runner = new BackgroundResearchRunner(makeDeps());
+    runner.seedTaskContext("tS1", { rootQuestion: "小型医院 AI 病历摘要试点", branches: ["限制条件", "任务背景", "调研目标"] });
+    await runner.pumpOnce();
+    await runner.waitForIdle();
+    await runner.pumpOnce();
+    await runner.waitForIdle();
+    const summary = summaryRow("tS1");
+    expect(summary).toBeDefined();
+    expect(summary!.title).toBe("汇总｜小型医院 AI 病历摘要试点");
+    expect(summary!.title).not.toContain("限制条件");
+  });
+
+  it("停泊分支不永久阻塞汇总：coverage 枚举全部分支（answered/gap）", async () => {
+    registerBranchTask("tS2", ["限制条件", "任务背景", "调研目标"], "小型医院 AI 病历摘要试点");
+    const runner = new BackgroundResearchRunner(
+      makeDeps({
+        // 任务背景节点命中 dogfood 失真源（无关）→ 停泊；其余两支正常完成
+        provider: () =>
+          ({
+            async search({ query }: { query: string }) {
+              searchedQueries.push(query);
+              return query.includes("任务背景")
+                ? fixtureByCase.get("dogfood-issue-004-irrelevant")!.sources
+                : fixtureByCase.get("relevant-hospital")!.sources;
+            },
+          }) as DataSourceProvider,
+        // 任务背景的综合输出为旧形态（无 sufficiency）→ 机械底线判 insufficient；
+        // 汇总 prompt 含全部分支命题但带上游发现段——给结构化充分输出
+        piRunner: (_c, prompt) => {
+          piCalls.push(prompt);
+          if (prompt.includes("任务背景") && !prompt.includes("上游阶段发现")) {
+            return Promise.resolve(JSON.stringify({ findings: "资料不足，不能得出真实结论" }));
+          }
+          return Promise.resolve(
+            JSON.stringify({
+              findings: `综合发现（${queryOf(prompt)}）`,
+              sufficiency: "sufficient",
+              sourceVerdicts: [{ index: 1, verdict: "relevant", basis: "直接回答命题" }],
+              unresolvedClaims: [],
+            }),
+          );
+        },
+      }),
+    );
+    runner.seedTaskContext("tS2", { rootQuestion: "小型医院 AI 病历摘要试点", branches: ["限制条件", "任务背景", "调研目标"] });
+    await runner.pumpOnce();
+    await runner.waitForIdle();
+    expect(stageStatus("tS2/任务背景")).toBe("parked");
+    await runner.pumpOnce(); // 汇总注册（deps=已完成分支）并在本泵派发执行
+    await runner.waitForIdle();
+    const summary = summaryRow("tS2");
+    expect(summary).toBeDefined();
+    expect(summary!.status).toBe("complete");
+    const outcome = outcomeOf(summary!.stage_id);
+    expect(outcome.coverage).toBeDefined();
+    const byBranch = new Map((outcome.coverage ?? []).map((c) => [c.branch, c.status]));
+    expect(byBranch.get("限制条件")).toBe("answered");
+    expect(byBranch.get("调研目标")).toBe("answered");
+    expect(byBranch.get("任务背景")).toBe("gap"); // 停泊分支显式缺口
+    expect(outcome.unresolvedClaims.join("；")).toContain("任务背景");
+  });
+});
+
+describe("阻尼基准任务隔离（issue #744 / evaluation 文档失真 2）", () => {
+  function dampingOf(lines: string[], taskId: string): number[] {
+    return lines
+      .filter((l) => l.includes(`增益（${taskId}）`))
+      .map((l) => Number(/任务阻尼 ([\d.]+)/.exec(l)?.[1] ?? -1));
+  }
+
+  function registerSoloTask(taskId: string, claimText: string): void {
+    const sched = new ParallelDagScheduler(ledger);
+    sched.registerStages([
+      {
+        stage_id: `${taskId}/s1`,
+        title: `verify: ${claimText}`,
+        status: "pending",
+        claim_ids: ["c1"],
+        depends_on: [],
+        assigned_worker_class: "retrieval",
+        retries: 0,
+        max_retries: 2,
+        outputs: [],
+      },
+      {
+        stage_id: `${taskId}/s2`,
+        title: `verify: ${claimText}（补充）`,
+        status: "pending",
+        claim_ids: ["c1"],
+        depends_on: [`${taskId}/s1`],
+        assigned_worker_class: "retrieval",
+        retries: 0,
+        max_retries: 2,
+        outputs: [],
+      },
+    ]);
+    versions.openDraft(taskId, {
+      snapshot: {
+        elements: {},
+        claims: [{ id: "c1", text: claimText, posterior: 0.5 }],
+        evidence_refs: [],
+        report: {},
+        deleted_nodes: [],
+      },
+      baseV: null,
+    });
+  }
+
+  function runnerWithRelevance(lines: string[], highRelevanceClaim: string): BackgroundResearchRunner {
+    return new BackgroundResearchRunner(
+      makeDeps({
+        maxConcurrent: 1,
+        piRunner: (_c, prompt) => {
+          piCalls.push(prompt);
+          const high = prompt.includes(highRelevanceClaim);
+          return Promise.resolve(
+            JSON.stringify({
+              findings: `综合发现（${queryOf(prompt)}）`,
+              relevance: high ? 0.95 : 0.05,
+              coverage: high ? 0.9 : 0.1,
+              sufficiency: "sufficient",
+              sourceVerdicts: [{ index: 1, verdict: "relevant", basis: "相关" }],
+              unresolvedClaims: [],
+            }),
+          );
+        },
+        broadcast: (line) => lines.push(line),
+      }),
+    );
+  }
+
+  it("交错任务不串扰：任务 A 的阻尼演化与单独运行完全一致", async () => {
+    // 串行基线：任务 A 单独跑（高增益），记录阻尼序列
+    registerSoloTask("soloA", "竞品价格监控工具的付费意愿");
+    const soloLines: string[] = [];
+    const solo = runnerWithRelevance(soloLines, "竞品价格监控");
+    await solo.pumpOnce();
+    await solo.waitForIdle();
+    await solo.pumpOnce();
+    await solo.waitForIdle();
+    const soloDamping = dampingOf(soloLines, "soloA");
+    expect(soloDamping.length).toBeGreaterThanOrEqual(2); // s1、s2（汇总节点是第三个数据点，不参与比较）
+
+    // 交错：任务 A（高增益）与任务 B（低增益）在同一 runner 交替执行
+    const mixedLines: string[] = [];
+    const runner = runnerWithRelevance(mixedLines, "竞品价格监控");
+    registerSoloTask("mxA", "竞品价格监控工具的付费意愿");
+    registerSoloTask("mxB", "太空探索任务的深空通信预算");
+    await runner.pumpOnce(); // mxA/s1（高）
+    await runner.waitForIdle();
+    await runner.pumpOnce(); // mxB/s1（低——旧实现会把共享 lastPrior 拉低，污染 mxA/s2）
+    await runner.waitForIdle();
+    await runner.pumpOnce(); // mxA/s2（高）
+    await runner.waitForIdle();
+    const mixedDamping = dampingOf(mixedLines, "mxA");
+    expect(mixedDamping.length).toBeGreaterThanOrEqual(2);
+    // 修复后：任务 A 的阻尼演化（s1→s2）与其单独运行逐值一致——
+    // 旧实现（共享 lastPrior + priorByStage.size）会被 mxB 的低后验拉偏
+    expect(mixedDamping.slice(0, 2)).toEqual(soloDamping.slice(0, 2));
   });
 });

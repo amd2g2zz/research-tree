@@ -460,6 +460,25 @@ export class BackgroundResearchRunner {
     return this.taskRootQuestions.get(taskId);
   }
 
+  /** 汇总覆盖（#744）：逐导图分支推导 answered/gap——分支阶段 sufficient
+   * 且 complete ⇒ answered；停泊/不足/导图分支无对应阶段 ⇒ gap。机械推导，
+   * 不依赖模型自评。 */
+  private branchCoverageOf(taskId: string): Array<{ branch: string; status: "answered" | "gap" }> {
+    const branches = this.branchesOf.get(taskId) ?? [];
+    if (branches.length === 0) return [];
+    const rows = this.deps.ledger.connection
+      .prepare("SELECT title, status, outputs FROM parallel_stages WHERE stage_id LIKE ?")
+      .all(`${taskId}/%`) as Array<{ title: string; status: string; outputs: string }>;
+    const byTitle = new Map(rows.map((r) => [r.title, r]));
+    return branches.map((branch) => {
+      // 导图路径种子为 探索｜<branch>；research.start 路径为 verify: <branch>
+      const row = byTitle.get(`探索｜${branch}`) ?? byTitle.get(`verify: ${branch}`);
+      const sufficient =
+        row !== undefined && row.status === "complete" && parseStageOutputs(row.outputs).sufficiency === "sufficient";
+      return { branch, status: sufficient ? "answered" : "gap" };
+    });
+  }
+
   findingsOf(taskId: string, stageId: string): string | null {
     const row = this.deps.ledger.connection
       .prepare("SELECT outputs FROM parallel_stages WHERE stage_id = ?")
@@ -468,22 +487,31 @@ export class BackgroundResearchRunner {
     return parseStageOutputs(row.outputs).findings[0]?.text ?? null;
   }
 
-  /** 图闭合（graph engineering）：逐任务判定——running 任务的图全部完成
-   * 且尚无汇总节点时注册「汇总」节点（下一轮 pump 执行并产出研究底稿）。
-   * #742：停止中/已停止任务的图冻结（不注册汇总）；其它任务不受其
-   * cancelled/parked 阶段干扰（原来查全表——跨任务耦合）。 */
+  /** 图闭合（graph engineering）：逐任务判定——非汇总节点全部进入终态
+   * （complete|parked）且尚无汇总节点时注册「汇总」节点（下一轮 pump 执行
+   * 并产出研究底稿）。#742：按任务分组，停止中/已停止任务的图冻结（不注册
+   * 汇总），其它任务不受其停泊阶段干扰（原来查全表——跨任务耦合）。
+   * #744 两处修正：①标题用根问题（seedTaskContext 注册），不再是第一个
+   * 分支文本（dogfood ISSUE-006 "汇总｜限制条件" 错命名根因）；②停泊分支
+   * 不再永久阻塞汇总——汇总只依赖已完成节点，停泊分支的显式未决
+   * （unresolvedClaims）由汇总 coverage 如实呈现（ISSUE-006 期望原文：
+   * "展示各导图分支的已回答与缺口"）。 */
   private closeCompleteGraphs(rows: Array<{ stage_id: string; title: string; status: string }>): void {
     for (const [taskId, group] of groupByTask(rows)) {
       if (this.control.statusOf(taskId) !== "running") continue; // 停止中：图冻结
-      if (group.some((r) => r.status !== "complete")) continue; // 还有未完成节点
       if (group.some((r) => r.title.startsWith("汇总｜"))) continue; // 已闭合
-      const completed = group.filter((r) => !r.title.startsWith("汇总｜"));
-      if (completed.length === 0) continue;
-      const rootText = completed[0]!.title.replace(/^探索｜/, "");
+      const nonSummary = group.filter((r) => !r.title.startsWith("汇总｜"));
+      if (nonSummary.length === 0) continue;
+      const terminal = nonSummary.every((r) => r.status === "complete" || r.status === "parked");
+      if (!terminal) continue; // 还有进行中/待派发节点
+      const completed = nonSummary.filter((r) => r.status === "complete");
+      if (completed.length === 0) continue; // 全停泊：无可用发现可汇总——诚实不闭合
+      const rootQuestion =
+        this.taskRootQuestion(taskId) ?? completed[0]!.title.replace(/^(探索｜|verify:\s*)/, "");
       this.scheduler.registerStages([
         {
           stage_id: `${taskId}/summary-${Date.now()}`,
-          title: `汇总｜${rootText.slice(0, 40)}`,
+          title: `汇总｜${rootQuestion.slice(0, 40)}`,
           status: "pending",
           claim_ids: [],
           depends_on: completed.map((r) => r.stage_id),
@@ -493,7 +521,12 @@ export class BackgroundResearchRunner {
           outputs: [],
         },
       ]);
-      this.deps.broadcast("[worker] 图闭合：全部节点完成，注册汇总节点");
+      const parked = nonSummary.length - completed.length;
+      this.deps.broadcast(
+        parked > 0
+          ? `[worker] 图闭合：${completed.length} 节点完成、${parked} 节点停泊（缺口见各停泊节点）——注册汇总节点`
+          : "[worker] 图闭合：全部节点完成，注册汇总节点",
+      );
     }
   }
 
@@ -539,10 +572,16 @@ export class BackgroundResearchRunner {
       this.deps.broadcast(`[worker] stop：${stageId} 的任务已停止——拒绝执行`);
       return;
     }
+    // 汇总阶段（#744）：命题 = 根问题 + 全部导图分支——标题与 coverage 都
+    // 必须反映这个范围（ISSUE-006），不是只代表第一个分支
+    const isSummary = title.startsWith("汇总｜");
+    const taskClaims = this.claimTexts(taskId, claimIds);
     const claims =
-      this.claimTexts(taskId, claimIds).length > 0
-        ? this.claimTexts(taskId, claimIds)
-        : [this.taskRootQuestion(taskId) ?? title.replace(/^(探索｜|verify:\s*)/, "")];
+      taskClaims.length > 0
+        ? taskClaims
+        : isSummary
+          ? [this.taskRootQuestion(taskId) ?? title.replace(/^汇总｜/, ""), ...(this.branchesOf.get(taskId) ?? [])]
+          : [this.taskRootQuestion(taskId) ?? title.replace(/^(探索｜|verify:\s*)/, "")];
     const query = title.replace(/^verify:\s*/, "");
 
     // stated information gain 重查（#744）：上一轮 insufficient/conflicted 的
@@ -646,7 +685,7 @@ export class BackgroundResearchRunner {
             }
             this.updateGain(taskId, parsed.relevance, parsed.coverage, findings);
           }
-        } catch {
+        } catch (error) {
           if (this.control.statusOf(taskId) !== "running") {
             // #742：综合调用被 stop 取消——结果丢弃，阶段保持取消
             this.scheduler.cancelStage(stageId);
@@ -654,7 +693,7 @@ export class BackgroundResearchRunner {
             return;
           }
           // 综合失败 ≠ 完成（#744）：检索结果保留为降级底座，充分性门兜底
-          this.deps.broadcast(`[worker] 综合模型不可用，${title} 以原始检索结果进入充分性判定`);
+          this.deps.broadcast(`[worker] 综合模型不可用，${title} 以原始检索结果进入充分性判定（${String(error instanceof Error ? error.message : error).slice(0, 120)}）`);
         }
       }
     }
@@ -686,16 +725,23 @@ export class BackgroundResearchRunner {
       claims,
     });
     const evidenceIds = gate.verdicts.filter((v) => v.verdict !== "irrelevant").map((v) => v.sourceRef);
+    // 汇总覆盖（#744 / ISSUE-006）：逐导图分支 answered/gap——机械推导自
+    // 各分支阶段的充分性（sufficient ⇒ answered；停泊/不足/缺失 ⇒ gap）
+    const coverage = isSummary ? this.branchCoverageOf(taskId) : undefined;
+    const gapBranches = (coverage ?? []).filter((c) => c.status === "gap").map((c) => c.branch);
     const outcome: StageOutcome = {
       schema: 2,
       execution: "executed",
       sufficiency: gate.sufficiency,
       relevance: gate.verdicts.map((v) => ({ sourceRef: v.sourceRef, verdict: v.verdict, basis: v.basis })),
-      unresolvedClaims: gate.unresolvedClaims,
+      unresolvedClaims: isSummary
+        ? [...gate.unresolvedClaims, ...gapBranches.map((b) => `分支「${b}」未回答——导图分支覆盖存在缺口`)]
+        : gate.unresolvedClaims,
       findings: findings !== "" ? [{ findingId: "f1", evidenceIds, text: findings }] : [],
       sources,
       query: refinedQuery,
       informationGain: gate.informationGain,
+      coverage,
       stopReason: gate.stopReason,
     };
     if (gate.sufficiency === "sufficient") {

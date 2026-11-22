@@ -57,6 +57,7 @@ import {
   type TurnOutput,
 } from "./chat-turn.js";
 import { pickClassifier } from "./classify.js";
+import { parseStageOutputs } from "../../rt-core/src/scheduler/stage_outcome.js";
 import type { MindNode } from "./mindmap.js";
 import { editNode, type MindTree, mindmapPrompt, parseMindmap, mechanicalPlan as planFromTree } from "./mindmap.js";
 import { ConfigWriteError, readPiConfig, writeDefaultModel, writeProviderKey } from "./pi-config.js";
@@ -362,32 +363,19 @@ export class WebUIServer {
       // #742：任务级 stop 控制状态（null = running）——画布工具栏停止态渲染
       control: this.control.stateOf(taskId),
       stages: stages.map((s) => {
-        // 产出解析（#709）：outputs[0] = {findings, sources, completed_at}
-        let findings: string | null = null;
-        let sources: Array<{ title: string; url?: string; snippet?: string }> = [];
-        try {
-          const raw = JSON.parse(String(s.outputs ?? "[]")) as string[];
-          if (raw.length > 0) {
-            const artifact = JSON.parse(raw[0] ?? "{}") as {
-              findings?: string;
-              sources?: Array<{
-                title: string;
-                url?: string;
-                snippet?: string;
-              }>;
-            };
-            findings = artifact.findings ?? null;
-            sources = artifact.sources ?? [];
-          }
-        } catch {
-          /* outputs 未就绪或格式异常——画布仍显示状态 */
-        }
+        // 产出解析（#709 → #744 StageOutcome 四态）：结构化产出统一走
+        // parseStageOutputs（legacy 裸 artifact 行显式标注 sufficiency=unknown，
+        // 损坏行 fail-closed）——parked 阶段的 unresolvedClaims 同样可见
+        const outcome = parseStageOutputs(String(s.outputs ?? ""));
         return {
           ...s,
           claim_ids: JSON.parse(String(s.claim_ids)) as string[],
           depends_on: JSON.parse(String(s.depends_on)) as string[],
-          findings,
-          sources,
+          findings: outcome.findings[0]?.text ?? null,
+          sources: outcome.sources,
+          sufficiency: outcome.sufficiency,
+          unresolved_claims: outcome.unresolvedClaims,
+          stop_reason: outcome.stopReason ?? null,
         };
       }),
     };
@@ -1038,6 +1026,23 @@ export class WebUIServer {
         if (stages.length > 0) {
           this.schedulerFor(taskId).registerStages(stages);
         }
+        // #744 汇总覆盖语义：根问题+分支注册进 runner——汇总标题/仲裁 prompt
+        // 用根问题（不是第一个 stage 的标题）。decomposition 无显式根问题字段
+        // → 任务标题兜底，无标题则首个命题。
+        const taskTitleRow = this.ledger.connection
+          .prepare("SELECT title FROM project_tasks WHERE task_id = ?")
+          .get(taskId) as { title: string | null } | undefined;
+        const firstClaim = String(
+          (Array.isArray(elements.claims_preview) && elements.claims_preview.length > 0
+            ? (elements.claims_preview[0] as Record<string, unknown>).text
+            : undefined) ??
+            stages[0]?.title.replace(/^verify:\s*/, "") ??
+            "",
+        );
+        this.researchRunner.seedTaskContext(taskId, {
+          rootQuestion: taskTitleRow?.title?.trim() ? taskTitleRow.title : firstClaim,
+          branches: stages.map((s) => s.title.replace(/^verify:\s*/, "")),
+        });
         const previewClaims = Array.isArray(elements.claims_preview)
           ? (elements.claims_preview as Array<Record<string, unknown>>)
           : [];
@@ -1353,6 +1358,12 @@ export class WebUIServer {
         if (dagStages.length > 0) {
           this.schedulerFor(taskId).registerStages(dagStages);
           this.schedulerFor(taskId).tick();
+          // #744 汇总覆盖语义：导图根问题=tree.root.text（ISSUE-006：汇总
+          // 标题/仲裁"整体研究问题"必须是根问题，不是首个分支文本）
+          this.researchRunner.seedTaskContext(taskId, {
+            rootQuestion: String(tree.root.text ?? ""),
+            branches: dagStages.map((s) => s.title.replace(/^探索｜/, "")),
+          });
           // 首轮即时触发（#709）——不等 5s 间隔泵
           void this.researchRunner.pumpOnce().catch(() => {});
         }
