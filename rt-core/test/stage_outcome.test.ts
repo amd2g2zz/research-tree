@@ -96,7 +96,9 @@ describe("StageOutcome 四态结构化（issue #744）", () => {
 
 describe("ledger migration v12（outputs 裸 JSON → StageOutcome，不丢数据）", () => {
 	function legacyDb(): Database.Database {
-		const db = new Database(join(tmpdir(), `rt-mig-${Date.now()}-${Math.random()}`));
+		const db = new Database(
+			join(tmpdir(), `rt-mig-${Date.now()}-${Math.random()}`),
+		);
 		// 只回放 v1..v10——复现 v12 之前的真实库状态
 		for (const m of MIGRATIONS.filter((x) => x.version <= 10)) {
 			if (m.statements !== undefined) db.exec(m.statements);
@@ -104,7 +106,17 @@ describe("ledger migration v12（outputs 裸 JSON → StageOutcome，不丢数�
 		db.prepare(
 			"INSERT INTO parallel_stages(stage_id, title, status, claim_ids, depends_on, " +
 				"assigned_worker_class, retries, max_retries, outputs) VALUES(?,?,?,?,?,?,?,?,?)",
-		).run("t1/s1", "探索｜任务背景", "complete", "[]", "[]", "retrieval", 0, 2, legacyOutputsRow());
+		).run(
+			"t1/s1",
+			"探索｜任务背景",
+			"complete",
+			"[]",
+			"[]",
+			"retrieval",
+			0,
+			2,
+			legacyOutputsRow(),
+		);
 		// 一行已是新形态（模拟部分升级）——迁移必须跳过它
 		const fresh: StageOutcome = {
 			schema: 2,
@@ -118,14 +130,28 @@ describe("ledger migration v12（outputs 裸 JSON → StageOutcome，不丢数�
 		db.prepare(
 			"INSERT INTO parallel_stages(stage_id, title, status, claim_ids, depends_on, " +
 				"assigned_worker_class, retries, max_retries, outputs) VALUES(?,?,?,?,?,?,?,?,?)",
-		).run("t1/s2", "探索｜调研目标", "complete", "[]", "[]", "retrieval", 0, 2, JSON.stringify(fresh));
+		).run(
+			"t1/s2",
+			"探索｜调研目标",
+			"complete",
+			"[]",
+			"[]",
+			"retrieval",
+			0,
+			2,
+			JSON.stringify(fresh),
+		);
 		return db;
 	}
 
 	function outputsOf(db: Database.Database, stageId: string): string {
-		const row = db.prepare("SELECT outputs FROM parallel_stages WHERE stage_id = ?").get(stageId) as {
-			outputs: string;
-		} | undefined;
+		const row = db
+			.prepare("SELECT outputs FROM parallel_stages WHERE stage_id = ?")
+			.get(stageId) as
+			| {
+					outputs: string;
+			  }
+			| undefined;
 		return row?.outputs ?? "";
 	}
 

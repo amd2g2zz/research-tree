@@ -3,7 +3,7 @@
  * 黄金集取材 dogfood ISSUE-004 真实失真样本（fixtures/golden-relevance/）。
  * provider / piRunner 全注入——确定性，无网络无 pi 依赖。 */
 
-import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -78,9 +78,7 @@ function registerHospitalStage(taskId: string): void {
   versions.openDraft(taskId, {
     snapshot: {
       elements: {},
-      claims: [
-        { id: "c1", text: "小型医院 AI 病历摘要试点需要一份风险报告", posterior: 0.5 },
-      ],
+      claims: [{ id: "c1", text: "小型医院 AI 病历摘要试点需要一份风险报告", posterior: 0.5 }],
       evidence_refs: [],
       report: {},
       deleted_nodes: [],
@@ -337,7 +335,9 @@ describe("无进展停（issue #744：机械停条件）", () => {
     expect(stageStatus("tN2/s2")).toBe("complete");
     // 图未完成且无可派发 → 仲裁 wave——无进展旗标拒绝生长
     const grown = ledger.connection
-      .prepare("SELECT COUNT(*) AS n FROM parallel_stages WHERE title LIKE '深挖｜%' OR title LIKE '分析｜%' OR title LIKE '验证｜%'")
+      .prepare(
+        "SELECT COUNT(*) AS n FROM parallel_stages WHERE title LIKE '深挖｜%' OR title LIKE '分析｜%' OR title LIKE '验证｜%'",
+      )
       .get() as { n: number };
     expect(grown.n).toBe(0);
     expect(lines.some((l) => l.includes("无进展"))).toBe(true);
@@ -364,25 +364,24 @@ describe("汇总覆盖语义（issue #744 / dogfood ISSUE-006）", () => {
       snapshot: { elements: {}, claims: [], evidence_refs: [], report: {}, deleted_nodes: [] },
       baseV: null,
     });
-    const runner = new BackgroundResearchRunner(
-      makeDeps({ piCommand: () => null, piRunner: undefined }),
-    );
+    const runner = new BackgroundResearchRunner(makeDeps({ piCommand: () => null, piRunner: undefined }));
     runner.seedTaskContext(taskId, { rootQuestion: root, branches });
   }
 
   function summaryRow(taskId: string): { stage_id: string; title: string; status: string } | undefined {
-    return (
-      ledger.connection
-        .prepare("SELECT stage_id, title, status FROM parallel_stages WHERE stage_id LIKE ? AND title LIKE '汇总｜%'")
-        .get(`${taskId}/%`) as { stage_id: string; title: string; status: string } | undefined
-    );
+    return ledger.connection
+      .prepare("SELECT stage_id, title, status FROM parallel_stages WHERE stage_id LIKE ? AND title LIKE '汇总｜%'")
+      .get(`${taskId}/%`) as { stage_id: string; title: string; status: string } | undefined;
   }
 
   it("汇总标题=根问题（首分支 ≠ 根问题——ISSUE-006 错命名回归钉）", async () => {
     registerBranchTask("tS1", ["限制条件", "任务背景", "调研目标"], "小型医院 AI 病历摘要试点");
     providerSources = fixtureByCase.get("relevant-hospital")!.sources;
     const runner = new BackgroundResearchRunner(makeDeps());
-    runner.seedTaskContext("tS1", { rootQuestion: "小型医院 AI 病历摘要试点", branches: ["限制条件", "任务背景", "调研目标"] });
+    runner.seedTaskContext("tS1", {
+      rootQuestion: "小型医院 AI 病历摘要试点",
+      branches: ["限制条件", "任务背景", "调研目标"],
+    });
     await runner.pumpOnce();
     await runner.waitForIdle();
     await runner.pumpOnce();
@@ -425,7 +424,10 @@ describe("汇总覆盖语义（issue #744 / dogfood ISSUE-006）", () => {
         },
       }),
     );
-    runner.seedTaskContext("tS2", { rootQuestion: "小型医院 AI 病历摘要试点", branches: ["限制条件", "任务背景", "调研目标"] });
+    runner.seedTaskContext("tS2", {
+      rootQuestion: "小型医院 AI 病历摘要试点",
+      branches: ["限制条件", "任务背景", "调研目标"],
+    });
     await runner.pumpOnce();
     await runner.waitForIdle();
     expect(stageStatus("tS2/任务背景")).toBe("parked");

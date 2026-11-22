@@ -45,9 +45,7 @@ export const DEFAULT_RELEVANCE_THRESHOLDS: RelevanceThresholds = {
 const STOPWORD_CHARS = new Set([..."的了是在和与对为及或等之其这那由从被按据向于把个也很就很"]);
 
 function bigrams(text: string): Set<string> {
-  const s = text
-    .toLowerCase()
-    .replace(/[\s\p{P}\p{S}]+/gu, "");
+  const s = text.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
   const out = new Set<string>();
   for (let i = 0; i + 2 <= s.length; i += 1) {
     const gram = s.slice(i, i + 2);
@@ -180,9 +178,7 @@ export function gateSufficiency(input: SufficiencyGateInput): SufficiencyGateRes
     input.modelVerdicts !== undefined && input.modelVerdicts.length > 0
       ? input.heuristicVerdicts.map((h) => {
           const m = input.modelVerdicts!.find((mv) => mv.index === Number(h.sourceRef.slice(1)));
-          return m !== undefined
-            ? { ...h, verdict: m.verdict, basis: m.basis !== "" ? m.basis : h.basis }
-            : h;
+          return m !== undefined ? { ...h, verdict: m.verdict, basis: m.basis !== "" ? m.basis : h.basis } : h;
         })
       : input.heuristicVerdicts;
   const relevantCount = merged.filter((v) => v.verdict === "relevant").length;
@@ -210,11 +206,7 @@ export function gateSufficiency(input: SufficiencyGateInput): SufficiencyGateRes
   if (input.modelSufficiency === "conflicted") {
     return {
       sufficiency: "conflicted",
-      unresolvedClaims: [
-        ...claimTexts,
-        ...(input.modelUnresolvedClaims ?? []),
-        "来源结论冲突——需要裁决性证据",
-      ],
+      unresolvedClaims: [...claimTexts, ...(input.modelUnresolvedClaims ?? []), "来源结论冲突——需要裁决性证据"],
       informationGain: "裁决来源冲突的独立证据",
       verdicts: merged,
       stopReason: "model-conflicted",

@@ -81,7 +81,6 @@ function stage(
 	};
 }
 
-
 function sufficientOutcome(): StageOutcome {
 	return {
 		schema: 2,

@@ -40,6 +40,7 @@ import { type HeadlessScript, runHeadless } from "../../rt-core/src/headless/run
 import { AnysearchProvider } from "../../rt-core/src/providers/anysearch.js";
 import type { DataSourceProvider } from "../../rt-core/src/providers/types.js";
 import { ParallelDagScheduler, type ParallelStage } from "../../rt-core/src/scheduler/parallel_dag.js";
+import { parseStageOutputs } from "../../rt-core/src/scheduler/stage_outcome.js";
 import { ProductStateMachine } from "../../rt-core/src/state/machine.js";
 import { TaskControlPlane } from "../../rt-core/src/state/task_control.js";
 import { EngineCore } from "../../rt-core/src/store/engine.js";
@@ -57,7 +58,6 @@ import {
   type TurnOutput,
 } from "./chat-turn.js";
 import { pickClassifier } from "./classify.js";
-import { parseStageOutputs } from "../../rt-core/src/scheduler/stage_outcome.js";
 import type { MindNode } from "./mindmap.js";
 import { editNode, type MindTree, mindmapPrompt, parseMindmap, mechanicalPlan as planFromTree } from "./mindmap.js";
 import { ConfigWriteError, readPiConfig, writeDefaultModel, writeProviderKey } from "./pi-config.js";
@@ -126,7 +126,7 @@ export class WebUIServer {
   private readonly researchRunner: BackgroundResearchRunner;
   /** 进行中的对话 turn（#716）：taskId → 已累积的 thinking 缓冲——刷新/
    * 断线重连后从 chat.history 恢复思考流，而不是黑屏等待 */
-  private readonly activeTurns = new Map<string, { thinking: string }>;
+  private readonly activeTurns = new Map<string, { thinking: string }>();
   private readonly canvas: Promise<CanvasProjection>;
   private readonly timeline: VersionTimeline;
   private readonly archive: FourStateArchive;

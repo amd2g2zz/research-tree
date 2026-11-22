@@ -21,21 +21,13 @@
 import type { DataSourceProvider } from "../../rt-core/src/providers/types.js";
 import { ParallelDagScheduler, type DispatchRecord } from "../../rt-core/src/scheduler/parallel_dag.js";
 import { TaskControlPlane } from "../../rt-core/src/state/task_control.js";
-import {
-  parseStageOutputs,
-  type StageOutcome,
-} from "../../rt-core/src/scheduler/stage_outcome.js";
+import { parseStageOutputs, type StageOutcome } from "../../rt-core/src/scheduler/stage_outcome.js";
 import type { LedgerStore } from "../../rt-core/src/store/ledger.js";
 import type { VersionStore } from "../../rt-core/src/versions/store.js";
 import { reconToText, runRecon } from "./chat-turn.js";
 import { arbiterPlan, validateProposed } from "./graph_arbiter.js";
 import { extractJsonObject } from "./mindmap.js";
-import {
-  classifySourceRelevance,
-  gateSufficiency,
-  type ModelVerdictInput,
-  type Sufficiency,
-} from "./relevance.js";
+import { classifySourceRelevance, gateSufficiency, type ModelVerdictInput, type Sufficiency } from "./relevance.js";
 
 export interface WorkerDeps {
   ledger: LedgerStore;
@@ -85,9 +77,7 @@ export function buildSynthPrompt(
     "\n检索词：" +
     query +
     "\n检索结果：\n" +
-    sources
-      .map((s, i) => `${i + 1}. ${s.title}${s.snippet ? ` — ${s.snippet}` : ""}`)
-      .join("\n") +
+    sources.map((s, i) => `${i + 1}. ${s.title}${s.snippet ? ` — ${s.snippet}` : ""}`).join("\n") +
     "\n"
   );
 }
@@ -377,7 +367,8 @@ export class BackgroundResearchRunner {
       return;
     }
     const branches = this.branchesOf.get(taskId) ?? [];
-    const question = this.taskRootQuestion(taskId) ?? (rows[0] !== undefined ? rows[0]!.title.replace(/^探索｜/, "") : "");
+    const question =
+      this.taskRootQuestion(taskId) ?? (rows[0] !== undefined ? rows[0]!.title.replace(/^探索｜/, "") : "");
     const nodes = rows.map((r) => ({
       stage_id: r.stage_id,
       title: r.title,
@@ -497,37 +488,37 @@ export class BackgroundResearchRunner {
    * （unresolvedClaims）由汇总 coverage 如实呈现（ISSUE-006 期望原文：
    * "展示各导图分支的已回答与缺口"）。 */
   private closeCompleteGraphs(rows: Array<{ stage_id: string; title: string; status: string }>): void {
-    for (const [taskId, group] of groupByTask(rows)) {
-      if (this.control.statusOf(taskId) !== "running") continue; // 停止中：图冻结
-      if (group.some((r) => r.title.startsWith("汇总｜"))) continue; // 已闭合
-      const nonSummary = group.filter((r) => !r.title.startsWith("汇总｜"));
-      if (nonSummary.length === 0) continue;
-      const terminal = nonSummary.every((r) => r.status === "complete" || r.status === "parked");
-      if (!terminal) continue; // 还有进行中/待派发节点
-      const completed = nonSummary.filter((r) => r.status === "complete");
-      if (completed.length === 0) continue; // 全停泊：无可用发现可汇总——诚实不闭合
-      const rootQuestion =
-        this.taskRootQuestion(taskId) ?? completed[0]!.title.replace(/^(探索｜|verify:\s*)/, "");
-      this.scheduler.registerStages([
-        {
-          stage_id: `${taskId}/summary-${Date.now()}`,
-          title: `汇总｜${rootQuestion.slice(0, 40)}`,
-          status: "pending",
-          claim_ids: [],
-          depends_on: completed.map((r) => r.stage_id),
-          assigned_worker_class: "retrieval",
-          retries: 0,
-          max_retries: 1,
-          outputs: [],
-        },
-      ]);
-      const parked = nonSummary.length - completed.length;
-      this.deps.broadcast(
-        parked > 0
-          ? `[worker] 图闭合：${completed.length} 节点完成、${parked} 节点停泊（缺口见各停泊节点）——注册汇总节点`
-          : "[worker] 图闭合：全部节点完成，注册汇总节点",
-      );
-    }
+	for (const [taskId, group] of groupByTask(rows)) {
+	  if (this.control.statusOf(taskId) !== "running") continue; // 停止中：图冻结
+	  if (group.some((r) => r.title.startsWith("汇总｜"))) continue; // 已闭合
+	  const nonSummary = group.filter((r) => !r.title.startsWith("汇总｜"));
+	  if (nonSummary.length === 0) continue;
+	  const terminal = nonSummary.every((r) => r.status === "complete" || r.status === "parked");
+	  if (!terminal) continue; // 还有进行中/待派发节点
+	  const completed = nonSummary.filter((r) => r.status === "complete");
+	  if (completed.length === 0) continue; // 全停泊：无可用发现可汇总——诚实不闭合
+	  const rootQuestion =
+		this.taskRootQuestion(taskId) ?? completed[0]!.title.replace(/^(探索｜|verify:\s*)/, "");
+	  this.scheduler.registerStages([
+		{
+		  stage_id: `${taskId}/summary-${Date.now()}`,
+		  title: `汇总｜${rootQuestion.slice(0, 40)}`,
+		  status: "pending",
+		  claim_ids: [],
+		  depends_on: completed.map((r) => r.stage_id),
+		  assigned_worker_class: "retrieval",
+		  retries: 0,
+		  max_retries: 1,
+		  outputs: [],
+		},
+	  ]);
+	  const parked = nonSummary.length - completed.length;
+	  this.deps.broadcast(
+		parked > 0
+		  ? `[worker] 图闭合：${completed.length} 节点完成、${parked} 节点停泊（缺口见各停泊节点）——注册汇总节点`
+		  : "[worker] 图闭合：全部节点完成，注册汇总节点",
+	  );
+	}
   }
 
   async waitForIdle(): Promise<void> {
@@ -668,15 +659,25 @@ export class BackgroundResearchRunner {
             if (typeof parsed.findings === "string" && parsed.findings.trim() !== "") {
               findings = parsed.findings;
             }
-            if (parsed.sufficiency === "sufficient" || parsed.sufficiency === "insufficient" || parsed.sufficiency === "conflicted") {
+            if (
+              parsed.sufficiency === "sufficient" ||
+              parsed.sufficiency === "insufficient" ||
+              parsed.sufficiency === "conflicted"
+            ) {
               modelSufficiency = parsed.sufficiency;
             }
             if (Array.isArray(parsed.sourceVerdicts)) {
-              modelVerdicts = parsed.sourceVerdicts.filter(
-                (v): v is { index: number; verdict: "relevant" | "irrelevant" | "uncertain"; basis: string } =>
-                  typeof v.index === "number" &&
-                  (v.verdict === "relevant" || v.verdict === "irrelevant" || v.verdict === "uncertain"),
-              ).map((v) => ({ index: v.index, verdict: v.verdict, basis: typeof v.basis === "string" ? v.basis : "" }));
+              modelVerdicts = parsed.sourceVerdicts
+                .filter(
+                  (v): v is { index: number; verdict: "relevant" | "irrelevant" | "uncertain"; basis: string } =>
+                    typeof v.index === "number" &&
+                    (v.verdict === "relevant" || v.verdict === "irrelevant" || v.verdict === "uncertain"),
+                )
+                .map((v) => ({
+                  index: v.index,
+                  verdict: v.verdict,
+                  basis: typeof v.basis === "string" ? v.basis : "",
+                }));
             }
             if (Array.isArray(parsed.unresolvedClaims)) {
               modelUnresolved = (parsed.unresolvedClaims as unknown[]).filter(
@@ -693,7 +694,9 @@ export class BackgroundResearchRunner {
             return;
           }
           // 综合失败 ≠ 完成（#744）：检索结果保留为降级底座，充分性门兜底
-          this.deps.broadcast(`[worker] 综合模型不可用，${title} 以原始检索结果进入充分性判定（${String(error instanceof Error ? error.message : error).slice(0, 120)}）`);
+          this.deps.broadcast(
+            `[worker] 综合模型不可用，${title} 以原始检索结果进入充分性判定（${String(error instanceof Error ? error.message : error).slice(0, 120)}）`,
+          );
         }
       }
     }
