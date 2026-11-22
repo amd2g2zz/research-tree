@@ -1,0 +1,41 @@
+{
+  "case": "dogfood-issue-004-irrelevant",
+  "taskQuestion": "小型医院 AI 病历摘要试点：需要风险报告、人类文档、agent 计划和合成数据 demo",
+  "query": "任务背景",
+  "claims": [
+    "小型医院 AI 病历摘要试点需要一份风险报告",
+    "试点的任务背景是小型医院的病历人工摘要负担"
+  ],
+  "sources": [
+    {
+      "title": "《原神》须弥主线剧情全解析：世界树与虚空系统",
+      "url": "https://game.example/genshin-sumeru",
+      "snippet": "须弥篇的世界树设定与虚空终端系统详解，包括剧情关键转折与角色关系梳理。"
+    },
+    {
+      "title": "宇宙探索的下一个十年：深空探测任务规划",
+      "url": "https://space.example/deep-space-decade",
+      "snippet": "回顾近十年深空探测成果，展望火星采样返回与外行星卫星探测路线。"
+    },
+    {
+      "title": "2026 商业航天发射路线图：可回收火箭与新星座",
+      "url": "https://space.example/launch-roadmap",
+      "snippet": "梳理今年各厂商发射计划、低成本入轨方案与卫星互联网星座部署节奏。"
+    },
+    {
+      "title": "播客制作入门：背景音与串场音乐的选择",
+      "url": "https://audio.example/podcast-bed-music",
+      "snippet": "如何为播客挑选不抢人声的背景音，附免版税串场音乐资源清单。"
+    },
+    {
+      "title": "太空望远镜新影像：星云与恒星形成区巡礼",
+      "url": "https://space.example/nebula-tour",
+      "snippet": "最新红外影像呈现恒星育婴室细节，天文学家解读星云结构与演化。"
+    }
+  ],
+  "golden": {
+    "labels": ["irrelevant", "irrelevant", "irrelevant", "irrelevant", "irrelevant"],
+    "sufficiency": "insufficient",
+    "provenance": "dogfood-output/2026-11-16/report.md ISSUE-004：医院任务背景节点收到的真实失真命中（游戏剧情/宇宙探索/航天路线图/背景音/太空探索），文案按报告描述重写为确定性 fixture"
+  }
+}

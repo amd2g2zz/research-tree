@@ -1,0 +1,36 @@
+{
+  "case": "mixed",
+  "taskQuestion": "小型医院 AI 病历摘要试点：需要风险报告、人类文档、agent 计划和合成数据 demo",
+  "query": "任务背景",
+  "claims": [
+    "小型医院 AI 病历摘要试点需要一份风险报告",
+    "试点的任务背景是小型医院的病历人工摘要负担"
+  ],
+  "sources": [
+    {
+      "title": "病历摘要自动化在基层医院的应用与风险控制",
+      "url": "https://med.example/grassroots",
+      "snippet": "基层医院引入自动摘要的工作流改造、风险控制点与人工兜底设计。"
+    },
+    {
+      "title": "合成医疗数据用于模型试点的合规路径",
+      "url": "https://med.example/synthetic-data",
+      "snippet": "用合成病历数据做试点 demo 的合规要点：去标识化、数据来源声明与使用边界。"
+    },
+    {
+      "title": "开放世界 RPG 的任务系统设计拆解",
+      "url": "https://game.example/quest-design",
+      "snippet": "从主线到支线的任务链编排、奖励节奏与玩家引导案例分析。"
+    },
+    {
+      "title": "太空主题纪录片的声音设计幕后",
+      "url": "https://audio.example/space-doc-sound",
+      "snippet": "纪录片如何用音效营造深空氛围，背景音乐与解说的混音平衡。"
+    }
+  ],
+  "golden": {
+    "labels": ["relevant", "relevant", "irrelevant", "irrelevant"],
+    "sufficiency": "sufficient",
+    "provenance": "混合命中：检索噪声下的正例保留——≥1 相关 + 综合可用 ⇒ sufficient"
+  }
+}
