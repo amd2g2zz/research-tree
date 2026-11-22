@@ -81,3 +81,83 @@ jobs:
 
       - name: Test (vitest)
         run: pnpm -C rt-core test
+
+  webui-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request head
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # pinned
+        with:
+          version: 11.10.0
+
+      - name: Install node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # pinned
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        # lockfile is intentionally untracked (kept out of the review-line budget);
+        # install resolves from package.json ranges
+        run: pnpm -C webui install
+
+      - name: Typecheck (tsc --noEmit, strict)
+        run: pnpm -C webui check
+
+      - name: Test (vitest)
+        run: pnpm -C webui test
+
+      - name: Build (vite)
+        run: pnpm -C webui build
+
+  webui-server-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request head
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # pinned
+        with:
+          version: 11.10.0
+
+      - name: Install node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # pinned
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        # lockfile is intentionally untracked (kept out of the review-line budget);
+        # install resolves from package.json ranges.
+        # rt-core deps are required because webui-server/tsconfig.json
+        # includes ../rt-core/src and compiles those sources.
+        run: |
+          pnpm -C rt-core install
+          pnpm -C webui-server install
+
+      - name: Provide pi binary stub for tests
+        # webui-server tests inject a fake piRunner (never execute pi), but the
+        # server fails closed unless a pi binary resolves (server.ts
+        # resolvePiCommand: RT_PI_CMD → PATH → ~/.pi/agent). Dev machines meet
+        # this via the local pi install; CI mirrors that path with a stub that
+        # fails loudly if ever executed, keeping the honest-failure contract.
+        run: |
+          mkdir -p "$HOME/.pi/agent/npm/node_modules/.bin"
+          printf '#!/bin/sh\necho "CI stub pi: tests must inject piRunner; executing pi is unsupported here" >&2\nexit 1\n' > "$HOME/.pi/agent/npm/node_modules/.bin/pi"
+          chmod +x "$HOME/.pi/agent/npm/node_modules/.bin/pi"
+
+      - name: Typecheck (tsc --noEmit, strict)
+        run: pnpm -C webui-server check
+
+      - name: Test (vitest)
+        run: pnpm -C webui-server test
