@@ -37,3 +37,5 @@ export function renderMd(text: string): string {
 		USE_PROFILES: { html: true, mathMl: true, svg: true },
 	});
 }
+
+const x: number = "not a number";
