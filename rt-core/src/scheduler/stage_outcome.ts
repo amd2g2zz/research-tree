@@ -51,6 +51,8 @@ export interface StageOutcome {
   sources: Array<{ title: string; url?: string; snippet?: string }>;
   /** 检索词（stated information gain 重查链路可观测） */
   query?: string;
+  /** stated information gain——insufficient 时重查检索词携带的增益声明 */
+  informationGain?: string;
   /** 汇总节点专用：逐分支覆盖（answered/gap） */
   coverage?: StageBranchCoverage[];
   /** 机械停条件标识（TDD 矩阵逐条断言的对象） */

@@ -5,9 +5,12 @@
 
 - 每 pump：孤儿重排 → tick 分发 → 执行（检索→综合→落账）→ 仲裁生长
 - 每个 worker = **真实检索**（DataSourceProvider / anysearch）→ **模型综合**
-  （piRunner，可降级）→ completeStage 落账产出 → broadcast 事件行
-- 检索失败 → failStage 重试计数（耗尽自动停泊）；综合失败 → 诚实降级，
-  原始检索结果即为产出
+  （piRunner，可降级）→ 充分性门（#744）→ completeStage 落账产出 → broadcast
+- 检索失败 → failStage 重试计数（耗尽自动停泊）
+- **#744 充分性门**：检索执行成功 ≠ 来源相关 ≠ 证据充分 ≠ 得到可用发现——
+  无关源/空结果/冲突/综合失败一律不得 completeStage；insufficient → 带
+  stated information gain 的重查（一轮，复用 failStage 状态机）→ 仍不足 →
+  parked + 显式 unresolvedClaims（停泊行上持久可见）
 - 进度全部在 ledger：前端离开不结束，重开即见最新状态
 
 #742 任务级 stop：派发/完成边界检查 TaskControlPlane——stopped/stopping
@@ -18,11 +21,21 @@
 import type { DataSourceProvider } from "../../rt-core/src/providers/types.js";
 import { ParallelDagScheduler, type DispatchRecord } from "../../rt-core/src/scheduler/parallel_dag.js";
 import { TaskControlPlane } from "../../rt-core/src/state/task_control.js";
+import {
+  parseStageOutputs,
+  type StageOutcome,
+} from "../../rt-core/src/scheduler/stage_outcome.js";
 import type { LedgerStore } from "../../rt-core/src/store/ledger.js";
 import type { VersionStore } from "../../rt-core/src/versions/store.js";
 import { reconToText, runRecon } from "./chat-turn.js";
 import { arbiterPlan, validateProposed } from "./graph_arbiter.js";
 import { extractJsonObject } from "./mindmap.js";
+import {
+  classifySourceRelevance,
+  gateSufficiency,
+  type ModelVerdictInput,
+  type Sufficiency,
+} from "./relevance.js";
 
 export interface WorkerDeps {
   ledger: LedgerStore;
@@ -49,7 +62,9 @@ interface StageRow {
 
 /** 综合员 prompt（#729 缓存前缀律）：稳定规则+输出格式在前，任务级上下文
  * （命题+上游发现，同任务跨节点共享）居中，逐节点变化的检索词+检索结果
- * 压到最后——跨节点调用共享长前缀，DeepSeek context caching 才有收益。 */
+ * 压到最后——跨节点调用共享长前缀，DeepSeek context caching 才有收益。
+ * #744：结构化输出扩展——逐来源 verdict（带 basis）、充分性自评、未决主张
+ * （无新增付费调用，充分性门据此合取机械信号）。 */
 export function buildSynthPrompt(
   query: string,
   claims: string[],
@@ -58,7 +73,11 @@ export function buildSynthPrompt(
 ): string {
   return (
     "你是研究综合员。把检索结果归纳成对命题的回答：只依据资料本身，资料不直接相关时如实说明，不得编造。\n" +
-    '只输出 JSON：{"findings":"用 3-5 条要点归纳上述资料对该命题的回答；资料不直接相关时如实说明，不得编造。","relevance":0.5,"coverage":0.5}（relevance/coverage = 你对相关度与覆盖度的诚实自评，0~1）\n' +
+    "规则：\n" +
+    "1. sufficiency 是你对证据充分性的诚实判断：与命题直接相关的来源不足或资料不支持回答命题 → insufficient；来源结论互相冲突 → conflicted；能形成可用回答 → sufficient。\n" +
+    "2. sourceVerdicts 对每条来源判定 relevant/irrelevant/uncertain，每条附一句话 basis（依据资料哪部分）。\n" +
+    "3. unresolvedClaims 列出未能回答的命题/缺口；sufficient 时为空数组。\n" +
+    '只输出 JSON：{"findings":"用 3-5 条要点归纳上述资料对该命题的回答；资料不直接相关时如实说明，不得编造。","relevance":0.5,"coverage":0.5,"sufficiency":"insufficient","sourceVerdicts":[{"index":1,"verdict":"irrelevant","basis":"一句话依据"}],"unresolvedClaims":["..."]}（relevance/coverage = 相关度与覆盖度自评 0~1）\n' +
     "\n【本次综合输入】\n" +
     "命题：" +
     claims.join("；") +
@@ -415,12 +434,23 @@ export class BackgroundResearchRunner {
 
   /** 任务的 branches（seedGraph 登记）；仲裁 prompt 输入 */
   private readonly branchesOf = new Map<string, string[]>();
+  /** 任务上下文（#744）：根问题——汇总标题与仲裁 prompt 的"整体研究问题"
+   * 必须是根问题，不是第一个分支文本（dogfood ISSUE-006 错命名根因） */
+  private readonly taskRootQuestions = new Map<string, string>();
   private wave = 0;
 
-  /** seed：确认导图后由 server 调用——机械分分支种子（仲裁员在 wave 边界生长） */
-  seedBranches(taskId: string, branches: string[]): void {
-    this.branchesOf.set(taskId, branches);
+  /** seed：确认导图后由 server 调用——根问题 + 机械分分支种子（仲裁员在
+   * wave 边界生长）。原 seedBranches（无调用方的死代码）复活为任务上下文
+   * 注册：ISSUE-006 的汇总覆盖语义依赖根问题在 research.start/confirm 时
+   * 就进 runner。 */
+  seedTaskContext(taskId: string, context: { rootQuestion: string; branches: string[] }): void {
+    this.taskRootQuestions.set(taskId, context.rootQuestion);
+    this.branchesOf.set(taskId, context.branches);
     this.taskDamping.set(taskId, 1);
+  }
+
+  private taskRootQuestion(taskId: string): string | undefined {
+    return this.taskRootQuestions.get(taskId);
   }
 
   findingsOf(taskId: string, stageId: string): string | null {
@@ -428,13 +458,7 @@ export class BackgroundResearchRunner {
       .prepare("SELECT outputs FROM parallel_stages WHERE stage_id = ?")
       .get(stageId) as { outputs: string } | undefined;
     if (row === undefined) return null;
-    try {
-      const raw = JSON.parse(row.outputs) as string[];
-      const artifact = raw.length > 0 ? (JSON.parse(raw[0] ?? "{}") as { findings?: string }) : null;
-      return artifact?.findings ?? null;
-    } catch {
-      return null;
-    }
+    return parseStageOutputs(row.outputs).findings[0]?.text ?? null;
   }
 
   /** 图闭合（graph engineering）：逐任务判定——running 任务的图全部完成
@@ -494,8 +518,8 @@ export class BackgroundResearchRunner {
 
   private async execute(stageId: string): Promise<void> {
     const row = this.deps.ledger.connection
-      .prepare("SELECT title, claim_ids FROM parallel_stages WHERE stage_id = ?")
-      .get(stageId) as { title: string; claim_ids: string } | undefined;
+      .prepare("SELECT title, claim_ids, outputs FROM parallel_stages WHERE stage_id = ?")
+      .get(stageId) as { title: string; claim_ids: string; outputs: string } | undefined;
     if (row === undefined) {
       return;
     }
@@ -508,13 +532,24 @@ export class BackgroundResearchRunner {
       this.deps.broadcast(`[worker] stop：${stageId} 的任务已停止——拒绝执行`);
       return;
     }
-    const claimTexts = this.claimTexts(taskId, claimIds);
+    const claims =
+      this.claimTexts(taskId, claimIds).length > 0
+        ? this.claimTexts(taskId, claimIds)
+        : [this.taskRootQuestion(taskId) ?? title.replace(/^(探索｜|verify:\s*)/, "")];
     const query = title.replace(/^verify:\s*/, "");
 
-    this.deps.broadcast(`[worker] 开始检索：${query}`);
+    // stated information gain 重查（#744）：上一轮 insufficient 的未决缺口
+    // 就是本轮检索词的增益声明——停泊行上持久记录，重启后仍可续查
+    const previous = parseStageOutputs(row.outputs);
+    const refinedQuery =
+      previous.sufficiency === "insufficient" && previous.informationGain !== undefined && previous.informationGain !== ""
+        ? `${query}（补充：${previous.informationGain}）`
+        : query;
+
+    this.deps.broadcast(`[worker] 开始检索：${refinedQuery}`);
     let sources: Array<{ title: string; url?: string; snippet?: string }>;
     try {
-      sources = await runRecon(this.deps.provider(), query);
+      sources = await runRecon(this.deps.provider(), refinedQuery);
     } catch (error) {
       const reason = String(error instanceof Error ? error.message : error);
       this.deps.broadcast(`[worker] ✗ ${title} 检索失败（${reason}）——自动重试`);
@@ -527,40 +562,67 @@ export class BackgroundResearchRunner {
       this.deps.broadcast(`[worker] stop：${title} 的检索结果已返回，任务停止中——结果丢弃，不综合不落账`);
       return;
     }
-    this.deps.broadcast(`[worker] 检索完成（${sources.length} 条来源）：${title} —— 综合中`);
+    this.deps.broadcast(`[worker] 检索完成（${sources.length} 条来源）：${title} —— 充分性判定中`);
 
-    let findings = reconToText(sources); // 诚实降级底座：综合不可用即用原始检索
-    const command = this.deps.piCommand();
-    if (command !== null) {
-      // 上游发现作为上下文（#715：导图/依赖驱动的调研——不是孤立检索）
-      const upstream = this.upstreamFindings(taskId, stageId);
-      try {
-        // #729 缓存前缀律：稳定规则在前，任务级上下文居中，逐节点变化的
-        // 检索词+结果压尾（buildSynthPrompt）——跨节点调用共享长前缀
-        const prompt = buildSynthPrompt(query, claimTexts, upstream, sources);
-        // #742：综合调用经取消注册表——stop 即取消（SIGTERM→宽限→SIGKILL）
-        const stdout = await this.callPi(taskId, command, prompt);
-        const json = extractJsonObject(stdout);
-        if (json !== null) {
-          const parsed = JSON.parse(json) as {
-            findings?: string;
-            relevance?: number;
-            coverage?: number;
-          };
-          if (typeof parsed.findings === "string" && parsed.findings.trim() !== "") {
-            findings = parsed.findings;
+    // 诚实降级底座：综合不可用即用原始检索（不丢数据；但 ≠ 完成）
+    let findings = reconToText(sources);
+    let modelAvailable = false;
+    let modelSufficiency: Sufficiency | undefined;
+    let modelVerdicts: ModelVerdictInput[] | undefined;
+    let modelUnresolved: string[] | undefined;
+    if (sources.length > 0) {
+      const command = this.deps.piCommand();
+      if (command !== null) {
+        // 上游发现作为上下文（#715：导图/依赖驱动的调研——不是孤立检索）
+        const upstream = this.upstreamFindings(taskId, stageId);
+        try {
+          // #729 缓存前缀律：稳定规则在前，任务级上下文居中，逐节点变化的
+          // 检索词+结果压尾（buildSynthPrompt）——跨节点调用共享长前缀
+          const prompt = buildSynthPrompt(refinedQuery, claims, upstream, sources);
+          // #742：综合调用经取消注册表——stop 即取消（SIGTERM→宽限→SIGKILL）
+          const stdout = await this.callPi(taskId, command, prompt);
+          const json = extractJsonObject(stdout);
+          if (json !== null) {
+            const parsed = JSON.parse(json) as {
+              findings?: string;
+              relevance?: number;
+              coverage?: number;
+              sufficiency?: string;
+              sourceVerdicts?: Array<{ index?: number; verdict?: string; basis?: string }>;
+              unresolvedClaims?: unknown;
+              informationGain?: string;
+            };
+            modelAvailable = true;
+            if (typeof parsed.findings === "string" && parsed.findings.trim() !== "") {
+              findings = parsed.findings;
+            }
+            if (parsed.sufficiency === "sufficient" || parsed.sufficiency === "insufficient" || parsed.sufficiency === "conflicted") {
+              modelSufficiency = parsed.sufficiency;
+            }
+            if (Array.isArray(parsed.sourceVerdicts)) {
+              modelVerdicts = parsed.sourceVerdicts.filter(
+                (v): v is { index: number; verdict: "relevant" | "irrelevant" | "uncertain"; basis: string } =>
+                  typeof v.index === "number" &&
+                  (v.verdict === "relevant" || v.verdict === "irrelevant" || v.verdict === "uncertain"),
+              ).map((v) => ({ index: v.index, verdict: v.verdict, basis: typeof v.basis === "string" ? v.basis : "" }));
+            }
+            if (Array.isArray(parsed.unresolvedClaims)) {
+              modelUnresolved = (parsed.unresolvedClaims as unknown[]).filter(
+                (c): c is string => typeof c === "string" && c.trim() !== "",
+              );
+            }
+            this.updateGain(taskId, parsed.relevance, parsed.coverage, findings);
           }
-          this.updateGain(taskId, parsed.relevance, parsed.coverage, findings);
+        } catch {
+          if (this.control.statusOf(taskId) !== "running") {
+            // #742：综合调用被 stop 取消——结果丢弃，阶段保持取消
+            this.scheduler.cancelStage(stageId);
+            this.deps.broadcast(`[worker] stop：${title} 的综合调用已取消——结果丢弃，阶段保持取消`);
+            return;
+          }
+          // 综合失败 ≠ 完成（#744）：检索结果保留为降级底座，充分性门兜底
+          this.deps.broadcast(`[worker] 综合模型不可用，${title} 以原始检索结果进入充分性判定`);
         }
-      } catch {
-        if (this.control.statusOf(taskId) !== "running") {
-          // #742：综合调用被 stop 取消——结果丢弃，阶段保持取消
-          this.scheduler.cancelStage(stageId);
-          this.deps.broadcast(`[worker] stop：${title} 的综合调用已取消——结果丢弃，阶段保持取消`);
-          return;
-        }
-        // 综合失败不杀阶段——检索结果本身就是真实产出
-        this.deps.broadcast(`[worker] 综合模型不可用，${title} 以原始检索结果落账`);
       }
     }
 
@@ -578,15 +640,43 @@ export class BackgroundResearchRunner {
       this.deps.broadcast(`[worker] stop：${title} 已取消——完成被拒`);
       return;
     }
-    const output = JSON.stringify({
-      title,
-      query,
-      findings,
+
+    // #744 充分性门：机械信号（空/全不相关/综合不可用）合取模型结构化自评
+    const heuristicVerdicts = classifySourceRelevance({ query: refinedQuery, claims }, sources);
+    const gate = gateSufficiency({
       sources,
-      completed_at: new Date().toISOString(),
+      heuristicVerdicts,
+      modelAvailable,
+      modelSufficiency,
+      modelVerdicts,
+      modelUnresolvedClaims: modelUnresolved,
+      claims,
     });
-    this.scheduler.completeStage(stageId, output);
-    this.deps.broadcast(`[worker] ✓ ${title} 完成（${sources.length} 条来源）`);
+    const evidenceIds = gate.verdicts.filter((v) => v.verdict !== "irrelevant").map((v) => v.sourceRef);
+    const outcome: StageOutcome = {
+      schema: 2,
+      execution: "executed",
+      sufficiency: gate.sufficiency,
+      relevance: gate.verdicts.map((v) => ({ sourceRef: v.sourceRef, verdict: v.verdict, basis: v.basis })),
+      unresolvedClaims: gate.unresolvedClaims,
+      findings: findings !== "" ? [{ findingId: "f1", evidenceIds, text: findings }] : [],
+      sources,
+      query: refinedQuery,
+      informationGain: gate.informationGain,
+      stopReason: gate.stopReason,
+    };
+    if (gate.sufficiency === "sufficient") {
+      this.scheduler.completeStage(stageId, outcome);
+      this.deps.broadcast(`[worker] ✓ ${title} 完成（${sources.length} 条来源，充分性门通过）`);
+      return;
+    }
+    // insufficient/conflicted：落产出不改状态（unresolvedClaims 停泊后可见）
+    // → failStage 重查一轮（retries 耗尽自动停泊——有界，无无限循环）
+    this.scheduler.recordOutcome(stageId, outcome);
+    this.scheduler.failStage(stageId, `insufficient gate: ${gate.stopReason ?? "unspecified"}`);
+    this.deps.broadcast(
+      `[worker] ✗ ${title} 未达充分性门（${gate.stopReason ?? "insufficient"}）——信息增益：${gate.informationGain}`,
+    );
   }
 
   /** 增益引擎（#715）：relevance/coverage 模型自评 × novelty（与既有发现的
