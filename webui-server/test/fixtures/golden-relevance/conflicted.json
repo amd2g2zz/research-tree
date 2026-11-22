@@ -1,0 +1,25 @@
+{
+  "case": "conflicted",
+  "taskQuestion": "小型医院 AI 病历摘要试点：需要风险报告、人类文档、agent 计划和合成数据 demo",
+  "query": "任务背景",
+  "claims": [
+    "小型医院 AI 病历摘要试点需要一份风险报告"
+  ],
+  "sources": [
+    {
+      "title": "医院病历摘要系统试点：六个月零不良事件报告",
+      "url": "https://med.example/safe-report",
+      "snippet": "某院试点期间未发生摘要错误导致的不良事件，结论认为自动摘要可安全替代人工初稿。"
+    },
+    {
+      "title": "警惕病历摘要幻觉：两起漏报药物过敏记录的分析",
+      "url": "https://med.example/hallucination",
+      "snippet": "另两家医院的试点审计发现摘要遗漏关键过敏信息，作者认为未加人工复核不应上线。"
+    }
+  ],
+  "golden": {
+    "labels": ["relevant", "relevant"],
+    "sufficiency": "conflicted",
+    "provenance": "来源均相关但结论冲突 ⇒ conflicted（安全关键命题不允许静默判 sufficient）"
+  }
+}

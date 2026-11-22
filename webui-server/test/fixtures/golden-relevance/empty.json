@@ -1,0 +1,14 @@
+{
+  "case": "empty-results",
+  "taskQuestion": "小型医院 AI 病历摘要试点：需要风险报告、人类文档、agent 计划和合成数据 demo",
+  "query": "任务背景",
+  "claims": [
+    "小型医院 AI 病历摘要试点需要一份风险报告"
+  ],
+  "sources": [],
+  "golden": {
+    "labels": [],
+    "sufficiency": "insufficient",
+    "provenance": "空结果：无来源 ⇒ 无证据 ⇒ insufficient（机械判定，不依赖模型）"
+  }
+}

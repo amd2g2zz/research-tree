@@ -1,0 +1,31 @@
+{
+  "case": "relevant-hospital",
+  "taskQuestion": "小型医院 AI 病历摘要试点：需要风险报告、人类文档、agent 计划和合成数据 demo",
+  "query": "任务背景",
+  "claims": [
+    "小型医院 AI 病历摘要试点需要一份风险报告",
+    "试点的任务背景是小型医院的病历人工摘要负担"
+  ],
+  "sources": [
+    {
+      "title": "小型医院 AI 病历摘要试点实施方案与风险评估",
+      "url": "https://med.example/pilot-plan",
+      "snippet": "面向床位规模 200 张以下医院的病历自动摘要试点方案，含风险清单、人工复核流程与验收标准。"
+    },
+    {
+      "title": "医院部署病历摘要大模型的落地案例研究",
+      "url": "https://med.example/case-study",
+      "snippet": "三家二级医院上线病历摘要系统的部署记录：准确率、医生修改率与合规要求。"
+    },
+    {
+      "title": "医疗文本摘要质量评测基准与人工文档要求",
+      "url": "https://med.example/eval-benchmark",
+      "snippet": "病历摘要质量的评测维度（事实一致性、遗漏率、幻觉率）与人类可读文档的编写规范。"
+    }
+  ],
+  "golden": {
+    "labels": ["relevant", "relevant", "relevant"],
+    "sufficiency": "sufficient",
+    "provenance": "医院任务的正例对照——试点命题的直接相关来源"
+  }
+}

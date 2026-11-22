@@ -51,9 +51,18 @@ function makeDeps(overrides: Partial<WorkerDeps> = {}): WorkerDeps {
     piRunner: (command, prompt) => {
       piCalls.push(prompt);
       if (piShouldFail) return Promise.reject(new Error("pi down"));
+      // #744 结构化输出：充分性自评 + 逐来源 verdict（旧形态会被充分性门判 insufficient）
       return Promise.resolve(
         JSON.stringify({
           findings: `综合发现（基于检索结果，命题：${queryOf(prompt)}）`,
+          relevance: 0.9,
+          coverage: 0.8,
+          sufficiency: "sufficient",
+          sourceVerdicts: [
+            { index: 1, verdict: "relevant", basis: "直接回答命题" },
+            { index: 2, verdict: "relevant", basis: "补充来源" },
+          ],
+          unresolvedClaims: [],
         }),
       );
     },
@@ -143,13 +152,16 @@ describe("BackgroundResearchRunner (#709 多任务后台调研执行)", () => {
     await runner.pumpOnce(); // s1 dispatch + execute
     await runner.waitForIdle();
     expect(stageStatus("tA/s1")).toBe("complete");
-    const raw = JSON.parse(stageOutputs("tA/s1")) as string[];
-    const artifact = JSON.parse(raw[0] ?? "{}") as {
-      findings: string;
+    const outcome = JSON.parse(stageOutputs("tA/s1")) as {
+      schema: number;
+      findings: Array<{ text: string }>;
       sources: Array<{ title: string }>;
+      sufficiency: string;
     };
-    expect(artifact.findings).toContain("综合发现");
-    expect(artifact.sources).toHaveLength(2);
+    expect(outcome.schema).toBe(2); // StageOutcome 结构化（#744）
+    expect(outcome.sufficiency).toBe("sufficient");
+    expect(outcome.findings[0]?.text).toContain("综合发现");
+    expect(outcome.sources).toHaveLength(2);
     expect(lines.some((l) => l.includes("[worker]") && l.includes("完成"))).toBe(true);
   });
 
@@ -189,14 +201,16 @@ describe("BackgroundResearchRunner (#709 多任务后台调研执行)", () => {
     expect(stageStatus("tC/s1")).toBe("complete");
   });
 
-  it("综合调用失败 → 诚实降级：检索结果作为产出，阶段仍完成", async () => {
+  it("综合调用失败 ≠ 完成（#744）：重查仍失败后停泊，检索结果保留为降级底座", async () => {
     registerTaskStages("tD");
     piShouldFail = true;
     const runner = new BackgroundResearchRunner(makeDeps());
     await runner.pumpOnce();
     await runner.waitForIdle();
-    expect(stageStatus("tD/s1")).toBe("complete");
-    expect(stageOutputs("tD/s1")).toContain("来源A");
+    expect(stageStatus("tD/s1")).toBe("parked");
+    const outcome = JSON.parse(stageOutputs("tD/s1")) as { sources?: unknown[]; sufficiency?: string };
+    expect(outcome.sufficiency).toBe("insufficient");
+    expect(outcome.sources).toHaveLength(2); // 检索结果保留（不丢数据）
   });
 
   it("多任务并发：两个任务在同一 pump 各自推进", async () => {

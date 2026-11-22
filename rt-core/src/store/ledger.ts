@@ -15,6 +15,7 @@ import Database from "better-sqlite3";
 import { canonicalJsonBytes } from "../events/canonical.js";
 import { GENESIS_HASH, validateGraphEvent } from "../events/schema.js";
 import { SURFACE_SPECS, validateSurfacePayload } from "../ledger/schema.js";
+import { migrateLegacyStageOutputs } from "../scheduler/stage_outcome.js";
 import { LedgerIntegrityError } from "./integrity.js";
 import type { EventLog, EventPayload } from "./ports.js";
 
@@ -34,10 +35,13 @@ export { LedgerStore as LedgerStoreClass };
 
 interface Migration {
 	readonly version: number;
-	readonly statements: string;
+	readonly statements?: string;
+	/** 数据迁移钩子（SQL 无法表达的 JSON 重写等）——与 statements 同事务执行。 */
+	readonly run?: (db: Database.Database) => void;
 }
 
-const MIGRATIONS: readonly Migration[] = [
+/** 迁移注册表导出（#744）：迁移测试直读 registry 复现历史库状态。 */
+export const MIGRATIONS: readonly Migration[] = [
 	{
 		version: 1,
 		statements: `
@@ -272,6 +276,16 @@ const MIGRATIONS: readonly Migration[] = [
       );
     `,
 	},
+	{
+		// issue #744 StageOutcome 四态结构化：#744 之前的 outputs 是裸 artifact
+		// JSON（双重编码数组）——重写为 StageOutcome（execution=executed /
+		// sufficiency=unknown 显式标注），原 artifact 整体保留在 legacy 字段
+		// （不丢数据）。幂等：只改写 legacy 数组形态的行。
+		version: 12,
+		run: (db) => {
+			migrateLegacyStageOutputs(db);
+		},
+	},
 ];
 
 function chainHash(record: Record<string, unknown>): string {
@@ -303,7 +317,10 @@ export class LedgerStore implements EventLog {
 				continue;
 			}
 			db.transaction(() => {
-				db.exec(migration.statements);
+				if (migration.statements !== undefined) {
+					db.exec(migration.statements);
+				}
+				migration.run?.(db);
 				db.prepare(
 					"INSERT INTO schema_migrations(version, applied_at) VALUES(?, datetime('now'))",
 				).run(migration.version);

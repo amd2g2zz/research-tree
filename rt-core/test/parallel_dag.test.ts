@@ -9,6 +9,7 @@ import {
 	type ParallelStage,
 } from "../src/scheduler/parallel_dag.js";
 import { LedgerIntegrityError } from "../src/store/integrity.js";
+import type { StageOutcome } from "../src/scheduler/stage_outcome.js";
 import { LedgerStore } from "../src/store/ledger.js";
 
 let ledger: LedgerStore;
@@ -36,6 +37,18 @@ function stage(
 	};
 }
 
+function sufficientOutcome(): StageOutcome {
+	return {
+		schema: 2,
+		execution: "executed",
+		sufficiency: "sufficient",
+		relevance: [],
+		unresolvedClaims: [],
+		findings: [],
+		sources: [],
+	};
+}
+
 describe("heterogeneous parallel DAG (issue #565)", () => {
 	it("never dispatches a stage with an open dependency (the #531 inversion, pinned)", () => {
 		const scheduler = new ParallelDagScheduler(ledger, { maxConcurrency: 4 });
@@ -54,7 +67,7 @@ describe("heterogeneous parallel DAG (issue #565)", () => {
 			stage("downstream", { depends_on: ["upstream"] }),
 		]);
 		scheduler.tick();
-		scheduler.completeStage("upstream", "done");
+		scheduler.completeStage("upstream", sufficientOutcome());
 		const dispatched = scheduler.tick();
 		expect(dispatched.map((d) => d.stage_id)).toEqual(["downstream"]);
 	});

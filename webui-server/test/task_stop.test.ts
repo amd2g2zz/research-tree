@@ -67,7 +67,14 @@ function makeHarness(piScript?: Parameters<typeof createFakePiRunner>[0]): StopH
       return instant.search(args);
     },
   } as unknown as DataSourceProvider;
-  const fake = createFakePiRunner(piScript ?? []);
+  // 默认响应带 sufficiency 自评——代表一次健康的综合（门 fail-closed：模型
+  // 沉默即 insufficient，那是产品语义；fixture 不该触发它，除脚本显式构造）
+  const fake = createFakePiRunner(piScript ?? [], {
+    findings: "兜底综合发现（fixture 默认）",
+    relevance: 0.7,
+    coverage: 0.7,
+    sufficiency: "sufficient",
+  });
   const control = new TaskControlPlane(ledger);
   const runner = new BackgroundResearchRunner({
     ledger,
