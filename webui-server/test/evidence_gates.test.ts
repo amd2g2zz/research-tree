@@ -204,3 +204,137 @@ describe("充分性门（issue #744：无关/空/冲突/综合失败 ≠ 完成�
     expect(outcome.sources.length).toBe(3);
   });
 });
+
+describe("无进展停（issue #744：机械停条件）", () => {
+  function registerDupQueryTask(taskId: string): void {
+    const sched = new ParallelDagScheduler(ledger);
+    const title = "verify: 竞品价格监控工具的付费意愿";
+    sched.registerStages([
+      {
+        stage_id: `${taskId}/s1`,
+        title,
+        status: "pending",
+        claim_ids: ["c1"],
+        depends_on: [],
+        assigned_worker_class: "retrieval",
+        retries: 0,
+        max_retries: 2,
+        outputs: [],
+      },
+      {
+        stage_id: `${taskId}/s2`,
+        title, // 与 s1 同检索词——仲裁产物重复查询的机械形态
+        status: "pending",
+        claim_ids: ["c2"],
+        depends_on: [`${taskId}/s1`],
+        assigned_worker_class: "retrieval",
+        retries: 0,
+        max_retries: 2,
+        outputs: [],
+      },
+    ]);
+    versions.openDraft(taskId, {
+      snapshot: {
+        elements: {},
+        claims: [
+          { id: "c1", text: "竞品价格监控工具的付费意愿", posterior: 0.5 },
+          { id: "c2", text: "每周自动汇总三个竞品价格变化", posterior: 0.5 },
+        ],
+        evidence_refs: [],
+        report: {},
+        deleted_nodes: [],
+      },
+      baseV: null,
+    });
+  }
+
+  it("同任务重复查询：不再付费检索，直接停泊（stopReason=no-progress-duplicate-query）", async () => {
+    registerDupQueryTask("tN1");
+    const runner = new BackgroundResearchRunner(makeDeps());
+    await runner.pumpOnce();
+    await runner.waitForIdle();
+    expect(stageStatus("tN1/s1")).toBe("complete");
+    expect(stageStatus("tN1/s2")).toBe("parked");
+    // 机械性：整个任务对同一查询只付费检索一次
+    expect(searchedQueries).toHaveLength(1);
+    const outcome = outcomeOf("tN1/s2");
+    expect(outcome.stopReason).toBe("no-progress-duplicate-query");
+    expect(outcome.sufficiency).toBe("insufficient");
+    expect(lines.some((l) => l.includes("重复检索"))).toBe(true);
+  });
+
+  it("连续近重复发现：任务级无进展旗标 → 仲裁员停止生长、图诚实闭合", async () => {
+    // s1 重查一轮后停泊（两次相同发现），s2 独立完成（第三次相同发现）
+    // → 低新颖度连续 2 次 → 旗标 → arbiterWave 拒绝生长
+    const same = JSON.stringify({
+      findings: "完全相同的发现文本：来源都在重复同一段内容",
+      relevance: 0.9,
+      coverage: 0.9,
+      sufficiency: "sufficient",
+      sourceVerdicts: [{ index: 1, verdict: "relevant", basis: "相关" }],
+      unresolvedClaims: [],
+    });
+    const sched = new ParallelDagScheduler(ledger);
+    sched.registerStages([
+      {
+        stage_id: "tN2/s1",
+        title: "verify: 命题甲的独立证据",
+        status: "pending",
+        claim_ids: [],
+        depends_on: [],
+        assigned_worker_class: "retrieval",
+        retries: 0,
+        max_retries: 2,
+        outputs: [],
+      },
+      {
+        stage_id: "tN2/s2",
+        title: "verify: 命题乙的独立证据",
+        status: "pending",
+        claim_ids: [],
+        depends_on: [],
+        assigned_worker_class: "retrieval",
+        retries: 0,
+        max_retries: 2,
+        outputs: [],
+      },
+    ]);
+    versions.openDraft("tN2", {
+      snapshot: { elements: {}, claims: [], evidence_refs: [], report: {}, deleted_nodes: [] },
+      baseV: null,
+    });
+    const runner = new BackgroundResearchRunner(
+      makeDeps({
+        maxConcurrent: 1, // 串行：s1 两轮 → s2 一轮，fake 序列确定
+        piRunner: (_c, _p) => {
+          piCalls.push(_p);
+          // s1 两轮均 insufficient（重查后仍不足 → 停泊），s2 sufficient——
+          // 三次调用发现完全相同：低新颖度连续 2 次 → 无进展旗标
+          const calls = piCalls.length;
+          if (calls <= 2) {
+            return Promise.resolve(
+              JSON.stringify({
+                findings: "完全相同的发现文本：来源都在重复同一段内容",
+                sufficiency: "insufficient",
+                unresolvedClaims: ["需要独立来源"],
+              }),
+            );
+          }
+          return Promise.resolve(same);
+        },
+      }),
+    );
+    await runner.pumpOnce();
+    await runner.waitForIdle();
+    expect(stageStatus("tN2/s1")).toBe("parked"); // 重查后仍 insufficient
+    await runner.pumpOnce(); // 第二泵：s2 派发执行 → 无进展旗标 → 仲裁拒绝生长
+    await runner.waitForIdle();
+    expect(stageStatus("tN2/s2")).toBe("complete");
+    // 图未完成且无可派发 → 仲裁 wave——无进展旗标拒绝生长
+    const grown = ledger.connection
+      .prepare("SELECT COUNT(*) AS n FROM parallel_stages WHERE title LIKE '深挖｜%' OR title LIKE '分析｜%' OR title LIKE '验证｜%'")
+      .get() as { n: number };
+    expect(grown.n).toBe(0);
+    expect(lines.some((l) => l.includes("无进展"))).toBe(true);
+  });
+});

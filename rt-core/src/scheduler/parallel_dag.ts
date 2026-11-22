@@ -171,6 +171,24 @@ export class ParallelDagScheduler {
 			.run(JSON.stringify(outcome), stageId);
 	}
 
+	/** 直接停泊（issue #744 无进展停）：机械停条件不走重试——重复查询
+	 * 再试一次还是重复，停泊即终态（与 failStage 的重试耗尽停泊相区分）。 */
+	parkStage(stageId: string, reason: string): void {
+		const row = this.getRow(stageId);
+		if (row === undefined) {
+			throw new LedgerIntegrityError(`unknown stage: ${stageId}`);
+		}
+		this.setStatus(stageId, "parked");
+		this.ledger.appendGraphEvent("provider.action", {
+			id: `dag-park-${stageId}-${Date.now()}`,
+			provider: "parallel-dag",
+			action: "search",
+			target: stageId,
+			outcome: "error",
+		});
+		void reason;
+	}
+
 	failStage(stageId: string, reason: string): void {
 		const row = this.getRow(stageId);
 		if (row === undefined) {
