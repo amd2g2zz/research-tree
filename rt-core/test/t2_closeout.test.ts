@@ -40,6 +40,7 @@ import {
 	ParallelDagScheduler,
 	type ParallelStage,
 } from "../src/scheduler/parallel_dag.js";
+import type { StageOutcome } from "../src/scheduler/stage_outcome.js";
 import { ProductStateMachine } from "../src/state/machine.js";
 import { EngineCore } from "../src/store/engine.js";
 import { LedgerStore } from "../src/store/ledger.js";
@@ -77,6 +78,19 @@ function stage(
 		max_retries: 2,
 		outputs: [],
 		...overrides,
+	};
+}
+
+
+function sufficientOutcome(): StageOutcome {
+	return {
+		schema: 2,
+		execution: "executed",
+		sufficiency: "sufficient",
+		relevance: [],
+		unresolvedClaims: [],
+		findings: [],
+		sources: [],
 	};
 }
 
@@ -170,9 +184,9 @@ describe("T2 closeout — five-idea exit walk (issue #570)", () => {
 		const first = scheduler.tick();
 		expect(first).toHaveLength(2); // concurrency cap, and verify never mixes in
 		expect(first.map((d) => d.stage_id)).toEqual(["recon-a", "recon-b"]);
-		scheduler.completeStage("recon-a", "ok");
-		scheduler.completeStage("recon-b", "ok");
-		scheduler.completeStage("recon-c", "ok");
+		scheduler.completeStage("recon-a", sufficientOutcome());
+		scheduler.completeStage("recon-b", sufficientOutcome());
+		scheduler.completeStage("recon-c", sufficientOutcome());
 		const second = scheduler.tick();
 		expect(second.map((d) => d.stage_id)).toEqual(["verify"]);
 	});
