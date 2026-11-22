@@ -50,11 +50,21 @@ export interface ClaimView {
 	verify_tier?: string;
 }
 
+/** 任务级 stop 控制状态（#742）——null/缺省 = running（存量任务兼容） */
+export interface TaskControlInfo {
+	status: "running" | "stopping" | "stopped";
+	stop_reason: string | null;
+	stop_requested_at: string | null;
+	updated_at: string;
+}
+
 /** GET /api/research/:taskId — three-layer canvas projection + stage table. */
 export interface ResearchView {
 	question: unknown;
 	claims: Record<string, ClaimView>;
 	stages: StageInfo[];
+	/** #742：任务级 stop 控制状态（running = null） */
+	control?: TaskControlInfo | null;
 }
 
 /** GET /api/config/pi — pi config readiness (no key material). */
