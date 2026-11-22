@@ -429,6 +429,18 @@
    "update_trigger": "extension contract change",
    "superseded_by": null,
    "validation_rule": "none"
+  },
+  {
+   "path": "dogfood-output/",
+   "class": "evaluation",
+   "authority": "evaluation-evidence",
+   "audience": "evaluators-and-reviewers",
+   "owner": "evaluation",
+   "lifecycle": "active",
+   "canonical_edit": "dogfood-output/",
+   "update_trigger": "dogfood 复查运行产生新证据批次（报告+截图）",
+   "superseded_by": null,
+   "validation_rule": "governed"
   }
  ]
 }
